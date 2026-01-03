@@ -1,0 +1,204 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 216 50% 10%;
+    --foreground: 210 40% 98%;
+    --card: 216 45% 15%;
+    --card-foreground: 210 40% 98%;
+    --popover: 216 45% 15%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 80% 50%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 216 40% 20%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 216 35% 25%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 210 75% 45%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 216 30% 25%;
+    --input: 216 30% 20%;
+    --ring: 210 80% 50%;
+    --radius: 0.75rem;
+    --open-navy: 216 50% 8%;
+    --open-navy-light: 216 45% 12%;
+    --open-blue: 210 80% 50%;
+    --open-blue-light: 210 70% 60%;
+    --open-blue-glow: 210 100% 50%;
+    --open-gray: 215 20% 65%;
+    --open-card-bg: 216 45% 15%;
+    --open-card-border: 210 50% 30%;
+    --sidebar-background: 216 50% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 210 80% 50%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 216 40% 20%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 216 30% 25%;
+    --sidebar-ring: 210 80% 50%;
+    --server-badge: 152 70% 45%;
+    --server-badge-foreground: 0 0% 100%;
+    --success: 152 70% 40%;
+    --success-foreground: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-outfit antialiased;
+  }
+}
+
+@layer components {
+  .open-card {
+    @apply bg-card border border-open-card-border rounded-xl p-6;
+    background: linear-gradient(135deg, hsl(216 45% 18%) 0%, hsl(216 50% 12%) 100%);
+    box-shadow: 0 8px 32px -8px hsla(210, 100%, 50%, 0.15);
+  }
+
+  /* ========================================
+     PROPOSAL PAGE - Enterprise Document Style
+     Legibility-first color scheme
+     ======================================== */
+  
+  /* Page background */
+  .proposal-page-wrapper {
+    background-color: #F1F5F9;
+  }
+
+  /* Main document container */
+  .proposal-page {
+    background-color: #FFFFFF;
+    color: #0F172A;
+  }
+
+  /* Section titles */
+  .proposal-section-title {
+    color: #1E293B;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+
+  /* Client data labels */
+  .proposal-label {
+    color: #475569;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Client data values */
+  .proposal-value {
+    color: #0F172A;
+    font-weight: 500;
+  }
+
+  /* Table header */
+  .proposal-table-header {
+    background-color: #1E293B;
+    color: #FFFFFF;
+  }
+  
+  .proposal-table-header th {
+    color: #FFFFFF;
+    font-weight: 600;
+    padding: 0.75rem;
+  }
+
+  /* Table rows */
+  .proposal-table-row {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #E2E8F0;
+  }
+  
+  .proposal-table-row:nth-child(even) {
+    background-color: #F8FAFC;
+  }
+  
+  .proposal-table-row:hover {
+    background-color: #F1F5F9;
+  }
+  
+  .proposal-table-row td {
+    color: #0F172A;
+    padding: 0.75rem;
+  }
+
+  /* Table footer rows */
+  .proposal-table-footer-row {
+    background-color: #FFFFFF;
+  }
+  
+  .proposal-table-footer-row td {
+    color: #1E293B;
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* Discount value (negative) */
+  .proposal-discount {
+    color: #DC2626;
+    font-weight: 500;
+  }
+
+  /* Total row */
+  .proposal-total-row {
+    background-color: #1E40AF;
+    border-top: 2px solid #1E40AF;
+  }
+  
+  .proposal-total-row td {
+    color: #FFFFFF;
+    font-weight: 700;
+    padding: 1rem 0.75rem;
+    font-size: 1.125rem;
+  }
+
+  /* Header bar */
+  .proposal-header-bar {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #E2E8F0;
+  }
+
+  /* Document border and shadow */
+  .proposal-document {
+    border: 1px solid #E2E8F0;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Date and metadata */
+  .proposal-meta-label {
+    color: #64748B;
+    font-size: 0.875rem;
+  }
+  
+  .proposal-meta-value {
+    color: #0F172A;
+    font-weight: 500;
+  }
+
+  /* Section divider */
+  .proposal-divider {
+    border-color: #E2E8F0;
+  }
+
+  /* Primary text on proposal */
+  .proposal-heading {
+    color: #0F172A;
+  }
+
+  /* ID/Code styling */
+  .proposal-id {
+    color: #2563EB;
+    font-family: monospace;
+  }
+}
