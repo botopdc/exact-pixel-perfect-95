@@ -15,7 +15,6 @@ import {
   getStoragePricePerTB,
   calculateStorageMonthly,
 } from './calculatorConfig';
-import { getAuthToken } from './auth';
 
 // ============================================================================
 // API CONFIGURATION
@@ -32,29 +31,6 @@ export const apiClient = axios.create({
     'Accept': 'application/json',
   },
 });
-
-// Add auth token to all requests
-apiClient.interceptors.request.use(
-  (config) => {
-    const token = getAuthToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// Handle 401 responses
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      console.warn('[API] Unauthorized - token may be invalid');
-    }
-    return Promise.reject(error);
-  }
-);
 
 // ============================================================================
 // API TYPES
