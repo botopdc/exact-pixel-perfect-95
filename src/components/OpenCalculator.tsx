@@ -872,7 +872,10 @@ const OpenCalculator: React.FC = () => {
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
+          <div>
+            <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
+            <p className="text-muted-foreground text-sm">Preços em BRL. Câmbio aplica só para GPU.</p>
+          </div>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" title="Atualizar Preços" onClick={() => refetchConfig()}>
               <RefreshCw className="w-4 h-4" />
@@ -894,11 +897,6 @@ const OpenCalculator: React.FC = () => {
         <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
           {/* Left Column - Configuration */}
           <div className="space-y-6">
-            {/* Header */}
-            <div className="text-center lg:text-left">
-              <h1 className="text-2xl font-bold text-foreground">OPEN — Calculadora VM + BareMetal</h1>
-              <p className="text-muted-foreground text-sm">Preços em BRL. Câmbio aplica só para GPU.</p>
-            </div>
 
             {/* Config Card */}
             <div className="open-card">
