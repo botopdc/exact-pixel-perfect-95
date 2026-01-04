@@ -1,7 +1,8 @@
-import OpenCalculator from '@/components/OpenCalculator';
+import { Navigate } from 'react-router-dom';
 
+// Index now redirects to dashboard
 const Index = () => {
-  return <OpenCalculator />;
+  return <Navigate to="/dashboard" replace />;
 };
 
 export default Index;

@@ -1,0 +1,266 @@
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate, Outlet, Link } from 'react-router-dom';
+import { authService } from '@/services/authService';
+import logoWhite from '@/assets/logo-white.png';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { NavLink } from '@/components/NavLink';
+import { 
+  LayoutDashboard, 
+  Briefcase, 
+  Calculator, 
+  Clock,
+  LogOut,
+  ChevronRight,
+  Menu,
+  User,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+
+const menuItems = [
+  { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
+  { title: 'Vagas / RH', url: '/rh/vagas', icon: Briefcase },
+  { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
+];
+
+const comingSoonItems = [
+  { title: 'Relatórios', icon: Clock },
+  { title: 'Faturamento', icon: Clock },
+  { title: 'Suporte', icon: Clock },
+];
+
+function AppSidebar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { state } = useSidebar();
+  const collapsed = state === 'collapsed';
+
+  const handleLogout = () => {
+    authService.logout();
+    navigate('/login');
+  };
+
+  const user = authService.getCurrentUser();
+
+  return (
+    <Sidebar className="border-r border-sidebar-border">
+      {/* Logo Header */}
+      <SidebarHeader className="border-b border-sidebar-border p-4">
+        <Link to="/dashboard" className="flex items-center gap-3">
+          <img src={logoWhite} alt="OPEN Datacenter" className="h-8 w-auto" />
+          {!collapsed && (
+            <div className="flex flex-col">
+              <span className="text-lg font-bold tracking-wider text-foreground">OPEN</span>
+              <span className="text-[9px] tracking-[0.25em] text-muted-foreground uppercase">Datacenter</span>
+            </div>
+          )}
+        </Link>
+      </SidebarHeader>
+
+      <SidebarContent className="px-2 py-4">
+        {/* Main Menu */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            Menu Principal
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {menuItems.map((item) => {
+                const isActive = location.pathname === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <NavLink 
+                        to={item.url} 
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                        activeClassName="bg-primary/10 text-primary"
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Coming Soon */}
+        <SidebarGroup className="mt-6">
+          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            Em breve...
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {comingSoonItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    disabled
+                    className="opacity-50 cursor-not-allowed"
+                    tooltip={item.title}
+                  >
+                    <div className="flex items-center gap-3 px-3 py-2">
+                      <item.icon className="h-5 w-5" />
+                      {!collapsed && <span>{item.title}</span>}
+                    </div>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+
+      {/* Footer with User */}
+      <SidebarFooter className="border-t border-sidebar-border p-4">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="ghost" 
+              className="w-full justify-start gap-3 px-3 py-2 h-auto"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              {!collapsed && (
+                <div className="flex flex-col items-start text-left">
+                  <span className="text-sm font-medium">{user?.email || 'Usuário'}</span>
+                  <span className="text-xs text-muted-foreground capitalize">{user?.role || 'admin'}</span>
+                </div>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuItem disabled>
+              <User className="mr-2 h-4 w-4" />
+              Perfil
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+              <LogOut className="mr-2 h-4 w-4" />
+              Sair
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarFooter>
+    </Sidebar>
+  );
+}
+
+function DashboardHeader() {
+  const location = useLocation();
+  
+  // Generate breadcrumb based on current route
+  const getBreadcrumb = () => {
+    const path = location.pathname;
+    if (path === '/dashboard') return ['Dashboard'];
+    if (path === '/rh/vagas') return ['Dashboard', 'Vagas / RH'];
+    if (path === '/calculadora') return ['Dashboard', 'Calculadora de Preços'];
+    return ['Dashboard'];
+  };
+
+  const getPageTitle = () => {
+    const path = location.pathname;
+    if (path === '/dashboard') return 'Dashboard';
+    if (path === '/rh/vagas') return 'Vagas / RH';
+    if (path === '/calculadora') return 'Calculadora de Preços';
+    return 'Dashboard';
+  };
+
+  const breadcrumb = getBreadcrumb();
+
+  return (
+    <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+      <SidebarTrigger className="md:hidden">
+        <Menu className="h-5 w-5" />
+      </SidebarTrigger>
+      
+      <div className="flex flex-col">
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-1 text-xs text-muted-foreground">
+          {breadcrumb.map((item, index) => (
+            <React.Fragment key={item}>
+              {index > 0 && <ChevronRight className="h-3 w-3" />}
+              <span className={index === breadcrumb.length - 1 ? 'text-foreground' : ''}>
+                {item}
+              </span>
+            </React.Fragment>
+          ))}
+        </nav>
+        
+        {/* Page Title */}
+        <h1 className="text-xl font-semibold text-foreground">
+          {getPageTitle()}
+        </h1>
+      </div>
+    </header>
+  );
+}
+
+export default function DashboardLayout() {
+  const navigate = useNavigate();
+  const [isChecking, setIsChecking] = useState(true);
+
+  // Check auth on mount and periodically for session expiry
+  useEffect(() => {
+    const checkAuth = () => {
+      if (!authService.isAuthenticated()) {
+        navigate('/login', { replace: true });
+      }
+    };
+
+    checkAuth();
+    setIsChecking(false);
+
+    // Check session every minute
+    const interval = setInterval(checkAuth, 60000);
+    return () => clearInterval(interval);
+  }, [navigate]);
+
+  if (isChecking) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Carregando...</div>
+      </div>
+    );
+  }
+
+  return (
+    <SidebarProvider defaultOpen={true}>
+      <div className="flex min-h-screen w-full">
+        <AppSidebar />
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <DashboardHeader />
+          <div className="flex-1 overflow-auto p-6">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </SidebarProvider>
+  );
+}
