@@ -35,7 +35,7 @@ const handler = async (req: Request): Promise<Response> => {
       proposalLink,
       totalValue,
       validityDate,
-      senderEmail = "comercial@opendata.center",
+      senderEmail = "comercial@opendatacenter.com.br",
       senderName = "OPEN Data Center",
       isAcceptance = false,
     }: SendProposalEmailRequest = await req.json();
