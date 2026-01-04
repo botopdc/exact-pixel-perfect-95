@@ -1,4 +1,5 @@
 import { Clock, Rocket } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function DashboardHome() {
   return (
@@ -44,18 +45,18 @@ export default function DashboardHome() {
           Enquanto isso, explore:
         </p>
         <div className="flex gap-4">
-          <a 
-            href="/calculadora" 
+          <Link 
+            to="/calculadora" 
             className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
           >
             Calculadora de Preços →
-          </a>
-          <a 
-            href="/rh/vagas" 
+          </Link>
+          <Link 
+            to="/rh/vagas" 
             className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
           >
             Vagas / RH →
-          </a>
+          </Link>
         </div>
       </div>
     </div>
