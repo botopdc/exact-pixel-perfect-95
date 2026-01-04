@@ -65,17 +65,17 @@ CREATE INDEX idx_proposal_views_proposal_id ON public.proposal_views USING btree
 
 
 --
--- Name: proposal_views Allow public inserts; Type: POLICY; Schema: public; Owner: -
+-- Name: proposal_views Deny public inserts; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Allow public inserts" ON public.proposal_views FOR INSERT WITH CHECK (true);
+CREATE POLICY "Deny public inserts" ON public.proposal_views FOR INSERT WITH CHECK (false);
 
 
 --
--- Name: proposal_views Allow public reads; Type: POLICY; Schema: public; Owner: -
+-- Name: proposal_views Deny public reads; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Allow public reads" ON public.proposal_views FOR SELECT USING (true);
+CREATE POLICY "Deny public reads" ON public.proposal_views FOR SELECT USING (false);
 
 
 --
