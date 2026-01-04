@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      articles: {
+        Row: {
+          author: string
+          category: string
+          content: string
+          created_at: string
+          helpful_no: number
+          helpful_yes: number
+          id: string
+          reading_time_minutes: number
+          status: string
+          tags: string[] | null
+          title: string
+          updated_at: string
+          views_count: number
+          visibility: string
+        }
+        Insert: {
+          author: string
+          category: string
+          content: string
+          created_at?: string
+          helpful_no?: number
+          helpful_yes?: number
+          id?: string
+          reading_time_minutes?: number
+          status?: string
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+          views_count?: number
+          visibility?: string
+        }
+        Update: {
+          author?: string
+          category?: string
+          content?: string
+          created_at?: string
+          helpful_no?: number
+          helpful_yes?: number
+          id?: string
+          reading_time_minutes?: number
+          status?: string
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+          views_count?: number
+          visibility?: string
+        }
+        Relationships: []
+      }
       proposal_views: {
         Row: {
           client_email: string | null

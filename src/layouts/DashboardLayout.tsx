@@ -27,6 +27,7 @@ import {
   ChevronRight,
   Menu,
   User,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +42,7 @@ const menuItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
   { title: 'Vagas / RH', url: '/rh/vagas', icon: Briefcase },
   { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
+  { title: 'Artigos', url: '/artigos', icon: BookOpen },
 ];
 
 const comingSoonItems = [
@@ -183,6 +185,10 @@ function DashboardHeader() {
     if (path === '/rh/vagas/nova') return ['Dashboard', 'Vagas / RH', 'Nova Vaga'];
     if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return ['Dashboard', 'Vagas / RH', 'Editar Vaga'];
     if (path === '/calculadora') return ['Dashboard', 'Calculadora de Preços'];
+    if (path === '/artigos') return ['Dashboard', 'Artigos'];
+    if (path === '/artigos/novo') return ['Dashboard', 'Artigos', 'Novo Artigo'];
+    if (path.match(/^\/artigos\/[^/]+\/editar$/)) return ['Dashboard', 'Artigos', 'Editar Artigo'];
+    if (path.match(/^\/artigos\/[^/]+$/)) return ['Dashboard', 'Artigos', 'Visualizar Artigo'];
     return ['Dashboard'];
   };
 
@@ -193,6 +199,10 @@ function DashboardHeader() {
     if (path === '/rh/vagas/nova') return 'Nova Vaga';
     if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return 'Editar Vaga';
     if (path === '/calculadora') return 'Calculadora de Preços';
+    if (path === '/artigos') return 'Artigos';
+    if (path === '/artigos/novo') return 'Novo Artigo';
+    if (path.match(/^\/artigos\/[^/]+\/editar$/)) return 'Editar Artigo';
+    if (path.match(/^\/artigos\/[^/]+$/)) return 'Artigo';
     return 'Dashboard';
   };
 

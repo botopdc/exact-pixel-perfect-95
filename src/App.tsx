@@ -20,6 +20,9 @@ import PropostaView from '@/pages/PropostaView';
 import PropostaAceite from '@/pages/PropostaAceite';
 import Propostas from '@/pages/Propostas';
 import Precos from '@/pages/Precos';
+import Artigos from '@/pages/Artigos';
+import ArtigoView from '@/pages/ArtigoView';
+import ArtigoForm from '@/pages/ArtigoForm';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -52,6 +55,10 @@ const App = () => (
             <Route path="/calculadora" element={<Calculadora />} />
             <Route path="/propostas" element={<Propostas />} />
             <Route path="/precos" element={<Precos />} />
+            <Route path="/artigos" element={<Artigos />} />
+            <Route path="/artigos/novo" element={<ArtigoForm />} />
+            <Route path="/artigos/:id" element={<ArtigoView />} />
+            <Route path="/artigos/:id/editar" element={<ArtigoForm isEdit />} />
           </Route>
           
           {/* Redirects */}
