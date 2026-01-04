@@ -23,6 +23,9 @@ import Precos from '@/pages/Precos';
 import Artigos from '@/pages/Artigos';
 import ArtigoView from '@/pages/ArtigoView';
 import ArtigoForm from '@/pages/ArtigoForm';
+import Atendimentos from '@/pages/Atendimentos';
+import TicketForm from '@/pages/TicketForm';
+import TicketDetalhe from '@/pages/TicketDetalhe';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -59,6 +62,9 @@ const App = () => (
             <Route path="/artigos/novo" element={<ArtigoForm />} />
             <Route path="/artigos/:id" element={<ArtigoView />} />
             <Route path="/artigos/:id/editar" element={<ArtigoForm isEdit />} />
+            <Route path="/atendimentos" element={<Atendimentos />} />
+            <Route path="/atendimentos/novo" element={<TicketForm />} />
+            <Route path="/atendimentos/:id" element={<TicketDetalhe />} />
           </Route>
           
           {/* Redirects */}

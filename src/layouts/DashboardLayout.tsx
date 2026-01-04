@@ -27,6 +27,7 @@ import {
   Menu,
   User,
   BookOpen,
+  Headphones,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -40,6 +41,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 
 const menuItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
+  { title: 'Atendimentos', url: '/atendimentos', icon: Headphones },
   { title: 'Vagas / RH', url: '/rh/vagas', icon: Briefcase },
   { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
   { title: 'Artigos', url: '/artigos', icon: BookOpen },
@@ -48,7 +50,6 @@ const menuItems = [
 const comingSoonItems = [
   { title: 'Relatórios', icon: Clock },
   { title: 'Faturamento', icon: Clock },
-  { title: 'Suporte', icon: Clock },
 ];
 
 function AppSidebar() {
@@ -189,6 +190,9 @@ function DashboardHeader() {
     if (path === '/artigos/novo') return ['Dashboard', 'Artigos', 'Novo Artigo'];
     if (path.match(/^\/artigos\/[^/]+\/editar$/)) return ['Dashboard', 'Artigos', 'Editar Artigo'];
     if (path.match(/^\/artigos\/[^/]+$/)) return ['Dashboard', 'Artigos', 'Visualizar Artigo'];
+    if (path === '/atendimentos') return ['Dashboard', 'Atendimentos'];
+    if (path === '/atendimentos/novo') return ['Dashboard', 'Atendimentos', 'Novo Ticket'];
+    if (path.match(/^\/atendimentos\/[^/]+$/)) return ['Dashboard', 'Atendimentos', 'Detalhes do Ticket'];
     return ['Dashboard'];
   };
 
@@ -203,6 +207,9 @@ function DashboardHeader() {
     if (path === '/artigos/novo') return 'Novo Artigo';
     if (path.match(/^\/artigos\/[^/]+\/editar$/)) return 'Editar Artigo';
     if (path.match(/^\/artigos\/[^/]+$/)) return 'Artigo';
+    if (path === '/atendimentos') return 'Atendimentos';
+    if (path === '/atendimentos/novo') return 'Novo Ticket';
+    if (path.match(/^\/atendimentos\/[^/]+$/)) return 'Detalhes do Ticket';
     return 'Dashboard';
   };
 
