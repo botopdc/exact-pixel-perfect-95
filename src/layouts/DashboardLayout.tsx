@@ -180,6 +180,8 @@ function DashboardHeader() {
     const path = location.pathname;
     if (path === '/dashboard') return ['Dashboard'];
     if (path === '/rh/vagas') return ['Dashboard', 'Vagas / RH'];
+    if (path === '/rh/vagas/nova') return ['Dashboard', 'Vagas / RH', 'Nova Vaga'];
+    if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return ['Dashboard', 'Vagas / RH', 'Editar Vaga'];
     if (path === '/calculadora') return ['Dashboard', 'Calculadora de Preços'];
     return ['Dashboard'];
   };
@@ -188,6 +190,8 @@ function DashboardHeader() {
     const path = location.pathname;
     if (path === '/dashboard') return 'Dashboard';
     if (path === '/rh/vagas') return 'Vagas / RH';
+    if (path === '/rh/vagas/nova') return 'Nova Vaga';
+    if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return 'Editar Vaga';
     if (path === '/calculadora') return 'Calculadora de Preços';
     return 'Dashboard';
   };

@@ -11,6 +11,10 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import Login from '@/pages/Login';
 import DashboardHome from '@/pages/DashboardHome';
 import VagasRH from '@/pages/VagasRH';
+import JobForm from '@/pages/JobForm';
+import VagasPublic from '@/pages/VagasPublic';
+import VagaDetalhe from '@/pages/VagaDetalhe';
+import VagasJson from '@/pages/VagasJson';
 import Calculadora from '@/pages/Calculadora';
 import PropostaView from '@/pages/PropostaView';
 import PropostaAceite from '@/pages/PropostaAceite';
@@ -34,10 +38,17 @@ const App = () => (
           <Route path="/proposta/:id" element={<PropostaView />} />
           <Route path="/proposta/:id/aceite" element={<PropostaAceite />} />
           
+          {/* Public job routes */}
+          <Route path="/vagas" element={<VagasPublic />} />
+          <Route path="/vagas/:slug" element={<VagaDetalhe />} />
+          <Route path="/vagas.json" element={<VagasJson />} />
+          
           {/* Protected dashboard routes */}
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<DashboardHome />} />
             <Route path="/rh/vagas" element={<VagasRH />} />
+            <Route path="/rh/vagas/nova" element={<JobForm />} />
+            <Route path="/rh/vagas/:id/editar" element={<JobForm isEdit />} />
             <Route path="/calculadora" element={<Calculadora />} />
             <Route path="/propostas" element={<Propostas />} />
             <Route path="/precos" element={<Precos />} />
