@@ -23,7 +23,8 @@ import Precos from '@/pages/Precos';
 import Artigos from '@/pages/Artigos';
 import ArtigoView from '@/pages/ArtigoView';
 import ArtigoForm from '@/pages/ArtigoForm';
-import Atendimentos from '@/pages/Atendimentos';
+import FilaSuporte from '@/pages/FilaSuporte';
+import CustomerSuccess from '@/pages/CustomerSuccess';
 import TicketForm from '@/pages/TicketForm';
 import TicketDetalhe from '@/pages/TicketDetalhe';
 import NotFound from '@/pages/NotFound';
@@ -62,7 +63,9 @@ const App = () => (
             <Route path="/artigos/novo" element={<ArtigoForm />} />
             <Route path="/artigos/:id" element={<ArtigoView />} />
             <Route path="/artigos/:id/editar" element={<ArtigoForm isEdit />} />
-            <Route path="/atendimentos" element={<Atendimentos />} />
+            <Route path="/atendimentos" element={<Navigate to="/atendimentos/suporte" replace />} />
+            <Route path="/atendimentos/suporte" element={<FilaSuporte />} />
+            <Route path="/atendimentos/cs" element={<CustomerSuccess />} />
             <Route path="/atendimentos/novo" element={<TicketForm />} />
             <Route path="/atendimentos/:id" element={<TicketDetalhe />} />
           </Route>
