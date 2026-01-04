@@ -212,8 +212,9 @@ export function useSendProposalEmail() {
       senderName?: string;
       isAcceptance?: boolean;
     }) => {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const response = await fetch(
-        `https://jitzqsdjrrzgztqyaesh.supabase.co/functions/v1/send-proposal-email`,
+        `${supabaseUrl}/functions/v1/send-proposal-email`,
         {
           method: 'POST',
           headers: {
