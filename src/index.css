@@ -5,7 +5,52 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light Mode */
   :root {
+    --background: 210 20% 98%;
+    --foreground: 216 50% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 216 50% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 216 50% 15%;
+    --primary: 210 80% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 15% 93%;
+    --secondary-foreground: 216 50% 20%;
+    --muted: 210 15% 93%;
+    --muted-foreground: 215 20% 45%;
+    --accent: 210 75% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 210 80% 50%;
+    --radius: 0.75rem;
+    --open-navy: 216 50% 20%;
+    --open-navy-light: 216 45% 30%;
+    --open-blue: 210 80% 45%;
+    --open-blue-light: 210 70% 55%;
+    --open-blue-glow: 210 100% 50%;
+    --open-gray: 215 20% 50%;
+    --open-card-bg: 0 0% 100%;
+    --open-card-border: 214 20% 85%;
+    --sidebar-background: 210 20% 97%;
+    --sidebar-foreground: 216 50% 15%;
+    --sidebar-primary: 210 80% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 15% 93%;
+    --sidebar-accent-foreground: 216 50% 20%;
+    --sidebar-border: 214 20% 88%;
+    --sidebar-ring: 210 80% 50%;
+    --server-badge: 152 70% 40%;
+    --server-badge-foreground: 0 0% 100%;
+    --success: 152 70% 40%;
+    --success-foreground: 0 0% 100%;
+  }
+
+  /* Dark Mode */
+  .dark {
     --background: 216 50% 10%;
     --foreground: 210 40% 98%;
     --card: 216 45% 15%;
@@ -25,7 +70,6 @@
     --border: 216 30% 25%;
     --input: 216 30% 20%;
     --ring: 210 80% 50%;
-    --radius: 0.75rem;
     --open-navy: 216 50% 8%;
     --open-navy-light: 216 45% 12%;
     --open-blue: 210 80% 50%;
@@ -53,6 +97,12 @@
   * {
     @apply border-border;
   }
+  
+  /* Smooth theme transitions */
+  html {
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
   body {
     @apply bg-background text-foreground font-outfit antialiased;
   }

@@ -24,7 +24,6 @@ import {
   Calculator, 
   Clock,
   LogOut,
-  ChevronRight,
   Menu,
   User,
   BookOpen,
@@ -37,6 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const menuItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
@@ -214,7 +214,7 @@ function DashboardHeader() {
         <Menu className="h-5 w-5" />
       </SidebarTrigger>
       
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-1">
         {/* Page Title */}
         <h1 className="text-xl font-semibold text-foreground">
           {getPageTitle()}
@@ -226,6 +226,9 @@ function DashboardHeader() {
           </span>
         )}
       </div>
+
+      {/* Theme Toggle */}
+      <ThemeToggle />
     </header>
   );
 }
