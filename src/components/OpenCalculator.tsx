@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Settings, Mail, Loader2, RefreshCw, Copy, Bug } from 'lucide-react';
 import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
-import OpenLogo from './OpenLogo';
+
 import ProductIcon from './ProductIcon';
 import {
   CalculatorConfig,
@@ -847,7 +847,7 @@ const OpenCalculator: React.FC = () => {
       <div className="min-h-screen bg-background">
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
           <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-            <OpenLogo />
+            <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
             <Skeleton className="h-10 w-32" />
           </div>
         </header>
@@ -872,7 +872,7 @@ const OpenCalculator: React.FC = () => {
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <OpenLogo />
+          <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" title="Atualizar Preços" onClick={() => refetchConfig()}>
               <RefreshCw className="w-4 h-4" />
