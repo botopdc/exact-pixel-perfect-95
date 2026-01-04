@@ -205,22 +205,16 @@ function DashboardHeader() {
       </SidebarTrigger>
       
       <div className="flex flex-col">
-        {/* Breadcrumb */}
-        <nav className="flex items-center gap-1 text-xs text-muted-foreground">
-          {breadcrumb.map((item, index) => (
-            <React.Fragment key={item}>
-              {index > 0 && <ChevronRight className="h-3 w-3" />}
-              <span className={index === breadcrumb.length - 1 ? 'text-foreground' : ''}>
-                {item}
-              </span>
-            </React.Fragment>
-          ))}
-        </nav>
-        
         {/* Page Title */}
         <h1 className="text-xl font-semibold text-foreground">
           {getPageTitle()}
         </h1>
+        {/* Subtitle only on dashboard */}
+        {location.pathname === '/dashboard' && (
+          <span className="text-sm text-muted-foreground">
+            Bem-vindo ao sistema OPEN Datacenter
+          </span>
+        )}
       </div>
     </header>
   );
