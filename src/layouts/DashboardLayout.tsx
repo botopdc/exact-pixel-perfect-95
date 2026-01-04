@@ -18,7 +18,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { NavLink } from '@/components/NavLink';
-import { 
+import {
   LayoutDashboard, 
   Briefcase, 
   Calculator, 
@@ -27,7 +27,8 @@ import {
   Menu,
   User,
   BookOpen,
-  Headphones,
+  Wrench,
+  Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,10 +42,14 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 
 const menuItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
-  { title: 'Atendimentos', url: '/atendimentos', icon: Headphones },
   { title: 'Vagas / RH', url: '/rh/vagas', icon: Briefcase },
   { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
   { title: 'Artigos', url: '/artigos', icon: BookOpen },
+];
+
+const atendimentosItems = [
+  { title: 'Suporte', url: '/atendimentos/suporte', icon: Wrench },
+  { title: 'Customer Success', url: '/atendimentos/cs', icon: Users },
 ];
 
 const comingSoonItems = [
@@ -90,6 +95,38 @@ function AppSidebar() {
             <SidebarMenu>
               {menuItems.map((item) => {
                 const isActive = location.pathname === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <NavLink 
+                        to={item.url} 
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                        activeClassName="bg-primary/10 text-primary"
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Atendimentos Section */}
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            Atendimentos
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {atendimentosItems.map((item) => {
+                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -190,7 +227,8 @@ function DashboardHeader() {
     if (path === '/artigos/novo') return ['Dashboard', 'Artigos', 'Novo Artigo'];
     if (path.match(/^\/artigos\/[^/]+\/editar$/)) return ['Dashboard', 'Artigos', 'Editar Artigo'];
     if (path.match(/^\/artigos\/[^/]+$/)) return ['Dashboard', 'Artigos', 'Visualizar Artigo'];
-    if (path === '/atendimentos') return ['Dashboard', 'Atendimentos'];
+    if (path === '/atendimentos/suporte') return ['Dashboard', 'Atendimentos', 'Suporte'];
+    if (path === '/atendimentos/cs') return ['Dashboard', 'Atendimentos', 'Customer Success'];
     if (path === '/atendimentos/novo') return ['Dashboard', 'Atendimentos', 'Novo Ticket'];
     if (path.match(/^\/atendimentos\/[^/]+$/)) return ['Dashboard', 'Atendimentos', 'Detalhes do Ticket'];
     return ['Dashboard'];
@@ -207,7 +245,8 @@ function DashboardHeader() {
     if (path === '/artigos/novo') return 'Novo Artigo';
     if (path.match(/^\/artigos\/[^/]+\/editar$/)) return 'Editar Artigo';
     if (path.match(/^\/artigos\/[^/]+$/)) return 'Artigo';
-    if (path === '/atendimentos') return 'Atendimentos';
+    if (path === '/atendimentos/suporte') return 'Fila de Suporte';
+    if (path === '/atendimentos/cs') return 'Customer Success';
     if (path === '/atendimentos/novo') return 'Novo Ticket';
     if (path.match(/^\/atendimentos\/[^/]+$/)) return 'Detalhes do Ticket';
     return 'Dashboard';
