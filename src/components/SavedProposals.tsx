@@ -155,8 +155,9 @@ const SavedProposals: React.FC = () => {
     setSendingEmailId(proposalId);
 
     try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const response = await fetch(
-        `https://jitzqsdjrrzgztqyaesh.supabase.co/functions/v1/send-proposal-email`,
+        `${supabaseUrl}/functions/v1/send-proposal-email`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
