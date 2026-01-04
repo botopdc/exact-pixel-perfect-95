@@ -53,12 +53,15 @@ export function ArticleFilters({
         </div>
 
         {/* Category Filter */}
-        <Select value={category} onValueChange={(val) => onCategoryChange(val as ArticleCategory | '')}>
+        <Select 
+          value={category || "__all__"} 
+          onValueChange={(val) => onCategoryChange(val === "__all__" ? '' : val as ArticleCategory)}
+        >
           <SelectTrigger className="w-full lg:w-[220px] bg-input border-border">
             <SelectValue placeholder="Filtrar por categoria" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todas as categorias</SelectItem>
+            <SelectItem value="__all__">Todas as categorias</SelectItem>
             {ARTICLE_CATEGORIES.map((cat) => (
               <SelectItem key={cat} value={cat}>
                 {cat}
@@ -68,12 +71,15 @@ export function ArticleFilters({
         </Select>
 
         {/* Author Filter */}
-        <Select value={author} onValueChange={onAuthorChange}>
+        <Select 
+          value={author || "__all__"} 
+          onValueChange={(val) => onAuthorChange(val === "__all__" ? '' : val)}
+        >
           <SelectTrigger className="w-full lg:w-[200px] bg-input border-border">
             <SelectValue placeholder="Filtrar por autor" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todos os autores</SelectItem>
+            <SelectItem value="__all__">Todos os autores</SelectItem>
             {authors.map((a) => (
               <SelectItem key={a} value={a}>
                 {a}
