@@ -40,6 +40,15 @@ export interface TicketHistoricoItem {
   };
 }
 
+// Stage timestamps for KPI tracking
+export interface TicketStageTimestamps {
+  novo?: string;
+  em_atendimento?: string;
+  resolvido_tecnico?: string;
+  validacao_cs?: string;
+  encerrado?: string;
+}
+
 export interface TicketTransicaoCS {
   resumo_tecnico: string;
   acao_tomada: string;
@@ -68,6 +77,9 @@ export interface Ticket {
   transicao_cs?: TicketTransicaoCS;
   criado_em: string;
   ultima_interacao: string;
+  // KPI tracking
+  stage_timestamps?: TicketStageTimestamps;
+  origem?: 'manual' | 'cliente' | 'monitoramento';
 }
 
 // Labels for display
