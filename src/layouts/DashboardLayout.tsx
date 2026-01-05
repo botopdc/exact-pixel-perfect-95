@@ -34,6 +34,7 @@ import {
   TrendingUp,
   Heart,
   Activity,
+  Crown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +48,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 
 const menuItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
+  { title: 'CEO View', url: '/executivo', icon: Crown },
   { title: 'Vagas / RH', url: '/rh/vagas', icon: Briefcase },
   { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
   { title: 'Artigos', url: '/artigos', icon: BookOpen },
@@ -316,6 +318,7 @@ function DashboardHeader() {
     if (path === '/kpis/gestao') return ['Dashboard', 'KPIs', 'Gestão'];
     if (path === '/health-score/cs') return ['Dashboard', 'Health Score', 'Visão CS'];
     if (path === '/health-score/executivo') return ['Dashboard', 'Health Score', 'Visão Executiva'];
+    if (path === '/executivo') return ['Dashboard', 'CEO View'];
     return ['Dashboard'];
   };
 
@@ -339,6 +342,7 @@ function DashboardHeader() {
     if (path === '/kpis/gestao') return 'Dashboard Executivo';
     if (path === '/health-score/cs') return 'Health Score - Visão CS';
     if (path === '/health-score/executivo') return 'Health Score - Executivo';
+    if (path === '/executivo') return 'Dashboard Executivo (CEO View)';
     return 'Dashboard';
   };
 
