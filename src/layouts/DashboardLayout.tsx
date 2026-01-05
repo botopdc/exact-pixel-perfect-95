@@ -32,6 +32,8 @@ import {
   BarChart3,
   PieChart,
   TrendingUp,
+  Heart,
+  Activity,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -59,6 +61,11 @@ const kpisItems = [
   { title: 'Suporte', url: '/kpis/suporte', icon: BarChart3 },
   { title: 'Customer Success', url: '/kpis/cs', icon: PieChart },
   { title: 'Gestão', url: '/kpis/gestao', icon: TrendingUp },
+];
+
+const healthScoreItems = [
+  { title: 'Visão CS', url: '/health-score/cs', icon: Heart },
+  { title: 'Visão Executiva', url: '/health-score/executivo', icon: Activity },
 ];
 
 const comingSoonItems = [
@@ -191,6 +198,38 @@ function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Health Score Section */}
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            Health Score
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {healthScoreItems.map((item) => {
+                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <NavLink 
+                        to={item.url} 
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                        activeClassName="bg-primary/10 text-primary"
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {/* Coming Soon */}
         <SidebarGroup className="mt-6">
           <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
@@ -275,6 +314,8 @@ function DashboardHeader() {
     if (path === '/kpis/suporte') return ['Dashboard', 'KPIs', 'Suporte'];
     if (path === '/kpis/cs') return ['Dashboard', 'KPIs', 'Customer Success'];
     if (path === '/kpis/gestao') return ['Dashboard', 'KPIs', 'Gestão'];
+    if (path === '/health-score/cs') return ['Dashboard', 'Health Score', 'Visão CS'];
+    if (path === '/health-score/executivo') return ['Dashboard', 'Health Score', 'Visão Executiva'];
     return ['Dashboard'];
   };
 
@@ -296,6 +337,8 @@ function DashboardHeader() {
     if (path === '/kpis/suporte') return 'KPIs de Suporte';
     if (path === '/kpis/cs') return 'KPIs de Customer Success';
     if (path === '/kpis/gestao') return 'Dashboard Executivo';
+    if (path === '/health-score/cs') return 'Health Score - Visão CS';
+    if (path === '/health-score/executivo') return 'Health Score - Executivo';
     return 'Dashboard';
   };
 
