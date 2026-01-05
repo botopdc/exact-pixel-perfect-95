@@ -32,6 +32,7 @@ import KPIsCS from '@/pages/KPIsCS';
 import KPIsGestao from '@/pages/KPIsGestao';
 import HealthScoreCS from '@/pages/HealthScoreCS';
 import HealthScoreExecutivo from '@/pages/HealthScoreExecutivo';
+import DashboardExecutivo from '@/pages/DashboardExecutivo';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -80,6 +81,7 @@ const App = () => (
             <Route path="/health-score" element={<Navigate to="/health-score/cs" replace />} />
             <Route path="/health-score/cs" element={<HealthScoreCS />} />
             <Route path="/health-score/executivo" element={<HealthScoreExecutivo />} />
+            <Route path="/executivo" element={<DashboardExecutivo />} />
           </Route>
           
           {/* Redirects */}
