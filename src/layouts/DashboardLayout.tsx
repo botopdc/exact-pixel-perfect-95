@@ -29,6 +29,9 @@ import {
   BookOpen,
   Wrench,
   Users,
+  BarChart3,
+  PieChart,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,6 +53,12 @@ const menuItems = [
 const atendimentosItems = [
   { title: 'Suporte', url: '/atendimentos/suporte', icon: Wrench },
   { title: 'Customer Success', url: '/atendimentos/cs', icon: Users },
+];
+
+const kpisItems = [
+  { title: 'Suporte', url: '/kpis/suporte', icon: BarChart3 },
+  { title: 'Customer Success', url: '/kpis/cs', icon: PieChart },
+  { title: 'Gestão', url: '/kpis/gestao', icon: TrendingUp },
 ];
 
 const comingSoonItems = [
@@ -126,6 +135,38 @@ function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {atendimentosItems.map((item) => {
+                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <NavLink 
+                        to={item.url} 
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                        activeClassName="bg-primary/10 text-primary"
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* KPIs Section */}
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            KPIs de Atendimento
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {kpisItems.map((item) => {
                 const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
@@ -231,6 +272,9 @@ function DashboardHeader() {
     if (path === '/atendimentos/cs') return ['Dashboard', 'Atendimentos', 'Customer Success'];
     if (path === '/atendimentos/novo') return ['Dashboard', 'Atendimentos', 'Novo Ticket'];
     if (path.match(/^\/atendimentos\/[^/]+$/)) return ['Dashboard', 'Atendimentos', 'Detalhes do Ticket'];
+    if (path === '/kpis/suporte') return ['Dashboard', 'KPIs', 'Suporte'];
+    if (path === '/kpis/cs') return ['Dashboard', 'KPIs', 'Customer Success'];
+    if (path === '/kpis/gestao') return ['Dashboard', 'KPIs', 'Gestão'];
     return ['Dashboard'];
   };
 
@@ -249,6 +293,9 @@ function DashboardHeader() {
     if (path === '/atendimentos/cs') return 'Customer Success';
     if (path === '/atendimentos/novo') return 'Novo Ticket';
     if (path.match(/^\/atendimentos\/[^/]+$/)) return 'Detalhes do Ticket';
+    if (path === '/kpis/suporte') return 'KPIs de Suporte';
+    if (path === '/kpis/cs') return 'KPIs de Customer Success';
+    if (path === '/kpis/gestao') return 'Dashboard Executivo';
     return 'Dashboard';
   };
 

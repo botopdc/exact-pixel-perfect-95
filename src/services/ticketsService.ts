@@ -41,7 +41,7 @@ const calcularPrioridade = (categoria: TicketCategoria): TicketPrioridade => {
 
 // Create a new ticket
 export const criarTicket = (
-  dados: Omit<Ticket, 'id' | 'status' | 'time_atual' | 'tipo_demanda' | 'historico' | 'criado_em' | 'ultima_interacao' | 'prioridade'>
+  dados: Omit<Ticket, 'id' | 'status' | 'time_atual' | 'tipo_demanda' | 'historico' | 'criado_em' | 'ultima_interacao' | 'prioridade' | 'stage_timestamps'>
 ): Ticket => {
   const agora = new Date().toISOString();
   const prioridadeCalculada = calcularPrioridade(dados.categoria);
@@ -53,6 +53,10 @@ export const criarTicket = (
     time_atual: 'suporte',
     tipo_demanda: 'tecnico',
     prioridade: prioridadeCalculada,
+    origem: dados.origem || 'manual',
+    stage_timestamps: {
+      novo: agora
+    },
     historico: [
       {
         id: crypto.randomUUID(),
@@ -111,9 +115,16 @@ export const atualizarStatus = (
     }
   };
 
+  // Update stage timestamps
+  const stage_timestamps = { ...ticket.stage_timestamps };
+  if (!stage_timestamps[novoStatus]) {
+    stage_timestamps[novoStatus] = agora;
+  }
+
   tickets[index] = {
     ...ticket,
     status: novoStatus,
+    stage_timestamps,
     historico: [...ticket.historico, historicoItem],
     ultima_interacao: agora
   };
@@ -182,10 +193,20 @@ export const encaminharParaCS = (
     }
   };
 
+  // Update stage timestamps
+  const stage_timestamps = { ...ticket.stage_timestamps };
+  if (!stage_timestamps.resolvido_tecnico) {
+    stage_timestamps.resolvido_tecnico = agora;
+  }
+  if (!stage_timestamps.validacao_cs) {
+    stage_timestamps.validacao_cs = agora;
+  }
+
   tickets[index] = {
     ...ticket,
     status: 'resolvido_tecnico',
     time_atual: 'cs',
+    stage_timestamps,
     transicao_cs: {
       ...transicao,
       data_transicao: agora,
@@ -257,9 +278,16 @@ export const encerrarTicket = (
     }
   };
 
+  // Update stage timestamps
+  const stage_timestamps = { ...ticket.stage_timestamps };
+  if (!stage_timestamps.encerrado) {
+    stage_timestamps.encerrado = agora;
+  }
+
   tickets[index] = {
     ...ticket,
     status: 'encerrado',
+    stage_timestamps,
     historico: [...ticket.historico, historicoItem],
     ultima_interacao: agora
   };

@@ -27,6 +27,9 @@ import FilaSuporte from '@/pages/FilaSuporte';
 import CustomerSuccess from '@/pages/CustomerSuccess';
 import TicketForm from '@/pages/TicketForm';
 import TicketDetalhe from '@/pages/TicketDetalhe';
+import KPIsSuporte from '@/pages/KPIsSuporte';
+import KPIsCS from '@/pages/KPIsCS';
+import KPIsGestao from '@/pages/KPIsGestao';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -68,6 +71,10 @@ const App = () => (
             <Route path="/atendimentos/cs" element={<CustomerSuccess />} />
             <Route path="/atendimentos/novo" element={<TicketForm />} />
             <Route path="/atendimentos/:id" element={<TicketDetalhe />} />
+            <Route path="/kpis" element={<Navigate to="/kpis/gestao" replace />} />
+            <Route path="/kpis/suporte" element={<KPIsSuporte />} />
+            <Route path="/kpis/cs" element={<KPIsCS />} />
+            <Route path="/kpis/gestao" element={<KPIsGestao />} />
           </Route>
           
           {/* Redirects */}
