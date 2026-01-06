@@ -38,70 +38,117 @@ export interface SavedProposal {
 // API Proposal format (what comes from the API)
 interface ApiProposal {
   id: number;
-  proposal_id: string;
+  name: string;
+  company: string;
+  phone: string;
+  email: string;
   channel_type: 'CLIENTE' | 'PARCEIRO';
-  status: string;
-  client_name: string;
-  client_email: string;
-  client_company: string;
-  client_phone: string;
-  total_value: number;
-  payload: SavedProposal;
+  reseller_name?: string;
+  commission_value?: number;
+  commission_reason?: string;
+  observations?: string;
+  fx: number;
+  datacenter: string;
+  contract_duration: number;
+  discount_pct: number;
+  total: number;
+  addons?: any[];
+  servers: any[];
+  due_at: string;
   created_at: string;
   updated_at: string;
+  deleted_at?: string;
 }
 
 // Transform API proposal to local format
 function apiToLocal(apiProposal: ApiProposal): SavedProposal {
-  // If payload contains full data, use it
-  if (apiProposal.payload) {
-    return {
-      ...apiProposal.payload,
-      id: apiProposal.id,
-      status: (apiProposal.status as ProposalStatus) || '',
-      savedAt: apiProposal.created_at,
-    };
-  }
+  // Map contract_duration to selectedTerm
+  const termMap: Record<number, string> = { 1: '1', 12: '12', 24: '24', 36: '36' };
+  const selectedTerm = termMap[apiProposal.contract_duration] || '1';
   
-  // Fallback: construct from API fields
+  // Map datacenter string to code
+  const datacenterMap: Record<string, 'SP1' | 'SP2' | 'FL1' | 'CE1'> = {
+    'São Paulo': 'SP1',
+    'SP1': 'SP1',
+    'SP2': 'SP2',
+    'Florida': 'FL1',
+    'FL1': 'FL1',
+    'Ceará': 'CE1',
+    'CE1': 'CE1',
+  };
+  
   return {
     id: apiProposal.id,
-    fx: 5,
-    selectedTerm: '1',
-    datacenter: 'SP1',
+    fx: apiProposal.fx || 5,
+    selectedTerm,
+    datacenter: datacenterMap[apiProposal.datacenter] || 'SP1',
     client: {
-      name: apiProposal.client_name || '',
-      company: apiProposal.client_company || '',
-      email: apiProposal.client_email || '',
-      phone: apiProposal.client_phone || '',
+      name: apiProposal.name || '',
+      company: apiProposal.company || '',
+      email: apiProposal.email || '',
+      phone: apiProposal.phone || '',
     },
     proposal: {
-      id: apiProposal.proposal_id,
+      id: `PROP-${apiProposal.id}`,
       validityDays: 7,
       createdAt: apiProposal.created_at,
     },
-    items: [],
-    addons: {},
+    items: apiProposal.servers || [],
+    addons: apiProposal.addons || {},
     kubernetes: {},
     storageItems: [],
-    total: apiProposal.total_value || 0,
+    reseller: apiProposal.reseller_name ? {
+      name: apiProposal.reseller_name,
+      commissionValue: apiProposal.commission_value,
+      commissionReason: apiProposal.commission_reason,
+    } : undefined,
+    total: apiProposal.total || 0,
     savedAt: apiProposal.created_at,
-    status: (apiProposal.status as ProposalStatus) || '',
+    status: '' as ProposalStatus,
   };
 }
 
 // Transform local proposal to API format
 function localToApi(proposal: SavedProposal): Record<string, unknown> {
+  // Map selectedTerm to contract_duration
+  const termToMonths: Record<string, number> = { '1': 1, '12': 12, '24': 24, '36': 36 };
+  const contractDuration = termToMonths[proposal.selectedTerm] || 1;
+  
+  // Map datacenter code to string
+  const datacenterNames: Record<string, string> = {
+    'SP1': 'São Paulo',
+    'SP2': 'São Paulo 2',
+    'FL1': 'Florida',
+    'CE1': 'Ceará',
+  };
+  
+  // Calculate discount percentage from result if available
+  const discountPct = proposal.result?.discountPct || 0;
+  
+  // Calculate due_at (proposal validity)
+  const validityDays = proposal.proposal?.validityDays || 7;
+  const createdAt = proposal.proposal?.createdAt || proposal.savedAt || new Date().toISOString();
+  const dueAt = new Date(createdAt);
+  dueAt.setDate(dueAt.getDate() + validityDays);
+  
   return {
-    proposal_id: proposal.proposal?.id,
-    channel_type: 'CLIENTE',
-    status: proposal.status || '',
-    client_name: proposal.client?.name || '',
-    client_email: proposal.client?.email || '',
-    client_company: proposal.client?.company || '',
-    client_phone: proposal.client?.phone || '',
-    total_value: proposal.total || proposal.result?.grandTotal || 0,
-    payload: proposal,
+    name: proposal.client?.name || '',
+    company: proposal.client?.company || '',
+    phone: proposal.client?.phone || '',
+    email: proposal.client?.email || '',
+    channel_type: proposal.reseller ? 'PARCEIRO' : 'CLIENTE',
+    reseller_name: proposal.reseller?.name || null,
+    commission_value: proposal.reseller?.commissionValue || null,
+    commission_reason: proposal.reseller?.commissionReason || null,
+    observations: null,
+    fx: proposal.fx || 5,
+    datacenter: datacenterNames[proposal.datacenter || 'SP1'] || 'São Paulo',
+    contract_duration: contractDuration,
+    discount_pct: discountPct,
+    total: proposal.total || proposal.result?.grandTotal || 0,
+    addons: proposal.addons ? [proposal.addons] : [],
+    servers: proposal.items || [],
+    due_at: dueAt.toISOString(),
   };
 }
 
@@ -158,17 +205,24 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
   });
 }
 
-// Hook to fetch a single proposal by ID (proposal_id string)
+// Hook to fetch a single proposal by ID (numeric id or string id)
 export function useProposal(proposalId: string | undefined) {
   return useQuery({
     queryKey: ['proposal', 'api', proposalId],
     queryFn: async () => {
       if (!proposalId) return null;
       try {
-        // Search by proposal_id in the list (API might not have direct lookup by proposal_id)
+        // Try to parse as numeric ID
+        const numericId = parseInt(proposalId, 10);
+        if (!isNaN(numericId)) {
+          const result = await openApi.getProposal(numericId);
+          return apiToLocal(result as ApiProposal);
+        }
+        
+        // Fallback: search by id string (PROP-123 format)
         const response = await openApi.getProposals({ __perPage: 500 });
         const apiProposals = response.data as ApiProposal[];
-        const found = apiProposals.find(p => p.proposal_id === proposalId);
+        const found = apiProposals.find(p => `PROP-${p.id}` === proposalId);
         return found ? apiToLocal(found) : null;
       } catch (error) {
         console.warn('[Proposal] API fetch failed:', error);
@@ -193,19 +247,9 @@ export function useSaveProposal() {
         const result = await openApi.updateProposal(proposal.id, apiData);
         return { success: true, data: result };
       } else {
-        // Check if proposal_id already exists
-        const existingResponse = await openApi.getProposals({ __perPage: 500 });
-        const existing = (existingResponse.data as ApiProposal[]).find(
-          p => p.proposal_id === proposal.proposal?.id
-        );
-        
-        if (existing) {
-          const result = await openApi.updateProposal(existing.id, apiData);
-          return { success: true, data: result };
-        } else {
-          const result = await openApi.createProposal(apiData);
-          return { success: true, data: result };
-        }
+        // Create new proposal
+        const result = await openApi.createProposal(apiData);
+        return { success: true, data: result };
       }
     },
     onSuccess: () => {
@@ -223,9 +267,17 @@ export function useUpdateProposal() {
 
   return useMutation({
     mutationFn: async ({ id, proposal }: { id: string; proposal: SavedProposal }) => {
-      // Find by proposal_id string
+      // Parse numeric ID
+      const numericId = parseInt(id, 10);
+      if (!isNaN(numericId)) {
+        const apiData = localToApi(proposal);
+        const result = await openApi.updateProposal(numericId, apiData);
+        return { success: true, data: result };
+      }
+      
+      // Fallback: search by PROP-ID format
       const response = await openApi.getProposals({ __perPage: 500 });
-      const existing = (response.data as ApiProposal[]).find(p => p.proposal_id === id);
+      const existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
       
       if (existing) {
         const apiData = localToApi(proposal);
@@ -252,9 +304,17 @@ export function useUpdateProposalStatus() {
       status: ProposalStatus;
       acceptance?: ProposalAcceptance;
     }) => {
-      // Find by proposal_id string
-      const response = await openApi.getProposals({ __perPage: 500 });
-      const existing = (response.data as ApiProposal[]).find(p => p.proposal_id === id);
+      // Parse numeric ID
+      const numericId = parseInt(id, 10);
+      let existing: ApiProposal | undefined;
+      
+      if (!isNaN(numericId)) {
+        existing = await openApi.getProposal(numericId) as ApiProposal;
+      } else {
+        // Fallback: search by PROP-ID format
+        const response = await openApi.getProposals({ __perPage: 500 });
+        existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
+      }
       
       if (existing) {
         const currentProposal = apiToLocal(existing);
@@ -283,9 +343,17 @@ export function useDeleteProposal() {
 
   return useMutation({
     mutationFn: async (proposalId: string) => {
-      // Find by proposal_id string
+      // Parse numeric ID
+      const numericId = parseInt(proposalId, 10);
+      
+      if (!isNaN(numericId)) {
+        await openApi.deleteProposal(numericId);
+        return { success: true };
+      }
+      
+      // Fallback: search by PROP-ID format
       const response = await openApi.getProposals({ __perPage: 500 });
-      const existing = (response.data as ApiProposal[]).find(p => p.proposal_id === proposalId);
+      const existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === proposalId);
       
       if (existing) {
         await openApi.deleteProposal(existing.id);
