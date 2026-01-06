@@ -42,6 +42,7 @@ import LoginParceiro from '@/pages/parceiros/LoginParceiro';
 import AceiteContrato from '@/pages/parceiros/AceiteContrato';
 import DashboardParceiro from '@/pages/parceiros/DashboardParceiro';
 import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
+import IndicacoesParceiro from '@/pages/parceiros/IndicacoesParceiro';
 import GestaoParceiroAdmin from '@/pages/parceiros/GestaoParceiroAdmin';
 
 const queryClient = new QueryClient();
@@ -74,6 +75,7 @@ const App = () => (
           <Route element={<PartnerLayout />}>
             <Route path="/parceiro/dashboard" element={<DashboardParceiro />} />
             <Route path="/parceiro/calculadora" element={<CalculadoraParceiro />} />
+            <Route path="/parceiro/indicacoes" element={<IndicacoesParceiro />} />
           </Route>
           
           {/* Protected dashboard routes */}
