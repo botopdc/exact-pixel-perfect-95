@@ -73,6 +73,7 @@ const healthScoreItems = [
 ];
 
 const adminItems = [
+  { title: 'Executivo Parceiros', url: '/admin/parceiros/executivo', icon: PieChart },
   { title: 'Gestão Parceiros', url: '/admin/parceiros', icon: Shield },
   { title: 'Gestão Comissões', url: '/admin/comissoes', icon: DollarSign },
 ];

@@ -45,6 +45,7 @@ import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
 import IndicacoesParceiro from '@/pages/parceiros/IndicacoesParceiro';
 import GestaoParceiroAdmin from '@/pages/parceiros/GestaoParceiroAdmin';
 import GestaoComissoes from '@/pages/parceiros/GestaoComissoes';
+import DashboardExecutivoParceiros from '@/pages/parceiros/DashboardExecutivoParceiros';
 
 const queryClient = new QueryClient();
 
@@ -107,6 +108,7 @@ const App = () => (
             <Route path="/executivo" element={<DashboardExecutivo />} />
             <Route path="/admin/parceiros" element={<GestaoParceiroAdmin />} />
             <Route path="/admin/comissoes" element={<GestaoComissoes />} />
+            <Route path="/admin/parceiros/executivo" element={<DashboardExecutivoParceiros />} />
           </Route>
           
           {/* Redirects */}
