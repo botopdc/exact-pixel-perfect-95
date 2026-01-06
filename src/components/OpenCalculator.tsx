@@ -51,7 +51,7 @@ import {
 } from '@/lib/calculatorConfig';
 import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-// Local storage only - API removed
+import { useSaveProposal, SavedProposal } from '@/hooks/useProposals';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CheckCircle, Lock } from 'lucide-react';
 
@@ -67,6 +67,7 @@ const OpenCalculator: React.FC = () => {
   const location = useLocation();
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
+  const saveProposalMutation = useSaveProposal();
   
   // Read partner discount from localStorage (set by CalculadoraParceiro)
   const getPartnerDiscount = useCallback((): PartnerDiscountContext | null => {
@@ -684,8 +685,8 @@ const OpenCalculator: React.FC = () => {
     return hasAnyAddon && !hasSellableProduct();
   }, [addons, hasSellableProduct]);
 
-  // Save proposal (local only - no API)
-  const handleSave = () => {
+  // Save proposal via API
+  const handleSave = async () => {
     if (!client.name.trim() && !client.company.trim()) {
       toast({ title: 'Erro', description: 'Informe o nome do cliente ou empresa', variant: 'destructive' });
       return;
@@ -706,21 +707,28 @@ const OpenCalculator: React.FC = () => {
 
     setSaving(true);
     try {
-      // Save locally only (no API dependency)
-      const state = { fx, selectedTerm, datacenter, client, proposal, items, addons, kubernetes, storageItems, reseller, openSaas };
-      const existing = JSON.parse(localStorage.getItem('open_proposals_v2') || '[]');
-      const entry = {
-        ...state,
+      const proposalData: SavedProposal = {
+        fx,
+        selectedTerm,
+        datacenter,
+        client,
+        proposal,
+        items,
+        addons,
+        kubernetes,
+        storageItems,
+        reseller,
+        openSaas,
         total: result?.grandTotal || 0,
         savedAt: new Date().toISOString(),
-        result: result,
+        result: result || undefined,
       };
-      const filtered = existing.filter((p: any) => p.proposal?.id !== proposal.id);
-      filtered.unshift(entry);
-      localStorage.setItem('open_proposals_v2', JSON.stringify(filtered.slice(0, 200)));
+
+      // Save via API
+      await saveProposalMutation.mutateAsync(proposalData);
 
       // Store payload for debug purposes (admin mode)
-      setLastPayload(JSON.stringify(entry, null, 2));
+      setLastPayload(JSON.stringify(proposalData, null, 2));
 
       toast({ title: 'Proposta salva', description: `Proposta ${proposal.id} salva com sucesso` });
     } catch (error: any) {
@@ -771,7 +779,7 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
-    handleSave();
+    await handleSave();
     setSendingEmail(true);
 
     const proposalLink = `${window.location.origin}/proposta/${proposal.id}`;
