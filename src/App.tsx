@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 // Layouts
 import DashboardLayout from '@/layouts/DashboardLayout';
+import PartnerLayout from '@/layouts/PartnerLayout';
 
 // Pages
 import Login from '@/pages/Login';
@@ -39,6 +40,8 @@ import NotFound from '@/pages/NotFound';
 import CadastroParceiro from '@/pages/parceiros/CadastroParceiro';
 import LoginParceiro from '@/pages/parceiros/LoginParceiro';
 import AceiteContrato from '@/pages/parceiros/AceiteContrato';
+import DashboardParceiro from '@/pages/parceiros/DashboardParceiro';
+import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
 
 const queryClient = new QueryClient();
 
@@ -65,6 +68,12 @@ const App = () => (
           <Route path="/parceiro/cadastro" element={<CadastroParceiro />} />
           <Route path="/parceiro/login" element={<LoginParceiro />} />
           <Route path="/parceiro/contrato" element={<AceiteContrato />} />
+          
+          {/* Partner protected routes */}
+          <Route element={<PartnerLayout />}>
+            <Route path="/parceiro/dashboard" element={<DashboardParceiro />} />
+            <Route path="/parceiro/calculadora" element={<CalculadoraParceiro />} />
+          </Route>
           
           {/* Protected dashboard routes */}
           <Route element={<DashboardLayout />}>
