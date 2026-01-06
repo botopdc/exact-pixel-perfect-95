@@ -19,7 +19,7 @@ import {
 // ============================================================================
 // API CONFIGURATION
 // ============================================================================
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://dev-api.opendata.center/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
 
 // API version prefix
 const API_V2_PREFIX = '/v2/calculator';
