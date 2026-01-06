@@ -40,6 +40,7 @@ import {
   getUserLevelName,
   MenuSection,
   MenuItem,
+  USER_LEVELS,
 } from '@/config/menuConfig';
 
 // ============================================================================
@@ -201,28 +202,29 @@ function DashboardHeader() {
   const getPageTitle = () => {
     const path = location.pathname;
     if (path === '/dashboard') return 'Dashboard';
-    if (path === '/rh/vagas') return 'Vagas / RH';
-    if (path === '/rh/vagas/nova') return 'Nova Vaga';
-    if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return 'Editar Vaga';
+    if (path === '/ceo') return 'CEO View';
     if (path === '/calculadora') return 'Calculadora de Preços';
+    if (path === '/parceiros/executivo') return 'Executivo Parceiros';
+    if (path === '/parceiros/gestao') return 'Gestão de Parceiros';
+    if (path === '/parceiros/propostas') return 'Propostas Parceiros';
+    if (path === '/parceiros/comissoes') return 'Gestão de Comissões';
+    if (path === '/atendimentos/suporte') return 'Suporte';
+    if (path === '/atendimentos/cs') return 'Customer Success';
+    if (path === '/atendimentos/novo') return 'Novo Ticket';
+    if (path.match(/^\/atendimentos\/[^/]+$/)) return 'Detalhes do Ticket';
+    if (path === '/kpis/suporte') return 'KPIs - Suporte';
+    if (path === '/kpis/cs') return 'KPIs - Customer Success';
+    if (path === '/kpis/gestao') return 'KPIs - Gestão';
+    if (path === '/health/cs') return 'Health Score - Visão CS';
+    if (path === '/health/executivo') return 'Health Score - Visão Executiva';
     if (path === '/artigos') return 'Artigos';
     if (path === '/artigos/novo') return 'Novo Artigo';
     if (path.match(/^\/artigos\/[^/]+\/editar$/)) return 'Editar Artigo';
     if (path.match(/^\/artigos\/[^/]+$/)) return 'Artigo';
-    if (path === '/atendimentos/suporte') return 'Fila de Suporte';
-    if (path === '/atendimentos/cs') return 'Customer Success';
-    if (path === '/atendimentos/novo') return 'Novo Ticket';
-    if (path.match(/^\/atendimentos\/[^/]+$/)) return 'Detalhes do Ticket';
-    if (path === '/kpis/suporte') return 'KPIs de Suporte';
-    if (path === '/kpis/cs') return 'KPIs de Customer Success';
-    if (path === '/kpis/gestao') return 'Dashboard Executivo';
-    if (path === '/health-score/cs') return 'Health Score - Visão CS';
-    if (path === '/health-score/executivo') return 'Health Score - Executivo';
-    if (path === '/executivo') return 'Dashboard Executivo (CEO View)';
-    if (path === '/admin/parceiros') return 'Gestão de Parceiros';
-    if (path === '/admin/parceiros/executivo') return 'Executivo Parceiros';
-    if (path === '/admin/parceiros/propostas') return 'Propostas Parceiros';
-    if (path === '/admin/comissoes') return 'Gestão de Comissões';
+    if (path === '/rh/vagas') return 'Vagas / RH';
+    if (path === '/rh/vagas/nova') return 'Nova Vaga';
+    if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return 'Editar Vaga';
+    if (path.match(/^\/rh\/vagas\/[^/]+$/)) return 'Detalhe da Vaga';
     return 'Dashboard';
   };
 

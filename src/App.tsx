@@ -85,34 +85,57 @@ const App = () => (
           
           {/* Protected dashboard routes */}
           <Route element={<DashboardLayout />}>
+            {/* Menu Principal */}
             <Route path="/dashboard" element={<DashboardHome />} />
-            <Route path="/rh/vagas" element={<VagasRH />} />
-            <Route path="/rh/vagas/nova" element={<JobForm />} />
-            <Route path="/rh/vagas/:id/editar" element={<JobForm isEdit />} />
+            <Route path="/ceo" element={<DashboardExecutivo />} />
+            
+            {/* Comercial & Parceiros */}
             <Route path="/calculadora" element={<Calculadora />} />
-            <Route path="/propostas" element={<Propostas />} />
-            <Route path="/precos" element={<Precos />} />
-            <Route path="/artigos" element={<Artigos />} />
-            <Route path="/artigos/novo" element={<ArtigoForm />} />
-            <Route path="/artigos/:id" element={<ArtigoView />} />
-            <Route path="/artigos/:id/editar" element={<ArtigoForm isEdit />} />
+            <Route path="/parceiros/executivo" element={<DashboardExecutivoParceiros />} />
+            <Route path="/parceiros/gestao" element={<GestaoParceiroAdmin />} />
+            <Route path="/parceiros/propostas" element={<PropostasAdmin />} />
+            <Route path="/parceiros/comissoes" element={<GestaoComissoes />} />
+            
+            {/* Atendimentos */}
             <Route path="/atendimentos" element={<Navigate to="/atendimentos/suporte" replace />} />
             <Route path="/atendimentos/suporte" element={<FilaSuporte />} />
             <Route path="/atendimentos/cs" element={<CustomerSuccess />} />
             <Route path="/atendimentos/novo" element={<TicketForm />} />
             <Route path="/atendimentos/:id" element={<TicketDetalhe />} />
+            
+            {/* KPIs de Atendimento */}
             <Route path="/kpis" element={<Navigate to="/kpis/gestao" replace />} />
             <Route path="/kpis/suporte" element={<KPIsSuporte />} />
             <Route path="/kpis/cs" element={<KPIsCS />} />
             <Route path="/kpis/gestao" element={<KPIsGestao />} />
-            <Route path="/health-score" element={<Navigate to="/health-score/cs" replace />} />
-            <Route path="/health-score/cs" element={<HealthScoreCS />} />
-            <Route path="/health-score/executivo" element={<HealthScoreExecutivo />} />
-            <Route path="/executivo" element={<DashboardExecutivo />} />
-            <Route path="/admin/parceiros" element={<GestaoParceiroAdmin />} />
-            <Route path="/admin/comissoes" element={<GestaoComissoes />} />
-            <Route path="/admin/parceiros/executivo" element={<DashboardExecutivoParceiros />} />
-            <Route path="/admin/parceiros/propostas" element={<PropostasAdmin />} />
+            
+            {/* Health Score */}
+            <Route path="/health" element={<Navigate to="/health/cs" replace />} />
+            <Route path="/health/cs" element={<HealthScoreCS />} />
+            <Route path="/health/executivo" element={<HealthScoreExecutivo />} />
+            
+            {/* Conteúdo & Documentação */}
+            <Route path="/artigos" element={<Artigos />} />
+            <Route path="/artigos/novo" element={<ArtigoForm />} />
+            <Route path="/artigos/:id" element={<ArtigoView />} />
+            <Route path="/artigos/:id/editar" element={<ArtigoForm isEdit />} />
+            
+            {/* Gente & Gestão */}
+            <Route path="/rh/vagas" element={<VagasRH />} />
+            <Route path="/rh/vagas/nova" element={<JobForm />} />
+            <Route path="/rh/vagas/:id" element={<VagaDetalhe />} />
+            <Route path="/rh/vagas/:id/editar" element={<JobForm isEdit />} />
+            
+            {/* Rotas legadas (redirects) */}
+            <Route path="/propostas" element={<Propostas />} />
+            <Route path="/precos" element={<Precos />} />
+            <Route path="/executivo" element={<Navigate to="/ceo" replace />} />
+            <Route path="/health-score/cs" element={<Navigate to="/health/cs" replace />} />
+            <Route path="/health-score/executivo" element={<Navigate to="/health/executivo" replace />} />
+            <Route path="/admin/parceiros" element={<Navigate to="/parceiros/gestao" replace />} />
+            <Route path="/admin/comissoes" element={<Navigate to="/parceiros/comissoes" replace />} />
+            <Route path="/admin/parceiros/executivo" element={<Navigate to="/parceiros/executivo" replace />} />
+            <Route path="/admin/parceiros/propostas" element={<Navigate to="/parceiros/propostas" replace />} />
           </Route>
           
           {/* Redirects */}
