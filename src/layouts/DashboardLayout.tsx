@@ -19,25 +19,10 @@ import {
 } from '@/components/ui/sidebar';
 import { NavLink } from '@/components/NavLink';
 import {
-  LayoutDashboard, 
-  Briefcase, 
-  Calculator, 
-  Clock,
   LogOut,
   Menu,
   User,
-  BookOpen,
-  Wrench,
-  Users,
-  BarChart3,
-  PieChart,
-  TrendingUp,
-  Heart,
-  Activity,
-  Crown,
-  Shield,
-  DollarSign,
-  FileStack,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,42 +33,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { toast } from 'sonner';
+import {
+  getFilteredMenu,
+  isRouteAllowed,
+  getUserLevelName,
+  MenuSection,
+  MenuItem,
+} from '@/config/menuConfig';
 
-const menuItems = [
-  { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
-  { title: 'CEO View', url: '/executivo', icon: Crown },
-  { title: 'Vagas / RH', url: '/rh/vagas', icon: Briefcase },
-  { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
-  { title: 'Artigos', url: '/artigos', icon: BookOpen },
-];
-
-const atendimentosItems = [
-  { title: 'Suporte', url: '/atendimentos/suporte', icon: Wrench },
-  { title: 'Customer Success', url: '/atendimentos/cs', icon: Users },
-];
-
-const kpisItems = [
-  { title: 'Suporte', url: '/kpis/suporte', icon: BarChart3 },
-  { title: 'Customer Success', url: '/kpis/cs', icon: PieChart },
-  { title: 'Gestão', url: '/kpis/gestao', icon: TrendingUp },
-];
-
-const healthScoreItems = [
-  { title: 'Visão CS', url: '/health-score/cs', icon: Heart },
-  { title: 'Visão Executiva', url: '/health-score/executivo', icon: Activity },
-];
-
-const adminItems = [
-  { title: 'Executivo Parceiros', url: '/admin/parceiros/executivo', icon: PieChart },
-  { title: 'Gestão Parceiros', url: '/admin/parceiros', icon: Shield },
-  { title: 'Propostas Parceiros', url: '/admin/parceiros/propostas', icon: FileStack },
-  { title: 'Gestão Comissões', url: '/admin/comissoes', icon: DollarSign },
-];
-
-const comingSoonItems = [
-  { title: 'Relatórios', icon: Clock },
-  { title: 'Faturamento', icon: Clock },
-];
+// ============================================================================
+// APP SIDEBAR COMPONENT
+// ============================================================================
 
 function AppSidebar() {
   const location = useLocation();
@@ -91,12 +52,76 @@ function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
 
+  const user = authService.getCurrentUser();
+  const userLevel = user?.level ?? null;
+  
+  // Obter menu filtrado por permissões
+  const filteredMenu = getFilteredMenu(userLevel);
+
   const handleLogout = () => {
     authService.logout();
     navigate('/login');
   };
 
-  const user = authService.getCurrentUser();
+  // Renderiza um item do menu
+  const renderMenuItem = (item: MenuItem, isActive: boolean) => {
+    if (item.disabled) {
+      return (
+        <SidebarMenuItem key={item.id}>
+          <SidebarMenuButton
+            disabled
+            className="opacity-50 cursor-not-allowed"
+            tooltip={item.title}
+          >
+            <div className="flex items-center gap-3 px-3 py-2">
+              <item.icon className="h-5 w-5" />
+              {!collapsed && <span>{item.title}</span>}
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      );
+    }
+
+    return (
+      <SidebarMenuItem key={item.id}>
+        <SidebarMenuButton
+          asChild
+          isActive={isActive}
+          tooltip={item.title}
+        >
+          <NavLink
+            to={item.url!}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+            activeClassName="bg-primary/10 text-primary"
+          >
+            <item.icon className="h-5 w-5" />
+            {!collapsed && <span>{item.title}</span>}
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
+
+  // Renderiza uma seção do menu
+  const renderSection = (section: MenuSection) => {
+    return (
+      <SidebarGroup key={section.id} className="mt-4 first:mt-0">
+        <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+          {section.title}
+        </SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {section.items.map((item) => {
+              const isActive = item.url 
+                ? location.pathname === item.url || location.pathname.startsWith(item.url + '/')
+                : false;
+              return renderMenuItem(item, isActive);
+            })}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -114,198 +139,26 @@ function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-4">
-        {/* Main Menu */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Menu Principal
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => {
-                const isActive = location.pathname === item.url;
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                    >
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
-                        activeClassName="bg-primary/10 text-primary"
-                      >
-                        <item.icon className="h-5 w-5" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {/* Modo seguro - sem userLevel */}
+        {userLevel === null && (
+          <div className="px-3 py-2 mb-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <div className="flex items-center gap-2 text-destructive text-xs">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Modo seguro ativo</span>
+            </div>
+          </div>
+        )}
 
-        {/* Atendimentos Section */}
-        <SidebarGroup className="mt-4">
-          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Atendimentos
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {atendimentosItems.map((item) => {
-                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                    >
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
-                        activeClassName="bg-primary/10 text-primary"
-                      >
-                        <item.icon className="h-5 w-5" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* KPIs Section */}
-        <SidebarGroup className="mt-4">
-          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            KPIs de Atendimento
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {kpisItems.map((item) => {
-                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                    >
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
-                        activeClassName="bg-primary/10 text-primary"
-                      >
-                        <item.icon className="h-5 w-5" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Health Score Section */}
-        <SidebarGroup className="mt-4">
-          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Health Score
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {healthScoreItems.map((item) => {
-                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                    >
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
-                        activeClassName="bg-primary/10 text-primary"
-                      >
-                        <item.icon className="h-5 w-5" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Admin Section */}
-        <SidebarGroup className="mt-4">
-          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Administração
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {adminItems.map((item) => {
-                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                    >
-                      <NavLink 
-                        to={item.url} 
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
-                        activeClassName="bg-primary/10 text-primary"
-                      >
-                        <item.icon className="h-5 w-5" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Coming Soon */}
-        <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Em breve...
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {comingSoonItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    disabled
-                    className="opacity-50 cursor-not-allowed"
-                    tooltip={item.title}
-                  >
-                    <div className="flex items-center gap-3 px-3 py-2">
-                      <item.icon className="h-5 w-5" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </div>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {/* Renderizar seções filtradas */}
+        {filteredMenu.map(renderSection)}
       </SidebarContent>
 
       {/* Footer with User */}
       <SidebarFooter className="border-t border-sidebar-border p-4">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               className="w-full justify-start gap-3 px-3 py-2 h-auto"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20">
@@ -313,8 +166,10 @@ function AppSidebar() {
               </div>
               {!collapsed && (
                 <div className="flex flex-col items-start text-left">
-                  <span className="text-sm font-medium">{user?.email || 'Usuário'}</span>
-                  <span className="text-xs text-muted-foreground capitalize">{user?.role || 'admin'}</span>
+                  <span className="text-sm font-medium">{user?.name || user?.email || 'Usuário'}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {userLevel !== null ? getUserLevelName(userLevel) : 'Carregando...'}
+                  </span>
                 </div>
               )}
             </Button>
@@ -336,33 +191,12 @@ function AppSidebar() {
   );
 }
 
+// ============================================================================
+// DASHBOARD HEADER COMPONENT
+// ============================================================================
+
 function DashboardHeader() {
   const location = useLocation();
-  
-  // Generate breadcrumb based on current route
-  const getBreadcrumb = () => {
-    const path = location.pathname;
-    if (path === '/dashboard') return ['Dashboard'];
-    if (path === '/rh/vagas') return ['Dashboard', 'Vagas / RH'];
-    if (path === '/rh/vagas/nova') return ['Dashboard', 'Vagas / RH', 'Nova Vaga'];
-    if (path.match(/^\/rh\/vagas\/[^/]+\/editar$/)) return ['Dashboard', 'Vagas / RH', 'Editar Vaga'];
-    if (path === '/calculadora') return ['Dashboard', 'Calculadora de Preços'];
-    if (path === '/artigos') return ['Dashboard', 'Artigos'];
-    if (path === '/artigos/novo') return ['Dashboard', 'Artigos', 'Novo Artigo'];
-    if (path.match(/^\/artigos\/[^/]+\/editar$/)) return ['Dashboard', 'Artigos', 'Editar Artigo'];
-    if (path.match(/^\/artigos\/[^/]+$/)) return ['Dashboard', 'Artigos', 'Visualizar Artigo'];
-    if (path === '/atendimentos/suporte') return ['Dashboard', 'Atendimentos', 'Suporte'];
-    if (path === '/atendimentos/cs') return ['Dashboard', 'Atendimentos', 'Customer Success'];
-    if (path === '/atendimentos/novo') return ['Dashboard', 'Atendimentos', 'Novo Ticket'];
-    if (path.match(/^\/atendimentos\/[^/]+$/)) return ['Dashboard', 'Atendimentos', 'Detalhes do Ticket'];
-    if (path === '/kpis/suporte') return ['Dashboard', 'KPIs', 'Suporte'];
-    if (path === '/kpis/cs') return ['Dashboard', 'KPIs', 'Customer Success'];
-    if (path === '/kpis/gestao') return ['Dashboard', 'KPIs', 'Gestão'];
-    if (path === '/health-score/cs') return ['Dashboard', 'Health Score', 'Visão CS'];
-    if (path === '/health-score/executivo') return ['Dashboard', 'Health Score', 'Visão Executiva'];
-    if (path === '/executivo') return ['Dashboard', 'CEO View'];
-    return ['Dashboard'];
-  };
 
   const getPageTitle = () => {
     const path = location.pathname;
@@ -385,17 +219,19 @@ function DashboardHeader() {
     if (path === '/health-score/cs') return 'Health Score - Visão CS';
     if (path === '/health-score/executivo') return 'Health Score - Executivo';
     if (path === '/executivo') return 'Dashboard Executivo (CEO View)';
+    if (path === '/admin/parceiros') return 'Gestão de Parceiros';
+    if (path === '/admin/parceiros/executivo') return 'Executivo Parceiros';
+    if (path === '/admin/parceiros/propostas') return 'Propostas Parceiros';
+    if (path === '/admin/comissoes') return 'Gestão de Comissões';
     return 'Dashboard';
   };
-
-  const breadcrumb = getBreadcrumb();
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
       <SidebarTrigger className="md:hidden">
         <Menu className="h-5 w-5" />
       </SidebarTrigger>
-      
+
       <div className="flex flex-col flex-1">
         {/* Page Title */}
         <h1 className="text-xl font-semibold text-foreground">
@@ -414,6 +250,33 @@ function DashboardHeader() {
     </header>
   );
 }
+
+// ============================================================================
+// ROUTE GUARD COMPONENT
+// ============================================================================
+
+function RouteGuard({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const user = authService.getCurrentUser();
+  const userLevel = user?.level ?? null;
+
+  useEffect(() => {
+    // Verificar se a rota atual é permitida
+    if (!isRouteAllowed(location.pathname, userLevel)) {
+      toast.error('Acesso não permitido', {
+        description: 'Você não tem permissão para acessar esta página.',
+      });
+      navigate('/dashboard', { replace: true });
+    }
+  }, [location.pathname, userLevel, navigate]);
+
+  return <>{children}</>;
+}
+
+// ============================================================================
+// DASHBOARD LAYOUT COMPONENT
+// ============================================================================
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -450,7 +313,9 @@ export default function DashboardLayout() {
         <main className="flex-1 flex flex-col overflow-hidden">
           <DashboardHeader />
           <div className="flex-1 overflow-auto p-6">
-            <Outlet />
+            <RouteGuard>
+              <Outlet />
+            </RouteGuard>
           </div>
         </main>
       </div>
