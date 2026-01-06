@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ import {
   PartnerProposal,
   PartnerProposalStatus,
 } from '@/hooks/usePartnerProposals';
+import { partnerAuthService } from '@/services/partnersService';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 
@@ -41,6 +42,14 @@ function getStatusBadge(status: PartnerProposalStatus) {
 export default function PropostasParceiro() {
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Check partner session - redirect if not logged in
+  useEffect(() => {
+    const session = partnerAuthService.getSession();
+    if (!session) {
+      navigate('/parceiro/login', { replace: true });
+    }
+  }, [navigate]);
 
   // Fetch partner proposals (filtered by current user)
   const { data: proposals = [], isLoading } = usePartnerProposals(false);
