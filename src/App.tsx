@@ -35,6 +35,11 @@ import HealthScoreExecutivo from '@/pages/HealthScoreExecutivo';
 import DashboardExecutivo from '@/pages/DashboardExecutivo';
 import NotFound from '@/pages/NotFound';
 
+// Partner Pages
+import CadastroParceiro from '@/pages/parceiros/CadastroParceiro';
+import LoginParceiro from '@/pages/parceiros/LoginParceiro';
+import AceiteContrato from '@/pages/parceiros/AceiteContrato';
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -55,6 +60,11 @@ const App = () => (
           <Route path="/vagas" element={<VagasPublic />} />
           <Route path="/vagas/:slug" element={<VagaDetalhe />} />
           <Route path="/vagas.json" element={<VagasJson />} />
+          
+          {/* Partner public routes */}
+          <Route path="/parceiro/cadastro" element={<CadastroParceiro />} />
+          <Route path="/parceiro/login" element={<LoginParceiro />} />
+          <Route path="/parceiro/contrato" element={<AceiteContrato />} />
           
           {/* Protected dashboard routes */}
           <Route element={<DashboardLayout />}>
