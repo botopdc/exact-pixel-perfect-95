@@ -1,22 +1,22 @@
 // ============================================================================
-// AUTH SERVICE - MVP Local Storage Implementation
-// Preparado para futura integração com API (ApiAuthProvider)
+// AUTH SERVICE - API Implementation
+// Integração com API OPDC para autenticação
 // ============================================================================
+
+import { openApi, ApiUser, USER_LEVELS } from '@/lib/openApi';
 
 const AUTH_SESSION_KEY = 'open_auth_session_v1';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 horas
 
-// Hash da senha "Open@2026!" usando SHA-256
-// Gerado previamente para evitar expor a senha em código
-const ADMIN_EMAIL = 'admin@open.com.br';
-const ADMIN_PASSWORD_HASH = '5b8c9d5c0a3f1e2d4b6a8c7e9f0d1c3b5a7e9d2c4f6b8a0e2d4c6f8a0b2e4d6f'; // placeholder hash
-
 export interface AuthSession {
   userId: string;
   email: string;
-  role: 'admin' | 'user';
+  name: string;
+  role: 'admin' | 'comercial' | 'suporte' | 'cs' | 'rh' | 'user';
+  level: number;
   token: string;
   expiresAt: string;
+  apiUser?: ApiUser;
 }
 
 export interface AuthResult {
@@ -25,18 +25,15 @@ export interface AuthResult {
   error?: string;
 }
 
-// Gera hash SHA-256 usando Web Crypto API
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Gera um token UUID
-function generateToken(): string {
-  return crypto.randomUUID();
+// Map API level to role
+function getLevelRole(level: number): AuthSession['role'] {
+  if (level >= USER_LEVELS.ADMIN) return 'admin';
+  if (level >= USER_LEVELS.GERENTE_SUPORTE) return 'admin';
+  if (level >= USER_LEVELS.SUPORTE) return 'suporte';
+  if (level >= USER_LEVELS.SUCESSO_CLIENTE) return 'cs';
+  if (level >= USER_LEVELS.COMERCIAL) return 'comercial';
+  if (level >= USER_LEVELS.RH) return 'rh';
+  return 'user';
 }
 
 // Verifica se a sessão está expirada
@@ -49,7 +46,7 @@ function isSessionExpired(session: AuthSession): boolean {
 // ============================================================================
 
 export const authService = {
-  // Login - MVP usa LocalStorage, futuro usará API
+  // Login via API
   async login(email: string, password: string): Promise<AuthResult> {
     try {
       // Validação básica
@@ -58,37 +55,47 @@ export const authService = {
       }
 
       const normalizedEmail = email.toLowerCase().trim();
-      const passwordHash = await hashPassword(password);
 
-      // MVP: Verificar credenciais locais
-      // Verificar contra o admin padrão
-      const expectedHash = await hashPassword('Open@2026!');
+      // Chamar API de login
+      const response = await openApi.login(normalizedEmail, password);
       
-      if (normalizedEmail === ADMIN_EMAIL && passwordHash === expectedHash) {
-        const session: AuthSession = {
-          userId: 'admin-001',
-          email: normalizedEmail,
-          role: 'admin',
-          token: generateToken(),
-          expiresAt: new Date(Date.now() + SESSION_DURATION_MS).toISOString(),
-        };
+      const session: AuthSession = {
+        userId: response.user.uuid || response.user.id.toString(),
+        email: response.user.email,
+        name: response.user.name,
+        role: getLevelRole(response.user.level),
+        level: response.user.level,
+        token: response.token,
+        expiresAt: new Date(Date.now() + SESSION_DURATION_MS).toISOString(),
+        apiUser: response.user,
+      };
 
-        // Salvar sessão
-        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
-        
-        return { success: true, session };
-      }
-
-      return { success: false, error: 'Email ou senha incorretos' };
-    } catch (error) {
+      // Salvar sessão
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+      
+      return { success: true, session };
+    } catch (error: unknown) {
       console.error('[AuthService] Login error:', error);
-      return { success: false, error: 'Erro ao fazer login. Tente novamente.' };
+      
+      // Handle axios error
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as { response?: { status?: number; data?: { message?: string } } };
+        if (axiosError.response?.status === 401) {
+          return { success: false, error: 'Email ou senha incorretos' };
+        }
+        if (axiosError.response?.data?.message) {
+          return { success: false, error: axiosError.response.data.message };
+        }
+      }
+      
+      return { success: false, error: 'Erro ao fazer login. Verifique sua conexão.' };
     }
   },
 
   // Logout - limpa a sessão
   logout(): void {
     localStorage.removeItem(AUTH_SESSION_KEY);
+    openApi.clearToken();
   },
 
   // Obtém a sessão atual
@@ -118,10 +125,27 @@ export const authService = {
   },
 
   // Obtém o usuário atual
-  getCurrentUser(): { email: string; role: string } | null {
+  getCurrentUser(): { email: string; role: string; name: string; level: number } | null {
     const session = this.getSession();
     if (!session) return null;
-    return { email: session.email, role: session.role };
+    return { 
+      email: session.email, 
+      role: session.role,
+      name: session.name,
+      level: session.level,
+    };
+  },
+
+  // Verifica se é admin
+  isAdmin(): boolean {
+    const session = this.getSession();
+    return session?.role === 'admin';
+  },
+
+  // Verifica o nível de acesso
+  hasLevel(requiredLevel: number): boolean {
+    const session = this.getSession();
+    return (session?.level || 0) >= requiredLevel;
   },
 
   // Tempo restante da sessão em minutos
@@ -132,44 +156,32 @@ export const authService = {
     const remaining = new Date(session.expiresAt).getTime() - Date.now();
     return Math.max(0, Math.floor(remaining / 60000));
   },
-};
 
-// ============================================================================
-// STUB PARA FUTURO API AUTH PROVIDER
-// ============================================================================
-/*
-export const apiAuthProvider = {
-  async login(email: string, password: string): Promise<AuthResult> {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      return { success: false, error: error.message };
-    }
-    
-    const session = await response.json();
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
-    return { success: true, session };
-  },
+  // Valida sessão com API (refresh)
+  async validateSession(): Promise<boolean> {
+    try {
+      const session = this.getSession();
+      if (!session) return false;
 
-  async getCurrentUser(): Promise<AuthResult> {
-    const session = authService.getSession();
-    if (!session) return { success: false, error: 'Não autenticado' };
-    
-    const response = await fetch('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${session.token}` },
-    });
-    
-    if (!response.ok) {
-      authService.logout();
-      return { success: false, error: 'Sessão inválida' };
+      // Verificar com API se token ainda é válido
+      const user = await openApi.getCurrentUser();
+      
+      // Atualizar dados do usuário na sessão
+      const updatedSession: AuthSession = {
+        ...session,
+        name: user.name,
+        email: user.email,
+        level: user.level,
+        role: getLevelRole(user.level),
+        apiUser: user,
+      };
+      
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(updatedSession));
+      return true;
+    } catch {
+      // Token inválido - fazer logout
+      this.logout();
+      return false;
     }
-    
-    return { success: true, session };
   },
 };
-*/
