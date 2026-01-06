@@ -37,6 +37,7 @@ import {
   Crown,
   Shield,
   DollarSign,
+  FileStack,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -75,6 +76,7 @@ const healthScoreItems = [
 const adminItems = [
   { title: 'Executivo Parceiros', url: '/admin/parceiros/executivo', icon: PieChart },
   { title: 'Gestão Parceiros', url: '/admin/parceiros', icon: Shield },
+  { title: 'Propostas Parceiros', url: '/admin/parceiros/propostas', icon: FileStack },
   { title: 'Gestão Comissões', url: '/admin/comissoes', icon: DollarSign },
 ];
 

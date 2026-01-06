@@ -28,6 +28,7 @@ import {
   Building2,
   FileText,
   Handshake,
+  FileStack,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +59,7 @@ function PartnerSidebar() {
   const menuItems = [
     { title: 'Dashboard', url: '/parceiro/dashboard', icon: LayoutDashboard },
     { title: 'Calculadora de Preços', url: '/parceiro/calculadora', icon: Calculator },
+    { title: 'Propostas Salvas', url: '/parceiro/propostas', icon: FileStack },
   ];
 
   // FINDER gets access to referrals
@@ -197,6 +199,7 @@ function PartnerHeader() {
     const path = location.pathname;
     if (path === '/parceiro/dashboard') return 'Dashboard';
     if (path === '/parceiro/calculadora') return 'Calculadora de Preços';
+    if (path === '/parceiro/propostas') return 'Propostas Salvas';
     if (path === '/parceiro/indicacoes') return 'Minhas Indicações';
     if (path.match(/^\/parceiro\/indicacoes\/nova$/)) return 'Nova Indicação';
     return 'Portal do Parceiro';

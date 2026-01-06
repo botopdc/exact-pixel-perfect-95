@@ -43,9 +43,11 @@ import AceiteContrato from '@/pages/parceiros/AceiteContrato';
 import DashboardParceiro from '@/pages/parceiros/DashboardParceiro';
 import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
 import IndicacoesParceiro from '@/pages/parceiros/IndicacoesParceiro';
+import PropostasParceiro from '@/pages/parceiros/PropostasParceiro';
 import GestaoParceiroAdmin from '@/pages/parceiros/GestaoParceiroAdmin';
 import GestaoComissoes from '@/pages/parceiros/GestaoComissoes';
 import DashboardExecutivoParceiros from '@/pages/parceiros/DashboardExecutivoParceiros';
+import PropostasAdmin from '@/pages/parceiros/PropostasAdmin';
 
 const queryClient = new QueryClient();
 
@@ -77,6 +79,7 @@ const App = () => (
           <Route element={<PartnerLayout />}>
             <Route path="/parceiro/dashboard" element={<DashboardParceiro />} />
             <Route path="/parceiro/calculadora" element={<CalculadoraParceiro />} />
+            <Route path="/parceiro/propostas" element={<PropostasParceiro />} />
             <Route path="/parceiro/indicacoes" element={<IndicacoesParceiro />} />
           </Route>
           
@@ -109,6 +112,7 @@ const App = () => (
             <Route path="/admin/parceiros" element={<GestaoParceiroAdmin />} />
             <Route path="/admin/comissoes" element={<GestaoComissoes />} />
             <Route path="/admin/parceiros/executivo" element={<DashboardExecutivoParceiros />} />
+            <Route path="/admin/parceiros/propostas" element={<PropostasAdmin />} />
           </Route>
           
           {/* Redirects */}
