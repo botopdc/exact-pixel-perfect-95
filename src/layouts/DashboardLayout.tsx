@@ -35,6 +35,8 @@ import {
   Heart,
   Activity,
   Crown,
+  Shield,
+  DollarSign,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -68,6 +70,11 @@ const kpisItems = [
 const healthScoreItems = [
   { title: 'Visão CS', url: '/health-score/cs', icon: Heart },
   { title: 'Visão Executiva', url: '/health-score/executivo', icon: Activity },
+];
+
+const adminItems = [
+  { title: 'Gestão Parceiros', url: '/admin/parceiros', icon: Shield },
+  { title: 'Gestão Comissões', url: '/admin/comissoes', icon: DollarSign },
 ];
 
 const comingSoonItems = [
@@ -208,6 +215,38 @@ function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {healthScoreItems.map((item) => {
+                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <NavLink 
+                        to={item.url} 
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                        activeClassName="bg-primary/10 text-primary"
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Admin Section */}
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            Administração
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {adminItems.map((item) => {
                 const isActive = location.pathname === item.url || location.pathname.startsWith(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
