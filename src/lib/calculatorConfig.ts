@@ -643,6 +643,9 @@ export interface CalculationResult {
   overValue: number;
   overPercent: number;
   totalWithOver: number;
+  // Partner discount fields
+  partnerDiscountPct?: number;
+  partnerDiscountValue?: number;
 }
 
 // Funções utilitárias

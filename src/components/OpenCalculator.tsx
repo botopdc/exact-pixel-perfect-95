@@ -55,11 +55,37 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CheckCircle, Lock } from 'lucide-react';
 
+// Partner discount context type
+interface PartnerDiscountContext {
+  discount: number;
+  partnerType: string;
+  timestamp: number;
+}
+
 const OpenCalculator: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
+  
+  // Read partner discount from localStorage (set by CalculadoraParceiro)
+  const getPartnerDiscount = useCallback((): PartnerDiscountContext | null => {
+    try {
+      const stored = localStorage.getItem('open_partner_discount');
+      if (stored) {
+        const data = JSON.parse(stored) as PartnerDiscountContext;
+        // Only valid if set within last hour
+        if (Date.now() - data.timestamp < 3600000) {
+          return data;
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return null;
+  }, []);
+  
+  const partnerContext = getPartnerDiscount();
 
   // State
   const [fx, setFx] = useState(config.fx_default);
@@ -534,7 +560,12 @@ const OpenCalculator: React.FC = () => {
     const preTotal = subRec + subIps + subServices + subBackup + subKubernetes + subStorage + subOpenSaas;
     const discountPct = config.discount[selectedTerm] || 0;
     const discountValue = preTotal * discountPct;
-    const grandTotal = preTotal - discountValue;
+    const grandTotalBeforePartner = preTotal - discountValue;
+    
+    // Apply partner discount if available
+    const partnerDiscountPct = partnerContext?.discount || 0;
+    const partnerDiscountValue = grandTotalBeforePartner * partnerDiscountPct;
+    const grandTotal = grandTotalBeforePartner - partnerDiscountValue;
 
     // Calculate over values (reseller margin)
     const overValue = Math.max(0, Math.min(reseller.overValue, grandTotal * 0.3)); // Cap at 30%
@@ -567,12 +598,14 @@ const OpenCalculator: React.FC = () => {
       totalServers,
       gpuUsdTotal,
       gpuBrlTotal,
-      subtotalPriceList: grandTotal,
+      subtotalPriceList: grandTotalBeforePartner,
       overValue,
       overPercent,
       totalWithOver,
+      partnerDiscountPct,
+      partnerDiscountValue,
     });
-  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, antivirusManuallySet, reseller.overValue, reseller.approvalRequired]);
+  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, antivirusManuallySet, reseller.overValue, reseller.approvalRequired, partnerContext]);
 
   // Recalculate on changes
   useEffect(() => {
@@ -2148,8 +2181,14 @@ const OpenCalculator: React.FC = () => {
                     )}
                     {result.discountValue > 0 && (
                       <div className="flex justify-between text-sm text-green-500">
-                        <span>Desconto ({(result.discountPct * 100).toFixed(0)}%)</span>
+                        <span>Desconto prazo ({(result.discountPct * 100).toFixed(0)}%)</span>
                         <span>-{formatCurrencyBRL(result.discountValue)}</span>
+                      </div>
+                    )}
+                    {result.partnerDiscountValue && result.partnerDiscountValue > 0 && (
+                      <div className="flex justify-between text-sm text-emerald-500">
+                        <span>Desconto parceiro ({((result.partnerDiscountPct || 0) * 100).toFixed(0)}%)</span>
+                        <span>-{formatCurrencyBRL(result.partnerDiscountValue)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-sm">
