@@ -42,6 +42,7 @@ import LoginParceiro from '@/pages/parceiros/LoginParceiro';
 import AceiteContrato from '@/pages/parceiros/AceiteContrato';
 import DashboardParceiro from '@/pages/parceiros/DashboardParceiro';
 import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
+import GestaoParceiroAdmin from '@/pages/parceiros/GestaoParceiroAdmin';
 
 const queryClient = new QueryClient();
 
@@ -101,6 +102,7 @@ const App = () => (
             <Route path="/health-score/cs" element={<HealthScoreCS />} />
             <Route path="/health-score/executivo" element={<HealthScoreExecutivo />} />
             <Route path="/executivo" element={<DashboardExecutivo />} />
+            <Route path="/admin/parceiros" element={<GestaoParceiroAdmin />} />
           </Route>
           
           {/* Redirects */}
