@@ -1,42 +1,54 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect } from 'react';
 import { CalculatorConfig, DEFAULT_CONFIG } from '@/lib/calculatorConfig';
+import { openApi, CalculatorConfigApiResponse } from '@/lib/openApi';
 
 export const CONFIG_QUERY_KEY = ['calculator-config'];
-const LOCAL_CONFIG_KEY = 'open_precos_localConfig';
 
-// Helper to load local config from localStorage
-const loadLocalConfig = (): CalculatorConfig | null => {
-  try {
-    const stored = localStorage.getItem(LOCAL_CONFIG_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
+// Transform API response to CalculatorConfig format
+const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorConfig => {
+  return {
+    meta: {
+      name: "OPEN Calculator Config",
+      version: "API"
+    },
+    fx_default: apiConfig.fx_default,
+    discount: apiConfig.discount,
+    gpu_usd: apiConfig.gpu_usd,
+    vm_prices_brl: apiConfig.vm_prices_brl,
+    baremetal: apiConfig.baremetal,
+    addons_brl: apiConfig.addons_brl as CalculatorConfig['addons_brl'],
+    backup_tables_brl_per_gb: apiConfig.backup_tables_brl_per_gb,
+    open_saas_price_per_user: apiConfig.open_saas_price_per_user,
+    storage_prices: apiConfig.storage_prices as unknown as CalculatorConfig['storage_prices'],
+    storage_pricing: apiConfig.storage_pricing as unknown as CalculatorConfig['storage_pricing'],
+    kubernetes_pricing: apiConfig.kubernetes_pricing as unknown as CalculatorConfig['kubernetes_pricing'],
+    kubernetes_addons_pricing: apiConfig.kubernetes_addons_pricing as unknown as CalculatorConfig['kubernetes_addons_pricing'],
+  };
 };
 
-// Fetch config from localStorage only (no API)
-const fetchLocalConfig = async (): Promise<CalculatorConfig> => {
-  const localConfig = loadLocalConfig();
-  if (localConfig) {
-    console.log('[Config] Using local config from localStorage');
-    return localConfig;
+// Fetch config from API
+const fetchConfig = async (): Promise<CalculatorConfig> => {
+  try {
+    console.log('[Config] Fetching config from API...');
+    const apiConfig = await openApi.getCalculatorConfig();
+    console.log('[Config] API config loaded successfully');
+    return transformApiConfig(apiConfig);
+  } catch (error) {
+    console.warn('[Config] Failed to fetch from API, using defaults:', error);
+    return DEFAULT_CONFIG;
   }
-  
-  // If no local config, use defaults
-  console.log('[Config] No local config found, using defaults');
-  return DEFAULT_CONFIG;
 };
 
 export const useConfig = () => {
   return useQuery<CalculatorConfig>({
     queryKey: CONFIG_QUERY_KEY,
-    queryFn: fetchLocalConfig,
-    staleTime: 0, // Always consider data stale to ensure fresh localStorage reads
-    gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnWindowFocus: true, // Refetch when returning to the page
-    refetchOnMount: true, // Always refetch on mount
-    retry: false,
+    queryFn: fetchConfig,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    retry: 2,
     placeholderData: DEFAULT_CONFIG,
   });
 };
@@ -51,18 +63,6 @@ export const useConfigWithFallback = () => {
     await queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
     return refetch();
   }, [queryClient, refetch]);
-
-  // Listen for storage events (changes from other tabs/windows)
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === LOCAL_CONFIG_KEY) {
-        forceRefetch();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [forceRefetch]);
   
   return {
     config: data || DEFAULT_CONFIG,
