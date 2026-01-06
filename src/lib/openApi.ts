@@ -37,6 +37,37 @@ export interface ApiError {
   errors?: Record<string, string[]>;
 }
 
+// Calculator config from API
+export interface CalculatorConfigApiResponse {
+  fx_default: number;
+  discount: Record<string, number>;
+  gpu_usd: Record<string, number>;
+  vm_prices_brl: {
+    vcpu: number;
+    ram_per_gb: number;
+    nvme_per_gb: number;
+    ip_public: number;
+  };
+  baremetal: {
+    cpu_models: Array<{ id: string; label: string; price: number }>;
+    ram_tiers: Array<{ id: string; label: string; gb: number; price: number }>;
+    disks: Array<{ id: string; label: string; tb: number; price: number }>;
+  };
+  addons_brl: Record<string, number | Record<string, number>>;
+  backup_tables_brl_per_gb: Record<string, Array<{ min: number; max: number; price: number }>>;
+  open_saas_price_per_user?: number;
+  storage_prices?: Record<string, number>;
+  storage_pricing?: {
+    sas: {
+      br: Record<string, number>;
+      usa: Record<string, number>;
+    };
+    nvme: { pricePerGB: number };
+  };
+  kubernetes_pricing?: Record<string, { basePriceMonthly: number }>;
+  kubernetes_addons_pricing?: Record<string, number>;
+}
+
 // User level mapping
 export const USER_LEVELS = {
   CLIENTE: 1,
@@ -124,12 +155,8 @@ class OpenApiClient {
   // CALCULATOR CONFIG ENDPOINTS
   // ============================================================================
 
-  async getCalculatorConfig(params?: {
-    category?: string;
-    section?: string;
-    __perPage?: number;
-  }): Promise<{ data: unknown[]; total: number }> {
-    const response = await this.client.get('/calculator-config', { params });
+  async getCalculatorConfig(): Promise<CalculatorConfigApiResponse> {
+    const response = await this.client.get<CalculatorConfigApiResponse>('/calculator-config');
     return response.data;
   }
 
