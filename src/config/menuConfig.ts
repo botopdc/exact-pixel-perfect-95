@@ -1,5 +1,6 @@
 // ============================================================================
 // MENU CONFIGURATION - RBAC por User Level
+// Baseado na matriz fornecida pelo usuário
 // ============================================================================
 
 import {
@@ -21,6 +22,8 @@ import {
   FileStack,
   LucideIcon,
   Lock,
+  FileText,
+  Receipt,
 } from 'lucide-react';
 
 // ============================================================================
@@ -51,25 +54,17 @@ export interface MenuItem {
   icon: LucideIcon;
   disabled?: boolean;
   /** Níveis de usuário que podem ver este item */
-  allowedLevels?: number[];
-  /** Nível mínimo para ver este item (alternativa a allowedLevels) */
-  minLevel?: number;
+  allowedLevels: number[];
 }
 
 export interface MenuSection {
   id: string;
   title: string;
   items: MenuItem[];
-  /** Níveis de usuário que podem ver esta seção */
-  allowedLevels?: number[];
-  /** Nível mínimo para ver esta seção */
-  minLevel?: number;
-  /** Se true, mostra apenas para liderança (750+) */
-  leadershipOnly?: boolean;
 }
 
 // ============================================================================
-// MENU CONFIGURATION
+// MENU CONFIGURATION - Matriz RBAC exata
 // ============================================================================
 
 export const MENU_SECTIONS: MenuSection[] = [
@@ -83,19 +78,14 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Dashboard',
         url: '/dashboard',
         icon: LayoutDashboard,
-        // Dashboard visível para todos os níveis autenticados
+        allowedLevels: [600, 700, 750, 775, 900, 950, 1000],
       },
       {
         id: 'ceo-view',
         title: 'CEO View',
-        url: '/executivo',
+        url: '/ceo',
         icon: Crown,
-        // CEO View apenas para liderança (750+) e admin
-        allowedLevels: [
-          USER_LEVELS.GERENTE_COMERCIAL,
-          USER_LEVELS.GERENTE_SUPORTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [1000],
       },
     ],
   },
@@ -104,63 +94,41 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'comercial',
     title: 'COMERCIAL & PARCEIROS',
-    allowedLevels: [
-      USER_LEVELS.COMERCIAL,
-      USER_LEVELS.GERENTE_COMERCIAL,
-      USER_LEVELS.ADMIN,
-    ],
     items: [
       {
         id: 'calculadora',
         title: 'Calculadora de Preços',
         url: '/calculadora',
         icon: Calculator,
-        allowedLevels: [
-          USER_LEVELS.COMERCIAL,
-          USER_LEVELS.GERENTE_COMERCIAL,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [700, 750, 1000],
       },
       {
         id: 'executivo-parceiros',
         title: 'Executivo Parceiros',
-        url: '/admin/parceiros/executivo',
+        url: '/parceiros/executivo',
         icon: PieChart,
-        allowedLevels: [
-          USER_LEVELS.GERENTE_COMERCIAL,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [750, 1000],
       },
       {
         id: 'gestao-parceiros',
         title: 'Gestão de Parceiros',
-        url: '/admin/parceiros',
+        url: '/parceiros/gestao',
         icon: Shield,
-        allowedLevels: [
-          USER_LEVELS.GERENTE_COMERCIAL,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [750, 1000],
       },
       {
         id: 'propostas-parceiros',
         title: 'Propostas Parceiros',
-        url: '/admin/parceiros/propostas',
+        url: '/parceiros/propostas',
         icon: FileStack,
-        allowedLevels: [
-          USER_LEVELS.COMERCIAL,
-          USER_LEVELS.GERENTE_COMERCIAL,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [700, 750, 1000],
       },
       {
         id: 'gestao-comissoes',
         title: 'Gestão de Comissões',
-        url: '/admin/comissoes',
+        url: '/parceiros/comissoes',
         icon: DollarSign,
-        allowedLevels: [
-          USER_LEVELS.GERENTE_COMERCIAL,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [750, 1000],
       },
     ],
   },
@@ -169,33 +137,20 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'atendimentos',
     title: 'ATENDIMENTOS',
-    allowedLevels: [
-      USER_LEVELS.SUCESSO_CLIENTE,
-      USER_LEVELS.SUPORTE,
-      USER_LEVELS.GERENTE_SUPORTE,
-      USER_LEVELS.ADMIN,
-    ],
     items: [
       {
-        id: 'suporte',
+        id: 'atendimentos-suporte',
         title: 'Suporte',
         url: '/atendimentos/suporte',
         icon: Wrench,
-        allowedLevels: [
-          USER_LEVELS.SUPORTE,
-          USER_LEVELS.GERENTE_SUPORTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [900, 950, 1000],
       },
       {
-        id: 'cs',
+        id: 'atendimentos-cs',
         title: 'Customer Success',
         url: '/atendimentos/cs',
         icon: Users,
-        allowedLevels: [
-          USER_LEVELS.SUCESSO_CLIENTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [775, 950, 1000],
       },
     ],
   },
@@ -204,43 +159,27 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'kpis',
     title: 'KPIs DE ATENDIMENTO',
-    allowedLevels: [
-      USER_LEVELS.SUCESSO_CLIENTE,
-      USER_LEVELS.SUPORTE,
-      USER_LEVELS.GERENTE_SUPORTE,
-      USER_LEVELS.ADMIN,
-    ],
     items: [
       {
         id: 'kpi-suporte',
         title: 'Suporte',
         url: '/kpis/suporte',
         icon: BarChart3,
-        allowedLevels: [
-          USER_LEVELS.SUPORTE,
-          USER_LEVELS.GERENTE_SUPORTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [950, 1000],
       },
       {
         id: 'kpi-cs',
         title: 'Customer Success',
         url: '/kpis/cs',
         icon: PieChart,
-        allowedLevels: [
-          USER_LEVELS.SUCESSO_CLIENTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [775, 950, 1000],
       },
       {
         id: 'kpi-gestao',
         title: 'Gestão',
         url: '/kpis/gestao',
         icon: TrendingUp,
-        allowedLevels: [
-          USER_LEVELS.GERENTE_SUPORTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [950, 1000],
       },
     ],
   },
@@ -249,32 +188,20 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'healthscore',
     title: 'HEALTH SCORE',
-    allowedLevels: [
-      USER_LEVELS.SUCESSO_CLIENTE,
-      USER_LEVELS.GERENTE_SUPORTE,
-      USER_LEVELS.ADMIN,
-    ],
     items: [
       {
         id: 'hs-cs',
         title: 'Visão CS',
-        url: '/health-score/cs',
+        url: '/health/cs',
         icon: Heart,
-        allowedLevels: [
-          USER_LEVELS.SUCESSO_CLIENTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [775, 1000],
       },
       {
         id: 'hs-executivo',
         title: 'Visão Executiva',
-        url: '/health-score/executivo',
+        url: '/health/executivo',
         icon: Activity,
-        allowedLevels: [
-          USER_LEVELS.SUCESSO_CLIENTE,
-          USER_LEVELS.GERENTE_SUPORTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [950, 1000],
       },
     ],
   },
@@ -283,22 +210,13 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'conteudo',
     title: 'CONTEÚDO & DOCUMENTAÇÃO',
-    allowedLevels: [
-      USER_LEVELS.SUPORTE,
-      USER_LEVELS.GERENTE_SUPORTE,
-      USER_LEVELS.ADMIN,
-    ],
     items: [
       {
         id: 'artigos',
         title: 'Artigos',
         url: '/artigos',
         icon: BookOpen,
-        allowedLevels: [
-          USER_LEVELS.SUPORTE,
-          USER_LEVELS.GERENTE_SUPORTE,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [900, 950, 1000],
       },
     ],
   },
@@ -307,20 +225,13 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'rh',
     title: 'GENTE & GESTÃO',
-    allowedLevels: [
-      USER_LEVELS.RH,
-      USER_LEVELS.ADMIN,
-    ],
     items: [
       {
         id: 'vagas',
         title: 'Vagas / RH',
         url: '/rh/vagas',
         icon: Briefcase,
-        allowedLevels: [
-          USER_LEVELS.RH,
-          USER_LEVELS.ADMIN,
-        ],
+        allowedLevels: [600, 1000],
       },
     ],
   },
@@ -329,20 +240,22 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     id: 'coming-soon',
     title: 'EM BREVE',
-    // Visível apenas para liderança (750+)
-    minLevel: USER_LEVELS.GERENTE_COMERCIAL,
     items: [
       {
         id: 'relatorios',
         title: 'Relatórios',
-        icon: Clock,
+        url: '/relatorios',
+        icon: FileText,
         disabled: true,
+        allowedLevels: [1000],
       },
       {
         id: 'faturamento',
         title: 'Faturamento',
-        icon: Lock,
+        url: '/faturamento',
+        icon: Receipt,
         disabled: true,
+        allowedLevels: [1000],
       },
     ],
   },
@@ -361,56 +274,20 @@ export function isItemAllowed(item: MenuItem, userLevel: number | null): boolean
     return item.id === 'dashboard';
   }
 
-  // Admin tem acesso a tudo
+  // Admin (1000) tem acesso a tudo
   if (userLevel >= USER_LEVELS.ADMIN) {
     return true;
   }
 
-  // Se tem allowedLevels, verifica se o nível está na lista
-  if (item.allowedLevels && item.allowedLevels.length > 0) {
-    return item.allowedLevels.includes(userLevel);
-  }
-
-  // Se tem minLevel, verifica se o nível é maior ou igual
-  if (item.minLevel !== undefined) {
-    return userLevel >= item.minLevel;
-  }
-
-  // Se não tem restrição, permite
-  return true;
+  // Verifica se o nível está na lista de permitidos
+  return item.allowedLevels.includes(userLevel);
 }
 
 /**
- * Verifica se uma seção está disponível para o userLevel
+ * Verifica se uma seção tem itens visíveis para o userLevel
  */
-export function isSectionAllowed(section: MenuSection, userLevel: number | null): boolean {
-  // Se não tem userLevel (modo seguro), só seção principal (dashboard)
-  if (userLevel === null) {
-    return section.id === 'main';
-  }
-
-  // Admin tem acesso a tudo
-  if (userLevel >= USER_LEVELS.ADMIN) {
-    return true;
-  }
-
-  // Se é somente liderança
-  if (section.leadershipOnly && userLevel < USER_LEVELS.GERENTE_COMERCIAL) {
-    return false;
-  }
-
-  // Se tem allowedLevels, verifica se o nível está na lista
-  if (section.allowedLevels && section.allowedLevels.length > 0) {
-    return section.allowedLevels.includes(userLevel);
-  }
-
-  // Se tem minLevel, verifica se o nível é maior ou igual
-  if (section.minLevel !== undefined) {
-    return userLevel >= section.minLevel;
-  }
-
-  // Se não tem restrição, permite
-  return true;
+export function isSectionVisible(section: MenuSection, userLevel: number | null): boolean {
+  return section.items.some(item => isItemAllowed(item, userLevel));
 }
 
 /**
@@ -418,7 +295,6 @@ export function isSectionAllowed(section: MenuSection, userLevel: number | null)
  */
 export function getFilteredMenu(userLevel: number | null): MenuSection[] {
   return MENU_SECTIONS
-    .filter(section => isSectionAllowed(section, userLevel))
     .map(section => ({
       ...section,
       items: section.items.filter(item => isItemAllowed(item, userLevel)),
@@ -428,47 +304,68 @@ export function getFilteredMenu(userLevel: number | null): MenuSection[] {
 
 /**
  * Verifica se uma rota é permitida para o userLevel
+ * REGRA: Mesmo que alguém force a URL, bloquear se não estiver em allowedLevels
  */
 export function isRouteAllowed(pathname: string, userLevel: number | null): boolean {
-  // Dashboard sempre permitido
-  if (pathname === '/dashboard') {
-    return true;
-  }
-
-  // Se não tem userLevel, só dashboard
+  // Se não tem userLevel (modo seguro), só dashboard
   if (userLevel === null) {
-    return false;
+    return pathname === '/dashboard';
   }
 
-  // Admin tem acesso a tudo
+  // Admin tem acesso a tudo (exceto itens disabled que não têm URL funcional)
   if (userLevel >= USER_LEVELS.ADMIN) {
     return true;
   }
 
-  // Busca o item correspondente à rota
+  // Busca o item correspondente à rota em todas as seções
   for (const section of MENU_SECTIONS) {
     for (const item of section.items) {
       if (item.url && (pathname === item.url || pathname.startsWith(item.url + '/'))) {
-        return isItemAllowed(item, userLevel);
+        // Item desabilitado não pode ser acessado
+        if (item.disabled) {
+          return false;
+        }
+        return item.allowedLevels.includes(userLevel);
       }
     }
   }
 
-  // Rota não encontrada no menu - verificar rotas especiais
-  // Rotas de criação/edição herdam permissão da rota pai
-  const parentRoutes: Record<string, string> = {
+  // Rotas de sub-páginas herdam permissão da rota pai
+  const parentMappings: Record<string, string> = {
+    // Atendimentos
     '/atendimentos/novo': '/atendimentos/suporte',
+    // Artigos
     '/artigos/novo': '/artigos',
+    // RH
     '/rh/vagas/nova': '/rh/vagas',
   };
 
-  for (const [route, parent] of Object.entries(parentRoutes)) {
-    if (pathname.startsWith(route.replace('/novo', '').replace('/nova', ''))) {
+  // Verifica rotas de edição dinâmicas
+  if (pathname.match(/^\/artigos\/[^/]+$/)) {
+    return isRouteAllowed('/artigos', userLevel);
+  }
+  if (pathname.match(/^\/artigos\/[^/]+\/editar$/)) {
+    return isRouteAllowed('/artigos', userLevel);
+  }
+  if (pathname.match(/^\/atendimentos\/[^/]+$/)) {
+    return isRouteAllowed('/atendimentos/suporte', userLevel);
+  }
+  if (pathname.match(/^\/rh\/vagas\/[^/]+$/)) {
+    return isRouteAllowed('/rh/vagas', userLevel);
+  }
+  if (pathname.match(/^\/rh\/vagas\/[^/]+\/editar$/)) {
+    return isRouteAllowed('/rh/vagas', userLevel);
+  }
+
+  // Verifica mapeamento estático
+  for (const [route, parent] of Object.entries(parentMappings)) {
+    if (pathname === route || pathname.startsWith(route + '/')) {
       return isRouteAllowed(parent, userLevel);
     }
   }
 
-  // Se a rota não está mapeada, bloqueia por segurança
+  // Rota não mapeada - bloquear por segurança
+  // Redireciona para dashboard
   return false;
 }
 
@@ -476,12 +373,15 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
  * Retorna o nome do nível do usuário para exibição
  */
 export function getUserLevelName(level: number): string {
-  if (level >= USER_LEVELS.ADMIN) return 'Admin';
-  if (level >= USER_LEVELS.GERENTE_SUPORTE) return 'Gerente de Suporte';
-  if (level >= USER_LEVELS.SUPORTE) return 'Suporte';
-  if (level >= USER_LEVELS.SUCESSO_CLIENTE) return 'Customer Success';
-  if (level >= USER_LEVELS.GERENTE_COMERCIAL) return 'Gerente Comercial';
-  if (level >= USER_LEVELS.COMERCIAL) return 'Comercial';
-  if (level >= USER_LEVELS.RH) return 'RH';
-  return 'Cliente';
+  const levelNames: Record<number, string> = {
+    1: 'Cliente',
+    600: 'RH',
+    700: 'Comercial',
+    750: 'Gerente Comercial',
+    775: 'Sucesso do Cliente',
+    900: 'Suporte',
+    950: 'Gerente de Suporte',
+    1000: 'Admin',
+  };
+  return levelNames[level] || 'Usuário';
 }
