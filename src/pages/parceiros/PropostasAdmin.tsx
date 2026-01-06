@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,7 @@ import {
   Eye,
   FileDown,
   Loader2,
-  Filter,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   useAllPartnerProposals,
@@ -25,6 +25,7 @@ import {
   PartnerProposalStatus,
 } from '@/hooks/usePartnerProposals';
 import { PartnerType } from '@/types/partner';
+import { authService } from '@/services/authService';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 
@@ -46,6 +47,15 @@ function getStatusBadge(status: PartnerProposalStatus) {
 export default function PropostasAdmin() {
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Protect route: only admins can access
+  useEffect(() => {
+    const session = authService.getSession();
+    if (!session || session.role !== 'admin') {
+      // Redirect non-admins to partner proposals page
+      navigate('/parceiro/propostas', { replace: true });
+    }
+  }, [navigate]);
 
   // Fetch all partner proposals (admin view)
   const { data: proposals = [], isLoading } = useAllPartnerProposals();
@@ -279,45 +289,57 @@ export default function PropostasAdmin() {
                 </tr>
               </thead>
               <tbody>
-                {filteredProposals.map((p) => (
-                  <tr key={p.proposta_id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                    <td className="py-4 px-4">
-                      <span className="font-mono text-sm text-primary">{p.proposta_id.slice(0, 8)}...</span>
-                    </td>
-                    <td className="py-4 px-4 font-medium text-foreground">{p.parceiro_nome}</td>
-                    <td className="py-4 px-4">
-                      <Badge variant="outline">{p.tipo_parceria}</Badge>
-                    </td>
-                    <td className="py-4 px-4 text-foreground">{p.cliente_nome}</td>
-                    <td className="py-4 px-4 text-right font-semibold text-primary">
-                      R$ {formatCurrency(p.valor_total)}
-                    </td>
-                    <td className="py-4 px-4">{getStatusBadge(p.status_proposta)}</td>
-                    <td className="py-4 px-4 text-muted-foreground">{formatDate(p.data_criacao)}</td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleView(p.proposta_id)}
-                          className="text-primary hover:text-primary hover:bg-primary/10"
-                          title="Visualizar proposta"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDownloadPDF(p)}
-                          className="text-primary hover:text-primary hover:bg-primary/10"
-                          title="Baixar PDF"
-                        >
-                          <FileDown className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filteredProposals.map((p) => {
+                  const hasNoUser = !p.usuario_id;
+                  return (
+                    <tr key={p.proposta_id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                      <td className="py-4 px-4">
+                        <span className="font-mono text-sm text-primary">{p.proposta_id.slice(0, 8)}...</span>
+                      </td>
+                      <td className="py-4 px-4 font-medium text-foreground">
+                        <div className="flex items-center gap-2">
+                          {p.parceiro_nome}
+                          {hasNoUser && (
+                            <span title="Sem usuário vinculado" className="text-amber-500">
+                              <AlertTriangle className="w-4 h-4" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <Badge variant="outline">{p.tipo_parceria}</Badge>
+                      </td>
+                      <td className="py-4 px-4 text-foreground">{p.cliente_nome}</td>
+                      <td className="py-4 px-4 text-right font-semibold text-primary">
+                        R$ {formatCurrency(p.valor_total)}
+                      </td>
+                      <td className="py-4 px-4">{getStatusBadge(p.status_proposta)}</td>
+                      <td className="py-4 px-4 text-muted-foreground">{formatDate(p.data_criacao)}</td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleView(p.proposta_id)}
+                            className="text-primary hover:text-primary hover:bg-primary/10"
+                            title="Visualizar proposta"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownloadPDF(p)}
+                            className="text-primary hover:text-primary hover:bg-primary/10"
+                            title="Baixar PDF"
+                          >
+                            <FileDown className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

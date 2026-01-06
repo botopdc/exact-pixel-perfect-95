@@ -50,7 +50,10 @@ export function usePartnerProposals(isAdmin = false) {
       if (isAdmin) {
         return all;
       }
-      return userId ? all.filter(p => p.usuario_id === userId) : [];
+      // Partner: filter by usuario_id AND ignore proposals without usuario_id
+      return userId 
+        ? all.filter(p => p.usuario_id && p.usuario_id === userId) 
+        : [];
     },
     staleTime: 1000 * 60 * 5,
   });
