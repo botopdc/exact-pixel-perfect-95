@@ -49,6 +49,7 @@ const PropostaView: React.FC = () => {
       result: proposal.result,
       selectedTerm: proposal.selectedTerm,
       datacenter: proposal.datacenter || 'SP1',
+      observacao: proposal.observacao,
     });
     toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
   };
@@ -308,6 +309,16 @@ const PropostaView: React.FC = () => {
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {/* Observações section - only if present */}
+            {proposal.observacao && (
+              <div className="pt-6 border-t proposal-divider">
+                <h2 className="proposal-section-title text-base mb-4 uppercase tracking-wide">
+                  Observações
+                </h2>
+                <p className="proposal-value text-sm whitespace-pre-wrap">{proposal.observacao}</p>
               </div>
             )}
           </div>
