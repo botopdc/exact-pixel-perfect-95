@@ -641,6 +641,7 @@ const OpenCalculator: React.FC = () => {
       setStorageItems(editProposal.storageItems || []);
       setReseller(editProposal.reseller || DEFAULT_RESELLER_STATE);
       setOpenSaas(editProposal.openSaas || DEFAULT_OPEN_SAAS_STATE);
+      setObservacao(editProposal.observacao || '');
       
       // Expand all loaded items
       const allItemIds = (editProposal.items || []).map((item: any) => item.id);
