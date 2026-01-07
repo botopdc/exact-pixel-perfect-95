@@ -15,11 +15,12 @@ interface OpenPDFParams {
   datacenter?: string;
   reseller?: ResellerState;
   includeCommission?: boolean;
+  observacao?: string;
 }
 
 // Generate summary page as PDF bytes using pdfMake
 const generateSummaryPdfBytes = (params: OpenPDFParams): Promise<Uint8Array> => {
-  const { client, proposal, result, selectedTerm, datacenter = 'SP1', reseller, includeCommission = true } = params;
+  const { client, proposal, result, selectedTerm, datacenter = 'SP1', reseller, includeCommission = true, observacao } = params;
   const validUntil = getValidityDate(proposal.createdAt, proposal.validityDays);
   const fmtDate = (d: Date) => d.toLocaleDateString('pt-BR');
   const isPartnerMode = reseller?.viewMode === 'INTERNO';
@@ -100,6 +101,14 @@ const generateSummaryPdfBytes = (params: OpenPDFParams): Promise<Uint8Array> => 
     if (isPartnerMode && reseller.observations) {
       body.push([{ text: `Observações: ${reseller.observations}`, colSpan: 4, style: 'td', alignment: 'left' }, {}, {}, {}]);
     }
+  }
+
+  // Add Observações section at the end (only if not empty)
+  if (observacao && observacao.trim()) {
+    body.push([{ text: '', colSpan: 4, margin: [0, 8, 0, 0] }, {}, {}, {}]);
+    body.push([{ text: 'OBSERVAÇÕES', colSpan: 4, style: 'sectionHeader', alignment: 'left' }, {}, {}, {}]);
+    body.push([{ text: '', colSpan: 4, margin: [0, 4, 0, 0] }, {}, {}, {}]);
+    body.push([{ text: observacao.trim(), colSpan: 4, style: 'td', alignment: 'left' }, {}, {}, {}]);
   }
 
   const docDefinition: any = {
