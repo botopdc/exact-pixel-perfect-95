@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalculationResult, ClientInfo, ProposalMeta } from '@/lib/calculatorConfig';
 import { openApi } from '@/lib/openApi';
+import type { SummaryRow } from '@/lib/calculatorConfig';
 
 // Proposal status type
 export type ProposalStatus = 'E' | 'A' | 'R' | ''; // Enviado, Aprovado, Recusado, Vazio
@@ -61,7 +62,7 @@ interface ApiProposal {
   deleted_at?: string;
 }
 
-// Transform API proposal to local format
+// Transform API proposal to local format - REBUILDS result from saved data
 function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   // Map contract_duration to selectedTerm
   const termMap: Record<number, string> = { 1: '1', 12: '12', 24: '24', 36: '36' };
@@ -81,35 +82,111 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   
   // Transform API addons array to local addons object
   const addonsObj: Record<string, { enabled: boolean; price: number; quantity: number }> = {};
+  let addonsTotal = 0;
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
     for (const addon of apiProposal.addons) {
       if (addon.name) {
+        const addonPrice = addon.price || 0;
+        const addonQty = addon.quantity || 1;
         addonsObj[addon.name] = {
           enabled: true,
-          price: addon.price || 0,
-          quantity: addon.quantity || 1,
+          price: addonPrice,
+          quantity: addonQty,
         };
+        addonsTotal += addonPrice * addonQty;
       }
     }
   }
   
-  // Transform API servers array to local items format
-  const items = (apiProposal.servers || []).map((server: any) => ({
-    id: crypto.randomUUID(),
-    name: server.name || 'Server',
-    label: server.name || 'Server',
-    vcpu: server.vcpu || 0,
-    cpu: server.vcpu || 0,
-    ram: server.ram || 0,
-    memory: server.ram || 0,
-    storage: server.storage || 0,
-    disk: server.storage || 0,
-    nvme: server.storage || 0,
-    price: server.price || 0,
-    total: server.price || 0,
-    monthlyPrice: server.price || 0,
-    quantity: server.quantity || 1,
-  }));
+  // Transform API servers array to local items format + build rows for result
+  const rows: Array<{ label: string; qty: string | number; unitPrice: number; subtotal: number }> = [];
+  let serversSubtotal = 0;
+  
+  const items = (apiProposal.servers || []).map((server: any) => {
+    const serverName = server.name || 'Server';
+    const price = server.price || 0;
+    const quantity = server.quantity || 1;
+    const subtotal = price * quantity;
+    
+    // Build display label with specs
+    const vcpu = server.vcpu || 0;
+    const ram = server.ram || 0;
+    const storage = server.storage || 0;
+    const specLabel = vcpu > 0 || ram > 0 || storage > 0
+      ? `${serverName} (${vcpu} vCPU, ${ram}GB RAM, ${storage}GB)`
+      : serverName;
+    
+    // Add row for result
+    rows.push({
+      label: specLabel,
+      qty: quantity,
+      unitPrice: price,
+      subtotal: subtotal,
+    });
+    
+    serversSubtotal += subtotal;
+    
+    return {
+      id: crypto.randomUUID(),
+      name: serverName,
+      label: serverName,
+      vcpu: vcpu,
+      cpu: vcpu,
+      ram: ram,
+      memory: ram,
+      storage: storage,
+      disk: storage,
+      nvme: storage,
+      price: price,
+      total: price,
+      monthlyPrice: price,
+      quantity: quantity,
+    };
+  });
+  
+  // Add addon rows if they exist
+  if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
+    for (const addon of apiProposal.addons) {
+      if (addon.name) {
+        const addonPrice = addon.price || 0;
+        const addonQty = addon.quantity || 1;
+        rows.push({
+          label: addon.name,
+          qty: addonQty,
+          unitPrice: addonPrice,
+          subtotal: addonPrice * addonQty,
+        });
+      }
+    }
+  }
+  
+  // Calculate discount
+  const discountPct = apiProposal.discount_pct || 0;
+  const subtotalBeforeDiscount = serversSubtotal + addonsTotal;
+  const discountValue = subtotalBeforeDiscount * discountPct;
+  const grandTotal = apiProposal.total || (subtotalBeforeDiscount - discountValue);
+  
+  // Build the result object
+  const result: CalculationResult = {
+    rows,
+    subRec: serversSubtotal,
+    subIps: 0, // Not stored in API
+    subServices: addonsTotal,
+    subBackup: 0, // Not stored in API
+    subKubernetes: 0, // Not stored in API
+    subStorage: 0, // Not stored in API
+    subOpenSaas: 0, // Not stored in API
+    discountPct,
+    discountValue,
+    grandTotal,
+    totalServers: items.length,
+    gpuUsdTotal: 0, // Not stored in API
+    gpuBrlTotal: 0, // Not stored in API
+    subtotalPriceList: subtotalBeforeDiscount,
+    overValue: 0,
+    overPercent: 0,
+    totalWithOver: grandTotal,
+  };
   
   return {
     id: apiProposal.id,
@@ -136,10 +213,11 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       commissionValue: apiProposal.commission_value,
       commissionReason: apiProposal.commission_reason,
     } : undefined,
-    total: apiProposal.total || 0,
+    total: grandTotal,
     savedAt: apiProposal.created_at,
     status: '' as ProposalStatus,
     observacao: apiProposal.observations || undefined,
+    result, // Now included!
   };
 }
 
