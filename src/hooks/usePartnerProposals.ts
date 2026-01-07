@@ -145,7 +145,7 @@ export function useSavePartnerProposal() {
         due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       };
 
-      const result = await openApi.createProposal(apiData);
+      const result = await openApi.createProposalPublic(apiData);
       
       const partnerProposal: PartnerProposal = {
         proposta_id: `PROP-${(result as any).id}`,
@@ -239,7 +239,7 @@ export function useDuplicatePartnerProposal() {
         due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       };
 
-      const result = await openApi.createProposal(duplicateData);
+      const result = await openApi.createProposalPublic(duplicateData);
 
       return { success: true, data: apiToPartnerProposal(result, session) };
     },

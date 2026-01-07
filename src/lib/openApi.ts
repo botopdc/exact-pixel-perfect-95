@@ -288,6 +288,18 @@ class OpenApiClient {
     return response.data;
   }
 
+  // Create proposal without authentication (for partner context)
+  // Partner proposals are identified by channel_type: 'PARCEIRO' and reseller_name
+  async createProposalPublic(data: unknown): Promise<unknown> {
+    const response = await axios.post(`${API_BASE_URL}/calculator/proposal`, data, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    });
+    return response.data;
+  }
+
   async getProposal(id: number): Promise<unknown> {
     const response = await this.client.get(`/calculator/proposal/${id}`);
     return response.data;

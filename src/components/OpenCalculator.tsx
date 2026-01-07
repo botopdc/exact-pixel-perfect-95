@@ -52,6 +52,8 @@ import {
 import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSaveProposal, SavedProposal } from '@/hooks/useProposals';
+import { useSavePartnerProposal } from '@/hooks/usePartnerProposals';
+import { partnerAuthService } from '@/services/partnersService';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CheckCircle, Lock } from 'lucide-react';
 
@@ -67,7 +69,14 @@ const OpenCalculator: React.FC = () => {
   const location = useLocation();
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
-  const saveProposalMutation = useSaveProposal();
+  
+  // Detect if we are in partner context
+  const isPartnerContext = location.pathname.startsWith('/parceiro');
+  const partnerSession = isPartnerContext ? partnerAuthService.getSession() : null;
+  
+  // Use appropriate save mutation based on context
+  const saveInternalProposalMutation = useSaveProposal();
+  const savePartnerProposalMutation = useSavePartnerProposal();
   
   // Read partner discount from localStorage (set by CalculadoraParceiro)
   const getPartnerDiscount = useCallback((): PartnerDiscountContext | null => {
@@ -709,38 +718,74 @@ const OpenCalculator: React.FC = () => {
 
     setSaving(true);
     try {
-      const proposalData: SavedProposal = {
-        fx,
-        selectedTerm,
-        datacenter,
-        client,
-        proposal,
-        items,
-        addons,
-        kubernetes,
-        storageItems,
-        reseller,
-        openSaas,
-        total: result?.grandTotal || 0,
-        savedAt: new Date().toISOString(),
-        result: result || undefined,
-        observacao: observacao.trim() || undefined,
-      };
+      if (isPartnerContext && partnerSession) {
+        // Partner context: use partner proposal hook
+        const partnerProposalData = {
+          proposta_id: proposal.id,
+          cliente_nome: client.name || client.company || '',
+          cliente_email: client.email,
+          valor_total: result?.grandTotal || 0,
+          status_proposta: 'Rascunho' as const,
+          dados_proposta: {
+            fx,
+            selectedTerm,
+            datacenter,
+            client,
+            proposal,
+            items,
+            addons,
+            kubernetes,
+            storageItems,
+            reseller,
+            openSaas,
+            result,
+            observacao: observacao.trim() || undefined,
+          },
+        };
 
-      // Save via API
-      await saveProposalMutation.mutateAsync(proposalData);
+        await savePartnerProposalMutation.mutateAsync(partnerProposalData);
+      } else {
+        // Internal context: use internal proposal hook
+        const proposalData: SavedProposal = {
+          fx,
+          selectedTerm,
+          datacenter,
+          client,
+          proposal,
+          items,
+          addons,
+          kubernetes,
+          storageItems,
+          reseller,
+          openSaas,
+          total: result?.grandTotal || 0,
+          savedAt: new Date().toISOString(),
+          result: result || undefined,
+          observacao: observacao.trim() || undefined,
+        };
+
+        await saveInternalProposalMutation.mutateAsync(proposalData);
+      }
 
       // Store payload for debug purposes (admin mode)
-      setLastPayload(JSON.stringify(proposalData, null, 2));
+      setLastPayload(JSON.stringify({ fx, selectedTerm, datacenter, client, proposal, items, addons, kubernetes, storageItems, reseller, openSaas, result, observacao }, null, 2));
 
       toast({ title: 'Proposta salva', description: `Proposta ${proposal.id} salva com sucesso` });
     } catch (error: any) {
       console.error('Error saving proposal:', error);
+      
+      // Handle 401 specifically for better UX
+      const is401 = error.response?.status === 401 || error.message?.includes('401');
       toast({ 
-        title: 'Erro ao salvar', 
-        description: error.message || 'Tente novamente mais tarde', 
+        title: is401 ? 'Sessão expirada' : 'Erro ao salvar', 
+        description: is401 ? 'Faça login novamente para continuar.' : (error.message || 'Tente novamente mais tarde'), 
         variant: 'destructive' 
       });
+      
+      // Redirect to login if 401 in partner context
+      if (is401 && isPartnerContext) {
+        navigate('/parceiro/login');
+      }
     } finally {
       setSaving(false);
     }
