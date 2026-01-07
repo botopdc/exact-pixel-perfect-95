@@ -256,7 +256,7 @@ const PropostaView: React.FC = () => {
             </div>
 
             {/* Items and totals table */}
-            {result && (
+            {result && result.rows && result.rows.length > 0 ? (
               <div>
                 <h2 className="proposal-section-title text-base mb-4 uppercase tracking-wide">
                   Resumo & Totais
@@ -286,29 +286,51 @@ const PropostaView: React.FC = () => {
                         <td colSpan={3} className="py-2 px-3">Subtotal recursos</td>
                         <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subRec)}</td>
                       </tr>
-                      <tr className="proposal-table-footer-row">
-                        <td colSpan={3} className="py-2 px-3">IPs públicos</td>
-                        <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subIps)}</td>
-                      </tr>
-                      <tr className="proposal-table-footer-row">
-                        <td colSpan={3} className="py-2 px-3">Serviços adicionais</td>
-                        <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subServices)}</td>
-                      </tr>
-                      <tr className="proposal-table-footer-row">
-                        <td colSpan={3} className="py-2 px-3">Backup</td>
-                        <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subBackup)}</td>
-                      </tr>
-                      <tr className="proposal-table-footer-row">
-                        <td colSpan={3} className="py-2 px-3">Desconto</td>
-                        <td className="py-2 px-3 text-right proposal-discount tabular-nums">-{formatCurrency(result.discountValue)}</td>
-                      </tr>
+                      {result.subIps > 0 && (
+                        <tr className="proposal-table-footer-row">
+                          <td colSpan={3} className="py-2 px-3">IPs públicos</td>
+                          <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subIps)}</td>
+                        </tr>
+                      )}
+                      {result.subServices > 0 && (
+                        <tr className="proposal-table-footer-row">
+                          <td colSpan={3} className="py-2 px-3">Serviços adicionais</td>
+                          <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subServices)}</td>
+                        </tr>
+                      )}
+                      {result.subBackup > 0 && (
+                        <tr className="proposal-table-footer-row">
+                          <td colSpan={3} className="py-2 px-3">Backup</td>
+                          <td className="py-2 px-3 text-right font-medium tabular-nums">{formatCurrency(result.subBackup)}</td>
+                        </tr>
+                      )}
+                      {result.discountValue > 0 && (
+                        <tr className="proposal-table-footer-row">
+                          <td colSpan={3} className="py-2 px-3">Desconto ({(result.discountPct * 100).toFixed(0)}%)</td>
+                          <td className="py-2 px-3 text-right proposal-discount tabular-nums">-{formatCurrency(result.discountValue)}</td>
+                        </tr>
+                      )}
                       <tr className="proposal-total-row">
-                        <td colSpan={3} className="py-4 px-3 text-lg">TOTAL</td>
+                        <td colSpan={3} className="py-4 px-3 text-lg">TOTAL MENSAL</td>
                         <td className="py-4 px-3 text-right text-lg tabular-nums">R$ {formatCurrency(result.grandTotal)}</td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            ) : (
+              <div className="border border-dashed border-muted-foreground/30 rounded-lg p-8 text-center">
+                <h2 className="proposal-section-title text-base mb-2 uppercase tracking-wide">
+                  Resumo & Totais
+                </h2>
+                <p className="text-muted-foreground">
+                  Itens da proposta não encontrados. Verifique se a proposta foi salva corretamente.
+                </p>
+                {proposal.total > 0 && (
+                  <p className="text-lg font-semibold mt-4">
+                    Total: R$ {formatCurrency(proposal.total)}
+                  </p>
+                )}
               </div>
             )}
 
