@@ -48,6 +48,7 @@ import GestaoParceiroAdmin from '@/pages/parceiros/GestaoParceiroAdmin';
 import GestaoComissoes from '@/pages/parceiros/GestaoComissoes';
 import DashboardExecutivoParceiros from '@/pages/parceiros/DashboardExecutivoParceiros';
 import PropostasAdmin from '@/pages/parceiros/PropostasAdmin';
+import ApiTest from '@/pages/ApiTest';
 
 const queryClient = new QueryClient();
 
@@ -69,6 +70,7 @@ const App = () => (
           <Route path="/vagas" element={<VagasPublic />} />
           <Route path="/vagas/:slug" element={<VagaDetalhe />} />
           <Route path="/vagas.json" element={<VagasJson />} />
+          <Route path="/api-test" element={<ApiTest />} />
           
           {/* Partner public routes */}
           <Route path="/parceiro/cadastro" element={<CadastroParceiro />} />
