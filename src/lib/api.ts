@@ -39,7 +39,7 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
   if (token) {
-    config.headers = { ...(config.headers || {}), Authorization: `Bearer ${token}` };
+    config.headers.set('Authorization', `Bearer ${token}`);
   }
   return config;
 });
