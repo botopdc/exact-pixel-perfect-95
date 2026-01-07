@@ -27,6 +27,7 @@ interface LocalStorageAudit {
 // Keys that are allowed in localStorage (UI preferences only)
 const ALLOWED_KEYS = [
   'open-datacenter-theme',
+  'open_access_token',
   'open_api_token',
   'open_auth_session_v1',
   'open_partner_session_v1',

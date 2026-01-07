@@ -2,10 +2,10 @@
 // PARTNERS SERVICE - LocalStorage Implementation
 // ============================================================================
 
-import { 
-  Partner, 
-  PartnerType, 
-  PartnerStatus, 
+import {
+  Partner,
+  PartnerType,
+  PartnerStatus,
   PartnerSession,
   Referral,
   ReferralStatus,
@@ -13,6 +13,7 @@ import {
   CommissionInstallment,
   PaymentStatus,
 } from '@/types/partner';
+import { openApi } from '@/lib/openApi';
 
 const PARTNERS_KEY = 'open_partners_v1';
 const REFERRALS_KEY = 'open_referrals_v1';
@@ -168,19 +169,24 @@ export const partnersService = {
 export const partnerAuthService = {
   async login(email: string, password: string): Promise<{ success: boolean; session?: PartnerSession; error?: string }> {
     try {
-      const partner = partnersService.getByEmail(email);
-      if (!partner) {
-        return { success: false, error: 'Email ou senha incorretos' };
+      const normalizedEmail = email.toLowerCase().trim();
+
+      if (!normalizedEmail || !password) {
+        return { success: false, error: 'Email e senha são obrigatórios' };
       }
 
-      const passwordHash = await hashPassword(password);
-      if (passwordHash !== partner.senha_hash) {
+      // Partner must exist locally (contract/status rules)
+      const partner = partnersService.getByEmail(normalizedEmail);
+      if (!partner) {
         return { success: false, error: 'Email ou senha incorretos' };
       }
 
       if (partner.status === 'Inativo') {
         return { success: false, error: 'Sua conta está inativa. Entre em contato com o suporte.' };
       }
+
+      // Validate credentials via API (also stores open_access_token)
+      const apiLogin = await openApi.login(normalizedEmail, password);
 
       const session: PartnerSession = {
         partnerId: partner.id,
@@ -189,20 +195,27 @@ export const partnerAuthService = {
         tipo_parceria: partner.tipo_parceria,
         status: partner.status,
         contrato_aceito: partner.contrato_aceito,
-        token: generateToken(),
+        token: apiLogin.token,
         expiresAt: new Date(Date.now() + SESSION_DURATION_MS).toISOString(),
       };
 
       localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(session));
       return { success: true, session };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[PartnerAuth] Login error:', error);
-      return { success: false, error: 'Erro ao fazer login' };
+
+      const status = error?.response?.status;
+      if (status === 401) {
+        return { success: false, error: 'Email ou senha incorretos' };
+      }
+
+      return { success: false, error: 'Erro ao fazer login. Verifique sua conexão.' };
     }
   },
 
   logout(): void {
     localStorage.removeItem(PARTNER_SESSION_KEY);
+    openApi.clearToken();
   },
 
   getSession(): PartnerSession | null {

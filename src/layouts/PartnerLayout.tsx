@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, Outlet, Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { partnerAuthService } from '@/services/partnersService';
+import { openApi } from '@/lib/openApi';
 import { PARTNER_DISCOUNTS, PartnerType } from '@/types/partner';
 import logoWhite from '@/assets/logo-white.png';
 import {
@@ -225,7 +227,9 @@ export default function PartnerLayout() {
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    const checkAuth = () => {
+    let mounted = true;
+
+    const checkAuth = async () => {
       const session = partnerAuthService.getSession();
       if (!session) {
         navigate('/parceiro/login', { replace: true });
@@ -240,13 +244,34 @@ export default function PartnerLayout() {
         navigate('/parceiro/login', { replace: true });
         return;
       }
+
+      // Bootstrap/validate API session (GET /api/auth/me)
+      try {
+        await openApi.getCurrentUser();
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          partnerAuthService.logout();
+          toast.error('Sessão expirada. Faça login novamente.');
+          navigate('/parceiro/login', { replace: true });
+          return;
+        }
+        console.error('[PartnerLayout] Falha ao validar sessão via API:', err);
+      }
     };
 
-    checkAuth();
-    setIsChecking(false);
+    void checkAuth().finally(() => {
+      if (mounted) setIsChecking(false);
+    });
 
-    const interval = setInterval(checkAuth, 60000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      void checkAuth();
+    }, 60000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [navigate]);
 
   if (isChecking) {
