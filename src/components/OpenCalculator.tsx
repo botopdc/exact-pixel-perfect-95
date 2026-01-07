@@ -137,6 +137,7 @@ const OpenCalculator: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [includeCommissionInPdf, setIncludeCommissionInPdf] = useState(true);
   const [lastPayload, setLastPayload] = useState<string | null>(null);
+  const [observacao, setObservacao] = useState('');
 
   // Check if admin mode (same PIN as /precos page)
   const isAdminMode = localStorage.getItem('open_precos_adminMode') === 'true';
@@ -722,6 +723,7 @@ const OpenCalculator: React.FC = () => {
         total: result?.grandTotal || 0,
         savedAt: new Date().toISOString(),
         result: result || undefined,
+        observacao: observacao.trim() || undefined,
       };
 
       // Save via API
@@ -764,6 +766,7 @@ const OpenCalculator: React.FC = () => {
       datacenter,
       reseller,
       includeCommission: includeCommissionInPdf,
+      observacao: observacao.trim() || undefined,
     });
     toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
   };
@@ -850,6 +853,7 @@ const OpenCalculator: React.FC = () => {
     setSelectedTerm("1");
     setDatacenter('SP1');
     setAntivirusManuallySet(false);
+    setObservacao('');
     setTimeout(addVM, 0);
   };
 
@@ -1072,6 +1076,21 @@ const OpenCalculator: React.FC = () => {
               <p className="text-xs text-muted-foreground mt-2">
                 Válida até: {validityDate.toLocaleDateString('pt-BR')}
               </p>
+              
+              {/* Observação field */}
+              <div className="mt-4">
+                <label className="block text-xs text-muted-foreground mb-1">Observação</label>
+                <textarea
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value.slice(0, 2000))}
+                  placeholder="Digite aqui informações relevantes para o cliente (escopo, premissas, prazos, ressalvas etc.)"
+                  className="w-full min-h-[100px] p-3 rounded-md bg-input border border-border text-foreground placeholder:text-muted-foreground resize-y"
+                  maxLength={2000}
+                />
+                <p className="text-xs text-muted-foreground mt-1 text-right">
+                  {observacao.length}/2000 caracteres
+                </p>
+              </div>
             </div>
 
             {/* Servers */}

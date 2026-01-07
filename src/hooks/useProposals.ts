@@ -33,6 +33,7 @@ export interface SavedProposal {
   result?: CalculationResult;
   status?: ProposalStatus;
   acceptance?: ProposalAcceptance;
+  observacao?: string;
 }
 
 // API Proposal format (what comes from the API)
@@ -105,6 +106,7 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     total: apiProposal.total || 0,
     savedAt: apiProposal.created_at,
     status: '' as ProposalStatus,
+    observacao: apiProposal.observations || undefined,
   };
 }
 
@@ -140,7 +142,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     reseller_name: proposal.reseller?.name || null,
     commission_value: proposal.reseller?.commissionValue || null,
     commission_reason: proposal.reseller?.commissionReason || null,
-    observations: null,
+    observations: proposal.observacao || null,
     fx: proposal.fx || 5,
     datacenter: datacenterNames[proposal.datacenter || 'SP1'] || 'São Paulo',
     contract_duration: contractDuration,
