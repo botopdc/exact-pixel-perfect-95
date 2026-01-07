@@ -2,10 +2,14 @@
 // OPEN API CLIENT - HTTP Client for OPDC API
 // ============================================================================
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosError, AxiosInstance } from 'axios';
+import { toast } from 'sonner';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
-const AUTH_TOKEN_KEY = 'open_api_token';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
+const AUTH_TOKEN_KEY = 'open_access_token';
+const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+const INTERNAL_SESSION_KEY = 'open_auth_session_v1';
+const PARTNER_SESSION_KEY = 'open_partner_session_v1';
 
 // ============================================================================
 // TYPES
@@ -90,6 +94,7 @@ class OpenApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
+      timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -99,9 +104,20 @@ class OpenApiClient {
     // Request interceptor - add auth token
     this.client.interceptors.request.use((config) => {
       const token = this.getToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      const headers: any = config.headers ?? {};
+
+      headers.Accept = headers.Accept ?? 'application/json';
+
+      // Only set JSON content-type for non-multipart requests
+      if (!(typeof FormData !== 'undefined' && config.data instanceof FormData)) {
+        headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
       }
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      config.headers = headers;
       return config;
     });
 
@@ -109,9 +125,32 @@ class OpenApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error: AxiosError<ApiError>) => {
-        if (error.response?.status === 401) {
+        const status = error.response?.status;
+
+        if (status === 401 || status === 403) {
           this.clearToken();
+          localStorage.removeItem(INTERNAL_SESSION_KEY);
+          localStorage.removeItem(PARTNER_SESSION_KEY);
+
+          const pathname = window.location.pathname;
+          const isPartner = pathname.startsWith('/parceiro');
+          const loginPath = isPartner ? '/parceiro/login' : '/login';
+
+          // Avoid redirect loops
+          if (!pathname.startsWith(loginPath)) {
+            toast.error('Sessão expirada. Faça login novamente.');
+            window.location.replace(loginPath);
+          }
         }
+
+        if (status && status >= 500) {
+          console.error('[API] Erro no servidor:', {
+            status,
+            url: error.config?.url,
+            data: error.response?.data,
+          });
+        }
+
         return Promise.reject(error);
       }
     );
@@ -119,15 +158,18 @@ class OpenApiClient {
 
   // Token management
   getToken(): string | null {
-    return localStorage.getItem(AUTH_TOKEN_KEY);
+    return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
   }
 
   setToken(token: string): void {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
+    // Backwards-compatible key (older builds)
+    localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
   }
 
   clearToken(): void {
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
   }
 
   // ============================================================================
@@ -285,18 +327,6 @@ class OpenApiClient {
 
   async createProposal(data: unknown): Promise<unknown> {
     const response = await this.client.post('/calculator/proposal', data);
-    return response.data;
-  }
-
-  // Create proposal without authentication (for partner context)
-  // Partner proposals are identified by channel_type: 'PARCEIRO' and reseller_name
-  async createProposalPublic(data: unknown): Promise<unknown> {
-    const response = await axios.post(`${API_BASE_URL}/calculator/proposal`, data, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    });
     return response.data;
   }
 

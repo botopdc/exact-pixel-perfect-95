@@ -19,17 +19,29 @@ import {
 // ============================================================================
 // API CONFIGURATION
 // ============================================================================
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
 
 // API version prefix
 const API_V2_PREFIX = '/v2/calculator';
 
+const AUTH_TOKEN_KEY = 'open_access_token';
+const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  if (token) {
+    config.headers = { ...(config.headers || {}), Authorization: `Bearer ${token}` };
+  }
+  return config;
 });
 
 // ============================================================================
