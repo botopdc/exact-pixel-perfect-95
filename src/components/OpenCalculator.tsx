@@ -1956,11 +1956,13 @@ const OpenCalculator: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(config.addons_brl.sql).map(([key, price]) => (
-                        <SelectItem key={key} value={key}>
-                          {key === 'none' ? 'Nenhum' : key.toUpperCase()} {price > 0 && `- R$ ${formatCurrency(price)}`}
-                        </SelectItem>
-                      ))}
+                      {Object.entries(config.addons_brl.sql)
+                        .filter(([key]) => key && key.trim() !== '')
+                        .map(([key, price]) => (
+                          <SelectItem key={key} value={key}>
+                            {key === 'none' ? 'Nenhum' : key.toUpperCase()} {price > 0 && `- R$ ${formatCurrency(price)}`}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
