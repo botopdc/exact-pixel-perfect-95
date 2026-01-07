@@ -70,6 +70,7 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   // Map datacenter string to code
   const datacenterMap: Record<string, 'SP1' | 'SP2' | 'FL1' | 'CE1'> = {
     'São Paulo': 'SP1',
+    'São Paulo 2': 'SP2',
     'SP1': 'SP1',
     'SP2': 'SP2',
     'Florida': 'FL1',
@@ -77,6 +78,38 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     'Ceará': 'CE1',
     'CE1': 'CE1',
   };
+  
+  // Transform API addons array to local addons object
+  const addonsObj: Record<string, { enabled: boolean; price: number; quantity: number }> = {};
+  if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
+    for (const addon of apiProposal.addons) {
+      if (addon.name) {
+        addonsObj[addon.name] = {
+          enabled: true,
+          price: addon.price || 0,
+          quantity: addon.quantity || 1,
+        };
+      }
+    }
+  }
+  
+  // Transform API servers array to local items format
+  const items = (apiProposal.servers || []).map((server: any) => ({
+    id: crypto.randomUUID(),
+    name: server.name || 'Server',
+    label: server.name || 'Server',
+    vcpu: server.vcpu || 0,
+    cpu: server.vcpu || 0,
+    ram: server.ram || 0,
+    memory: server.ram || 0,
+    storage: server.storage || 0,
+    disk: server.storage || 0,
+    nvme: server.storage || 0,
+    price: server.price || 0,
+    total: server.price || 0,
+    monthlyPrice: server.price || 0,
+    quantity: server.quantity || 1,
+  }));
   
   return {
     id: apiProposal.id,
@@ -94,8 +127,8 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       validityDays: 7,
       createdAt: apiProposal.created_at,
     },
-    items: apiProposal.servers || [],
-    addons: apiProposal.addons || {},
+    items,
+    addons: addonsObj,
     kubernetes: {},
     storageItems: [],
     reseller: apiProposal.reseller_name ? {
@@ -124,7 +157,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     'CE1': 'Ceará',
   };
   
-  // Calculate discount percentage from result if available
+  // Calculate discount percentage from result if available (API expects 0-1 range)
   const discountPct = proposal.result?.discountPct || 0;
   
   // Calculate due_at (proposal validity)
@@ -132,6 +165,44 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   const createdAt = proposal.proposal?.createdAt || proposal.savedAt || new Date().toISOString();
   const dueAt = new Date(createdAt);
   dueAt.setDate(dueAt.getDate() + validityDays);
+  
+  // Transform addons to API format: array of {name, price, quantity}
+  const addonsArray: Array<{ name: string; price: number; quantity: number }> = [];
+  if (proposal.addons && typeof proposal.addons === 'object') {
+    for (const [key, value] of Object.entries(proposal.addons)) {
+      if (typeof value === 'object' && value !== null) {
+        const addon = value as { enabled?: boolean; price?: number; quantity?: number };
+        if (addon.enabled) {
+          addonsArray.push({
+            name: key,
+            price: addon.price || 0,
+            quantity: addon.quantity || 1,
+          });
+        }
+      } else if (typeof value === 'number' && value > 0) {
+        addonsArray.push({
+          name: key,
+          price: value,
+          quantity: 1,
+        });
+      }
+    }
+  }
+  
+  // Transform servers/items to API format: array of {name, vcpu, ram, storage, price, quantity}
+  const serversArray: Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }> = [];
+  if (proposal.items && Array.isArray(proposal.items)) {
+    for (const item of proposal.items) {
+      serversArray.push({
+        name: item.name || item.label || 'Server',
+        vcpu: item.vcpu || item.cpu || 0,
+        ram: item.ram || item.memory || 0,
+        storage: item.storage || item.disk || item.nvme || 0,
+        price: item.price || item.total || item.monthlyPrice || 0,
+        quantity: item.quantity || 1,
+      });
+    }
+  }
   
   return {
     name: proposal.client?.name || '',
@@ -148,8 +219,8 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     contract_duration: contractDuration,
     discount_pct: discountPct,
     total: proposal.total || proposal.result?.grandTotal || 0,
-    addons: proposal.addons ? [proposal.addons] : [],
-    servers: proposal.items || [],
+    addons: addonsArray.length > 0 ? addonsArray : null,
+    servers: serversArray,
     due_at: dueAt.toISOString(),
   };
 }

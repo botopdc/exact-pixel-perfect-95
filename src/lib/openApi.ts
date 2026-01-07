@@ -156,8 +156,117 @@ class OpenApiClient {
   // ============================================================================
 
   async getCalculatorConfig(): Promise<CalculatorConfigApiResponse> {
-    const response = await this.client.get<CalculatorConfigApiResponse>('/calculator-config');
-    return response.data;
+    // API returns paginated response with 'data' array
+    const response = await this.client.get<{ data: Array<{ category: string; section: string; config: unknown }> }>('/calculator/config', {
+      params: { __limit: 100 }
+    });
+    
+    // Transform paginated config items into flat config object
+    const configItems = response.data.data || [];
+    return this.parseConfigItems(configItems);
+  }
+
+  // Parse config items from API into CalculatorConfigApiResponse
+  private parseConfigItems(items: Array<{ category: string; section: string; config: unknown }>): CalculatorConfigApiResponse {
+    const config: CalculatorConfigApiResponse = {
+      fx_default: 5.5,
+      discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.15 },
+      gpu_usd: {},
+      vm_prices_brl: { vcpu: 0, ram_per_gb: 0, nvme_per_gb: 0, ip_public: 0 },
+      baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
+      addons_brl: {},
+      backup_tables_brl_per_gb: {},
+    };
+
+    for (const item of items) {
+      const configData = item.config as any[];
+      
+      switch (item.category) {
+        case 'Geral':
+          if (item.section === 'Configurações Gerais') {
+            for (const entry of configData || []) {
+              if (entry.label === 'FX Padrão') config.fx_default = entry.price || 5.5;
+            }
+          }
+          if (item.section === 'Descontos por Prazo') {
+            for (const entry of configData || []) {
+              const months = entry.label?.replace(' meses', '').replace(' mês', '');
+              if (months) config.discount[months] = (entry.price || 0) / 100;
+            }
+          }
+          break;
+          
+        case 'VM':
+          if (item.section === 'Preços de VM') {
+            for (const entry of configData || []) {
+              if (entry.label === 'vCPU') config.vm_prices_brl.vcpu = entry.price || 0;
+              if (entry.label === 'RAM por GB') config.vm_prices_brl.ram_per_gb = entry.price || 0;
+              if (entry.label === 'NVMe por GB') config.vm_prices_brl.nvme_per_gb = entry.price || 0;
+              if (entry.label === 'IP Público') config.vm_prices_brl.ip_public = entry.price || 0;
+            }
+          }
+          break;
+          
+        case 'GPU':
+          for (const entry of configData || []) {
+            if (entry.label) config.gpu_usd[entry.label] = entry.price || 0;
+          }
+          break;
+          
+        case 'BareMetal':
+          if (item.section === 'Modelos de CPU') {
+            config.baremetal.cpu_models = (configData || []).map((e: any) => ({
+              id: e.label || '',
+              label: e.label || '',
+              price: e.price || 0,
+            }));
+          }
+          if (item.section === 'Tiers de RAM') {
+            config.baremetal.ram_tiers = (configData || []).map((e: any) => ({
+              id: e.label || '',
+              label: e.label || '',
+              gb: e.gb || 0,
+              price: e.price || 0,
+            }));
+          }
+          if (item.section === 'Discos') {
+            config.baremetal.disks = (configData || []).map((e: any) => ({
+              id: e.label || '',
+              label: e.label || '',
+              tb: e.tb || 0,
+              price: e.price || 0,
+            }));
+          }
+          break;
+          
+        case 'Add-ons':
+          for (const entry of configData || []) {
+            if (entry.label) config.addons_brl[entry.label] = entry.price || 0;
+          }
+          break;
+          
+        case 'Storage':
+          if (!config.storage_prices) config.storage_prices = {};
+          for (const entry of configData || []) {
+            if (entry.label) config.storage_prices[entry.label] = entry.price || 0;
+          }
+          break;
+          
+        case 'Kubernetes':
+          if (!config.kubernetes_pricing) config.kubernetes_pricing = {};
+          if (!config.kubernetes_addons_pricing) config.kubernetes_addons_pricing = {};
+          for (const entry of configData || []) {
+            if (entry.type === 'addon') {
+              config.kubernetes_addons_pricing[entry.label] = entry.price || 0;
+            } else {
+              config.kubernetes_pricing[entry.label] = { basePriceMonthly: entry.price || 0 };
+            }
+          }
+          break;
+      }
+    }
+
+    return config;
   }
 
   // ============================================================================
