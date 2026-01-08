@@ -1,7 +1,8 @@
 import { ClientInfo, ProposalMeta, CalculationResult, ResellerState, formatCurrency, getValidityDate } from './calculatorConfig';
 import pdfMake from 'pdfmake/build/pdfmake';
 import * as pdfFonts from 'pdfmake/build/vfs_fonts';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PageSizes } from 'pdf-lib';
+import { Attachment } from '@/services/attachmentsService';
 
 // @ts-ignore
 pdfMake.vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
@@ -16,6 +17,7 @@ interface OpenPDFParams {
   reseller?: ResellerState;
   includeCommission?: boolean;
   observacao?: string;
+  attachments?: Attachment[];
 }
 
 // Generate summary page as PDF bytes using pdfMake
@@ -187,11 +189,84 @@ const fetchTemplatePdf = async (): Promise<Uint8Array> => {
   return new Uint8Array(arrayBuffer);
 };
 
-// Merge template PDF with summary PDF
-export const generateOpenPDF = async ({ client, proposal, result, selectedTerm, reseller, includeCommission }: OpenPDFParams): Promise<void> => {
+// Fetch attachment as bytes
+const fetchAttachment = async (url: string): Promise<Uint8Array> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch attachment: ${url}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return new Uint8Array(arrayBuffer);
+};
+
+// Convert image to PDF page
+const imageToPage = async (pdfDoc: PDFDocument, imageBytes: Uint8Array, mime: string): Promise<void> => {
+  let image;
+  
+  if (mime === 'image/png') {
+    image = await pdfDoc.embedPng(imageBytes);
+  } else if (mime === 'image/jpeg' || mime === 'image/jpg') {
+    image = await pdfDoc.embedJpg(imageBytes);
+  } else {
+    throw new Error(`Unsupported image type: ${mime}`);
+  }
+  
+  // Calculate dimensions to fit A4 with margins
+  const A4_WIDTH = PageSizes.A4[0];
+  const A4_HEIGHT = PageSizes.A4[1];
+  const MARGIN = 40;
+  
+  const maxWidth = A4_WIDTH - (MARGIN * 2);
+  const maxHeight = A4_HEIGHT - (MARGIN * 2);
+  
+  let imgWidth = image.width;
+  let imgHeight = image.height;
+  
+  // Scale to fit within margins
+  const widthRatio = maxWidth / imgWidth;
+  const heightRatio = maxHeight / imgHeight;
+  const scale = Math.min(widthRatio, heightRatio, 1); // Don't upscale
+  
+  imgWidth = imgWidth * scale;
+  imgHeight = imgHeight * scale;
+  
+  // Center on page
+  const x = (A4_WIDTH - imgWidth) / 2;
+  const y = (A4_HEIGHT - imgHeight) / 2;
+  
+  const page = pdfDoc.addPage(PageSizes.A4);
+  page.drawImage(image, {
+    x,
+    y,
+    width: imgWidth,
+    height: imgHeight,
+  });
+};
+
+// Merge template PDF with summary PDF and attachments
+export const generateOpenPDF = async ({ 
+  client, 
+  proposal, 
+  result, 
+  selectedTerm, 
+  datacenter,
+  reseller, 
+  includeCommission,
+  observacao,
+  attachments = [],
+}: OpenPDFParams): Promise<void> => {
   try {
     // Generate summary PDF bytes
-    const summaryPdfBytes = await generateSummaryPdfBytes({ client, proposal, result, selectedTerm, reseller, includeCommission });
+    const summaryPdfBytes = await generateSummaryPdfBytes({ 
+      client, 
+      proposal, 
+      result, 
+      selectedTerm, 
+      datacenter,
+      reseller, 
+      includeCommission,
+      observacao,
+    });
     
     // Load template PDF
     let templatePdfBytes: Uint8Array;
@@ -199,31 +274,45 @@ export const generateOpenPDF = async ({ client, proposal, result, selectedTerm, 
       templatePdfBytes = await fetchTemplatePdf();
     } catch (error) {
       console.warn('Template PDF not found, generating summary only');
-      // Fallback: just download the summary
-      const blob = new Blob([new Uint8Array(summaryPdfBytes)], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `OPEN_proposta_${proposal.id.replace(/[^a-zA-Z0-9_-]/g, '')}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
-      return;
+      templatePdfBytes = new Uint8Array(0);
     }
 
-    // Load both PDFs with pdf-lib
-    const templatePdf = await PDFDocument.load(templatePdfBytes);
-    const summaryPdf = await PDFDocument.load(summaryPdfBytes);
-
-    // Create a new PDF document
+    // Create merged PDF document
     const mergedPdf = await PDFDocument.create();
 
-    // Copy all pages from template
-    const templatePages = await mergedPdf.copyPages(templatePdf, templatePdf.getPageIndices());
-    templatePages.forEach((page) => mergedPdf.addPage(page));
+    // Copy template pages if available
+    if (templatePdfBytes.length > 0) {
+      const templatePdf = await PDFDocument.load(templatePdfBytes);
+      const templatePages = await mergedPdf.copyPages(templatePdf, templatePdf.getPageIndices());
+      templatePages.forEach((page) => mergedPdf.addPage(page));
+    }
 
-    // Copy all pages from summary
+    // Copy summary pages
+    const summaryPdf = await PDFDocument.load(summaryPdfBytes);
     const summaryPages = await mergedPdf.copyPages(summaryPdf, summaryPdf.getPageIndices());
     summaryPages.forEach((page) => mergedPdf.addPage(page));
+
+    // Append attachments at the end (sorted by order)
+    const sortedAttachments = [...attachments].sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    for (const attachment of sortedAttachments) {
+      try {
+        const attachmentBytes = await fetchAttachment(attachment.url);
+        
+        if (attachment.mime === 'application/pdf') {
+          // For PDFs, merge all pages
+          const attachmentPdf = await PDFDocument.load(attachmentBytes);
+          const attachmentPages = await mergedPdf.copyPages(attachmentPdf, attachmentPdf.getPageIndices());
+          attachmentPages.forEach((page) => mergedPdf.addPage(page));
+        } else if (attachment.mime.startsWith('image/')) {
+          // For images, convert to PDF page
+          await imageToPage(mergedPdf, attachmentBytes, attachment.mime);
+        }
+      } catch (attachError) {
+        console.error(`Error processing attachment ${attachment.name}:`, attachError);
+        // Continue with other attachments
+      }
+    }
 
     // Save the merged PDF
     const mergedPdfBytes = await mergedPdf.save();

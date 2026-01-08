@@ -8,7 +8,8 @@ import { useTrackEvent } from '@/hooks/useProposalEvents';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
-
+import { AttachmentsList } from '@/components/attachments/AttachmentsList';
+import { useAttachments } from '@/hooks/useAttachments';
 const PropostaView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -32,7 +33,10 @@ const PropostaView: React.FC = () => {
     }
   }, [id]);
 
-  const handleDownloadPDF = () => {
+  // Fetch attachments for PDF generation
+  const { data: attachments = [] } = useAttachments(id);
+
+  const handleDownloadPDF = async () => {
     if (!proposal?.result) {
       toast({ title: 'Erro', description: 'Dados da proposta incompletos', variant: 'destructive' });
       return;
@@ -43,15 +47,20 @@ const PropostaView: React.FC = () => {
       trackEvent.mutate({ proposalId: id, type: 'pdf_download', channel: 'ui' });
     }
     
-    generateOpenPDF({
-      client: proposal.client,
-      proposal: proposal.proposal,
-      result: proposal.result,
-      selectedTerm: proposal.selectedTerm,
-      datacenter: proposal.datacenter || 'SP1',
-      observacao: proposal.observacao,
-    });
-    toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    try {
+      await generateOpenPDF({
+        client: proposal.client,
+        proposal: proposal.proposal,
+        result: proposal.result,
+        selectedTerm: proposal.selectedTerm,
+        datacenter: proposal.datacenter || 'SP1',
+        observacao: proposal.observacao,
+        attachments: attachments,
+      });
+      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    } catch (error) {
+      toast({ title: 'Erro ao gerar PDF', description: 'Não foi possível gerar o PDF', variant: 'destructive' });
+    }
   };
 
   const handleCopyLink = async () => {
@@ -343,6 +352,11 @@ const PropostaView: React.FC = () => {
                 <p className="proposal-value text-sm whitespace-pre-wrap">{proposal.observacao}</p>
               </div>
             )}
+          </div>
+
+          {/* Attachments section - outside document styling */}
+          <div className="p-8 pt-0">
+            <AttachmentsList proposalId={id || ''} readOnly={false} />
           </div>
         </div>
 
