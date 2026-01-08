@@ -24,6 +24,9 @@ import {
   Lock,
   FileText,
   Receipt,
+  UserCheck,
+  Settings,
+  Handshake,
 } from 'lucide-react';
 
 // ============================================================================
@@ -90,10 +93,10 @@ export const MENU_SECTIONS: MenuSection[] = [
     ],
   },
 
-  // ========== COMERCIAL & PARCEIROS ==========
+  // ========== COMERCIAL (EXECUTIVOS INTERNOS) ==========
   {
     id: 'comercial',
-    title: 'COMERCIAL & PARCEIROS',
+    title: 'COMERCIAL',
     items: [
       {
         id: 'calculadora',
@@ -102,6 +105,42 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Calculator,
         allowedLevels: [700, 750, 1000],
       },
+      {
+        id: 'executivos',
+        title: 'Executivos',
+        url: '/comercial/executivos',
+        icon: UserCheck,
+        allowedLevels: [700, 750, 1000],
+      },
+      {
+        id: 'gestao-executivos',
+        title: 'Gestão de Executivos',
+        url: '/comercial/gestao-executivos',
+        icon: Settings,
+        allowedLevels: [750, 1000],
+      },
+      {
+        id: 'propostas-executivos',
+        title: 'Propostas Executivos',
+        url: '/comercial/propostas',
+        icon: FileStack,
+        allowedLevels: [700, 750, 1000],
+      },
+      {
+        id: 'comissoes-executivos',
+        title: 'Gestão de Comissões',
+        url: '/comercial/comissoes',
+        icon: DollarSign,
+        allowedLevels: [750, 1000],
+      },
+    ],
+  },
+
+  // ========== PARCEIROS (ISV/VAR/FINDER) ==========
+  {
+    id: 'parceiros',
+    title: 'PARCEIROS',
+    items: [
       {
         id: 'executivo-parceiros',
         title: 'Executivo Parceiros',
@@ -113,7 +152,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         id: 'gestao-parceiros',
         title: 'Gestão de Parceiros',
         url: '/parceiros/gestao',
-        icon: Shield,
+        icon: Handshake,
         allowedLevels: [750, 1000],
       },
       {
@@ -124,7 +163,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         allowedLevels: [700, 750, 1000],
       },
       {
-        id: 'gestao-comissoes',
+        id: 'gestao-comissoes-parceiros',
         title: 'Gestão de Comissões',
         url: '/parceiros/comissoes',
         icon: DollarSign,
@@ -338,6 +377,8 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
     '/artigos/novo': '/artigos',
     // RH
     '/rh/vagas/nova': '/rh/vagas',
+    // Propostas internas (legado)
+    '/propostas': '/comercial/propostas',
   };
 
   // Verifica rotas de edição dinâmicas
@@ -355,6 +396,10 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
   }
   if (pathname.match(/^\/rh\/vagas\/[^/]+\/editar$/)) {
     return isRouteAllowed('/rh/vagas', userLevel);
+  }
+  // Rotas de comercial herdam permissão
+  if (pathname.match(/^\/comercial\//)) {
+    return isRouteAllowed('/comercial/executivos', userLevel);
   }
 
   // Verifica mapeamento estático
