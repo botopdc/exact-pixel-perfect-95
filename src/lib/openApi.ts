@@ -363,6 +363,34 @@ class OpenApiClient {
     const response = await this.client.get(`/user/${id}`);
     return response.data;
   }
+
+  // ============================================================================
+  // PARTNERS ENDPOINTS
+  // ============================================================================
+
+  async createPartner(data: {
+    name: string;
+    docnum: string;
+    type: 'ISV' | 'VAR' | 'FINDER';
+    status?: 'Pendente' | 'Aprovado' | 'Reprovado';
+    responsible_name?: string;
+    responsible_email?: string;
+    responsible_phone?: string[];
+    responsible_password?: string;
+    responsible_password_confirmation?: string;
+  }): Promise<unknown> {
+    const response = await this.client.post('/partner', data);
+    return response.data;
+  }
+
+  async getPartners(params?: {
+    __page?: number;
+    __perPage?: number;
+    __q?: string;
+  }): Promise<{ data: unknown[]; total: number }> {
+    const response = await this.client.get('/partner', { params });
+    return response.data;
+  }
 }
 
 // Singleton instance
