@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { partnersService } from '@/services/partnersService';
+import { openApi } from '@/lib/openApi';
 import { PartnerType, PARTNER_TYPE_LABELS } from '@/types/partner';
 import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
@@ -90,25 +90,38 @@ export default function CadastroParceiro() {
     setIsLoading(true);
 
     try {
-      // Check if email already exists
-      const existingPartner = partnersService.getByEmail(formData.email);
-      if (existingPartner) {
-        setError('Já existe um parceiro cadastrado com este e-mail');
-        setIsLoading(false);
-        return;
-      }
-
-      await partnersService.create({
-        empresa: formData.empresa.trim(),
-        cnpj: formData.cnpj.trim(),
-        responsavel: formData.responsavel.trim(),
-        email: formData.email.trim().toLowerCase(),
-        telefone: formData.telefone.trim(),
-        tipo_parceria: formData.tipo_parceria as PartnerType,
-      }, formData.senha);
+      // Criar parceiro via API
+      await openApi.createPartner({
+        name: formData.empresa.trim(),
+        docnum: formData.cnpj.trim(),
+        type: formData.tipo_parceria as 'ISV' | 'VAR' | 'FINDER',
+        status: 'Pendente',
+        responsible_name: formData.responsavel.trim(),
+        responsible_email: formData.email.trim().toLowerCase(),
+        responsible_phone: [formData.telefone.trim()],
+        responsible_password: formData.senha,
+        responsible_password_confirmation: formData.confirmarSenha,
+      });
 
       setSuccess(true);
-    } catch (err) {
+    } catch (err: any) {
+      console.error('[CadastroParceiro] Erro:', err);
+      
+      // Tratar erros de validação da API
+      if (err?.response?.status === 422) {
+        const errors = err.response?.data?.errors;
+        if (errors) {
+          const firstError = Object.values(errors).flat()[0] as string;
+          setError(firstError || 'Erro de validação');
+          return;
+        }
+      }
+      
+      if (err?.response?.data?.message) {
+        setError(err.response.data.message);
+        return;
+      }
+      
       setError('Erro ao realizar cadastro. Tente novamente.');
     } finally {
       setIsLoading(false);
