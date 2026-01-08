@@ -50,6 +50,12 @@ import DashboardExecutivoParceiros from '@/pages/parceiros/DashboardExecutivoPar
 import PropostasAdmin from '@/pages/parceiros/PropostasAdmin';
 import ApiTest from '@/pages/ApiTest';
 
+// Comercial (Executivos) Pages
+import Executivos from '@/pages/comercial/Executivos';
+import GestaoExecutivos from '@/pages/comercial/GestaoExecutivos';
+import PropostasExecutivos from '@/pages/comercial/PropostasExecutivos';
+import ComissoesExecutivos from '@/pages/comercial/ComissoesExecutivos';
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -91,8 +97,14 @@ const App = () => (
             <Route path="/dashboard" element={<DashboardHome />} />
             <Route path="/ceo" element={<DashboardExecutivo />} />
             
-            {/* Comercial & Parceiros */}
+            {/* Comercial (Executivos) */}
             <Route path="/calculadora" element={<Calculadora />} />
+            <Route path="/comercial/executivos" element={<Executivos />} />
+            <Route path="/comercial/gestao-executivos" element={<GestaoExecutivos />} />
+            <Route path="/comercial/propostas" element={<PropostasExecutivos />} />
+            <Route path="/comercial/comissoes" element={<ComissoesExecutivos />} />
+            
+            {/* Parceiros */}
             <Route path="/parceiros/executivo" element={<DashboardExecutivoParceiros />} />
             <Route path="/parceiros/gestao" element={<GestaoParceiroAdmin />} />
             <Route path="/parceiros/propostas" element={<PropostasAdmin />} />

@@ -976,10 +976,6 @@ const OpenCalculator: React.FC = () => {
                 <Settings className="w-4 h-4" />
               </Button>
             </RouterLink>
-            <Button variant="open-outline" onClick={() => navigate('/propostas')}>
-              <List className="w-4 h-4" />
-              Ver Propostas
-            </Button>
           </div>
         </div>
       </header>
