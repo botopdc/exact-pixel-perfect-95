@@ -41,7 +41,11 @@ import {
   Calendar,
   Shield,
   Loader2,
+  Mail,
+  Copy,
+  User,
 } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 
 // Mapeamento de status API -> UI
 type ApiStatus = 'Pendente' | 'Aprovado' | 'Reprovado';
@@ -562,13 +566,57 @@ export default function GestaoParceiroAdmin() {
                     </Select>
                   </div>
                 </div>
-                {editingPartner.responsible && (
-                  <div className="p-3 bg-muted/50 border border-border rounded-lg">
-                    <p className="text-sm text-muted-foreground">Responsável</p>
-                    <p className="font-medium">{editingPartner.responsible.name}</p>
-                    <p className="text-sm text-muted-foreground">{editingPartner.responsible.email}</p>
+                {/* Dados da Conta - Responsável */}
+                <div className="space-y-3 p-4 bg-muted/30 border border-border rounded-lg">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <User className="h-4 w-4 text-primary" />
+                    Dados da Conta
                   </div>
-                )}
+                  
+                  {editingPartner.responsible ? (
+                    <div className="space-y-3">
+                      {/* Nome do Responsável */}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Responsável</Label>
+                        <p className="font-medium text-foreground">{editingPartner.responsible.name}</p>
+                      </div>
+                      
+                      {/* Email - Read-only com botão de copiar */}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Email de acesso</Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-input/50 border border-border rounded-md">
+                            <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="text-sm text-foreground truncate">
+                              {editingPartner.responsible.email}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="shrink-0"
+                            onClick={() => {
+                              navigator.clipboard.writeText(editingPartner.responsible?.email || '');
+                              toast({ title: 'Email copiado!', duration: 2000 });
+                            }}
+                            title="Copiar email"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          O email não pode ser alterado para manter a integridade do login.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="h-4 w-4" />
+                      <span>Email não cadastrado</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             <DialogFooter>
