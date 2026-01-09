@@ -96,8 +96,20 @@ export default function PropostasParceiro() {
       return;
     }
 
-    // Navigate to calculator with edit mode
-    navigate('/parceiro/calculadora', { state: { editProposal: proposal.dados_proposta } });
+    // Verify dados_proposta has required structure
+    const proposalData = proposal.dados_proposta;
+    if (!proposalData || !proposalData.client || !proposalData.items) {
+      toast({
+        title: 'Erro ao carregar proposta',
+        description: 'Dados da proposta estão incompletos ou corrompidos',
+        variant: 'destructive',
+      });
+      console.error('[PropostasParceiro] Invalid proposal data:', proposalData);
+      return;
+    }
+
+    // Navigate to calculator with edit mode - dados_proposta is already in local format
+    navigate('/parceiro/calculadora', { state: { editProposal: proposalData } });
   };
 
   const handleDuplicate = async (proposalId: string) => {

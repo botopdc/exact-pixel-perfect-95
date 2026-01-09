@@ -270,15 +270,37 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Transform servers/items to API format: array of {name, vcpu, ram, storage, price, quantity}
   const serversArray: Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }> = [];
   if (proposal.items && Array.isArray(proposal.items)) {
-    for (const item of proposal.items) {
-      serversArray.push({
-        name: item.name || item.label || 'Server',
-        vcpu: item.vcpu || item.cpu || 0,
-        ram: item.ram || item.memory || 0,
-        storage: item.storage || item.disk || item.nvme || 0,
-        price: item.price || item.total || item.monthlyPrice || 0,
-        quantity: item.quantity || 1,
-      });
+    for (const [idx, item] of proposal.items.entries()) {
+      // Handle VM/BM format from calculator
+      if (item.type === 'vm') {
+        serversArray.push({
+          name: `VM #${idx + 1}`,
+          vcpu: item.vcpu || 0,
+          ram: item.ramGb || 0,
+          storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
+          price: 0,
+          quantity: item.qtyServers || 1,
+        });
+      } else if (item.type === 'bm') {
+        serversArray.push({
+          name: `BareMetal #${idx + 1}`,
+          vcpu: 0,
+          ram: 0,
+          storage: 0,
+          price: 0,
+          quantity: item.qtyServers || 1,
+        });
+      } else {
+        // Fallback for legacy format
+        serversArray.push({
+          name: item.name || item.label || 'Server',
+          vcpu: item.vcpu || item.cpu || 0,
+          ram: item.ram || item.memory || item.ramGb || 0,
+          storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
+          price: item.price || item.total || item.monthlyPrice || 0,
+          quantity: item.quantity || item.qtyServers || 1,
+        });
+      }
     }
   }
   
@@ -393,14 +415,37 @@ export function useSaveProposal() {
     mutationFn: async (proposal: SavedProposal) => {
       const apiData = localToApi(proposal);
       
-      // Check if proposal already exists (has API id)
-      if (proposal.id) {
-        const result = await openApi.updateProposal(proposal.id, apiData);
-        return { success: true, data: result };
+      // Check if proposal already exists
+      // 1. Check for direct numeric id
+      // 2. Check for PROP-* format in proposal.proposal.id
+      let numericId: number | null = null;
+      
+      if (proposal.id && typeof proposal.id === 'number') {
+        numericId = proposal.id;
+      } else if (proposal.proposal?.id) {
+        const propId = proposal.proposal.id;
+        if (propId.startsWith('PROP-')) {
+          const parsed = parseInt(propId.replace('PROP-', ''), 10);
+          if (!isNaN(parsed)) {
+            numericId = parsed;
+          }
+        } else {
+          const parsed = parseInt(propId, 10);
+          if (!isNaN(parsed)) {
+            numericId = parsed;
+          }
+        }
+      }
+      
+      if (numericId) {
+        console.log('[SaveProposal] Updating proposal:', numericId);
+        const result = await openApi.updateProposal(numericId, apiData);
+        return { success: true, data: result, isUpdate: true };
       } else {
         // Create new proposal
+        console.log('[SaveProposal] Creating new proposal');
         const result = await openApi.createProposal(apiData);
-        return { success: true, data: result };
+        return { success: true, data: result, isUpdate: false };
       }
     },
     onSuccess: () => {
