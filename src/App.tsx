@@ -41,7 +41,7 @@ import CadastroParceiro from '@/pages/parceiros/CadastroParceiro';
 import LoginParceiro from '@/pages/parceiros/LoginParceiro';
 import AceiteContrato from '@/pages/parceiros/AceiteContrato';
 import DashboardParceiro from '@/pages/parceiros/DashboardParceiro';
-// CalculadoraParceiro removed - unified to single /calculadora route
+import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
 import IndicacoesParceiro from '@/pages/parceiros/IndicacoesParceiro';
 import PropostasParceiro from '@/pages/parceiros/PropostasParceiro';
 import GestaoParceiroAdmin from '@/pages/parceiros/GestaoParceiroAdmin';
@@ -83,10 +83,10 @@ const App = () => (
           <Route path="/parceiro/login" element={<LoginParceiro />} />
           <Route path="/parceiro/contrato" element={<AceiteContrato />} />
           
-          {/* Partner protected routes - redirect calculadora to unified route */}
+          {/* Partner protected routes - uses same OpenCalculator component within PartnerLayout */}
           <Route element={<PartnerLayout />}>
             <Route path="/parceiro/dashboard" element={<DashboardParceiro />} />
-            <Route path="/parceiro/calculadora" element={<Navigate to="/calculadora" replace />} />
+            <Route path="/parceiro/calculadora" element={<CalculadoraParceiro />} />
             <Route path="/parceiro/propostas" element={<PropostasParceiro />} />
             <Route path="/parceiro/indicacoes" element={<IndicacoesParceiro />} />
           </Route>
