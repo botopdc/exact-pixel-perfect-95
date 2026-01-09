@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { openApi, ApiUser } from '@/lib/openApi';
 import { authService } from '@/services/authService';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,8 +74,10 @@ export default function GestaoExecutivos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [editingExecutive, setEditingExecutive] = useState<ExecutiveUser | null>(null);
+  const [editingStatus, setEditingStatus] = useState<boolean>(true);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showStatusConfirmInEdit, setShowStatusConfirmInEdit] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ type: 'activate' | 'deactivate'; executive: ExecutiveUser } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -237,7 +240,24 @@ export default function GestaoExecutivos() {
 
   const handleEdit = (executive: ExecutiveUser) => {
     setEditingExecutive({ ...executive });
+    setEditingStatus(executive.isActive ?? true);
     setShowEditDialog(true);
+  };
+
+  // Handle status toggle in edit form
+  const handleEditStatusToggle = (checked: boolean) => {
+    if (!checked) {
+      // If toggling to inactive, show confirmation
+      setShowStatusConfirmInEdit(true);
+    } else {
+      // Activating doesn't need confirmation
+      setEditingStatus(true);
+    }
+  };
+
+  const confirmStatusChangeInEdit = () => {
+    setEditingStatus(false);
+    setShowStatusConfirmInEdit(false);
   };
 
   const handleSaveEdit = async () => {
@@ -256,11 +276,11 @@ export default function GestaoExecutivos() {
     setIsSaving(true);
     try {
       // For now, update local state
-      // In a real implementation: await openApi.updateUser(editingExecutive.id, { name, phones });
+      // In a real implementation: await openApi.updateUser(editingExecutive.id, { name, phones, is_active: editingStatus });
       
       const updatedExecutives = executives.map((e) =>
         e.id === editingExecutive.id
-          ? { ...e, name: editingExecutive.name, phones: editingExecutive.phones }
+          ? { ...e, name: editingExecutive.name, phones: editingExecutive.phones, isActive: editingStatus }
           : e
       );
       setExecutives(updatedExecutives);
@@ -268,7 +288,18 @@ export default function GestaoExecutivos() {
 
       setShowEditDialog(false);
       setEditingExecutive(null);
-      toast({ title: 'Executivo atualizado com sucesso' });
+      
+      const statusChanged = (editingExecutive.isActive ?? true) !== editingStatus;
+      if (statusChanged) {
+        toast({ 
+          title: 'Executivo atualizado com sucesso',
+          description: editingStatus 
+            ? `${editingExecutive.name} foi ativado e agora pode fazer login.`
+            : `${editingExecutive.name} foi inativado e não poderá mais fazer login.`
+        });
+      } else {
+        toast({ title: 'Executivo atualizado com sucesso' });
+      }
     } catch (error: any) {
       toast({
         title: 'Erro ao atualizar executivo',
@@ -512,6 +543,30 @@ export default function GestaoExecutivos() {
             </DialogHeader>
             {editingExecutive && (
               <div className="space-y-4 py-4">
+                {/* Status Toggle - At the top */}
+                <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="edit-status" className="text-sm font-medium">
+                      Status de Acesso
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {editingStatus 
+                        ? 'Este usuário pode fazer login.' 
+                        : 'Inativo bloqueia o login deste usuário.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium ${editingStatus ? 'text-green-500' : 'text-red-500'}`}>
+                      {editingStatus ? 'Ativo' : 'Inativo'}
+                    </span>
+                    <Switch
+                      id="edit-status"
+                      checked={editingStatus}
+                      onCheckedChange={handleEditStatusToggle}
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="edit-name">Nome *</Label>
                   <Input
@@ -572,6 +627,31 @@ export default function GestaoExecutivos() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Confirm Status Change in Edit Dialog */}
+        <AlertDialog open={showStatusConfirmInEdit} onOpenChange={setShowStatusConfirmInEdit}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Inativar Executivo</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja marcar este executivo como <strong>Inativo</strong>?
+                <br />
+                <span className="text-red-500">
+                  Este usuário não conseguirá mais fazer login no sistema.
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmStatusChangeInEdit}
+                className="bg-destructive hover:bg-destructive/90"
+              >
+                Confirmar Inativação
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Confirm Status Change Dialog */}
         <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
