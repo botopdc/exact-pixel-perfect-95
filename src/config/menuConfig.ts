@@ -35,6 +35,7 @@ import {
 
 export const USER_LEVELS = {
   CLIENTE: 1,
+  PARCEIRO: 200,  // Novo nível para parceiros (ISV/VAR/FINDER)
   RH: 600,
   COMERCIAL: 700,
   GERENTE_COMERCIAL: 750,
@@ -81,7 +82,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Dashboard',
         url: '/dashboard',
         icon: LayoutDashboard,
-        allowedLevels: [600, 700, 750, 775, 900, 950, 1000],
+        allowedLevels: [200, 600, 700, 750, 775, 900, 950, 1000],
       },
       {
         id: 'ceo-view',
@@ -89,6 +90,14 @@ export const MENU_SECTIONS: MenuSection[] = [
         url: '/ceo',
         icon: Crown,
         allowedLevels: [1000],
+      },
+      // Calculadora no menu principal para Admin e Gerente Comercial
+      {
+        id: 'calculadora-main',
+        title: 'Calculadora de Preços',
+        url: '/calculadora',
+        icon: Calculator,
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin veem no menu principal
       },
     ],
   },
@@ -98,12 +107,13 @@ export const MENU_SECTIONS: MenuSection[] = [
     id: 'comercial',
     title: 'COMERCIAL',
     items: [
+      // Calculadora dentro da seção Comercial para Executivos (700)
       {
         id: 'calculadora',
         title: 'Calculadora de Preços',
         url: '/calculadora',
         icon: Calculator,
-        allowedLevels: [700, 750, 1000],
+        allowedLevels: [700], // Apenas Comercial vê aqui (750 e 1000 veem no menu principal)
       },
       {
         id: 'executivos',
@@ -141,6 +151,14 @@ export const MENU_SECTIONS: MenuSection[] = [
     id: 'parceiros',
     title: 'PARCEIROS',
     items: [
+      // Calculadora dentro da seção Parceiros para user_level 200
+      {
+        id: 'calculadora-parceiro',
+        title: 'Calculadora de Preços',
+        url: '/calculadora',
+        icon: Calculator,
+        allowedLevels: [200], // Apenas parceiros veem aqui
+      },
       {
         id: 'executivo-parceiros',
         title: 'Executivo Parceiros',
@@ -160,7 +178,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Propostas Parceiros',
         url: '/parceiros/propostas',
         icon: FileStack,
-        allowedLevels: [700, 750, 1000],
+        allowedLevels: [200, 700, 750, 1000], // Parceiro 200 também vê suas propostas
       },
       {
         id: 'gestao-comissoes-parceiros',
@@ -420,6 +438,7 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
 export function getUserLevelName(level: number): string {
   const levelNames: Record<number, string> = {
     1: 'Cliente',
+    200: 'Parceiro',
     600: 'RH',
     700: 'Comercial',
     750: 'Gerente Comercial',
