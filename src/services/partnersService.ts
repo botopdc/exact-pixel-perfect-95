@@ -175,26 +175,78 @@ export const partnerAuthService = {
         return { success: false, error: 'Email e senha são obrigatórios' };
       }
 
-      // Partner must exist locally (contract/status rules)
-      const partner = partnersService.getByEmail(normalizedEmail);
-      if (!partner) {
-        return { success: false, error: 'Email ou senha incorretos' };
-      }
-
-      if (partner.status === 'Inativo') {
-        return { success: false, error: 'Sua conta está inativa. Entre em contato com o suporte.' };
-      }
-
       // Validate credentials via API (also stores open_access_token)
-      const apiLogin = await openApi.login(normalizedEmail, password);
+      let apiLogin;
+      try {
+        apiLogin = await openApi.login(normalizedEmail, password);
+      } catch (loginError: any) {
+        console.error('[PartnerAuth] API Login error:', loginError);
+        
+        const status = loginError?.response?.status;
+        const apiMessage = loginError?.response?.data?.message;
+        
+        // Check for specific error messages from API
+        if (status === 401) {
+          // Check if user is inactive
+          if (apiMessage?.toLowerCase().includes('inativo') || apiMessage?.toLowerCase().includes('inactive')) {
+            return { success: false, error: 'Sua conta está inativa. Entre em contato com a equipe OPEN.' };
+          }
+          if (apiMessage?.toLowerCase().includes('pendente') || apiMessage?.toLowerCase().includes('pending')) {
+            return { success: false, error: 'Sua conta ainda está pendente de aprovação. Aguarde o contato da equipe OPEN.' };
+          }
+          return { success: false, error: 'Email ou senha incorretos' };
+        }
+        
+        if (status === 403) {
+          return { success: false, error: 'Acesso negado. Sua conta pode estar pendente ou inativa.' };
+        }
+        
+        return { success: false, error: apiMessage || 'Erro ao fazer login. Verifique sua conexão.' };
+      }
+
+      // Check if user is a partner (level 200)
+      if (apiLogin.user.level !== 200) {
+        openApi.clearToken();
+        return { success: false, error: 'Esta área é exclusiva para parceiros. Use o login administrativo.' };
+      }
+
+      // Get partner data from API
+      let partnerData = apiLogin.user.partner;
+      
+      // If partner data not included, fetch it
+      if (!partnerData) {
+        try {
+          const userData = await openApi.getCurrentUser({ __with: 'partner' });
+          partnerData = userData.partner;
+        } catch {
+          // Continue without partner data
+        }
+      }
+
+      // Check partner status
+      const partnerStatus = partnerData?.status;
+      
+      if (partnerStatus === 'Pendente') {
+        openApi.clearToken();
+        return { success: false, error: 'Sua conta ainda está pendente de aprovação. Aguarde o contato da equipe OPEN.' };
+      }
+
+      if (partnerStatus === 'Reprovado') {
+        openApi.clearToken();
+        return { success: false, error: 'Sua conta está inativa. Entre em contato com a equipe OPEN.' };
+      }
+
+      // Also check localStorage for contract acceptance (legacy support)
+      const localPartner = partnersService.getByEmail(normalizedEmail);
+      const contratoAceito = localPartner?.contrato_aceito ?? false;
 
       const session: PartnerSession = {
-        partnerId: partner.id,
-        email: partner.email,
-        empresa: partner.empresa,
-        tipo_parceria: partner.tipo_parceria,
-        status: partner.status,
-        contrato_aceito: partner.contrato_aceito,
+        partnerId: partnerData?.id?.toString() || apiLogin.user.id.toString(),
+        email: apiLogin.user.email,
+        empresa: partnerData?.name || localPartner?.empresa || 'Parceiro',
+        tipo_parceria: (partnerData?.type || localPartner?.tipo_parceria || 'VAR') as PartnerType,
+        status: partnerStatus === 'Aprovado' ? 'Ativo' : (partnerStatus || localPartner?.status || 'Pendente') as PartnerStatus,
+        contrato_aceito: contratoAceito,
         token: apiLogin.token,
         expiresAt: new Date(Date.now() + SESSION_DURATION_MS).toISOString(),
       };
@@ -202,14 +254,8 @@ export const partnerAuthService = {
       localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(session));
       return { success: true, session };
     } catch (error: any) {
-      console.error('[PartnerAuth] Login error:', error);
-
-      const status = error?.response?.status;
-      if (status === 401) {
-        return { success: false, error: 'Email ou senha incorretos' };
-      }
-
-      return { success: false, error: 'Erro ao fazer login. Verifique sua conexão.' };
+      console.error('[PartnerAuth] Unexpected login error:', error);
+      return { success: false, error: 'Erro inesperado ao fazer login. Tente novamente.' };
     }
   },
 
