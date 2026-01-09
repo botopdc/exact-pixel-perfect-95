@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Settings, Mail, Loader2, RefreshCw, Copy, Bug } from 'lucide-react';
+import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Settings, Mail, Loader2, RefreshCw, Copy, Bug, Shield, Percent } from 'lucide-react';
 import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
 
 import ProductIcon from './ProductIcon';
@@ -53,15 +53,27 @@ import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSaveProposal, SavedProposal } from '@/hooks/useProposals';
 import { useSavePartnerProposal } from '@/hooks/usePartnerProposals';
+import { authService } from '@/services/authService';
 import { partnerAuthService } from '@/services/partnersService';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, CheckCircle, Lock } from 'lucide-react';
+import { 
+  getPricingRules, 
+  isDiscountAllowed, 
+  isOverrideAllowed,
+  getPartnerTypeDiscount,
+  getPricingProfileLabel,
+  PricingRules 
+} from '@/config/pricingRules';
 
-// Partner discount context type
-interface PartnerDiscountContext {
-  discount: number;
-  partnerType: string;
-  timestamp: number;
+// User context for calculator
+interface CalculatorUserContext {
+  userLevel: number | null;
+  partnerType: string | null;
+  pricingRules: PricingRules;
+  partnerDiscount: number;
+  profileLabel: string;
 }
 
 const OpenCalculator: React.FC = () => {
@@ -70,32 +82,54 @@ const OpenCalculator: React.FC = () => {
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
   
-  // Detect if we are in partner context
-  const isPartnerContext = location.pathname.startsWith('/parceiro');
+  // Get user context (works for both internal users and partners)
+  const userContext = useMemo((): CalculatorUserContext => {
+    // Try internal auth first
+    const internalSession = authService.getSession();
+    if (internalSession) {
+      const partnerType = internalSession.apiUser?.partner?.type || null;
+      const rules = getPricingRules(internalSession.level);
+      return {
+        userLevel: internalSession.level,
+        partnerType,
+        pricingRules: rules,
+        partnerDiscount: rules.canApplyPartnerDiscounts ? getPartnerTypeDiscount(partnerType) : 0,
+        profileLabel: getPricingProfileLabel(internalSession.level, partnerType || undefined),
+      };
+    }
+    
+    // Try partner auth
+    const partnerSession = partnerAuthService.getSession();
+    if (partnerSession) {
+      const partnerType = partnerSession.tipo_parceria;
+      const rules = getPricingRules(200); // Partner level
+      return {
+        userLevel: 200,
+        partnerType,
+        pricingRules: rules,
+        partnerDiscount: getPartnerTypeDiscount(partnerType),
+        profileLabel: getPricingProfileLabel(200, partnerType),
+      };
+    }
+    
+    // No session - default rules
+    const defaultRules = getPricingRules(null);
+    return {
+      userLevel: null,
+      partnerType: null,
+      pricingRules: defaultRules,
+      partnerDiscount: 0,
+      profileLabel: 'Visitante',
+    };
+  }, []);
+  
+  // Determine if this is a partner context for saving
+  const isPartnerContext = userContext.userLevel === 200;
   const partnerSession = isPartnerContext ? partnerAuthService.getSession() : null;
   
   // Use appropriate save mutation based on context
   const saveInternalProposalMutation = useSaveProposal();
   const savePartnerProposalMutation = useSavePartnerProposal();
-  
-  // Read partner discount from localStorage (set by CalculadoraParceiro)
-  const getPartnerDiscount = useCallback((): PartnerDiscountContext | null => {
-    try {
-      const stored = localStorage.getItem('open_partner_discount');
-      if (stored) {
-        const data = JSON.parse(stored) as PartnerDiscountContext;
-        // Only valid if set within last hour
-        if (Date.now() - data.timestamp < 3600000) {
-          return data;
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-    return null;
-  }, []);
-  
-  const partnerContext = getPartnerDiscount();
 
   // State
   const [fx, setFx] = useState(config.fx_default);
@@ -573,8 +607,8 @@ const OpenCalculator: React.FC = () => {
     const discountValue = preTotal * discountPct;
     const grandTotalBeforePartner = preTotal - discountValue;
     
-    // Apply partner discount if available
-    const partnerDiscountPct = partnerContext?.discount || 0;
+    // Apply partner discount if available (from userContext)
+    const partnerDiscountPct = userContext.partnerDiscount;
     const partnerDiscountValue = grandTotalBeforePartner * partnerDiscountPct;
     const grandTotal = grandTotalBeforePartner - partnerDiscountValue;
 
@@ -583,8 +617,9 @@ const OpenCalculator: React.FC = () => {
     const overPercent = grandTotal > 0 ? (overValue / grandTotal) * 100 : 0;
     const totalWithOver = grandTotal + overValue;
 
-    // Update approval requirement based on overPercent
-    const approvalRequired = overPercent > 20;
+    // Update approval requirement based on overPercent and pricing rules
+    const overrideCheck = isOverrideAllowed(overPercent, userContext.userLevel);
+    const approvalRequired = overrideCheck.requiresApproval;
     if (approvalRequired !== reseller.approvalRequired) {
       setReseller(prev => ({
         ...prev,
@@ -616,7 +651,7 @@ const OpenCalculator: React.FC = () => {
       partnerDiscountPct,
       partnerDiscountValue,
     });
-  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, antivirusManuallySet, reseller.overValue, reseller.approvalRequired, partnerContext]);
+  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, antivirusManuallySet, reseller.overValue, reseller.approvalRequired, userContext]);
 
   // Recalculate on changes
   useEffect(() => {
@@ -960,6 +995,30 @@ const OpenCalculator: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Profile Banner - Shows discount for partners */}
+      {userContext.partnerDiscount > 0 && (
+        <div className="bg-gradient-to-r from-emerald-500/20 to-emerald-500/10 border-b border-emerald-500/30 px-4 py-3">
+          <div className="container mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-emerald-500/30 flex items-center justify-center">
+                <Percent className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-emerald-400">
+                  Desconto de {userContext.profileLabel}
+                </p>
+                <p className="text-xs text-emerald-400/70">
+                  {(userContext.partnerDiscount * 100).toFixed(0)}% aplicado automaticamente no valor final
+                </p>
+              </div>
+            </div>
+            <Badge className="bg-emerald-500/30 text-emerald-400 border-emerald-500/50 text-lg px-4 py-1">
+              -{(userContext.partnerDiscount * 100).toFixed(0)}%
+            </Badge>
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -968,14 +1027,22 @@ const OpenCalculator: React.FC = () => {
             <p className="text-muted-foreground text-sm">Preços em BRL. Câmbio aplica só para GPU.</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Profile badge */}
+            <Badge variant="outline" className="hidden sm:flex gap-1 items-center">
+              <Shield className="w-3 h-3" />
+              {userContext.profileLabel}
+            </Badge>
             <Button variant="ghost" size="icon" title="Atualizar Preços" onClick={() => refetchConfig()}>
               <RefreshCw className="w-4 h-4" />
             </Button>
-            <RouterLink to="/precos">
-              <Button variant="ghost" size="icon" title="Configurar Preços">
-                <Settings className="w-4 h-4" />
-              </Button>
-            </RouterLink>
+            {/* Settings only for users with canAccessSettings */}
+            {userContext.pricingRules.canAccessSettings && (
+              <RouterLink to="/precos">
+                <Button variant="ghost" size="icon" title="Configurar Preços">
+                  <Settings className="w-4 h-4" />
+                </Button>
+              </RouterLink>
+            )}
           </div>
         </div>
       </header>

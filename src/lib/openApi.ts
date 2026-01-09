@@ -15,22 +15,7 @@ const PARTNER_SESSION_KEY = 'open_partner_session_v1';
 // TYPES
 // ============================================================================
 
-export interface ApiUser {
-  id: number;
-  uuid: string;
-  entity_id: number;
-  name: string;
-  email: string;
-  level: number; // 1=Cliente, 600=RH, 700=Comercial, 750=Gerente Comercial, 775=CS, 900=Suporte, 950=Gerente Suporte, 1000=Admin
-  roles: string[];
-  preferences: Record<string, unknown>;
-  phones: string[];
-  birthday: string | null;
-  avatar: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
+// Forward declare for circular reference
 export interface ApiPartner {
   id: number;
   name: string;
@@ -42,6 +27,24 @@ export interface ApiPartner {
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+}
+
+export interface ApiUser {
+  id: number;
+  uuid: string;
+  entity_id: number;
+  name: string;
+  email: string;
+  level: number; // 1=Cliente, 200=Parceiro, 600=RH, 700=Comercial, 750=Gerente Comercial, 775=CS, 900=Suporte, 950=Gerente Suporte, 1000=Admin
+  roles: string[];
+  preferences: Record<string, unknown>;
+  phones: string[];
+  birthday: string | null;
+  avatar: string | null;
+  created_at: string;
+  updated_at: string;
+  // Partner data (when requested with __with=partner)
+  partner?: ApiPartner | null;
 }
 
 export interface LoginResponse {
