@@ -207,9 +207,8 @@ export default function GestaoExecutivos() {
     setIsSaving(true);
 
     try {
-      // For now, we simulate the status change by updating the local state
-      // In a real implementation, this would call an API endpoint like:
-      // await openApi.updateUser(executive.id, { is_active: type === 'activate' });
+      // Persist to backend via API
+      await openApi.updateUser(executive.id, { is_active: type === 'activate' });
       
       // Update local state
       const updatedExecutives = executives.map((e) =>
@@ -275,9 +274,14 @@ export default function GestaoExecutivos() {
 
     setIsSaving(true);
     try {
-      // For now, update local state
-      // In a real implementation: await openApi.updateUser(editingExecutive.id, { name, phones, is_active: editingStatus });
+      // Persist to backend via API
+      await openApi.updateUser(editingExecutive.id, { 
+        name: editingExecutive.name.trim(),
+        phones: editingExecutive.phones,
+        is_active: editingStatus 
+      });
       
+      // Update local state
       const updatedExecutives = executives.map((e) =>
         e.id === editingExecutive.id
           ? { ...e, name: editingExecutive.name, phones: editingExecutive.phones, isActive: editingStatus }
