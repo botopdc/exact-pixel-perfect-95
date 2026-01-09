@@ -69,11 +69,11 @@ export default function GestaoParceiroAdmin() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Load partners from API
+  // Load partners from API with responsible user data
   const loadPartners = async () => {
     setIsLoading(true);
     try {
-      const response = await openApi.getPartners({ __perPage: 100 });
+      const response = await openApi.getPartners({ __perPage: 100, __with: 'responsible' });
       setPartners(response.data);
       applyFilters(response.data, searchTerm, statusFilter, typeFilter);
     } catch (error: any) {
@@ -168,12 +168,27 @@ export default function GestaoParceiroAdmin() {
     );
   };
 
-  // Actions
+  // Actions - Ativar parceiro e sincronizar usuário responsável
   const handleActivate = async (partner: ApiPartner) => {
     try {
+      // 1. Atualizar status do parceiro
       await openApi.updatePartner(partner.id, { status: 'Aprovado' });
+      
+      // 2. Ativar usuário responsável para permitir login
+      if (partner.responsible_id) {
+        try {
+          await openApi.updateUser(partner.responsible_id, { is_active: true });
+        } catch (userError) {
+          console.warn('[GestaoParceiroAdmin] Erro ao ativar usuário responsável:', userError);
+          // Continua mesmo se falhar - o parceiro foi ativado
+        }
+      }
+      
       await loadPartners();
-      toast({ title: 'Parceiro ativado com sucesso' });
+      toast({ 
+        title: 'Parceiro ativado com sucesso',
+        description: partner.responsible ? `${partner.responsible.name} agora pode fazer login.` : undefined,
+      });
     } catch (error: any) {
       toast({
         title: 'Erro ao ativar parceiro',
@@ -183,11 +198,26 @@ export default function GestaoParceiroAdmin() {
     }
   };
 
+  // Inativar parceiro e bloquear login do usuário responsável
   const handleDeactivate = async (partner: ApiPartner) => {
     try {
+      // 1. Atualizar status do parceiro
       await openApi.updatePartner(partner.id, { status: 'Reprovado' });
+      
+      // 2. Inativar usuário responsável para bloquear login
+      if (partner.responsible_id) {
+        try {
+          await openApi.updateUser(partner.responsible_id, { is_active: false });
+        } catch (userError) {
+          console.warn('[GestaoParceiroAdmin] Erro ao inativar usuário responsável:', userError);
+        }
+      }
+      
       await loadPartners();
-      toast({ title: 'Parceiro inativado' });
+      toast({ 
+        title: 'Parceiro inativado',
+        description: partner.responsible ? `${partner.responsible.name} não poderá mais fazer login.` : undefined,
+      });
     } catch (error: any) {
       toast({
         title: 'Erro ao inativar parceiro',
