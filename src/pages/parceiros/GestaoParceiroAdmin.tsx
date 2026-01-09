@@ -44,6 +44,7 @@ import {
   Mail,
   Copy,
   User,
+  Phone,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 
@@ -220,14 +221,34 @@ export default function GestaoParceiroAdmin() {
   const handleSaveEdit = async () => {
     if (!editingPartner) return;
     
+    // Validate responsible name if exists
+    if (editingPartner.responsible && !editingPartner.responsible.name?.trim()) {
+      toast({
+        title: 'Nome do responsável obrigatório',
+        description: 'Informe o nome do responsável.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setIsSaving(true);
     try {
+      // Update partner data
       await openApi.updatePartner(editingPartner.id, {
         name: editingPartner.name,
         docnum: editingPartner.docnum,
         type: editingPartner.type,
         status: editingPartner.status,
       });
+      
+      // Update responsible user data if exists
+      if (editingPartner.responsible && editingPartner.responsible_id) {
+        await openApi.updateUser(editingPartner.responsible_id, {
+          name: editingPartner.responsible.name,
+          phones: editingPartner.responsible.phones,
+        });
+      }
+      
       setShowEditDialog(false);
       setEditingPartner(null);
       await loadPartners();
@@ -575,10 +596,45 @@ export default function GestaoParceiroAdmin() {
                   
                   {editingPartner.responsible ? (
                     <div className="space-y-3">
-                      {/* Nome do Responsável */}
+                      {/* Nome do Responsável - Editável */}
                       <div>
-                        <Label className="text-xs text-muted-foreground">Responsável</Label>
-                        <p className="font-medium text-foreground">{editingPartner.responsible.name}</p>
+                        <Label className="text-xs text-muted-foreground">Nome do Responsável</Label>
+                        <Input
+                          value={editingPartner.responsible.name}
+                          onChange={(e) =>
+                            setEditingPartner({
+                              ...editingPartner,
+                              responsible: {
+                                ...editingPartner.responsible!,
+                                name: e.target.value,
+                              },
+                            })
+                          }
+                          className="bg-input border-border mt-1"
+                          placeholder="Nome do responsável"
+                        />
+                      </div>
+                      
+                      {/* Telefone - Editável */}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Telefone</Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <Input
+                            value={editingPartner.responsible.phones?.[0] || ''}
+                            onChange={(e) =>
+                              setEditingPartner({
+                                ...editingPartner,
+                                responsible: {
+                                  ...editingPartner.responsible!,
+                                  phones: e.target.value ? [e.target.value] : [],
+                                },
+                              })
+                            }
+                            className="bg-input border-border"
+                            placeholder="(00) 00000-0000"
+                          />
+                        </div>
                       </div>
                       
                       {/* Email - Read-only com botão de copiar */}
@@ -613,7 +669,7 @@ export default function GestaoParceiroAdmin() {
                   ) : (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Mail className="h-4 w-4" />
-                      <span>Email não cadastrado</span>
+                      <span>Responsável não cadastrado</span>
                     </div>
                   )}
                 </div>
