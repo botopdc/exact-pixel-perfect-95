@@ -125,6 +125,17 @@ const SavedProposals: React.FC = () => {
       return;
     }
     
+    // Verify proposal has required structure
+    if (!proposal.client || !proposal.items) {
+      toast({
+        title: 'Erro ao carregar proposta',
+        description: 'Dados da proposta estão incompletos ou corrompidos',
+        variant: 'destructive',
+      });
+      console.error('[SavedProposals] Invalid proposal data:', proposal);
+      return;
+    }
+    
     const proposalId = proposal.proposal?.id || '';
     
     // Track edit open
@@ -132,8 +143,8 @@ const SavedProposals: React.FC = () => {
       trackEvent.mutate({ proposalId, type: 'edit_open', channel: 'ui' });
     }
     
-    // Navigate to calculator with edit mode
-    navigate('/', { state: { editProposal: proposal } });
+    // Navigate to calculator with edit mode - proposal is already in local format from useProposals hook
+    navigate('/calculadora', { state: { editProposal: proposal } });
   };
 
   const handleViewAccess = (proposalId: string) => {
