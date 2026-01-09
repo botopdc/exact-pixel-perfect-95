@@ -31,6 +31,19 @@ export interface ApiUser {
   updated_at: string;
 }
 
+export interface ApiPartner {
+  id: number;
+  name: string;
+  docnum: string;
+  type: 'ISV' | 'VAR' | 'FINDER';
+  status: 'Pendente' | 'Aprovado' | 'Reprovado';
+  responsible_id: number | null;
+  responsible?: ApiUser | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+}
+
 export interface LoginResponse {
   user: ApiUser;
   token: string;
@@ -378,8 +391,8 @@ class OpenApiClient {
     responsible_phone?: string[];
     responsible_password?: string;
     responsible_password_confirmation?: string;
-  }): Promise<unknown> {
-    const response = await this.client.post('/partner', data);
+  }): Promise<ApiPartner> {
+    const response = await this.client.post<ApiPartner>('/partner', data);
     return response.data;
   }
 
@@ -387,9 +400,31 @@ class OpenApiClient {
     __page?: number;
     __perPage?: number;
     __q?: string;
-  }): Promise<{ data: unknown[]; total: number }> {
+    status?: string;
+    type?: string;
+  }): Promise<{ data: ApiPartner[]; total: number }> {
     const response = await this.client.get('/partner', { params });
     return response.data;
+  }
+
+  async getPartner(id: number): Promise<ApiPartner> {
+    const response = await this.client.get<ApiPartner>(`/partner/${id}`);
+    return response.data;
+  }
+
+  async updatePartner(id: number, data: {
+    name?: string;
+    docnum?: string;
+    type?: 'ISV' | 'VAR' | 'FINDER';
+    status?: 'Pendente' | 'Aprovado' | 'Reprovado';
+    responsible_id?: number | null;
+  }): Promise<ApiPartner> {
+    const response = await this.client.put<ApiPartner>(`/partner/${id}`, data);
+    return response.data;
+  }
+
+  async deletePartner(id: number): Promise<void> {
+    await this.client.delete(`/partner/${id}`);
   }
 }
 

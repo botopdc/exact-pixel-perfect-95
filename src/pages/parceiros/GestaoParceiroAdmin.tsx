@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { partnersService } from '@/services/partnersService';
-import { Partner, PartnerStatus, PartnerType, PARTNER_TYPE_LABELS, PARTNER_DISCOUNTS } from '@/types/partner';
+import { openApi, ApiPartner } from '@/lib/openApi';
+import { PartnerType, PARTNER_TYPE_LABELS, PARTNER_DISCOUNTS } from '@/types/partner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -34,32 +34,53 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  FileCheck,
   Edit,
   Trash2,
   RefreshCw,
   Building2,
-  Mail,
-  Phone,
   Calendar,
   Shield,
+  Loader2,
 } from 'lucide-react';
+
+// Mapeamento de status API -> UI
+type ApiStatus = 'Pendente' | 'Aprovado' | 'Reprovado';
+
+const STATUS_LABELS: Record<ApiStatus, string> = {
+  Pendente: 'Pendente',
+  Aprovado: 'Ativo',
+  Reprovado: 'Inativo',
+};
 
 export default function GestaoParceiroAdmin() {
   const { toast } = useToast();
-  const [partners, setPartners] = useState<Partner[]>([]);
-  const [filteredPartners, setFilteredPartners] = useState<Partner[]>([]);
+  const [partners, setPartners] = useState<ApiPartner[]>([]);
+  const [filteredPartners, setFilteredPartners] = useState<ApiPartner[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
+  const [editingPartner, setEditingPartner] = useState<ApiPartner | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Load partners
-  const loadPartners = () => {
-    const allPartners = partnersService.getAll();
-    setPartners(allPartners);
-    applyFilters(allPartners, searchTerm, statusFilter, typeFilter);
+  // Load partners from API
+  const loadPartners = async () => {
+    setIsLoading(true);
+    try {
+      const response = await openApi.getPartners({ __perPage: 100 });
+      setPartners(response.data);
+      applyFilters(response.data, searchTerm, statusFilter, typeFilter);
+    } catch (error: any) {
+      console.error('[GestaoParceiroAdmin] Erro ao carregar parceiros:', error);
+      toast({
+        title: 'Erro ao carregar parceiros',
+        description: error?.response?.data?.message || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -68,7 +89,7 @@ export default function GestaoParceiroAdmin() {
 
   // Apply filters
   const applyFilters = (
-    data: Partner[],
+    data: ApiPartner[],
     search: string,
     status: string,
     type: string
@@ -79,10 +100,10 @@ export default function GestaoParceiroAdmin() {
       const term = search.toLowerCase();
       filtered = filtered.filter(
         (p) =>
-          p.empresa.toLowerCase().includes(term) ||
-          p.cnpj.includes(term) ||
-          p.responsavel.toLowerCase().includes(term) ||
-          p.email.toLowerCase().includes(term)
+          p.name.toLowerCase().includes(term) ||
+          p.docnum.includes(term) ||
+          p.responsible?.name?.toLowerCase().includes(term) ||
+          p.responsible?.email?.toLowerCase().includes(term)
       );
     }
 
@@ -91,7 +112,7 @@ export default function GestaoParceiroAdmin() {
     }
 
     if (type !== 'all') {
-      filtered = filtered.filter((p) => p.tipo_parceria === type);
+      filtered = filtered.filter((p) => p.type === type);
     }
 
     setFilteredPartners(filtered);
@@ -102,17 +123,17 @@ export default function GestaoParceiroAdmin() {
   }, [searchTerm, statusFilter, typeFilter, partners]);
 
   // Status badge
-  const getStatusBadge = (status: PartnerStatus) => {
-    const styles: Record<PartnerStatus, { className: string; icon: React.ReactNode }> = {
+  const getStatusBadge = (status: ApiStatus) => {
+    const styles: Record<ApiStatus, { className: string; icon: React.ReactNode }> = {
       Pendente: {
         className: 'bg-yellow-500/20 text-yellow-500 border-yellow-500/50',
         icon: <Clock className="h-3 w-3" />,
       },
-      Ativo: {
+      Aprovado: {
         className: 'bg-green-500/20 text-green-500 border-green-500/50',
         icon: <CheckCircle className="h-3 w-3" />,
       },
-      Inativo: {
+      Reprovado: {
         className: 'bg-red-500/20 text-red-500 border-red-500/50',
         icon: <XCircle className="h-3 w-3" />,
       },
@@ -121,7 +142,7 @@ export default function GestaoParceiroAdmin() {
     return (
       <Badge className={`${style.className} flex items-center gap-1`}>
         {style.icon}
-        {status}
+        {STATUS_LABELS[status]}
       </Badge>
     );
   };
@@ -142,79 +163,88 @@ export default function GestaoParceiroAdmin() {
     );
   };
 
-  // Contract status
-  const getContractBadge = (partner: Partner) => {
-    if (partner.contrato_aceito) {
-      return (
-        <Badge className="bg-green-500/20 text-green-500 border-green-500/50 flex items-center gap-1">
-          <FileCheck className="h-3 w-3" />
-          Aceito
-        </Badge>
-      );
-    }
-    return (
-      <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/50">
-        Pendente
-      </Badge>
-    );
-  };
-
   // Actions
-  const handleActivate = (partner: Partner) => {
-    if (!partner.contrato_aceito) {
+  const handleActivate = async (partner: ApiPartner) => {
+    try {
+      await openApi.updatePartner(partner.id, { status: 'Aprovado' });
+      await loadPartners();
+      toast({ title: 'Parceiro ativado com sucesso' });
+    } catch (error: any) {
       toast({
-        title: 'Contrato não aceito',
-        description: 'O parceiro precisa aceitar o contrato antes de ser ativado.',
+        title: 'Erro ao ativar parceiro',
+        description: error?.response?.data?.message || 'Tente novamente.',
         variant: 'destructive',
       });
-      return;
-    }
-    partnersService.update(partner.id, { status: 'Ativo' });
-    loadPartners();
-    toast({ title: 'Parceiro ativado com sucesso' });
-  };
-
-  const handleDeactivate = (partner: Partner) => {
-    partnersService.update(partner.id, { status: 'Inativo' });
-    loadPartners();
-    toast({ title: 'Parceiro inativado' });
-  };
-
-  const handleDelete = (partner: Partner) => {
-    if (confirm(`Deseja realmente excluir o parceiro ${partner.empresa}?`)) {
-      partnersService.delete(partner.id);
-      loadPartners();
-      toast({ title: 'Parceiro excluído' });
     }
   };
 
-  const handleEdit = (partner: Partner) => {
+  const handleDeactivate = async (partner: ApiPartner) => {
+    try {
+      await openApi.updatePartner(partner.id, { status: 'Reprovado' });
+      await loadPartners();
+      toast({ title: 'Parceiro inativado' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao inativar parceiro',
+        description: error?.response?.data?.message || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDelete = async (partner: ApiPartner) => {
+    if (confirm(`Deseja realmente excluir o parceiro ${partner.name}?`)) {
+      try {
+        await openApi.deletePartner(partner.id);
+        await loadPartners();
+        toast({ title: 'Parceiro excluído' });
+      } catch (error: any) {
+        toast({
+          title: 'Erro ao excluir parceiro',
+          description: error?.response?.data?.message || 'Tente novamente.',
+          variant: 'destructive',
+        });
+      }
+    }
+  };
+
+  const handleEdit = (partner: ApiPartner) => {
     setEditingPartner({ ...partner });
     setShowEditDialog(true);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingPartner) return;
-    partnersService.update(editingPartner.id, {
-      tipo_parceria: editingPartner.tipo_parceria,
-      status: editingPartner.status,
-      empresa: editingPartner.empresa,
-      responsavel: editingPartner.responsavel,
-      email: editingPartner.email,
-      telefone: editingPartner.telefone,
-    });
-    setShowEditDialog(false);
-    setEditingPartner(null);
-    loadPartners();
-    toast({ title: 'Parceiro atualizado com sucesso' });
+    
+    setIsSaving(true);
+    try {
+      await openApi.updatePartner(editingPartner.id, {
+        name: editingPartner.name,
+        docnum: editingPartner.docnum,
+        type: editingPartner.type,
+        status: editingPartner.status,
+      });
+      setShowEditDialog(false);
+      setEditingPartner(null);
+      await loadPartners();
+      toast({ title: 'Parceiro atualizado com sucesso' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao atualizar parceiro',
+        description: error?.response?.data?.message || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Stats
   const stats = {
     total: partners.length,
-    ativos: partners.filter((p) => p.status === 'Ativo').length,
+    ativos: partners.filter((p) => p.status === 'Aprovado').length,
     pendentes: partners.filter((p) => p.status === 'Pendente').length,
-    inativos: partners.filter((p) => p.status === 'Inativo').length,
+    inativos: partners.filter((p) => p.status === 'Reprovado').length,
   };
 
   return (
@@ -231,8 +261,12 @@ export default function GestaoParceiroAdmin() {
               Administre cadastros, tipos e status dos parceiros
             </p>
           </div>
-          <Button variant="outline" onClick={loadPartners}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+          <Button variant="outline" onClick={loadPartners} disabled={isLoading}>
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
             Atualizar
           </Button>
         </div>
@@ -313,8 +347,8 @@ export default function GestaoParceiroAdmin() {
                 <SelectContent>
                   <SelectItem value="all">Todos Status</SelectItem>
                   <SelectItem value="Pendente">Pendente</SelectItem>
-                  <SelectItem value="Ativo">Ativo</SelectItem>
-                  <SelectItem value="Inativo">Inativo</SelectItem>
+                  <SelectItem value="Aprovado">Ativo</SelectItem>
+                  <SelectItem value="Reprovado">Inativo</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -338,7 +372,11 @@ export default function GestaoParceiroAdmin() {
             <CardTitle className="text-lg">Parceiros ({filteredPartners.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            {filteredPartners.length === 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : filteredPartners.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Nenhum parceiro encontrado</p>
@@ -351,10 +389,8 @@ export default function GestaoParceiroAdmin() {
                       <TableHead>Empresa</TableHead>
                       <TableHead>CNPJ</TableHead>
                       <TableHead>Responsável</TableHead>
-                      <TableHead>Contato</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Contrato</TableHead>
                       <TableHead>Cadastro</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -365,30 +401,28 @@ export default function GestaoParceiroAdmin() {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Building2 className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium">{partner.empresa}</span>
+                            <span className="font-medium">{partner.name}</span>
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground font-mono text-sm">
-                          {partner.cnpj}
+                          {partner.docnum}
                         </TableCell>
-                        <TableCell>{partner.responsavel}</TableCell>
                         <TableCell>
-                          <div className="flex flex-col gap-1 text-xs">
-                            <span className="flex items-center gap-1 text-muted-foreground">
-                              <Mail className="h-3 w-3" /> {partner.email}
-                            </span>
-                            <span className="flex items-center gap-1 text-muted-foreground">
-                              <Phone className="h-3 w-3" /> {partner.telefone}
-                            </span>
-                          </div>
+                          {partner.responsible ? (
+                            <div className="text-sm">
+                              <p>{partner.responsible.name}</p>
+                              <p className="text-muted-foreground text-xs">{partner.responsible.email}</p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">—</span>
+                          )}
                         </TableCell>
-                        <TableCell>{getTypeBadge(partner.tipo_parceria)}</TableCell>
+                        <TableCell>{getTypeBadge(partner.type)}</TableCell>
                         <TableCell>{getStatusBadge(partner.status)}</TableCell>
-                        <TableCell>{getContractBadge(partner)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
                             <Calendar className="h-3 w-3" />
-                            {new Date(partner.data_cadastro).toLocaleDateString('pt-BR')}
+                            {new Date(partner.created_at).toLocaleDateString('pt-BR')}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -401,18 +435,18 @@ export default function GestaoParceiroAdmin() {
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
-                            {partner.status === 'Pendente' && partner.contrato_aceito && (
+                            {partner.status === 'Pendente' && (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleActivate(partner)}
                                 className="text-green-500 hover:text-green-400"
-                                title="Ativar"
+                                title="Aprovar"
                               >
                                 <CheckCircle className="h-4 w-4" />
                               </Button>
                             )}
-                            {partner.status === 'Ativo' && (
+                            {partner.status === 'Aprovado' && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -423,7 +457,7 @@ export default function GestaoParceiroAdmin() {
                                 <XCircle className="h-4 w-4" />
                               </Button>
                             )}
-                            {partner.status === 'Inativo' && (
+                            {partner.status === 'Reprovado' && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -465,41 +499,19 @@ export default function GestaoParceiroAdmin() {
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Empresa</label>
                   <Input
-                    value={editingPartner.empresa}
+                    value={editingPartner.name}
                     onChange={(e) =>
-                      setEditingPartner({ ...editingPartner, empresa: e.target.value })
+                      setEditingPartner({ ...editingPartner, name: e.target.value })
                     }
                     className="bg-input border-border"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-muted-foreground mb-1">Responsável</label>
-                    <Input
-                      value={editingPartner.responsavel}
-                      onChange={(e) =>
-                        setEditingPartner({ ...editingPartner, responsavel: e.target.value })
-                      }
-                      className="bg-input border-border"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-muted-foreground mb-1">Telefone</label>
-                    <Input
-                      value={editingPartner.telefone}
-                      onChange={(e) =>
-                        setEditingPartner({ ...editingPartner, telefone: e.target.value })
-                      }
-                      className="bg-input border-border"
-                    />
-                  </div>
-                </div>
                 <div>
-                  <label className="block text-sm text-muted-foreground mb-1">Email</label>
+                  <label className="block text-sm text-muted-foreground mb-1">CNPJ</label>
                   <Input
-                    value={editingPartner.email}
+                    value={editingPartner.docnum}
                     onChange={(e) =>
-                      setEditingPartner({ ...editingPartner, email: e.target.value })
+                      setEditingPartner({ ...editingPartner, docnum: e.target.value })
                     }
                     className="bg-input border-border"
                   />
@@ -510,11 +522,11 @@ export default function GestaoParceiroAdmin() {
                       Tipo de Parceria
                     </label>
                     <Select
-                      value={editingPartner.tipo_parceria}
+                      value={editingPartner.type}
                       onValueChange={(v) =>
                         setEditingPartner({
                           ...editingPartner,
-                          tipo_parceria: v as PartnerType,
+                          type: v as PartnerType,
                         })
                       }
                     >
@@ -535,7 +547,7 @@ export default function GestaoParceiroAdmin() {
                       onValueChange={(v) =>
                         setEditingPartner({
                           ...editingPartner,
-                          status: v as PartnerStatus,
+                          status: v as ApiStatus,
                         })
                       }
                     >
@@ -544,24 +556,17 @@ export default function GestaoParceiroAdmin() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Pendente">Pendente</SelectItem>
-                        <SelectItem value="Ativo">Ativo</SelectItem>
-                        <SelectItem value="Inativo">Inativo</SelectItem>
+                        <SelectItem value="Aprovado">Ativo</SelectItem>
+                        <SelectItem value="Reprovado">Inativo</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-                {editingPartner.contrato_aceito && editingPartner.data_hora_aceite && (
-                  <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                    <p className="text-sm text-green-500 flex items-center gap-2">
-                      <FileCheck className="h-4 w-4" />
-                      Contrato aceito em{' '}
-                      {new Date(editingPartner.data_hora_aceite).toLocaleString('pt-BR')}
-                    </p>
-                    {editingPartner.versao_contrato && (
-                      <p className="text-xs text-green-500/70 mt-1">
-                        Versão: {editingPartner.versao_contrato}
-                      </p>
-                    )}
+                {editingPartner.responsible && (
+                  <div className="p-3 bg-muted/50 border border-border rounded-lg">
+                    <p className="text-sm text-muted-foreground">Responsável</p>
+                    <p className="font-medium">{editingPartner.responsible.name}</p>
+                    <p className="text-sm text-muted-foreground">{editingPartner.responsible.email}</p>
                   </div>
                 )}
               </div>
@@ -570,7 +575,10 @@ export default function GestaoParceiroAdmin() {
               <Button variant="outline" onClick={() => setShowEditDialog(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleSaveEdit}>Salvar Alterações</Button>
+              <Button onClick={handleSaveEdit} disabled={isSaving}>
+                {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Salvar Alterações
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
