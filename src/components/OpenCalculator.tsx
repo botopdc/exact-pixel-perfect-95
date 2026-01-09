@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Settings, Mail, Loader2, RefreshCw, Copy, Bug, Shield, Percent } from 'lucide-react';
+import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Settings, Mail, Loader2, RefreshCw, Copy, Bug, Shield, Percent, Pencil } from 'lucide-react';
 import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
 
 import ProductIcon from './ProductIcon';
@@ -181,7 +181,8 @@ const OpenCalculator: React.FC = () => {
   const [includeCommissionInPdf, setIncludeCommissionInPdf] = useState(true);
   const [lastPayload, setLastPayload] = useState<string | null>(null);
   const [observacao, setObservacao] = useState('');
-
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingProposalId, setEditingProposalId] = useState<string | null>(null);
   // Check if admin mode (same PIN as /precos page)
   const isAdminMode = localStorage.getItem('open_precos_adminMode') === 'true';
 
@@ -691,12 +692,16 @@ const OpenCalculator: React.FC = () => {
       const allItemIds = (editProposal.items || []).map((item: any) => item.id);
       setExpandedItems(new Set(allItemIds));
       
+      // Mark as edit mode with proposal ID
+      setIsEditMode(true);
+      setEditingProposalId(editProposal.proposal?.id || null);
+      
       setInitialized(true);
       
       // Clear the navigation state to prevent re-loading on refresh
       window.history.replaceState({}, document.title);
       
-      toast({ title: 'Proposta carregada', description: 'Proposta carregada para edição' });
+      toast({ title: 'Proposta carregada', description: `Editando proposta ${editProposal.proposal?.id || ''}` });
     } else if (!initialized && items.length === 0) {
       addVM();
       setInitialized(true);
@@ -935,6 +940,9 @@ const OpenCalculator: React.FC = () => {
     setDatacenter('SP1');
     setAntivirusManuallySet(false);
     setObservacao('');
+    // Clear edit mode
+    setIsEditMode(false);
+    setEditingProposalId(null);
     setTimeout(addVM, 0);
   };
 
@@ -995,6 +1003,30 @@ const OpenCalculator: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Edit Mode Banner */}
+      {isEditMode && editingProposalId && (
+        <div className="bg-gradient-to-r from-amber-500/20 to-amber-500/10 border-b border-amber-500/30 px-4 py-3">
+          <div className="container mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-amber-500/30 flex items-center justify-center">
+                <Pencil className="h-4 w-4 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-amber-400">
+                  Modo Edição
+                </p>
+                <p className="text-xs text-amber-400/70">
+                  Editando proposta existente — alterações serão salvas sobre a versão atual
+                </p>
+              </div>
+            </div>
+            <Badge className="bg-amber-500/30 text-amber-400 border-amber-500/50 font-mono text-sm px-3 py-1">
+              {editingProposalId}
+            </Badge>
+          </div>
+        </div>
+      )}
+
       {/* Profile Banner - Shows discount for partners */}
       {userContext.partnerDiscount > 0 && (
         <div className="bg-gradient-to-r from-emerald-500/20 to-emerald-500/10 border-b border-emerald-500/30 px-4 py-3">
