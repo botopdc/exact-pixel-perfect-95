@@ -369,9 +369,9 @@ const PropostaView: React.FC = () => {
 
         {/* Action buttons below document */}
         <div className="flex justify-center gap-4 mt-8 print:hidden">
-          <Button variant="open-outline" onClick={() => navigate(isPartnerContext ? '/parceiro/propostas' : '/propostas')}>
+          <Button variant="open-outline" onClick={() => navigate(isPartnerContext ? '/parceiro/dashboard' : '/dashboard')}>
             <ArrowLeft className="w-4 h-4" />
-            Ver todas propostas
+            Voltar para dashboard
           </Button>
           <Button variant="open" onClick={handleDownloadPDF}>
             <FileDown className="w-4 h-4" />
