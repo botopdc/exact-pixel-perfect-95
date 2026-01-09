@@ -382,6 +382,15 @@ class OpenApiClient {
     return response.data;
   }
 
+  async updateUser(id: string | number, data: {
+    name?: string;
+    phones?: string[];
+    is_active?: boolean;
+  }): Promise<ApiUser> {
+    const response = await this.client.put<ApiUser>(`/user/${id}`, data);
+    return response.data;
+  }
+
   // ============================================================================
   // PARTNERS ENDPOINTS
   // ============================================================================
