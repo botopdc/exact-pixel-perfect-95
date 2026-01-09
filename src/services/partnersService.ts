@@ -124,15 +124,37 @@ export const partnersService = {
     return partners[index];
   },
 
-  // Aceitar contrato
-  acceptContract(id: string, ip?: string): Partner | null {
-    return this.update(id, {
-      contrato_aceito: true,
-      data_hora_aceite: new Date().toISOString(),
-      ip_aceite: ip || 'unknown',
-      tipo_contrato: this.getById(id)?.tipo_parceria,
-      versao_contrato: '1.0',
-    });
+  // Aceitar contrato via API
+  async acceptContract(id: string, ip?: string, version?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const partnerId = parseInt(id, 10);
+      if (isNaN(partnerId)) {
+        return { success: false, error: 'ID de parceiro inválido' };
+      }
+
+      // Persist to API
+      await openApi.updatePartner(partnerId, {
+        contract_accepted: true,
+        contract_accepted_at: new Date().toISOString(),
+        contract_version: version || '2.0',
+        contract_ip: ip || 'unknown',
+      });
+
+      // Also update localStorage for legacy support
+      this.update(id, {
+        contrato_aceito: true,
+        data_hora_aceite: new Date().toISOString(),
+        ip_aceite: ip || 'unknown',
+        tipo_contrato: this.getById(id)?.tipo_parceria,
+        versao_contrato: version || '2.0',
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('[PartnersService] Error accepting contract:', error);
+      const message = error?.response?.data?.message || 'Erro ao registrar aceite do contrato';
+      return { success: false, error: message };
+    }
   },
 
   // Deletar parceiro
@@ -236,16 +258,15 @@ export const partnerAuthService = {
         return { success: false, error: 'Sua conta está inativa. Entre em contato com a equipe OPEN.' };
       }
 
-      // Also check localStorage for contract acceptance (legacy support)
-      const localPartner = partnersService.getByEmail(normalizedEmail);
-      const contratoAceito = localPartner?.contrato_aceito ?? false;
+      // Check contract acceptance from API first, then localStorage as fallback
+      const contratoAceito = partnerData?.contract_accepted ?? false;
 
       const session: PartnerSession = {
         partnerId: partnerData?.id?.toString() || apiLogin.user.id.toString(),
         email: apiLogin.user.email,
-        empresa: partnerData?.name || localPartner?.empresa || 'Parceiro',
-        tipo_parceria: (partnerData?.type || localPartner?.tipo_parceria || 'VAR') as PartnerType,
-        status: partnerStatus === 'Aprovado' ? 'Ativo' : (partnerStatus || localPartner?.status || 'Pendente') as PartnerStatus,
+        empresa: partnerData?.name || 'Parceiro',
+        tipo_parceria: (partnerData?.type || 'VAR') as PartnerType,
+        status: partnerStatus === 'Aprovado' ? 'Ativo' : (partnerStatus || 'Pendente') as PartnerStatus,
         contrato_aceito: contratoAceito,
         token: apiLogin.token,
         expiresAt: new Date(Date.now() + SESSION_DURATION_MS).toISOString(),
@@ -297,6 +318,15 @@ export const partnerAuthService = {
     const session = this.getSession();
     if (!session) return false;
     return session.status === 'Ativo' && session.contrato_aceito;
+  },
+
+  // Update session with contract accepted flag
+  updateSessionContractAccepted(): void {
+    const session = this.getSession();
+    if (session) {
+      session.contrato_aceito = true;
+      localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(session));
+    }
   },
 
   refreshSession(): void {

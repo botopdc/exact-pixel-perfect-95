@@ -24,6 +24,10 @@ export interface ApiPartner {
   status: 'Pendente' | 'Aprovado' | 'Reprovado';
   responsible_id: number | null;
   responsible?: ApiUser | null;
+  contract_accepted?: boolean;
+  contract_accepted_at?: string | null;
+  contract_version?: string | null;
+  contract_ip?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -435,6 +439,10 @@ class OpenApiClient {
     type?: 'ISV' | 'VAR' | 'FINDER';
     status?: 'Pendente' | 'Aprovado' | 'Reprovado';
     responsible_id?: number | null;
+    contract_accepted?: boolean;
+    contract_accepted_at?: string;
+    contract_version?: string;
+    contract_ip?: string;
   }): Promise<ApiPartner> {
     const response = await this.client.put<ApiPartner>(`/partner/${id}`, data);
     return response.data;

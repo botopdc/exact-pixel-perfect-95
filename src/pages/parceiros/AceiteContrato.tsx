@@ -60,7 +60,7 @@ export default function AceiteContrato() {
   };
 
   const handleAccept = async () => {
-    if (!accepted || !partnerType) return;
+    if (!accepted || !partnerType || isLoading) return;
 
     setIsLoading(true);
     setError('');
@@ -72,17 +72,37 @@ export default function AceiteContrato() {
         return;
       }
 
+      // Check if contract is already accepted (idempotency)
+      if (session.contrato_aceito) {
+        navigate('/parceiro/dashboard', { replace: true });
+        return;
+      }
+
       const ipAddress = await getIpAddress();
+      const contract = PARTNER_CONTRACTS[partnerType];
 
-      partnersService.acceptContract(session.partnerId, ipAddress);
+      // Persist contract acceptance via API
+      const result = await partnersService.acceptContract(
+        session.partnerId, 
+        ipAddress, 
+        contract.versao
+      );
 
-      // Refresh session
-      partnerAuthService.refreshSession();
+      if (!result.success) {
+        console.error('[AceiteContrato] Failed to accept contract:', result.error);
+        setError(result.error || 'Erro ao registrar aceite. Tente novamente.');
+        setIsLoading(false);
+        return;
+      }
 
+      // Update session with contract accepted flag
+      partnerAuthService.updateSessionContractAccepted();
+
+      // Redirect to dashboard
       navigate('/parceiro/dashboard', { replace: true });
-    } catch (err) {
-      setError('Erro ao registrar aceite. Tente novamente.');
-    } finally {
+    } catch (err: any) {
+      console.error('[AceiteContrato] Unexpected error:', err);
+      setError('Erro inesperado ao registrar aceite. Tente novamente.');
       setIsLoading(false);
     }
   };
