@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2 } from 'lucide-react';
@@ -10,11 +10,18 @@ import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorC
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentsList } from '@/components/attachments/AttachmentsList';
 import { useAttachments } from '@/hooks/useAttachments';
+import { partnerAuthService } from '@/services/partnersService';
 const PropostaView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  
+  // Determine if user is a partner to navigate to correct proposals page
+  const isPartnerContext = useMemo(() => {
+    const partnerSession = partnerAuthService.getSession();
+    return !!partnerSession;
+  }, []);
   
   // Local storage hook
   const { data: proposal, isLoading } = useProposal(id);
@@ -362,7 +369,7 @@ const PropostaView: React.FC = () => {
 
         {/* Action buttons below document */}
         <div className="flex justify-center gap-4 mt-8 print:hidden">
-          <Button variant="open-outline" onClick={() => navigate('/propostas')}>
+          <Button variant="open-outline" onClick={() => navigate(isPartnerContext ? '/parceiro/propostas' : '/propostas')}>
             <ArrowLeft className="w-4 h-4" />
             Ver todas propostas
           </Button>
