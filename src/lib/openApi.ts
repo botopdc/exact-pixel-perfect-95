@@ -201,8 +201,10 @@ class OpenApiClient {
     return response.data;
   }
 
-  async getCurrentUser(): Promise<ApiUser> {
-    const response = await this.client.get<ApiUser>('/auth/me');
+  async getCurrentUser(params?: {
+    __with?: string; // e.g. 'partner' to include partner data
+  }): Promise<ApiUser & { partner?: ApiPartner | null }> {
+    const response = await this.client.get<ApiUser & { partner?: ApiPartner | null }>('/auth/me', { params });
     return response.data;
   }
 
@@ -399,10 +401,13 @@ class OpenApiClient {
   async getPartners(params?: {
     __page?: number;
     __perPage?: number;
-    __q?: string;
-    status?: string;
-    type?: string;
-  }): Promise<{ data: ApiPartner[]; total: number }> {
+    __with?: string; // e.g. 'responsible' to include user data
+    id?: number;
+    docnum?: string;
+    name?: string;
+    status?: 'Pendente' | 'Aprovado' | 'Reprovado';
+    type?: 'ISV' | 'VAR' | 'FINDER';
+  }): Promise<{ data: ApiPartner[]; total: number; current_page: number; last_page: number }> {
     const response = await this.client.get('/partner', { params });
     return response.data;
   }
