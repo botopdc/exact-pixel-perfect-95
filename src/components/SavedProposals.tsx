@@ -162,7 +162,12 @@ const SavedProposals: React.FC = () => {
     }
     
     // Navigate to calculator with edit mode - proposal is already in local format from useProposals hook
-    navigate('/calculadora', { state: { editProposal: proposal } });
+    // Use correct route based on user level: executives (700/750) use /executivo/calculadora
+    const userLevel = session?.level || 0;
+    const isExecutive = userLevel === 700 || userLevel === 750;
+    const calculatorPath = isExecutive ? '/executivo/calculadora' : '/calculadora';
+    console.log('[SavedProposals] editProposal click', { proposalId, userLevel, isExecutive, calculatorPath });
+    navigate(calculatorPath, { state: { editProposal: proposal } });
   };
 
   const handleViewAccess = (proposalId: string) => {
