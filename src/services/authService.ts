@@ -58,7 +58,13 @@ export const authService = {
 
       // Chamar API de login
       const response = await openApi.login(normalizedEmail, password);
-      
+
+      // IMPORTANT: Partners (level 200) must use the partner portal login
+      if (response.user.level === 200) {
+        openApi.clearToken();
+        return { success: false, error: 'Área exclusiva para parceiros. Use o login do Portal do Parceiro.' };
+      }
+
       const session: AuthSession = {
         userId: response.user.uuid || response.user.id.toString(),
         email: response.user.email,
@@ -72,11 +78,11 @@ export const authService = {
 
       // Salvar sessão
       localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
-      
+
       return { success: true, session };
     } catch (error: unknown) {
       console.error('[AuthService] Login error:', error);
-      
+
       // Handle axios error
       if (error && typeof error === 'object' && 'response' in error) {
         const axiosError = error as { response?: { status?: number; data?: { message?: string } } };
@@ -87,7 +93,7 @@ export const authService = {
           return { success: false, error: axiosError.response.data.message };
         }
       }
-      
+
       return { success: false, error: 'Erro ao fazer login. Verifique sua conexão.' };
     }
   },

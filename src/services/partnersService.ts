@@ -272,6 +272,10 @@ export const partnerAuthService = {
         expiresAt: new Date(Date.now() + SESSION_DURATION_MS).toISOString(),
       };
 
+      // IMPORTANT: avoid mixed sessions (admin logged-in previously in same browser)
+      // Partner portal must not depend on the internal session.
+      localStorage.removeItem('open_auth_session_v1');
+
       localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(session));
       return { success: true, session };
     } catch (error: any) {
