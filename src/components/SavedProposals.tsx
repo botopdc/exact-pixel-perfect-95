@@ -166,7 +166,18 @@ const SavedProposals: React.FC = () => {
     const userLevel = session?.level || 0;
     const isExecutive = userLevel === 700 || userLevel === 750;
     const calculatorPath = isExecutive ? '/executivo/calculadora' : '/calculadora';
-    console.log('[SavedProposals] editProposal click', { proposalId, userLevel, isExecutive, calculatorPath });
+    
+    // CRITICAL: Ensure API numeric ID is passed for proper update detection
+    console.log('[SavedProposals] editProposal click', { 
+      apiId: proposal.id, // API numeric ID
+      displayId: proposalId,
+      userLevel, 
+      isExecutive, 
+      calculatorPath,
+      itemsCount: proposal.items?.length || 0,
+      hasResult: Boolean(proposal.result),
+    });
+    
     navigate(calculatorPath, { state: { editProposal: proposal } });
   };
 

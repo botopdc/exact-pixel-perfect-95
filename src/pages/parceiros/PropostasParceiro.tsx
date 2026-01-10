@@ -108,8 +108,22 @@ export default function PropostasParceiro() {
       return;
     }
 
+    // CRITICAL: Include API numeric ID for proper update detection in edit mode
+    // The calculator expects 'id' to be the API numeric ID for UPDATE operations
+    const editProposalWithId = {
+      ...proposalData,
+      id: proposal.api_id, // API numeric ID from the proposal
+    };
+
+    console.log('[PropostasParceiro] Navigating to edit mode:', {
+      apiId: proposal.api_id,
+      proposalId: proposal.proposta_id,
+      itemsCount: proposalData.items?.length || 0,
+      hasResult: Boolean(proposalData.result),
+    });
+
     // Navigate to calculator with edit mode - dados_proposta is already in local format
-    navigate('/parceiro/calculadora', { state: { editProposal: proposalData } });
+    navigate('/parceiro/calculadora', { state: { editProposal: editProposalWithId } });
   };
 
   const handleDuplicate = async (proposalId: string) => {
