@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { partnersService, partnerAuthService } from '@/services/partnersService';
+import { openApi } from '@/lib/openApi';
 import { PARTNER_CONTRACTS, PartnerType } from '@/types/partner';
 import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
@@ -75,28 +76,58 @@ export default function AceiteContrato() {
       const ipAddress = await getIpAddress();
       const contract = PARTNER_CONTRACTS[partnerType];
 
-      // Persist contract acceptance via API (source of truth)
+      if (import.meta.env.DEV) {
+        console.log('[AceiteContrato] Click accept', {
+          partnerId: session.partnerId,
+          email: session.email,
+          version: contract.versao,
+        });
+      }
+
+      // 1) Persist contract acceptance via API (source of truth)
       const result = await partnersService.acceptContract(
-        session.partnerId, 
-        ipAddress, 
+        session.partnerId,
+        ipAddress,
         contract.versao
       );
 
+      if (import.meta.env.DEV) {
+        console.log('[AceiteContrato] acceptContract result', result);
+      }
+
       if (!result.success) {
-        console.error('[AceiteContrato] Failed to accept contract:', result.error);
         setError(result.error || 'Erro ao registrar aceite. Tente novamente.');
-        setIsLoading(false);
         return;
       }
 
-      // Update local session ONLY after API success
-      partnerAuthService.updateSessionContractAccepted();
+      // 2) IMEDIATAMENTE depois, executar SELECT do perfil do parceiro e confirmar aceite
+      const me = await openApi.getCurrentUser({ __with: 'partner' });
+      const apiAccepted = me.partner?.contract_accepted === true;
 
-      // Redirect to dashboard
+      if (import.meta.env.DEV) {
+        console.log('[AceiteContrato] /auth/me after accept', {
+          partnerId: me.partner?.id,
+          contract_accepted: me.partner?.contract_accepted,
+          contract_version: me.partner?.contract_version,
+        });
+      }
+
+      if (!apiAccepted) {
+        setError(
+          'Não foi possível confirmar o aceite do contrato no servidor. Aguarde alguns segundos e tente novamente.'
+        );
+        return;
+      }
+
+      // 3) Sincroniza a sessão local com o retorno da API
+      await partnerAuthService.refreshSessionFromApi();
+
+      // 4) Redirect to dashboard only after confirmation
       navigate('/parceiro/dashboard', { replace: true });
     } catch (err: any) {
       console.error('[AceiteContrato] Unexpected error:', err);
       setError('Erro inesperado ao registrar aceite. Tente novamente.');
+    } finally {
       setIsLoading(false);
     }
   };

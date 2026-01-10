@@ -342,15 +342,29 @@ export const partnerAuthService = {
       const userData = await openApi.getCurrentUser({ __with: 'partner' });
       const partnerData = userData.partner;
 
+      // If API didn't return partner info, do NOT clobber current session
       if (!partnerData) return currentSession;
+
+      // IMPORTANT:
+      // Some API responses may omit optional fields like `contract_accepted`.
+      // In that case, we keep the previous value to avoid regressions/loops.
+      const contratoAceitoFromApi =
+        partnerData.contract_accepted === true
+          ? true
+          : partnerData.contract_accepted === false
+            ? false
+            : currentSession.contrato_aceito;
 
       // Update session with fresh API data
       const updatedSession: PartnerSession = {
         ...currentSession,
         empresa: partnerData.name || currentSession.empresa,
         tipo_parceria: (partnerData.type || currentSession.tipo_parceria) as PartnerType,
-        status: partnerData.status === 'Aprovado' ? 'Ativo' : (partnerData.status || 'Pendente') as PartnerStatus,
-        contrato_aceito: partnerData.contract_accepted === true,
+        status:
+          partnerData.status === 'Aprovado'
+            ? 'Ativo'
+            : ((partnerData.status || 'Pendente') as PartnerStatus),
+        contrato_aceito: contratoAceitoFromApi,
       };
 
       localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(updatedSession));

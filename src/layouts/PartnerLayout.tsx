@@ -231,6 +231,9 @@ export default function PartnerLayout() {
     let mounted = true;
 
     const checkAuth = async () => {
+      const pathname = location.pathname;
+      const contractPath = '/parceiro/contrato';
+
       // First check local session exists
       const localSession = partnerAuthService.getSession();
       if (!localSession) {
@@ -238,37 +241,63 @@ export default function PartnerLayout() {
         return;
       }
 
-      // If local session already shows contract accepted, trust it and don't block
-      // (API refresh will update in background but won't block navigation)
-      if (localSession.contrato_aceito && localSession.status === 'Ativo') {
-        // Session is valid locally, do background refresh without blocking
+      if (import.meta.env.DEV) {
+        console.log('PartnerGuard', {
+          path: pathname,
+          partnerId: localSession.partnerId,
+          accepted: localSession.contrato_aceito,
+          status: localSession.status,
+          loading: true,
+        });
+      }
+
+      // Partner must be active
+      if (localSession.status !== 'Ativo') {
+        partnerAuthService.logout();
+        toast.error('Sua conta está inativa. Entre em contato com a equipe OPEN.');
+        navigate('/parceiro/login', { replace: true });
+        return;
+      }
+
+      // If locally accepted, allow navigation immediately (but keep data fresh in background)
+      if (localSession.contrato_aceito === true) {
+        // Background refresh (non-blocking)
         partnerAuthService.refreshSessionFromApi().catch((err) => {
           console.warn('[PartnerLayout] Background refresh failed:', err);
         });
         return;
       }
 
-      // Contract NOT accepted locally - must verify with API
+      // Contract NOT accepted locally - must verify with API before redirecting
       try {
         const freshSession = await partnerAuthService.refreshSessionFromApi();
-        
+
+        if (import.meta.env.DEV) {
+          console.log('PartnerGuard', {
+            path: pathname,
+            partnerId: freshSession?.partnerId,
+            accepted: freshSession?.contrato_aceito,
+            status: freshSession?.status,
+            loading: false,
+          });
+        }
+
         if (!freshSession) {
           partnerAuthService.logout();
           navigate('/parceiro/login', { replace: true });
           return;
         }
 
-        // Check contract acceptance from fresh API data
-        if (!freshSession.contrato_aceito) {
-          navigate('/parceiro/contrato', { replace: true });
-          return;
-        }
-
-        // Check partner status
         if (freshSession.status !== 'Ativo') {
           partnerAuthService.logout();
           toast.error('Sua conta está inativa. Entre em contato com a equipe OPEN.');
           navigate('/parceiro/login', { replace: true });
+          return;
+        }
+
+        // Enforce contract gate (allow only contract screen)
+        if (freshSession.contrato_aceito !== true && pathname !== contractPath) {
+          navigate(contractPath, { replace: true });
           return;
         }
       } catch (err: any) {
@@ -279,11 +308,12 @@ export default function PartnerLayout() {
           navigate('/parceiro/login', { replace: true });
           return;
         }
+
         console.error('[PartnerLayout] Falha ao validar sessão via API:', err);
-        
-        // Fallback to local session if API fails (network issues)
-        if (!localSession.contrato_aceito) {
-          navigate('/parceiro/contrato', { replace: true });
+
+        // Fallback: local session is already "not accepted" here, so enforce contract gate
+        if (pathname !== contractPath) {
+          navigate(contractPath, { replace: true });
           return;
         }
       }
