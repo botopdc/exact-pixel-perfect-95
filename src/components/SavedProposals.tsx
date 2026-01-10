@@ -8,7 +8,7 @@ import OpenLogo from './OpenLogo';
 import { useProposals, useUpdateProposalStatus, SavedProposal, ProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
-import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
+import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
 
@@ -370,7 +370,7 @@ const SavedProposals: React.FC = () => {
                           </td>
                           <td className="py-4 px-4 text-muted-foreground">{createdAt}</td>
                           <td className="py-4 px-4 text-muted-foreground">{validityDate}</td>
-                          <td className="py-4 px-4 text-right font-semibold text-primary">R$ {formatCurrency(total)}</td>
+                          <td className="py-4 px-4 text-right font-semibold text-primary">{formatCurrencyBRL(total)}</td>
                           <td className="py-4 px-4">
                             <div className="flex items-center justify-center gap-1">
                               <Button variant="ghost" size="icon" onClick={() => handleView(proposalId)} className="text-primary hover:text-primary hover:bg-primary/10" title="Visualizar proposta">

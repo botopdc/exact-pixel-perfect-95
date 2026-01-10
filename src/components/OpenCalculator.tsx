@@ -861,6 +861,24 @@ const OpenCalculator: React.FC = () => {
       setIsEditMode(true);
       setEditingProposalId(editProposal.proposal?.id || null);
       
+      // Hydration validation: compare saved total with loaded result
+      const savedTotal = toNum(editProposal.result?.grandTotal, 0);
+      const savedItemsCount = (editProposal.items || []).length;
+      const savedAddonsCount = Object.keys(editProposal.addons || {}).filter(k => {
+        const v = (editProposal.addons || {})[k];
+        return v && (typeof v === 'number' ? v > 0 : typeof v === 'boolean' ? v : typeof v === 'object');
+      }).length;
+      
+      console.log('[OpenCalculator] Edit mode hydration validation:', {
+        proposalId: editProposal.proposal?.id,
+        savedTotal,
+        savedItemsCount,
+        savedAddonsCount,
+        hasKubernetes: Boolean(editProposal.kubernetes?.enabled),
+        hasStorage: (editProposal.storageItems || []).length,
+        hasOpenSaas: Boolean(editProposal.openSaas?.enabled),
+      });
+      
       setInitialized(true);
       
       // Clear the navigation state to prevent re-loading on refresh

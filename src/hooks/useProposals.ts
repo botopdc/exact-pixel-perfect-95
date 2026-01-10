@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalculationResult, ClientInfo, ProposalMeta } from '@/lib/calculatorConfig';
+import { CalculationResult, ClientInfo, ProposalMeta, AddonsState } from '@/lib/calculatorConfig';
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 
@@ -62,8 +62,167 @@ interface ApiProposal {
   deleted_at?: string;
 }
 
-// Transform API proposal to local format - REBUILDS result from saved data
+// Helper to safely convert any value to a number
+const toNum = (val: any, fallback = 0): number => {
+  if (val === undefined || val === null || val === '') return fallback;
+  const parsed = typeof val === 'string' ? parseFloat(String(val).replace(',', '.')) : Number(val);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+// Transform API proposal to local format - PRESERVES COMPLETE DATA from dados_proposta if available
 function apiToLocal(apiProposal: ApiProposal): SavedProposal {
+  // Check if we have the complete calculator state saved in dados_proposta (new format)
+  const dadosProposta = (apiProposal as any).dados_proposta;
+  
+  if (dadosProposta && typeof dadosProposta === 'object') {
+    // NEW FORMAT: Complete calculator state was saved - use it directly with normalization
+    console.log('[apiToLocal] Using complete dados_proposta for proposal', apiProposal.id);
+    
+    // Normalize items to ensure all required fields exist (especially disks for BM)
+    const normalizedItems = (dadosProposta.items || []).map((item: any) => {
+      if (item.type === 'bm') {
+        return {
+          ...item,
+          disks: Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
+          qtyServers: toNum(item.qtyServers, 1),
+          ips: toNum(item.ips, 0),
+          gpuQty: toNum(item.gpuQty, 0),
+        };
+      }
+      return {
+        ...item,
+        vcpu: toNum(item.vcpu, 16),
+        ramGb: toNum(item.ramGb, 128),
+        nvmeTb: toNum(item.nvmeTb, 0.05),
+        qtyServers: toNum(item.qtyServers, 1),
+        ips: toNum(item.ips, 0),
+        gpuQty: toNum(item.gpuQty, 0),
+      };
+    });
+    
+    // Normalize addons
+    const rawAddons = dadosProposta.addons || {};
+    const normalizedAddons: AddonsState = {
+      backupPlan: rawAddons.backupPlan || 'none',
+      backupGb: toNum(rawAddons.backupGb, 0),
+      antivirus: toNum(rawAddons.antivirus, 0),
+      firewall: Boolean(rawAddons.firewall),
+      tsplus: toNum(rawAddons.tsplus, 0),
+      cal: toNum(rawAddons.cal, 0),
+      sql: rawAddons.sql || 'none',
+      sqlQty: toNum(rawAddons.sqlQty, 0),
+      veeamVm: toNum(rawAddons.veeamVm, 0),
+      veeamAg: toNum(rawAddons.veeamAg, 0),
+      customAddons: rawAddons.customAddons || {},
+    };
+    
+    // Normalize kubernetes
+    const rawK8s = dadosProposta.kubernetes || {};
+    const rawExtras = rawK8s.extras || {};
+    const rawK8sAddons = rawK8s.addons || {};
+    const normalizedKubernetes = {
+      enabled: Boolean(rawK8s.enabled),
+      plan: rawK8s.plan || 'k8s_small',
+      addons: {
+        support_24x7: Boolean(rawK8sAddons.support_24x7),
+        backup_velero: Boolean(rawK8sAddons.backup_velero),
+        dr_multisite: Boolean(rawK8sAddons.dr_multisite),
+        observability: Boolean(rawK8sAddons.observability),
+        cicd_managed: Boolean(rawK8sAddons.cicd_managed),
+        devops_hours: toNum(rawK8sAddons.devops_hours, 0),
+      },
+      extras: {
+        vcpu: toNum(rawExtras.vcpu, 0),
+        ramGB: toNum(rawExtras.ramGB, 0),
+        diskGB: toNum(rawExtras.diskGB, 0),
+      },
+    };
+    
+    // Normalize storage items
+    const normalizedStorageItems = (dadosProposta.storageItems || []).map((s: any) => ({
+      ...s,
+      volumeTB: toNum(s.volumeTB, 1),
+      volumeGB: toNum(s.volumeGB, 0),
+    }));
+    
+    // Normalize reseller
+    const rawReseller = dadosProposta.reseller || {};
+    const normalizedReseller = {
+      enabled: Boolean(rawReseller.enabled),
+      viewMode: rawReseller.viewMode || 'INTERNO',
+      resellerName: rawReseller.resellerName || '',
+      overValue: toNum(rawReseller.overValue, 0),
+      overReason: rawReseller.overReason || '',
+      observations: rawReseller.observations || '',
+      approvalRequired: Boolean(rawReseller.approvalRequired),
+      approvalStatus: rawReseller.approvalStatus || 'Pendente',
+      approver: rawReseller.approver || '',
+      approvedAt: rawReseller.approvedAt || null,
+    };
+    
+    // Normalize OpenSaaS
+    const rawOpenSaas = dadosProposta.openSaas || {};
+    const normalizedOpenSaas = {
+      enabled: Boolean(rawOpenSaas.enabled),
+      users: toNum(rawOpenSaas.users, 0),
+    };
+    
+    // Use saved result or use total from API
+    const savedResult = dadosProposta.result;
+    const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
+    
+    return {
+      id: apiProposal.id,
+      fx: toNum(dadosProposta.fx, toNum(apiProposal.fx, 5)),
+      selectedTerm: dadosProposta.selectedTerm || '1',
+      datacenter: dadosProposta.datacenter || 'SP1',
+      client: {
+        name: dadosProposta.client?.name || apiProposal.name || '',
+        company: dadosProposta.client?.company || apiProposal.company || '',
+        email: dadosProposta.client?.email || apiProposal.email || '',
+        phone: dadosProposta.client?.phone || apiProposal.phone || '',
+      },
+      proposal: dadosProposta.proposal || {
+        id: `PROP-${apiProposal.id}`,
+        validityDays: 7,
+        createdAt: apiProposal.created_at,
+      },
+      items: normalizedItems,
+      addons: normalizedAddons,
+      kubernetes: normalizedKubernetes,
+      storageItems: normalizedStorageItems,
+      reseller: normalizedReseller,
+      openSaas: normalizedOpenSaas,
+      total: grandTotal,
+      savedAt: apiProposal.created_at,
+      status: '' as ProposalStatus,
+      observacao: dadosProposta.observacao || apiProposal.observations || undefined,
+      result: savedResult || {
+        rows: [],
+        subRec: 0,
+        subIps: 0,
+        subServices: 0,
+        subBackup: 0,
+        subKubernetes: 0,
+        subStorage: 0,
+        subOpenSaas: 0,
+        discountPct: 0,
+        discountValue: 0,
+        grandTotal,
+        totalServers: normalizedItems.length,
+        gpuUsdTotal: 0,
+        gpuBrlTotal: 0,
+        subtotalPriceList: grandTotal,
+        overValue: 0,
+        overPercent: 0,
+        totalWithOver: grandTotal,
+      },
+    };
+  }
+  
+  // LEGACY FORMAT: Reconstruct from servers/addons arrays (backward compatibility)
+  console.log('[apiToLocal] Using legacy format for proposal', apiProposal.id);
+  
   // Map contract_duration to selectedTerm
   const termMap: Record<number, string> = { 1: '1', 12: '12', 24: '24', 36: '36' };
   const selectedTerm = termMap[apiProposal.contract_duration] || '1';
@@ -80,14 +239,14 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     'CE1': 'CE1',
   };
   
-  // Transform API addons array to local addons object
+  // Transform API addons array to legacy addons object format for display
   const addonsObj: Record<string, { enabled: boolean; price: number; quantity: number }> = {};
   let addonsTotal = 0;
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
     for (const addon of apiProposal.addons) {
       if (addon.name) {
-        const addonPrice = addon.price || 0;
-        const addonQty = addon.quantity || 1;
+        const addonPrice = toNum(addon.price, 0);
+        const addonQty = toNum(addon.quantity, 1);
         addonsObj[addon.name] = {
           enabled: true,
           price: addonPrice,
@@ -104,14 +263,14 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   
   const items = (apiProposal.servers || []).map((server: any, idx: number) => {
     const serverName = server.name || 'Server';
-    const price = server.price || 0;
-    const quantity = server.quantity || 1;
+    const price = toNum(server.price, 0);
+    const quantity = toNum(server.quantity, 1);
     const subtotal = price * quantity;
     
     // Build display label with specs
-    const vcpu = server.vcpu || 0;
-    const ram = server.ram || 0;
-    const storage = server.storage || 0;
+    const vcpu = toNum(server.vcpu, 0);
+    const ram = toNum(server.ram, 0);
+    const storage = toNum(server.storage, 0);
     const specLabel = vcpu > 0 || ram > 0 || storage > 0
       ? `${serverName} (${vcpu} vCPU, ${ram}GB RAM, ${storage}GB)`
       : serverName;
@@ -162,8 +321,8 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
     for (const addon of apiProposal.addons) {
       if (addon.name) {
-        const addonPrice = addon.price || 0;
-        const addonQty = addon.quantity || 1;
+        const addonPrice = toNum(addon.price, 0);
+        const addonQty = toNum(addon.quantity, 1);
         rows.push({
           label: addon.name,
           qty: addonQty,
@@ -175,10 +334,10 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   }
   
   // Calculate discount
-  const discountPct = apiProposal.discount_pct || 0;
+  const discountPct = toNum(apiProposal.discount_pct, 0);
   const subtotalBeforeDiscount = serversSubtotal + addonsTotal;
   const discountValue = subtotalBeforeDiscount * discountPct;
-  const grandTotal = apiProposal.total || (subtotalBeforeDiscount - discountValue);
+  const grandTotal = toNum(apiProposal.total, subtotalBeforeDiscount - discountValue);
   
   // Build the result object
   const result: CalculationResult = {
@@ -204,7 +363,7 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   
   return {
     id: apiProposal.id,
-    fx: apiProposal.fx || 5,
+    fx: toNum(apiProposal.fx, 5),
     selectedTerm,
     datacenter: datacenterMap[apiProposal.datacenter] || 'SP1',
     client: {
@@ -223,19 +382,26 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     kubernetes: {},
     storageItems: [],
     reseller: apiProposal.reseller_name ? {
-      name: apiProposal.reseller_name,
-      commissionValue: apiProposal.commission_value,
-      commissionReason: apiProposal.commission_reason,
+      enabled: true,
+      viewMode: 'INTERNO' as const,
+      resellerName: apiProposal.reseller_name,
+      overValue: toNum(apiProposal.commission_value, 0),
+      overReason: apiProposal.commission_reason || '',
+      observations: '',
+      approvalRequired: false,
+      approvalStatus: 'Pendente' as const,
+      approver: '',
+      approvedAt: null,
     } : undefined,
     total: grandTotal,
     savedAt: apiProposal.created_at,
     status: '' as ProposalStatus,
     observacao: apiProposal.observations || undefined,
-    result, // Now included!
+    result,
   };
 }
 
-// Transform local proposal to API format
+// Transform local proposal to API format - SAVES COMPLETE DATA in dados_proposta
 function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Map selectedTerm to contract_duration
   const termToMonths: Record<string, number> = { '1': 1, '12': 12, '24': 24, '36': 36 };
@@ -318,15 +484,33 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     }
   }
   
+  // Build complete dados_proposta object with ALL calculator state
+  // This ensures we can restore the exact proposal when editing
+  const dadosProposta = {
+    fx: proposal.fx,
+    selectedTerm: proposal.selectedTerm,
+    datacenter: proposal.datacenter,
+    client: proposal.client,
+    proposal: proposal.proposal,
+    items: proposal.items, // Complete items with all fields
+    addons: proposal.addons, // Complete addons object
+    kubernetes: proposal.kubernetes, // Complete kubernetes state
+    storageItems: proposal.storageItems, // Complete storage items
+    reseller: proposal.reseller, // Complete reseller state
+    openSaas: proposal.openSaas, // Complete OpenSaaS state
+    result: proposal.result, // Complete calculation result
+    observacao: proposal.observacao,
+  };
+  
   return {
     name: proposal.client?.name || '',
     company: proposal.client?.company || '',
     phone: proposal.client?.phone || '',
     email: proposal.client?.email || '',
-    channel_type: proposal.reseller ? 'PARCEIRO' : 'CLIENTE',
-    reseller_name: proposal.reseller?.name || null,
-    commission_value: proposal.reseller?.commissionValue || null,
-    commission_reason: proposal.reseller?.commissionReason || null,
+    channel_type: proposal.reseller?.enabled ? 'PARCEIRO' : 'CLIENTE',
+    reseller_name: proposal.reseller?.resellerName || null,
+    commission_value: proposal.reseller?.overValue || null,
+    commission_reason: proposal.reseller?.overReason || null,
     observations: proposal.observacao || null,
     fx: proposal.fx || 5,
     datacenter: datacenterNames[proposal.datacenter || 'SP1'] || 'São Paulo',
@@ -336,6 +520,8 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     addons: addonsArray.length > 0 ? addonsArray : null,
     servers: serversArray,
     due_at: dueAt.toISOString(),
+    // CRITICAL: Save complete calculator state for perfect editing restoration
+    dados_proposta: dadosProposta,
   };
 }
 
