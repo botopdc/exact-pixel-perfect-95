@@ -224,6 +224,7 @@ function PartnerHeader() {
 
 export default function PartnerLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
@@ -237,7 +238,17 @@ export default function PartnerLayout() {
         return;
       }
 
-      // Validate and refresh session from API (source of truth for contract_accepted)
+      // If local session already shows contract accepted, trust it and don't block
+      // (API refresh will update in background but won't block navigation)
+      if (localSession.contrato_aceito && localSession.status === 'Ativo') {
+        // Session is valid locally, do background refresh without blocking
+        partnerAuthService.refreshSessionFromApi().catch((err) => {
+          console.warn('[PartnerLayout] Background refresh failed:', err);
+        });
+        return;
+      }
+
+      // Contract NOT accepted locally - must verify with API
       try {
         const freshSession = await partnerAuthService.refreshSessionFromApi();
         
@@ -282,16 +293,18 @@ export default function PartnerLayout() {
       if (mounted) setIsChecking(false);
     });
 
-    // Periodic check every 5 minutes
+    // Periodic check every 5 minutes (background only, non-blocking)
     const interval = setInterval(() => {
-      void checkAuth();
+      partnerAuthService.refreshSessionFromApi().catch((err) => {
+        console.warn('[PartnerLayout] Periodic refresh failed:', err);
+      });
     }, 300000);
 
     return () => {
       mounted = false;
       clearInterval(interval);
     };
-  }, [navigate]);
+  }, [navigate, location.pathname]);
 
   if (isChecking) {
     return (
