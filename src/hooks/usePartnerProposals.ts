@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { partnerAuthService } from '@/services/partnersService';
+import { authService } from '@/services/authService';
 import { PartnerType } from '@/types/partner';
 import { openApi } from '@/lib/openApi';
 import { CalculationResult, generateProposalId } from '@/lib/calculatorConfig';
@@ -583,18 +584,22 @@ export function useDuplicatePartnerProposal() {
 // Hook to delete a proposal (via API)
 export function useDeletePartnerProposal() {
   const queryClient = useQueryClient();
-  const session = partnerAuthService.getSession();
 
   return useMutation({
     mutationFn: async (proposta_id: string) => {
-      if (!session) {
+      const partnerSession = partnerAuthService.getSession();
+      const adminSession = authService.getSession();
+      const isAdmin = adminSession?.level === 1000;
+
+      // Admin can delete partner proposals without requiring partner session
+      if (!partnerSession && !isAdmin) {
         return Promise.reject(new Error('Sessão de parceiro não encontrada'));
       }
 
       // Extract numeric ID
       const numericId = proposta_id.replace('PROP-', '');
       const id = parseInt(numericId, 10);
-      
+
       if (isNaN(id)) {
         return Promise.reject(new Error('ID de proposta inválido'));
       }
