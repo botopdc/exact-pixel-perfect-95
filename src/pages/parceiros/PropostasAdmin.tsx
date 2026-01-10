@@ -26,7 +26,7 @@ import {
 } from '@/hooks/usePartnerProposals';
 import { PartnerType } from '@/types/partner';
 import { authService } from '@/services/authService';
-import { formatCurrency } from '@/lib/calculatorConfig';
+import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 
 // Status badge helper
@@ -66,9 +66,13 @@ export default function PropostasAdmin() {
   const [partnerTypeFilter, setPartnerTypeFilter] = useState<PartnerType | 'all'>('all');
   const [partnerNameFilter, setPartnerNameFilter] = useState<string>('all');
 
-  // Get unique partner names for filter
+  // Get unique partner names for filter - filter out empty/null values to avoid Radix Select crash
   const partnerNames = useMemo(() => {
-    const names = new Set(proposals.map(p => p.parceiro_nome));
+    const names = new Set(
+      proposals
+        .map(p => p.parceiro_nome)
+        .filter((name): name is string => !!name && name.trim() !== '')
+    );
     return Array.from(names).sort();
   }, [proposals]);
 
@@ -188,9 +192,11 @@ export default function PropostasAdmin() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os Parceiros</SelectItem>
-              {partnerNames.map((name) => (
-                <SelectItem key={name} value={name}>{name}</SelectItem>
-              ))}
+              {partnerNames
+                .filter(name => name && name.trim() !== '')
+                .map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
             </SelectContent>
           </Select>
 
@@ -311,7 +317,7 @@ export default function PropostasAdmin() {
                       </td>
                       <td className="py-4 px-4 text-foreground">{p.cliente_nome}</td>
                       <td className="py-4 px-4 text-right font-semibold text-primary">
-                        R$ {formatCurrency(p.valor_total)}
+                        {formatCurrencyBRL(p.valor_total)}
                       </td>
                       <td className="py-4 px-4">{getStatusBadge(p.status_proposta)}</td>
                       <td className="py-4 px-4 text-muted-foreground">{formatDate(p.data_criacao)}</td>
