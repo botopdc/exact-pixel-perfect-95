@@ -667,21 +667,31 @@ export function useSavePartnerProposal() {
       };
 
       // CRITICAL: Log full payload details for debugging persistence issues
+      const draftState = proposalData.dados_proposta;
       console.log('[SavePartnerProposal] Sending to API:', {
         mode: isUpdate && numericId ? 'UPDATE' : 'CREATE',
         numericId,
         channel_type: 'PARCEIRO',
         dados_proposta_summary: {
-          hasItems: Boolean(proposalData.dados_proposta?.items?.length),
-          itemsCount: proposalData.dados_proposta?.items?.length || 0,
-          hasAddons: Boolean(proposalData.dados_proposta?.addons),
-          hasKubernetes: Boolean(proposalData.dados_proposta?.kubernetes?.enabled),
-          hasStorageItems: Boolean(proposalData.dados_proposta?.storageItems?.length),
-          hasOpenSaas: Boolean(proposalData.dados_proposta?.openSaas?.enabled),
-          hasResult: Boolean(proposalData.dados_proposta?.result),
-          savedTotal: proposalData.dados_proposta?.result?.grandTotal,
+          hasProposalId: Boolean(draftState?.proposal?.id || draftState?.proposalId),
+          hasOwnerUserId: Boolean(draftState?.created_by_user_id),
+          hasOwnerEmail: Boolean(draftState?.created_by_email),
+          hasItems: Boolean(draftState?.items?.length),
+          itemsCount: draftState?.items?.length || 0,
+          itemsTypes: (draftState?.items || []).map((i: any) => i.type),
+          hasAddons: Boolean(draftState?.addons),
+          hasKubernetes: Boolean(draftState?.kubernetes?.enabled),
+          hasStorageItems: Boolean(draftState?.storageItems?.length),
+          hasOpenSaas: Boolean(draftState?.openSaas?.enabled),
+          hasResult: Boolean(draftState?.result),
+          savedTotal: draftState?.result?.grandTotal,
         },
       });
+      
+      // VALIDATION: Ensure dados_proposta has items before saving
+      if (!draftState?.items?.length) {
+        console.error('[SavePartnerProposal] ERROR: No items in dados_proposta! This will cause issues on edit.');
+      }
 
       let result: any;
       

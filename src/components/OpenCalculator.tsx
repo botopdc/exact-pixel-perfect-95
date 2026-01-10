@@ -156,12 +156,47 @@ const OpenCalculator: React.FC = () => {
   const [client, setClient] = useState<ClientInfo>({ name: '', company: '', phone: '', email: '' });
   // Collapsible sections state
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [proposal, setProposal] = useState<ProposalMeta>({
+  // Generate stable proposal ID using nanoid-style UUID
+  const [proposal, setProposal] = useState<ProposalMeta>(() => ({
     id: generateProposalId(),
     validityDays: 7,
     createdAt: new Date().toISOString(),
-  });
+  }));
   const [items, setItems] = useState<ServerItem[]>([]);
+  
+  // Owner tracking for proposal persistence
+  const getOwnerInfo = useCallback(() => {
+    const internalSession = authService.getSession();
+    const partnerSess = partnerAuthService.getSession();
+    
+    if (internalSession) {
+      return {
+        ownerUserId: internalSession.apiUser?.id?.toString() || internalSession.userId,
+        ownerEmail: internalSession.apiUser?.email || internalSession.email,
+        ownerName: internalSession.apiUser?.name || internalSession.name,
+        ownerLevel: internalSession.level,
+        ownerRole: internalSession.level >= 1000 ? 'ADMIN' : internalSession.level >= 750 ? 'GERENTE' : 'EXECUTIVO',
+      };
+    }
+    
+    if (partnerSess) {
+      return {
+        ownerUserId: partnerSess.partnerId,
+        ownerEmail: partnerSess.email || '',
+        ownerName: partnerSess.empresa,
+        ownerLevel: 200,
+        ownerRole: 'PARCEIRO',
+      };
+    }
+    
+    return {
+      ownerUserId: 'anonymous',
+      ownerEmail: '',
+      ownerName: 'Visitante',
+      ownerLevel: 0,
+      ownerRole: 'VISITANTE',
+    };
+  }, []);
   const [addons, setAddons] = useState<AddonsState>({
     backupPlan: 'none',
     backupGb: 0,
@@ -792,6 +827,27 @@ const OpenCalculator: React.FC = () => {
         return Number.isFinite(parsed) ? parsed : fallback;
       };
 
+      // VALIDATION: Log what we're about to hydrate
+      console.log('[OpenCalculator] HYDRATION START:', {
+        proposalId: editProposal.proposal?.id || editProposal.id,
+        hasClient: Boolean(editProposal.client),
+        hasItems: Boolean(editProposal.items?.length),
+        itemsCount: editProposal.items?.length || 0,
+        itemsTypes: (editProposal.items || []).map((i: any) => i.type),
+        hasAddons: Boolean(editProposal.addons),
+        hasKubernetes: Boolean(editProposal.kubernetes?.enabled),
+        hasStorageItems: Boolean(editProposal.storageItems?.length),
+        hasOpenSaas: Boolean(editProposal.openSaas?.enabled),
+        hasResult: Boolean(editProposal.result),
+        savedTotal: editProposal.result?.grandTotal,
+        ownerUserId: editProposal.created_by_user_id,
+      });
+
+      // CRITICAL: Verify we have items before proceeding
+      if (!editProposal.items || editProposal.items.length === 0) {
+        console.error('[OpenCalculator] HYDRATION ERROR: No items found in editProposal! This may cause incorrect totals.');
+      }
+
       // Load proposal data for editing with normalization
       setFx(toNum(editProposal.fx, config.fx_default));
       setSelectedTerm(editProposal.selectedTerm || "1");
@@ -805,10 +861,12 @@ const OpenCalculator: React.FC = () => {
       setProposal(editProposal.proposal || { id: generateProposalId(), validityDays: 7, createdAt: new Date().toISOString() });
       
       // Normalize items to ensure all required fields exist (especially disks for BM)
+      // CRITICAL: This is the source of truth - do NOT use defaults if we have saved items
       const normalizedItems = normalizeItems(editProposal.items || []);
       setItems(normalizedItems);
       
       // Normalize addons with proper number conversion
+      // CRITICAL: Use ALL saved addon values, don't reset to defaults
       const rawAddons = editProposal.addons || {};
       setAddons({
         backupPlan: rawAddons.backupPlan || 'none',
@@ -823,6 +881,9 @@ const OpenCalculator: React.FC = () => {
         veeamAg: toNum(rawAddons.veeamAg, 0),
         customAddons: rawAddons.customAddons || {},
       });
+      
+      // Prevent antivirus auto-set from overwriting saved value
+      setAntivirusManuallySet(true);
       
       // Normalize kubernetes
       const rawK8s = editProposal.kubernetes || {};
@@ -850,6 +911,7 @@ const OpenCalculator: React.FC = () => {
       const rawStorageItems = editProposal.storageItems || [];
       setStorageItems(rawStorageItems.map((s: any) => ({
         ...s,
+        id: s.id || crypto.randomUUID(),
         volumeTB: toNum(s.volumeTB, 1),
         volumeGB: toNum(s.volumeGB, 0),
       })));
@@ -872,7 +934,7 @@ const OpenCalculator: React.FC = () => {
       setObservacao(editProposal.observacao || '');
       
       // Expand all loaded items
-      const allItemIds = (editProposal.items || []).map((item: any) => item.id);
+      const allItemIds = normalizedItems.map((item: any) => item.id);
       setExpandedItems(new Set(allItemIds));
       
       // Mark as edit mode with API numeric ID (critical for updates)
@@ -885,24 +947,25 @@ const OpenCalculator: React.FC = () => {
         apiNumericId,
         displayId: editProposal.proposal?.id,
         isEditMode: true,
+        hydratedItemsCount: normalizedItems.length,
       });
       
       // Hydration validation: compare saved total with loaded result
       const savedTotal = toNum(editProposal.result?.grandTotal, 0);
-      const savedItemsCount = (editProposal.items || []).length;
-      const savedAddonsCount = Object.keys(editProposal.addons || {}).filter(k => {
-        const v = (editProposal.addons || {})[k];
-        return v && (typeof v === 'number' ? v > 0 : typeof v === 'boolean' ? v : typeof v === 'object');
+      const savedItemsCount = normalizedItems.length;
+      const savedAddonsActive = Object.keys(rawAddons).filter(k => {
+        const v = rawAddons[k];
+        return v && (typeof v === 'number' ? v > 0 : typeof v === 'boolean' ? v : typeof v === 'string' ? v !== 'none' : typeof v === 'object');
       }).length;
       
-      console.log('[OpenCalculator] Edit mode hydration validation:', {
+      console.log('[OpenCalculator] HYDRATION COMPLETE:', {
         proposalId: editProposal.proposal?.id,
         savedTotal,
-        savedItemsCount,
-        savedAddonsCount,
-        hasKubernetes: Boolean(editProposal.kubernetes?.enabled),
-        hasStorage: (editProposal.storageItems || []).length,
-        hasOpenSaas: Boolean(editProposal.openSaas?.enabled),
+        hydratedItemsCount: savedItemsCount,
+        activeAddonsCount: savedAddonsActive,
+        hasKubernetes: Boolean(rawK8s.enabled),
+        hasStorage: rawStorageItems.length,
+        hasOpenSaas: Boolean(rawOpenSaas.enabled),
       });
       
       setInitialized(true);
@@ -984,6 +1047,32 @@ const OpenCalculator: React.FC = () => {
     
     setSaving(true);
     try {
+      // Get owner info for tracking
+      const ownerInfo = getOwnerInfo();
+      
+      // Build complete draftState - this is the SOURCE OF TRUTH for proposal data
+      const draftState = {
+        fx,
+        selectedTerm,
+        datacenter,
+        client,
+        proposal,
+        items, // Complete items array with all VM/BM details
+        addons, // Complete addons object
+        kubernetes, // Complete kubernetes state
+        storageItems, // Complete storage items
+        reseller, // Complete reseller state
+        openSaas, // Complete OpenSaaS state
+        result, // Computed result for reference
+        observacao: observacao.trim() || undefined,
+        // Owner tracking (required for persistence)
+        created_by_user_id: ownerInfo.ownerUserId,
+        created_by_email: ownerInfo.ownerEmail,
+        created_by_name: ownerInfo.ownerName,
+        created_by_level: ownerInfo.ownerLevel,
+        created_by_role: ownerInfo.ownerRole,
+      };
+      
       if (isPartnerContext && partnerSession) {
         // Partner context: use partner proposal hook
         // For EDIT mode, use PROP-{numericId} format so the hook detects update
@@ -995,21 +1084,7 @@ const OpenCalculator: React.FC = () => {
           cliente_email: client.email,
           valor_total: result?.grandTotal || 0,
           status_proposta: 'Rascunho' as const,
-          dados_proposta: {
-            fx,
-            selectedTerm,
-            datacenter,
-            client,
-            proposal,
-            items,
-            addons,
-            kubernetes,
-            storageItems,
-            reseller,
-            openSaas,
-            result,
-            observacao: observacao.trim() || undefined,
-          },
+          dados_proposta: draftState, // Use complete draftState
         };
 
         const saveResult = await savePartnerProposalMutation.mutateAsync(partnerProposalData);
@@ -1019,21 +1094,9 @@ const OpenCalculator: React.FC = () => {
         // For EDIT mode, pass the API numeric ID so the hook performs UPDATE
         const proposalData: SavedProposal = {
           id: numericApiId || undefined, // CRITICAL: API numeric ID for update detection
-          fx,
-          selectedTerm,
-          datacenter,
-          client,
-          proposal,
-          items,
-          addons,
-          kubernetes,
-          storageItems,
-          reseller,
-          openSaas,
+          ...draftState, // Spread complete draftState
           total: result?.grandTotal || 0,
           savedAt: new Date().toISOString(),
-          result: result || undefined,
-          observacao: observacao.trim() || undefined,
         };
 
         const saveResult = await saveInternalProposalMutation.mutateAsync(proposalData);
@@ -2703,6 +2766,93 @@ const OpenCalculator: React.FC = () => {
                 </Button>
                 <Button variant="ghost" className="w-full text-muted-foreground" onClick={handleReset}>
                   Nova Proposta
+                </Button>
+
+                {/* Export JSON button - for debugging persistence */}
+                <Button
+                  variant="ghost"
+                  className="w-full text-xs text-muted-foreground/60 hover:text-muted-foreground"
+                  onClick={() => {
+                    const ownerInfo = getOwnerInfo();
+                    const draftState = {
+                      // Unique identifiers
+                      proposalId: proposal.id,
+                      apiId: editingProposalId ? parseInt(editingProposalId, 10) : null,
+                      ownerUserId: ownerInfo.ownerUserId,
+                      ownerEmail: ownerInfo.ownerEmail,
+                      ownerName: ownerInfo.ownerName,
+                      ownerLevel: ownerInfo.ownerLevel,
+                      ownerRole: ownerInfo.ownerRole,
+                      // Client data
+                      cliente: {
+                        nome: client.name,
+                        empresa: client.company,
+                        email: client.email,
+                        telefone: client.phone,
+                      },
+                      // Configuration
+                      configuracao: {
+                        cambio: fx,
+                        vigencia: parseInt(selectedTerm),
+                        datacenter,
+                      },
+                      // All items with complete data
+                      itens: items.map((item, idx) => ({
+                        type: item.type,
+                        index: idx + 1,
+                        id: item.id,
+                        ...item,
+                      })),
+                      // Addons complete
+                      addons: { ...addons },
+                      // Kubernetes complete
+                      kubernetes: { ...kubernetes },
+                      // Storage items complete
+                      storageItems: [...storageItems],
+                      // Reseller config
+                      reseller: { ...reseller },
+                      // OpenSaaS config
+                      openSaas: { ...openSaas },
+                      // Observation
+                      observacao: observacao,
+                      // Proposal meta
+                      proposal: { ...proposal },
+                      // Computed totals (derived, for validation only)
+                      computedTotals: result ? {
+                        subRec: result.subRec,
+                        subIps: result.subIps,
+                        subServices: result.subServices,
+                        subBackup: result.subBackup,
+                        subKubernetes: result.subKubernetes,
+                        subStorage: result.subStorage,
+                        subOpenSaas: result.subOpenSaas,
+                        discountPct: result.discountPct,
+                        discountValue: result.discountValue,
+                        grandTotal: result.grandTotal,
+                        overValue: result.overValue,
+                        totalWithOver: result.totalWithOver,
+                      } : null,
+                      // Timestamps
+                      createdAt: proposal.createdAt,
+                      exportedAt: new Date().toISOString(),
+                    };
+                    
+                    const jsonStr = JSON.stringify(draftState, null, 2);
+                    
+                    // Download as file
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `proposta-${proposal.id}-${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    
+                    toast({ title: 'JSON Exportado', description: 'O arquivo JSON da proposta foi baixado' });
+                  }}
+                >
+                  <Bug className="w-3 h-3 mr-2" />
+                  Exportar JSON da Proposta
                 </Button>
 
                 {/* Debug button - only visible in admin mode */}
