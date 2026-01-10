@@ -57,15 +57,15 @@ function ExecutiveSidebar() {
   };
 
   const menuItems = [
-    { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
-    { title: 'Calculadora de Preços', url: '/calculadora', icon: Calculator },
-    { title: 'Propostas Salvas', url: '/comercial/propostas', icon: FileStack },
+    { title: 'Dashboard', url: '/executivo/dashboard', icon: LayoutDashboard },
+    { title: 'Calculadora de Preços', url: '/executivo/calculadora', icon: Calculator },
+    { title: 'Propostas Salvas', url: '/executivo/propostas', icon: FileStack },
   ];
 
   return (
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link to="/dashboard" className="flex items-center gap-3">
+        <Link to="/executivo/dashboard" className="flex items-center gap-3">
           <img src={logoWhite} alt="OPEN Datacenter" className="h-8 w-auto" />
           {!collapsed && (
             <div className="flex flex-col">
@@ -157,9 +157,9 @@ function ExecutiveHeader() {
 
   const getPageTitle = () => {
     const path = location.pathname;
-    if (path === '/dashboard') return 'Dashboard';
-    if (path === '/calculadora') return 'Calculadora de Preços';
-    if (path === '/comercial/propostas') return 'Propostas Salvas';
+    if (path === '/executivo/dashboard') return 'Dashboard';
+    if (path === '/executivo/calculadora') return 'Calculadora de Preços';
+    if (path === '/executivo/propostas') return 'Propostas Salvas';
     return 'Portal do Executivo';
   };
 
