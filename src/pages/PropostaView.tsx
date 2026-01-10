@@ -11,16 +11,26 @@ import { useToast } from '@/hooks/use-toast';
 import { AttachmentsList } from '@/components/attachments/AttachmentsList';
 import { useAttachments } from '@/hooks/useAttachments';
 import { partnerAuthService } from '@/services/partnersService';
+import { authService } from '@/services/authService';
+
 const PropostaView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   
-  // Determine if user is a partner to navigate to correct proposals page
-  const isPartnerContext = useMemo(() => {
+  // Determine dashboard route based on user context
+  const dashboardRoute = useMemo(() => {
     const partnerSession = partnerAuthService.getSession();
-    return !!partnerSession;
+    if (partnerSession) return '/parceiro/dashboard';
+    
+    const session = authService.getSession();
+    const userLevel = session?.level || 0;
+    // Executives (700/750) use /executivo/dashboard
+    if (userLevel === 700 || userLevel === 750) return '/executivo/dashboard';
+    
+    // All other internal users use /dashboard
+    return '/dashboard';
   }, []);
   
   // Local storage hook
@@ -369,7 +379,7 @@ const PropostaView: React.FC = () => {
 
         {/* Action buttons below document */}
         <div className="flex justify-center gap-4 mt-8 print:hidden">
-          <Button variant="open-outline" onClick={() => navigate(isPartnerContext ? '/parceiro/dashboard' : '/dashboard')}>
+          <Button variant="open-outline" onClick={() => navigate(dashboardRoute)}>
             <ArrowLeft className="w-4 h-4" />
             Voltar para dashboard
           </Button>
