@@ -82,7 +82,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Dashboard',
         url: '/dashboard',
         icon: LayoutDashboard,
-        allowedLevels: [200, 600, 700, 750, 775, 900, 950, 1000],
+        allowedLevels: [600, 775, 900, 950, 1000], // Executivos (700/750) usam ExecutiveLayout
       },
       {
         id: 'ceo-view',
@@ -91,101 +91,85 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Crown,
         allowedLevels: [1000],
       },
-      // Calculadora no menu principal para Admin e Gerente Comercial
+      // Calculadora no menu principal apenas para Admin
       {
         id: 'calculadora-main',
         title: 'Calculadora de Preços',
         url: '/calculadora',
         icon: Calculator,
-        allowedLevels: [750, 1000], // Gerente Comercial e Admin veem no menu principal
+        allowedLevels: [1000], // Apenas Admin no DashboardLayout
       },
     ],
   },
 
-  // ========== COMERCIAL (EXECUTIVOS INTERNOS) ==========
+  // ========== COMERCIAL (GESTÃO - ADMIN ONLY) ==========
   {
     id: 'comercial',
     title: 'COMERCIAL',
     items: [
-      // Calculadora dentro da seção Comercial para Executivos (700)
-      {
-        id: 'calculadora',
-        title: 'Calculadora de Preços',
-        url: '/calculadora',
-        icon: Calculator,
-        allowedLevels: [700], // Apenas Comercial vê aqui (750 e 1000 veem no menu principal)
-      },
       {
         id: 'executivos',
         title: 'Executivos',
         url: '/comercial/executivos',
         icon: UserCheck,
-        allowedLevels: [700, 750, 1000],
+        allowedLevels: [1000], // Apenas Admin vê lista de executivos
       },
       {
         id: 'gestao-executivos',
         title: 'Gestão de Executivos',
         url: '/comercial/gestao-executivos',
         icon: Settings,
-        allowedLevels: [750, 1000],
+        allowedLevels: [1000], // Apenas Admin gerencia executivos
       },
       {
         id: 'propostas-executivos',
         title: 'Propostas Executivos',
         url: '/comercial/propostas',
         icon: FileStack,
-        allowedLevels: [700, 750, 1000],
+        allowedLevels: [1000], // Admin vê todas as propostas de executivos aqui
       },
       {
         id: 'comissoes-executivos',
         title: 'Gestão de Comissões',
         url: '/comercial/comissoes',
         icon: DollarSign,
-        allowedLevels: [750, 1000],
+        allowedLevels: [1000], // Apenas Admin
       },
     ],
   },
 
-  // ========== PARCEIROS (ISV/VAR/FINDER) ==========
+  // ========== PARCEIROS (GESTÃO - ADMIN ONLY) ==========
   {
     id: 'parceiros',
     title: 'PARCEIROS',
     items: [
-      // Calculadora dentro da seção Parceiros para user_level 200
-      {
-        id: 'calculadora-parceiro',
-        title: 'Calculadora de Preços',
-        url: '/calculadora',
-        icon: Calculator,
-        allowedLevels: [200], // Apenas parceiros veem aqui
-      },
       {
         id: 'executivo-parceiros',
         title: 'Executivo Parceiros',
         url: '/parceiros/executivo',
         icon: PieChart,
-        allowedLevels: [750, 1000],
+        allowedLevels: [1000], // Apenas Admin
       },
       {
         id: 'gestao-parceiros',
         title: 'Gestão de Parceiros',
         url: '/parceiros/gestao',
         icon: Handshake,
-        allowedLevels: [750, 1000],
+        allowedLevels: [1000], // Apenas Admin
       },
       {
         id: 'propostas-parceiros',
         title: 'Propostas Parceiros',
         url: '/parceiros/propostas',
         icon: FileStack,
-        allowedLevels: [200, 700, 750, 1000], // Parceiro 200 também vê suas propostas
+        allowedLevels: [1000], // Admin vê todas as propostas de parceiros
       },
       {
         id: 'gestao-comissoes-parceiros',
         title: 'Gestão de Comissões',
         url: '/parceiros/comissoes',
         icon: DollarSign,
-        allowedLevels: [750, 1000],
+        allowedLevels: [1000], // Apenas Admin
       },
     ],
   },
@@ -415,9 +399,14 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
   if (pathname.match(/^\/rh\/vagas\/[^/]+\/editar$/)) {
     return isRouteAllowed('/rh/vagas', userLevel);
   }
-  // Rotas de comercial herdam permissão
+  // Rotas de comercial herdam permissão (apenas Admin)
   if (pathname.match(/^\/comercial\//)) {
-    return isRouteAllowed('/comercial/executivos', userLevel);
+    return userLevel >= USER_LEVELS.ADMIN;
+  }
+  
+  // Rotas do portal executivo (700/750) 
+  if (pathname.match(/^\/executivo\//)) {
+    return userLevel === 700 || userLevel === 750;
   }
 
   // Verifica mapeamento estático

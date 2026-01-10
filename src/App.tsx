@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 // Layouts
 import DashboardLayout from '@/layouts/DashboardLayout';
 import PartnerLayout from '@/layouts/PartnerLayout';
+import ExecutiveLayout from '@/layouts/ExecutiveLayout';
 
 // Pages
 import Login from '@/pages/Login';
@@ -91,13 +92,20 @@ const App = () => (
             <Route path="/parceiro/indicacoes" element={<IndicacoesParceiro />} />
           </Route>
           
-          {/* Protected dashboard routes */}
+          {/* Executive protected routes (user_level 700/750) - dedicated layout */}
+          <Route element={<ExecutiveLayout />}>
+            <Route path="/executivo/dashboard" element={<DashboardHome />} />
+            <Route path="/executivo/calculadora" element={<Calculadora />} />
+            <Route path="/executivo/propostas" element={<PropostasExecutivos />} />
+          </Route>
+          
+          {/* Admin/internal protected dashboard routes (non-executive levels) */}
           <Route element={<DashboardLayout />}>
             {/* Menu Principal */}
             <Route path="/dashboard" element={<DashboardHome />} />
             <Route path="/ceo" element={<DashboardExecutivo />} />
             
-            {/* Comercial (Executivos) */}
+            {/* Comercial (Admin only) */}
             <Route path="/calculadora" element={<Calculadora />} />
             <Route path="/comercial/executivos" element={<Executivos />} />
             <Route path="/comercial/gestao-executivos" element={<GestaoExecutivos />} />

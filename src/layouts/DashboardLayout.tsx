@@ -289,6 +289,14 @@ export default function DashboardLayout() {
     const checkAuth = () => {
       if (!authService.isAuthenticated()) {
         navigate('/login', { replace: true });
+        return;
+      }
+      
+      // Executivos (700/750) devem usar ExecutiveLayout
+      const user = authService.getCurrentUser();
+      if (user?.level === 700 || user?.level === 750) {
+        navigate('/executivo/dashboard', { replace: true });
+        return;
       }
     };
 

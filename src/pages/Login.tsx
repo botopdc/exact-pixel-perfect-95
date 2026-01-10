@@ -15,10 +15,22 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Get correct redirect path based on user level
+  const getRedirectPath = (level: number) => {
+    // Executivos (700/750) go to executive portal
+    if (level === 700 || level === 750) {
+      return '/executivo/dashboard';
+    }
+    // Admin and others go to main dashboard
+    return '/dashboard';
+  };
+
   // Redirect if already logged in
   React.useEffect(() => {
     if (authService.isAuthenticated()) {
-      navigate('/dashboard', { replace: true });
+      const user = authService.getCurrentUser();
+      const redirectPath = user ? getRedirectPath(user.level) : '/dashboard';
+      navigate(redirectPath, { replace: true });
     }
   }, [navigate]);
 
@@ -30,8 +42,9 @@ export default function LoginPage() {
     try {
       const result = await authService.login(email, password);
       
-      if (result.success) {
-        navigate('/dashboard', { replace: true });
+      if (result.success && result.session) {
+        const redirectPath = getRedirectPath(result.session.level);
+        navigate(redirectPath, { replace: true });
       } else {
         setError(result.error || 'Erro ao fazer login');
       }
