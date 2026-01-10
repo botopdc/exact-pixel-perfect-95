@@ -227,7 +227,7 @@ const OpenCalculator: React.FC = () => {
   const [openSaas, setOpenSaas] = useState<OpenSaaSState>(DEFAULT_OPEN_SAAS_STATE);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<CalculationResult | null>(null);
-  const [antivirusManuallySet, setAntivirusManuallySet] = useState(false);
+  // REMOVED: antivirusManuallySet - antivirus is now 100% user-controlled, no auto-sync
   const [sendingEmail, setSendingEmail] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -498,10 +498,8 @@ const OpenCalculator: React.FC = () => {
       }
     });
 
-    // Auto-set antivirus
-    if (!antivirusManuallySet) {
-      setAddons(prev => ({ ...prev, antivirus: totalServers }));
-    }
+    // REMOVED: Auto-set antivirus - now 100% user-controlled
+    // Antivirus quantity is ONLY set by user input, never auto-synced with VM count
 
     // Services - using toNum for all pricing
     const antivirusQty = toNum(addons.antivirus, 0);
@@ -763,7 +761,7 @@ const OpenCalculator: React.FC = () => {
       partnerDiscountPct: Number.isFinite(partnerDiscountPct) ? partnerDiscountPct : 0,
       partnerDiscountValue: Number.isFinite(partnerDiscountValue) ? partnerDiscountValue : 0,
     });
-  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, antivirusManuallySet, reseller.overValue, reseller.approvalRequired, userContext]);
+  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext]);
 
   // Recalculate on changes
   useEffect(() => {
@@ -882,8 +880,7 @@ const OpenCalculator: React.FC = () => {
         customAddons: rawAddons.customAddons || {},
       });
       
-      // Prevent antivirus auto-set from overwriting saved value
-      setAntivirusManuallySet(true);
+      // NOTE: No need to set antivirusManuallySet - antivirus is now 100% user-controlled
       
       // Normalize kubernetes
       const rawK8s = editProposal.kubernetes || {};
@@ -1245,7 +1242,7 @@ const OpenCalculator: React.FC = () => {
     setFx(config.fx_default);
     setSelectedTerm("1");
     setDatacenter('SP1');
-    setAntivirusManuallySet(false);
+    // Antivirus starts at 0 (no auto-sync with VMs)
     setObservacao('');
     // Clear edit mode
     setIsEditMode(false);
@@ -2311,7 +2308,7 @@ const OpenCalculator: React.FC = () => {
                   <Input
                     type="number"
                     value={addons.antivirus}
-                    onChange={(e) => { setAddons(prev => ({ ...prev, antivirus: parseInt(e.target.value) || 0 })); setAntivirusManuallySet(true); }}
+                    onChange={(e) => setAddons(prev => ({ ...prev, antivirus: parseInt(e.target.value) || 0 }))}
                     min={0}
                     className="bg-input border-border"
                   />
