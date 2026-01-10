@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
@@ -12,25 +12,45 @@ import { AttachmentsList } from '@/components/attachments/AttachmentsList';
 import { useAttachments } from '@/hooks/useAttachments';
 import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
+import { ROUTES, getDashboardRoute } from '@/config/routes';
 
 const PropostaView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   
   // Determine dashboard route based on user context
+  // CRITICAL: Check internal session FIRST to prevent partner session from overriding executive context
   const dashboardRoute = useMemo(() => {
+    // First check if this is an internal user (executive or admin)
+    const internalSession = authService.getSession();
+    const userLevel = internalSession?.level || 0;
+    
+    // Executives (700/750) ALWAYS go to executive dashboard, regardless of partner session
+    if (userLevel === 700 || userLevel === 750) {
+      return ROUTES.executivo.dashboard;
+    }
+    
+    // Admin and other internal users go to admin dashboard
+    if (userLevel >= 900 || userLevel === 1000) {
+      return ROUTES.admin.dashboard;
+    }
+    
+    // Only check partner session if there's no valid internal session
     const partnerSession = partnerAuthService.getSession();
-    if (partnerSession) return '/parceiro/dashboard';
+    if (partnerSession) {
+      return ROUTES.parceiro.dashboard;
+    }
     
-    const session = authService.getSession();
-    const userLevel = session?.level || 0;
-    // Executives (700/750) use /executivo/dashboard
-    if (userLevel === 700 || userLevel === 750) return '/executivo/dashboard';
+    // Fallback for other authenticated internal users
+    if (internalSession) {
+      return ROUTES.admin.dashboard;
+    }
     
-    // All other internal users use /dashboard
-    return '/dashboard';
+    // Default fallback
+    return ROUTES.admin.dashboard;
   }, []);
   
   // Local storage hook
