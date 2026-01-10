@@ -84,7 +84,25 @@ const OpenCalculator: React.FC = () => {
   
   // Get user context (works for both internal users and partners)
   const userContext = useMemo((): CalculatorUserContext => {
-    // Try internal auth first
+    const isPartnerRoute = location.pathname.startsWith('/parceiro');
+
+    // On partner routes, ALWAYS prefer partner session to avoid mixed-session bugs
+    if (isPartnerRoute) {
+      const partnerSession = partnerAuthService.getSession();
+      if (partnerSession) {
+        const partnerType = partnerSession.tipo_parceria;
+        const rules = getPricingRules(200); // Partner level
+        return {
+          userLevel: 200,
+          partnerType,
+          pricingRules: rules,
+          partnerDiscount: getPartnerTypeDiscount(partnerType),
+          profileLabel: getPricingProfileLabel(200, partnerType),
+        };
+      }
+    }
+
+    // Internal routes: prefer internal auth
     const internalSession = authService.getSession();
     if (internalSession) {
       const partnerType = internalSession.apiUser?.partner?.type || null;
@@ -97,8 +115,8 @@ const OpenCalculator: React.FC = () => {
         profileLabel: getPricingProfileLabel(internalSession.level, partnerType || undefined),
       };
     }
-    
-    // Try partner auth
+
+    // If not internal (or internal missing), try partner auth (legacy / edge cases)
     const partnerSession = partnerAuthService.getSession();
     if (partnerSession) {
       const partnerType = partnerSession.tipo_parceria;
@@ -111,7 +129,7 @@ const OpenCalculator: React.FC = () => {
         profileLabel: getPricingProfileLabel(200, partnerType),
       };
     }
-    
+
     // No session - default rules
     const defaultRules = getPricingRules(null);
     return {
@@ -121,8 +139,8 @@ const OpenCalculator: React.FC = () => {
       partnerDiscount: 0,
       profileLabel: 'Visitante',
     };
-  }, []);
-  
+  }, [location.pathname]);
+
   // Determine if this is a partner context for saving
   const isPartnerContext = userContext.userLevel === 200;
   const partnerSession = isPartnerContext ? partnerAuthService.getSession() : null;
@@ -947,14 +965,21 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
-    // DEBUG: Log save operation mode
+    // DEBUG: Log save operation mode + ownership context
     const numericApiId = editingProposalId ? parseInt(editingProposalId, 10) : null;
+    const internalSession = authService.getSession();
+    const partnerSess = partnerAuthService.getSession();
     console.log('[OpenCalculator] handleSave:', {
       mode: isEditMode ? 'EDIT' : 'CREATE',
+      route: location.pathname,
       editingProposalId,
       numericApiId,
       displayProposalId: proposal.id,
       total: result?.grandTotal,
+      inferred_user_level: userContext.userLevel,
+      internal_session_level: internalSession?.level ?? null,
+      partner_session_partnerId: partnerSess?.partnerId ?? null,
+      intended_channel_type: isPartnerContext ? 'PARCEIRO' : 'CLIENTE',
     });
     
     setSaving(true);

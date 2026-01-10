@@ -533,16 +533,39 @@ export function useProposals(page = 1, perPage = 100) {
     queryKey: ['proposals', 'api', 'executive', page, perPage],
     queryFn: async () => {
       try {
-        // Fetch proposals with channel_type = CLIENTE (executive proposals)
-        // This excludes partner proposals (channel_type = PARCEIRO)
-        const response = await openApi.getProposals({
-          channel_type: 'CLIENTE',
-          __page: page,
-          __perPage: perPage,
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const token = openApi.getToken();
+        if (!token) throw new Error('Sem token de autenticação');
+
+        const params = new URLSearchParams({
+          scope: 'CLIENTE',
+          __page: String(page),
+          __perPage: String(perPage),
         });
-        const apiProposals = response.data as ApiProposal[];
-        console.log('[useProposals] Fetched executive proposals (channel_type=CLIENTE):', apiProposals.length);
-        return apiProposals.map(apiToLocal);
+
+        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        const payload = await resp.json();
+        if (!resp.ok || payload?.success === false) {
+          throw new Error(payload?.error || 'Falha ao listar propostas');
+        }
+
+        const apiProposals = (payload.data || []) as ApiProposal[];
+        const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+
+        if (safe.length !== apiProposals.length) {
+          console.warn('[useProposals] Dropped non-executive proposals from executive list:', {
+            received: apiProposals.length,
+            kept: safe.length,
+            ownership: payload.ownership,
+          });
+        } else {
+          console.log('[useProposals] Fetched executive proposals (scope=CLIENTE):', safe.length, payload.ownership);
+        }
+
+        return safe.map(apiToLocal);
       } catch (error) {
         console.warn('[Proposals] API fetch failed, returning empty:', error);
         return [];
@@ -558,28 +581,52 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
     queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage],
     queryFn: async () => {
       try {
-        // Fetch only executive proposals (channel_type = CLIENTE)
-        const response = await openApi.getProposals({
-          channel_type: 'CLIENTE',
-          __page: page,
-          __perPage: perPage,
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const token = openApi.getToken();
+        if (!token) throw new Error('Sem token de autenticação');
+
+        const params = new URLSearchParams({
+          scope: 'CLIENTE',
+          __page: String(page),
+          __perPage: String(perPage),
         });
-        const apiProposals = response.data as ApiProposal[];
-        const proposals = apiProposals.map(apiToLocal);
-        console.log('[useProposalsPaginated] Fetched executive proposals:', proposals.length);
+
+        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        const payload = await resp.json();
+        if (!resp.ok || payload?.success === false) {
+          throw new Error(payload?.error || 'Falha ao listar propostas');
+        }
+
+        const apiProposals = (payload.data || []) as ApiProposal[];
+        const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+
+        if (safe.length !== apiProposals.length) {
+          console.warn('[useProposalsPaginated] Dropped non-executive proposals from executive list:', {
+            received: apiProposals.length,
+            kept: safe.length,
+            ownership: payload.ownership,
+          });
+        } else {
+          console.log('[useProposalsPaginated] Fetched executive proposals:', safe.length, payload.ownership);
+        }
+
+        const proposals = safe.map(apiToLocal);
         return {
           proposals,
           pagination: {
             currentPage: page,
-            lastPage: Math.ceil(response.total / perPage) || 1,
-            total: response.total,
-          }
+            lastPage: Math.ceil((payload.total || 0) / perPage) || 1,
+            total: payload.total || 0,
+          },
         };
       } catch (error) {
         console.warn('[Proposals] API fetch failed:', error);
         return {
           proposals: [],
-          pagination: { currentPage: 1, lastPage: 1, total: 0 }
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
         };
       }
     },
@@ -623,39 +670,56 @@ export function useSaveProposal() {
   return useMutation({
     mutationFn: async (proposal: SavedProposal) => {
       const apiData = localToApi(proposal);
-      
-      // Check if proposal already exists
-      // 1. Check for direct numeric id
-      // 2. Check for PROP-* format in proposal.proposal.id
+
+      // Resolve numeric ID (edit mode)
       let numericId: number | null = null;
-      
+
       if (proposal.id && typeof proposal.id === 'number') {
         numericId = proposal.id;
       } else if (proposal.proposal?.id) {
         const propId = proposal.proposal.id;
         if (propId.startsWith('PROP-')) {
           const parsed = parseInt(propId.replace('PROP-', ''), 10);
-          if (!isNaN(parsed)) {
-            numericId = parsed;
-          }
+          if (!isNaN(parsed)) numericId = parsed;
         } else {
           const parsed = parseInt(propId, 10);
-          if (!isNaN(parsed)) {
-            numericId = parsed;
-          }
+          if (!isNaN(parsed)) numericId = parsed;
         }
       }
-      
-      if (numericId) {
-        console.log('[SaveProposal] Updating proposal:', numericId);
-        const result = await openApi.updateProposal(numericId, apiData);
-        return { success: true, data: result, isUpdate: true };
-      } else {
-        // Create new proposal
-        console.log('[SaveProposal] Creating new proposal');
-        const result = await openApi.createProposal(apiData);
-        return { success: true, data: result, isUpdate: false };
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const token = openApi.getToken();
+      if (!token) throw new Error('Sem token de autenticação');
+
+      const scope = 'CLIENTE';
+      const url = numericId
+        ? `${supabaseUrl}/functions/v1/proposal-gateway/proposal/${numericId}?scope=${scope}`
+        : `${supabaseUrl}/functions/v1/proposal-gateway/proposal?scope=${scope}`;
+
+      console.log('[SaveProposal] Sending to gateway:', {
+        mode: numericId ? 'UPDATE' : 'CREATE',
+        numericId,
+        intended_channel_type: 'CLIENTE',
+        payload_channel_type: (apiData as any).channel_type,
+      });
+
+      const resp = await fetch(url, {
+        method: numericId ? 'PUT' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'x-open-module': 'internal',
+        },
+        body: JSON.stringify(apiData),
+      });
+
+      const payload = await resp.json();
+      if (!resp.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Falha ao salvar proposta');
       }
+
+      console.log('[SaveProposal] Gateway response ownership:', payload.ownership);
+      return { success: true, data: payload.data, isUpdate: Boolean(numericId) };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['proposals'] });

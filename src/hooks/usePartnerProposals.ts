@@ -294,23 +294,45 @@ export function usePartnerProposals(isAdmin = false) {
     queryKey: ['partner-proposals', userId, isAdmin],
     queryFn: async () => {
       try {
-        const response = await openApi.getProposals({
-          channel_type: 'PARCEIRO',
-          __perPage: 100,
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const token = openApi.getToken();
+        if (!token) throw new Error('Sem token de autenticação');
+
+        const params = new URLSearchParams({
+          scope: 'PARCEIRO',
+          __perPage: String(isAdmin ? 500 : 100),
         });
-        const apiProposals = response.data as any[];
-        
-        // Transform to PartnerProposal format
-        const proposals = apiProposals.map(p => apiToPartnerProposal(p, session));
-        
-        // Admin sees all, partner sees only their own
-        if (isAdmin) {
-          return proposals;
+
+        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}`, 'x-open-module': 'partner_portal' },
+        });
+
+        const payload = await resp.json();
+        if (!resp.ok || payload?.success === false) {
+          throw new Error(payload?.error || 'Falha ao listar propostas de parceiros');
         }
-        
-        // Partner: filter by reseller_name matching their empresa
+
+        const apiProposals = (payload.data || []) as any[];
+        const safe = apiProposals.filter((p) => p?.channel_type === 'PARCEIRO');
+
+        if (safe.length !== apiProposals.length) {
+          console.warn('[usePartnerProposals] Dropped non-partner proposals from partner list:', {
+            received: apiProposals.length,
+            kept: safe.length,
+            ownership: payload.ownership,
+          });
+        } else {
+          console.log('[usePartnerProposals] Fetched partner proposals:', safe.length, payload.ownership);
+        }
+
+        const proposals = safe.map((p) => apiToPartnerProposal(p, session));
+
+        // Admin sees all
+        if (isAdmin) return proposals;
+
+        // Partner: best-effort filter by reseller_name matching their empresa
         return userId && session?.empresa
-          ? proposals.filter(p => p.parceiro_nome === session.empresa)
+          ? proposals.filter((p) => p.parceiro_nome === session.empresa)
           : [];
       } catch (error) {
         console.warn('[PartnerProposals] API fetch failed:', error);
@@ -327,12 +349,28 @@ export function useAllPartnerProposals() {
     queryKey: ['partner-proposals', 'all'],
     queryFn: async () => {
       try {
-        const response = await openApi.getProposals({
-          channel_type: 'PARCEIRO',
-          __perPage: 500,
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const token = openApi.getToken();
+        if (!token) throw new Error('Sem token de autenticação');
+
+        const params = new URLSearchParams({
+          scope: 'PARCEIRO',
+          __perPage: '500',
         });
+
+        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}`, 'x-open-module': 'partner_portal' },
+        });
+
+        const payload = await resp.json();
+        if (!resp.ok || payload?.success === false) {
+          throw new Error(payload?.error || 'Falha ao listar propostas de parceiros');
+        }
+
         const session = partnerAuthService.getSession();
-        return (response.data as any[]).map(p => apiToPartnerProposal(p, session));
+        const apiProposals = (payload.data || []) as any[];
+        const safe = apiProposals.filter((p) => p?.channel_type === 'PARCEIRO');
+        return safe.map((p) => apiToPartnerProposal(p, session));
       } catch (error) {
         console.warn('[PartnerProposals] API fetch failed:', error);
         return [];
