@@ -102,7 +102,7 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   const rows: Array<{ label: string; qty: string | number; unitPrice: number; subtotal: number }> = [];
   let serversSubtotal = 0;
   
-  const items = (apiProposal.servers || []).map((server: any) => {
+  const items = (apiProposal.servers || []).map((server: any, idx: number) => {
     const serverName = server.name || 'Server';
     const price = server.price || 0;
     const quantity = server.quantity || 1;
@@ -126,22 +126,36 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     
     serversSubtotal += subtotal;
     
-    return {
-      id: crypto.randomUUID(),
-      name: serverName,
-      label: serverName,
-      vcpu: vcpu,
-      cpu: vcpu,
-      ram: ram,
-      memory: ram,
-      storage: storage,
-      disk: storage,
-      nvme: storage,
-      price: price,
-      total: price,
-      monthlyPrice: price,
-      quantity: quantity,
-    };
+    // Detect if VM or BareMetal based on name
+    const isVM = serverName.toLowerCase().includes('vm') || vcpu > 0;
+    
+    if (isVM) {
+      return {
+        type: 'vm' as const,
+        id: crypto.randomUUID(),
+        gpu: 'Sem GPU',
+        gpuQty: 0,
+        vcpu: vcpu || 16,
+        ramGb: ram || 128,
+        nvmeTb: (storage || 50) / 1024, // Convert GB to TB
+        trafficTb: 5,
+        ips: 1,
+        qtyServers: quantity,
+      };
+    } else {
+      return {
+        type: 'bm' as const,
+        id: crypto.randomUUID(),
+        gpu: 'Sem GPU',
+        gpuQty: 0,
+        bmCpu: 'intel_xeon_e2136', // Default
+        bmRam: 'ram_128gb',
+        disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }], // Always initialize disks array
+        trafficTb: 5,
+        ips: 1,
+        qtyServers: quantity,
+      };
+    }
   });
   
   // Add addon rows if they exist
