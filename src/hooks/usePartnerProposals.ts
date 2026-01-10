@@ -266,9 +266,169 @@ function apiToLocalFormat(apiProposal: any): LocalProposalData {
   };
 }
 
+// Helper to safely convert any value to a number
+const toNum = (val: any, fallback = 0): number => {
+  if (val === undefined || val === null || val === '') return fallback;
+  const parsed = typeof val === 'string' ? parseFloat(String(val).replace(',', '.')) : Number(val);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 // Transform API proposal to PartnerProposal format with LOCAL data
+// CRITICAL: Use saved dados_proposta if available for perfect restoration
 function apiToPartnerProposal(apiProposal: any, session: any): PartnerProposal {
-  const localData = apiToLocalFormat(apiProposal);
+  // Check if we have the complete calculator state saved in dados_proposta
+  const dadosProposta = apiProposal.dados_proposta;
+  
+  let localData: LocalProposalData;
+  
+  if (dadosProposta && typeof dadosProposta === 'object' && dadosProposta.items) {
+    // NEW FORMAT: Complete calculator state was saved - use it directly with normalization
+    console.log('[apiToPartnerProposal] Using saved dados_proposta for proposal', apiProposal.id);
+    
+    // Normalize items to ensure all required fields exist (especially disks for BM)
+    const normalizedItems = (dadosProposta.items || []).map((item: any) => {
+      if (item.type === 'bm') {
+        return {
+          ...item,
+          id: item.id || crypto.randomUUID(),
+          disks: Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
+          qtyServers: toNum(item.qtyServers, 1),
+          ips: toNum(item.ips, 0),
+          gpuQty: toNum(item.gpuQty, 0),
+        };
+      }
+      return {
+        ...item,
+        id: item.id || crypto.randomUUID(),
+        vcpu: toNum(item.vcpu, 16),
+        ramGb: toNum(item.ramGb, 128),
+        nvmeTb: toNum(item.nvmeTb, 0.05),
+        qtyServers: toNum(item.qtyServers, 1),
+        ips: toNum(item.ips, 0),
+        gpuQty: toNum(item.gpuQty, 0),
+      };
+    });
+    
+    // Normalize addons
+    const rawAddons = dadosProposta.addons || {};
+    const normalizedAddons = {
+      backupPlan: rawAddons.backupPlan || 'none',
+      backupGb: toNum(rawAddons.backupGb, 0),
+      antivirus: toNum(rawAddons.antivirus, 0),
+      firewall: Boolean(rawAddons.firewall),
+      tsplus: toNum(rawAddons.tsplus, 0),
+      cal: toNum(rawAddons.cal, 0),
+      sql: rawAddons.sql || 'none',
+      sqlQty: toNum(rawAddons.sqlQty, 0),
+      veeamVm: toNum(rawAddons.veeamVm, 0),
+      veeamAg: toNum(rawAddons.veeamAg, 0),
+      customAddons: rawAddons.customAddons || {},
+    };
+    
+    // Normalize kubernetes
+    const rawK8s = dadosProposta.kubernetes || {};
+    const rawExtras = rawK8s.extras || {};
+    const rawK8sAddons = rawK8s.addons || {};
+    const normalizedKubernetes = {
+      enabled: Boolean(rawK8s.enabled),
+      plan: rawK8s.plan || 'k8s_small',
+      addons: {
+        support_24x7: Boolean(rawK8sAddons.support_24x7),
+        backup_velero: Boolean(rawK8sAddons.backup_velero),
+        dr_multisite: Boolean(rawK8sAddons.dr_multisite),
+        observability: Boolean(rawK8sAddons.observability),
+        cicd_managed: Boolean(rawK8sAddons.cicd_managed),
+        devops_hours: toNum(rawK8sAddons.devops_hours, 0),
+      },
+      extras: {
+        vcpu: toNum(rawExtras.vcpu, 0),
+        ramGB: toNum(rawExtras.ramGB, 0),
+        diskGB: toNum(rawExtras.diskGB, 0),
+      },
+    };
+    
+    // Normalize storage items
+    const normalizedStorageItems = (dadosProposta.storageItems || []).map((s: any) => ({
+      ...s,
+      id: s.id || crypto.randomUUID(),
+      volumeTB: toNum(s.volumeTB, 1),
+      volumeGB: toNum(s.volumeGB, 0),
+    }));
+    
+    // Normalize reseller
+    const rawReseller = dadosProposta.reseller || {};
+    const normalizedReseller = {
+      enabled: Boolean(rawReseller.enabled),
+      viewMode: rawReseller.viewMode || 'INTERNO',
+      resellerName: rawReseller.resellerName || '',
+      overValue: toNum(rawReseller.overValue, 0),
+      overReason: rawReseller.overReason || '',
+      observations: rawReseller.observations || '',
+      approvalRequired: Boolean(rawReseller.approvalRequired),
+      approvalStatus: rawReseller.approvalStatus || 'Pendente',
+      approver: rawReseller.approver || '',
+      approvedAt: rawReseller.approvedAt || null,
+    };
+    
+    // Normalize OpenSaaS
+    const rawOpenSaas = dadosProposta.openSaas || {};
+    const normalizedOpenSaas = {
+      enabled: Boolean(rawOpenSaas.enabled),
+      users: toNum(rawOpenSaas.users, 0),
+    };
+    
+    // Use saved result or use total from API
+    const savedResult = dadosProposta.result;
+    const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
+    
+    localData = {
+      fx: toNum(dadosProposta.fx, toNum(apiProposal.fx, 5)),
+      selectedTerm: dadosProposta.selectedTerm || '1',
+      datacenter: dadosProposta.datacenter || 'SP1',
+      client: {
+        name: dadosProposta.client?.name || apiProposal.name || '',
+        company: dadosProposta.client?.company || apiProposal.company || '',
+        email: dadosProposta.client?.email || apiProposal.email || '',
+        phone: dadosProposta.client?.phone || apiProposal.phone || '',
+      },
+      proposal: dadosProposta.proposal || {
+        id: `PROP-${apiProposal.id}`,
+        validityDays: 7,
+        createdAt: apiProposal.created_at,
+      },
+      items: normalizedItems,
+      addons: normalizedAddons,
+      kubernetes: normalizedKubernetes,
+      storageItems: normalizedStorageItems,
+      reseller: normalizedReseller,
+      openSaas: normalizedOpenSaas,
+      observacao: dadosProposta.observacao || apiProposal.observations || undefined,
+      result: savedResult || {
+        rows: [],
+        subRec: 0,
+        subIps: 0,
+        subServices: 0,
+        subBackup: 0,
+        subKubernetes: 0,
+        subStorage: 0,
+        subOpenSaas: 0,
+        discountPct: 0,
+        discountValue: 0,
+        grandTotal,
+        totalServers: normalizedItems.length,
+        gpuUsdTotal: 0,
+        gpuBrlTotal: 0,
+        subtotalPriceList: grandTotal,
+        overValue: 0,
+        overPercent: 0,
+        totalWithOver: grandTotal,
+      },
+    };
+  } else {
+    // LEGACY FORMAT: Reconstruct from servers/addons arrays (backward compatibility)
+    console.log('[apiToPartnerProposal] Using legacy format for proposal', apiProposal.id);
+    localData = apiToLocalFormat(apiProposal);
+  }
   
   return {
     proposta_id: `PROP-${apiProposal.id}`,
@@ -505,6 +665,23 @@ export function useSavePartnerProposal() {
         // CRITICAL: Save complete calculator state for perfect editing restoration
         dados_proposta: proposalData.dados_proposta,
       };
+
+      // CRITICAL: Log full payload details for debugging persistence issues
+      console.log('[SavePartnerProposal] Sending to API:', {
+        mode: isUpdate && numericId ? 'UPDATE' : 'CREATE',
+        numericId,
+        channel_type: 'PARCEIRO',
+        dados_proposta_summary: {
+          hasItems: Boolean(proposalData.dados_proposta?.items?.length),
+          itemsCount: proposalData.dados_proposta?.items?.length || 0,
+          hasAddons: Boolean(proposalData.dados_proposta?.addons),
+          hasKubernetes: Boolean(proposalData.dados_proposta?.kubernetes?.enabled),
+          hasStorageItems: Boolean(proposalData.dados_proposta?.storageItems?.length),
+          hasOpenSaas: Boolean(proposalData.dados_proposta?.openSaas?.enabled),
+          hasResult: Boolean(proposalData.dados_proposta?.result),
+          savedTotal: proposalData.dados_proposta?.result?.grandTotal,
+        },
+      });
 
       let result: any;
       

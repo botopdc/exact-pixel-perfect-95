@@ -433,24 +433,49 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   dueAt.setDate(dueAt.getDate() + validityDays);
   
   // Transform addons to API format: array of {name, price, quantity}
+  // Note: The full addons state is saved in dados_proposta, this is just for API compatibility
   const addonsArray: Array<{ name: string; price: number; quantity: number }> = [];
   if (proposal.addons && typeof proposal.addons === 'object') {
-    for (const [key, value] of Object.entries(proposal.addons)) {
-      if (typeof value === 'object' && value !== null) {
-        const addon = value as { enabled?: boolean; price?: number; quantity?: number };
-        if (addon.enabled) {
-          addonsArray.push({
-            name: key,
-            price: addon.price || 0,
-            quantity: addon.quantity || 1,
-          });
+    const addons = proposal.addons;
+    
+    // Standard addon mappings with proper type handling
+    if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
+      addonsArray.push({ name: 'Antivirus', price: 0, quantity: addons.antivirus });
+    }
+    if (addons.firewall === true) {
+      addonsArray.push({ name: 'Firewall', price: 0, quantity: 1 });
+    }
+    if (typeof addons.tsplus === 'number' && addons.tsplus > 0) {
+      addonsArray.push({ name: 'TS Plus', price: 0, quantity: addons.tsplus });
+    }
+    if (typeof addons.cal === 'number' && addons.cal > 0) {
+      addonsArray.push({ name: 'CAL', price: 0, quantity: addons.cal });
+    }
+    if (typeof addons.veeamVm === 'number' && addons.veeamVm > 0) {
+      addonsArray.push({ name: 'Veeam VM', price: 0, quantity: addons.veeamVm });
+    }
+    if (typeof addons.veeamAg === 'number' && addons.veeamAg > 0) {
+      addonsArray.push({ name: 'Veeam Agent', price: 0, quantity: addons.veeamAg });
+    }
+    // Backup
+    if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
+      addonsArray.push({ name: `Backup ${addons.backupPlan}`, price: 0, quantity: addons.backupGb });
+    }
+    // SQL
+    if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
+      addonsArray.push({ name: `SQL ${addons.sql.toUpperCase()}`, price: 0, quantity: addons.sqlQty });
+    }
+    // Custom addons (legacy support)
+    if (addons.customAddons && typeof addons.customAddons === 'object') {
+      for (const [key, value] of Object.entries(addons.customAddons)) {
+        if (typeof value === 'object' && value !== null) {
+          const addon = value as { enabled?: boolean; price?: number; quantity?: number };
+          if (addon.enabled) {
+            addonsArray.push({ name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
+          }
+        } else if (typeof value === 'number' && value > 0) {
+          addonsArray.push({ name: key, price: 0, quantity: value });
         }
-      } else if (typeof value === 'number' && value > 0) {
-        addonsArray.push({
-          name: key,
-          price: value,
-          quantity: 1,
-        });
       }
     }
   }
@@ -763,11 +788,24 @@ export function useSaveProposal() {
         ? `${supabaseUrl}/functions/v1/proposal-gateway/proposal/${numericId}?scope=${scope}`
         : `${supabaseUrl}/functions/v1/proposal-gateway/proposal?scope=${scope}`;
 
+      // CRITICAL: Log full payload details for debugging persistence issues
+      const dadosProposta = (apiData as any).dados_proposta;
       console.log('[SaveProposal] Sending to gateway:', {
         mode: numericId ? 'UPDATE' : 'CREATE',
         numericId,
         intended_channel_type: 'CLIENTE',
         payload_channel_type: (apiData as any).channel_type,
+        // Validate dados_proposta contains all required data
+        dados_proposta_summary: {
+          hasItems: Boolean(dadosProposta?.items?.length),
+          itemsCount: dadosProposta?.items?.length || 0,
+          hasAddons: Boolean(dadosProposta?.addons),
+          hasKubernetes: Boolean(dadosProposta?.kubernetes?.enabled),
+          hasStorageItems: Boolean(dadosProposta?.storageItems?.length),
+          hasOpenSaas: Boolean(dadosProposta?.openSaas?.enabled),
+          hasResult: Boolean(dadosProposta?.result),
+          savedTotal: dadosProposta?.result?.grandTotal,
+        },
       });
 
       const resp = await fetch(url, {
