@@ -230,24 +230,36 @@ export default function PartnerLayout() {
     let mounted = true;
 
     const checkAuth = async () => {
-      const session = partnerAuthService.getSession();
-      if (!session) {
-        navigate('/parceiro/login', { replace: true });
-        return;
-      }
-      if (!session.contrato_aceito) {
-        navigate('/parceiro/contrato', { replace: true });
-        return;
-      }
-      if (session.status !== 'Ativo') {
-        partnerAuthService.logout();
+      // First check local session exists
+      const localSession = partnerAuthService.getSession();
+      if (!localSession) {
         navigate('/parceiro/login', { replace: true });
         return;
       }
 
-      // Bootstrap/validate API session (GET /api/auth/me)
+      // Validate and refresh session from API (source of truth for contract_accepted)
       try {
-        await openApi.getCurrentUser();
+        const freshSession = await partnerAuthService.refreshSessionFromApi();
+        
+        if (!freshSession) {
+          partnerAuthService.logout();
+          navigate('/parceiro/login', { replace: true });
+          return;
+        }
+
+        // Check contract acceptance from fresh API data
+        if (!freshSession.contrato_aceito) {
+          navigate('/parceiro/contrato', { replace: true });
+          return;
+        }
+
+        // Check partner status
+        if (freshSession.status !== 'Ativo') {
+          partnerAuthService.logout();
+          toast.error('Sua conta está inativa. Entre em contato com a equipe OPEN.');
+          navigate('/parceiro/login', { replace: true });
+          return;
+        }
       } catch (err: any) {
         const status = err?.response?.status;
         if (status === 401 || status === 403) {
@@ -257,6 +269,12 @@ export default function PartnerLayout() {
           return;
         }
         console.error('[PartnerLayout] Falha ao validar sessão via API:', err);
+        
+        // Fallback to local session if API fails (network issues)
+        if (!localSession.contrato_aceito) {
+          navigate('/parceiro/contrato', { replace: true });
+          return;
+        }
       }
     };
 
@@ -264,9 +282,10 @@ export default function PartnerLayout() {
       if (mounted) setIsChecking(false);
     });
 
+    // Periodic check every 5 minutes
     const interval = setInterval(() => {
       void checkAuth();
-    }, 60000);
+    }, 300000);
 
     return () => {
       mounted = false;

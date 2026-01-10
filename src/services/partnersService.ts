@@ -258,8 +258,8 @@ export const partnerAuthService = {
         return { success: false, error: 'Sua conta está inativa. Entre em contato com a equipe OPEN.' };
       }
 
-      // Check contract acceptance from API first, then localStorage as fallback
-      const contratoAceito = partnerData?.contract_accepted ?? false;
+      // Check contract acceptance from API (source of truth)
+      const contratoAceito = partnerData?.contract_accepted === true;
 
       const session: PartnerSession = {
         partnerId: partnerData?.id?.toString() || apiLogin.user.id.toString(),
@@ -289,6 +289,7 @@ export const partnerAuthService = {
     openApi.clearToken();
   },
 
+  // Get session from localStorage (does NOT mutate session based on old localStorage partner data)
   getSession(): PartnerSession | null {
     try {
       const data = localStorage.getItem(PARTNER_SESSION_KEY);
@@ -300,14 +301,7 @@ export const partnerAuthService = {
         return null;
       }
 
-      // Atualizar dados do parceiro na sessão
-      const partner = partnersService.getById(session.partnerId);
-      if (partner) {
-        session.status = partner.status;
-        session.contrato_aceito = partner.contrato_aceito;
-        session.tipo_parceria = partner.tipo_parceria;
-      }
-
+      // Return session as-is (source of truth from last API call/login)
       return session;
     } catch {
       return null;
@@ -324,25 +318,46 @@ export const partnerAuthService = {
     return session.status === 'Ativo' && session.contrato_aceito;
   },
 
-  // Update session with contract accepted flag
+  // Update session with contract accepted flag (after successful API call)
   updateSessionContractAccepted(): void {
-    const session = this.getSession();
-    if (session) {
+    try {
+      const data = localStorage.getItem(PARTNER_SESSION_KEY);
+      if (!data) return;
+      
+      const session: PartnerSession = JSON.parse(data);
       session.contrato_aceito = true;
       localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(session));
+    } catch {
+      // Ignore errors
     }
   },
 
-  refreshSession(): void {
-    const session = this.getSession();
-    if (session) {
-      const partner = partnersService.getById(session.partnerId);
-      if (partner) {
-        session.status = partner.status;
-        session.contrato_aceito = partner.contrato_aceito;
-        session.tipo_parceria = partner.tipo_parceria;
-        localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(session));
-      }
+  // Refresh session from API (re-fetch partner data to sync contract_accepted)
+  async refreshSessionFromApi(): Promise<PartnerSession | null> {
+    try {
+      const currentSession = this.getSession();
+      if (!currentSession) return null;
+
+      // Fetch fresh user data from API
+      const userData = await openApi.getCurrentUser({ __with: 'partner' });
+      const partnerData = userData.partner;
+
+      if (!partnerData) return currentSession;
+
+      // Update session with fresh API data
+      const updatedSession: PartnerSession = {
+        ...currentSession,
+        empresa: partnerData.name || currentSession.empresa,
+        tipo_parceria: (partnerData.type || currentSession.tipo_parceria) as PartnerType,
+        status: partnerData.status === 'Aprovado' ? 'Ativo' : (partnerData.status || 'Pendente') as PartnerStatus,
+        contrato_aceito: partnerData.contract_accepted === true,
+      };
+
+      localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(updatedSession));
+      return updatedSession;
+    } catch (error) {
+      console.error('[PartnerAuth] Error refreshing session from API:', error);
+      return this.getSession();
     }
   },
 };

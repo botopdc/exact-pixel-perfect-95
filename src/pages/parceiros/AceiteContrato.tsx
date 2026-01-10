@@ -72,16 +72,10 @@ export default function AceiteContrato() {
         return;
       }
 
-      // Check if contract is already accepted (idempotency)
-      if (session.contrato_aceito) {
-        navigate('/parceiro/dashboard', { replace: true });
-        return;
-      }
-
       const ipAddress = await getIpAddress();
       const contract = PARTNER_CONTRACTS[partnerType];
 
-      // Persist contract acceptance via API
+      // Persist contract acceptance via API (source of truth)
       const result = await partnersService.acceptContract(
         session.partnerId, 
         ipAddress, 
@@ -95,7 +89,7 @@ export default function AceiteContrato() {
         return;
       }
 
-      // Update session with contract accepted flag
+      // Update local session ONLY after API success
       partnerAuthService.updateSessionContractAccepted();
 
       // Redirect to dashboard
