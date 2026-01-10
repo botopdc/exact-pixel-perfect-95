@@ -3,14 +3,25 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X } from 'lucide-react';
+import { ArrowLeft, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
 import OpenLogo from './OpenLogo';
-import { useProposals, useUpdateProposalStatus, SavedProposal, ProposalStatus } from '@/hooks/useProposals';
+import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
+import { authService } from '@/services/authService';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 // Status display helper
 function getStatusBadge(status: ProposalStatus | undefined) {
@@ -30,14 +41,21 @@ const SavedProposals: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
+  // Auth check for admin
+  const session = authService.getSession();
+  const isAdmin = session?.level === 1000;
+  
   // Local storage hooks
   const { data: proposals = [], isLoading } = useProposals();
   const updateStatusMutation = useUpdateProposalStatus();
+  const deleteProposalMutation = useDeleteProposal();
   const trackEvent = useTrackEvent();
 
   // State for actions
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
   const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
+  const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,6 +167,26 @@ const SavedProposals: React.FC = () => {
 
   const handleViewAccess = (proposalId: string) => {
     setAccessModalProposalId(proposalId);
+  };
+
+  // Delete proposal handler (Admin only)
+  const handleDelete = async () => {
+    if (!deleteProposalId || !isAdmin) return;
+    
+    setIsDeleting(true);
+    try {
+      await deleteProposalMutation.mutateAsync(deleteProposalId);
+      toast({ title: 'Proposta excluída', description: 'A proposta foi excluída com sucesso' });
+      setDeleteProposalId(null);
+    } catch (error: any) {
+      toast({ 
+        title: 'Erro ao excluir', 
+        description: error.message || 'Falha ao excluir proposta',
+        variant: 'destructive' 
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleSendEmail = async (proposal: SavedProposal) => {
@@ -398,6 +436,18 @@ const SavedProposals: React.FC = () => {
                               <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Baixar PDF">
                                 <FileDown className="w-4 h-4" />
                               </Button>
+                              {/* Delete button - Admin only */}
+                              {isAdmin && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => setDeleteProposalId(proposalId)}
+                                  className="text-red-500 hover:text-red-600 hover:bg-red-500/10" 
+                                  title="Excluir proposta"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -423,6 +473,29 @@ const SavedProposals: React.FC = () => {
         open={!!accessModalProposalId}
         onOpenChange={(open) => !open && setAccessModalProposalId(null)}
       />
+
+      {/* Delete Confirmation Dialog - Admin only */}
+      <AlertDialog open={!!deleteProposalId} onOpenChange={(open) => !open && setDeleteProposalId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir proposta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. Deseja excluir a proposta <strong>{deleteProposalId}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {isDeleting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

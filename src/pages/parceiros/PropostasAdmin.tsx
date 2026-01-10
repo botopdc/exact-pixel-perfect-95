@@ -12,15 +12,27 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Search,
   X,
   Eye,
   FileDown,
   Loader2,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 import {
   useAllPartnerProposals,
+  useDeletePartnerProposal,
   PartnerProposal,
   PartnerProposalStatus,
 } from '@/hooks/usePartnerProposals';
@@ -48,23 +60,31 @@ export default function PropostasAdmin() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Check admin access
+  const session = authService.getSession();
+  const isAdmin = session?.level === 1000;
+  
   // Protect route: only admins can access
   useEffect(() => {
-    const session = authService.getSession();
     if (!session || session.role !== 'admin') {
       // Redirect non-admins to partner proposals page
       navigate('/parceiro/propostas', { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, session]);
 
   // Fetch all partner proposals (admin view)
   const { data: proposals = [], isLoading } = useAllPartnerProposals();
+  const deleteProposalMutation = useDeletePartnerProposal();
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<PartnerProposalStatus | 'all'>('all');
   const [partnerTypeFilter, setPartnerTypeFilter] = useState<PartnerType | 'all'>('all');
   const [partnerNameFilter, setPartnerNameFilter] = useState<string>('all');
+  
+  // Delete state
+  const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Get unique partner names for filter - filter out empty/null values to avoid Radix Select crash
   const partnerNames = useMemo(() => {
@@ -140,6 +160,26 @@ export default function PropostasAdmin() {
     setStatusFilter('all');
     setPartnerTypeFilter('all');
     setPartnerNameFilter('all');
+  };
+
+  // Delete proposal handler (Admin only)
+  const handleDelete = async () => {
+    if (!deleteProposalId || !isAdmin) return;
+    
+    setIsDeleting(true);
+    try {
+      await deleteProposalMutation.mutateAsync(deleteProposalId);
+      toast({ title: 'Proposta excluída', description: 'A proposta foi excluída com sucesso' });
+      setDeleteProposalId(null);
+    } catch (error: any) {
+      toast({ 
+        title: 'Erro ao excluir', 
+        description: error.message || 'Falha ao excluir proposta',
+        variant: 'destructive' 
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const hasActiveFilters = searchQuery || statusFilter !== 'all' || partnerTypeFilter !== 'all' || partnerNameFilter !== 'all';
@@ -341,6 +381,18 @@ export default function PropostasAdmin() {
                           >
                             <FileDown className="w-4 h-4" />
                           </Button>
+                          {/* Delete button - Admin only */}
+                          {isAdmin && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => setDeleteProposalId(p.proposta_id)}
+                              className="text-red-500 hover:text-red-600 hover:bg-red-500/10" 
+                              title="Excluir proposta"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -358,6 +410,29 @@ export default function PropostasAdmin() {
           {filteredProposals.length} de {proposals.length} {proposals.length === 1 ? 'proposta' : 'propostas'}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog - Admin only */}
+      <AlertDialog open={!!deleteProposalId} onOpenChange={(open) => !open && setDeleteProposalId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir proposta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. Deseja excluir a proposta <strong>{deleteProposalId}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {isDeleting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
