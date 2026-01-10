@@ -23,6 +23,7 @@ import {
 import { partnerAuthService } from '@/services/partnersService';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { ROUTES } from '@/config/routes';
 
 // Status badge helper
 function getStatusBadge(status: PartnerProposalStatus) {
@@ -47,7 +48,7 @@ export default function PropostasParceiro() {
   useEffect(() => {
     const session = partnerAuthService.getSession();
     if (!session) {
-      navigate('/parceiro/login', { replace: true });
+      navigate(ROUTES.parceiro.login, { replace: true });
     }
   }, [navigate]);
 
@@ -122,8 +123,8 @@ export default function PropostasParceiro() {
       hasResult: Boolean(proposalData.result),
     });
 
-    // Navigate to calculator with edit mode - dados_proposta is already in local format
-    navigate('/parceiro/calculadora', { state: { editProposal: editProposalWithId } });
+    // Navigate to calculator with edit mode - use centralized route config
+    navigate(ROUTES.parceiro.calculator, { state: { editProposal: editProposalWithId } });
   };
 
   const handleDuplicate = async (proposalId: string) => {
@@ -176,7 +177,7 @@ export default function PropostasParceiro() {
           <h1 className="text-2xl font-bold text-foreground">Propostas Salvas</h1>
           <p className="text-muted-foreground">Gerencie suas propostas comerciais</p>
         </div>
-        <Button onClick={() => navigate('/parceiro/calculadora')} className="gap-2">
+        <Button onClick={() => navigate(ROUTES.parceiro.calculator)} className="gap-2">
           <Plus className="h-4 w-4" />
           Nova Proposta
         </Button>
@@ -258,7 +259,7 @@ export default function PropostasParceiro() {
                 : 'Nenhuma proposta encontrada com os filtros selecionados.'}
             </p>
             {proposals.length === 0 ? (
-              <Button onClick={() => navigate('/parceiro/calculadora')}>Criar Nova Proposta</Button>
+              <Button onClick={() => navigate(ROUTES.parceiro.calculator)}>Criar Nova Proposta</Button>
             ) : (
               <Button variant="outline" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
                 Limpar Filtros

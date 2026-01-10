@@ -12,6 +12,7 @@ import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
 import { authService } from '@/services/authService';
+import { ROUTES, getCalculatorRoute } from '@/config/routes';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -161,18 +162,15 @@ const SavedProposals: React.FC = () => {
       trackEvent.mutate({ proposalId, type: 'edit_open', channel: 'ui' });
     }
     
-    // Navigate to calculator with edit mode - proposal is already in local format from useProposals hook
-    // Use correct route based on user level: executives (700/750) use /executivo/calculadora
+    // Navigate to calculator with edit mode - use centralized route config
     const userLevel = session?.level || 0;
-    const isExecutive = userLevel === 700 || userLevel === 750;
-    const calculatorPath = isExecutive ? '/executivo/calculadora' : '/calculadora';
+    const calculatorPath = getCalculatorRoute(userLevel, false); // false = not a partner context
     
     // CRITICAL: Ensure API numeric ID is passed for proper update detection
     console.log('[SavedProposals] editProposal click', { 
       apiId: proposal.id, // API numeric ID
       displayId: proposalId,
       userLevel, 
-      isExecutive, 
       calculatorPath,
       itemsCount: proposal.items?.length || 0,
       hasResult: Boolean(proposal.result),
