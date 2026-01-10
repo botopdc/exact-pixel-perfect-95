@@ -347,36 +347,47 @@ const OpenCalculator: React.FC = () => {
     let subRec = 0;
     let subIps = 0;
     let subServices = 0;
-    let gpuUsdTotal = 0;
+  let gpuUsdTotal = 0;
     let gpuBrlTotal = 0;
     let totalServers = 0;
 
+    // Helper to safely convert any value to a number, defaulting to fallback
+    const toNum = (val: any, fallback = 0): number => {
+      if (val === undefined || val === null || val === '') return fallback;
+      const parsed = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : Number(val);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
     items.forEach((item, idx) => {
-      const qtyServers = Math.max(1, item.qtyServers);
-      const ips = Math.max(0, item.ips);
+      const qtyServers = Math.max(1, toNum(item.qtyServers, 1));
+      const ips = Math.max(0, toNum(item.ips, 0));
       totalServers += qtyServers;
 
       if (item.type === 'vm') {
-        const vcpu = Math.max(1, item.vcpu);
-        const ramGb = Math.max(1, item.ramGb);
-        const nvmeGb = Math.max(0, item.nvmeTb) * 1024;
+        const vcpu = Math.max(1, toNum(item.vcpu, 1));
+        const ramGb = Math.max(1, toNum(item.ramGb, 1));
+        const nvmeTbVal = toNum(item.nvmeTb, 0);
+        const nvmeGb = Math.max(0, nvmeTbVal) * 1024;
 
         // CPU
-        const cpuUnit = vcpu * config.vm_prices_brl.vcpu;
+        const cpuPrice = toNum(config.vm_prices_brl.vcpu, 0);
+        const cpuUnit = vcpu * cpuPrice;
         const cpuSub = cpuUnit * qtyServers;
         rows.push({ label: `VM #${idx + 1} — vCPU (${vcpu} por srv)`, qty: qtyServers, unitPrice: cpuUnit, subtotal: cpuSub });
         subRec += cpuSub;
 
         // RAM
-        const ramUnit = ramGb * config.vm_prices_brl.ram_per_gb;
+        const ramPrice = toNum(config.vm_prices_brl.ram_per_gb, 0);
+        const ramUnit = ramGb * ramPrice;
         const ramSub = ramUnit * qtyServers;
         rows.push({ label: `VM #${idx + 1} — RAM (${ramGb} GB por srv)`, qty: qtyServers, unitPrice: ramUnit, subtotal: ramSub });
         subRec += ramSub;
 
         // Disk
-        const diskUnit = nvmeGb * config.vm_prices_brl.nvme_per_gb;
+        const diskPrice = toNum(config.vm_prices_brl.nvme_per_gb, 0);
+        const diskUnit = nvmeGb * diskPrice;
         const diskSub = diskUnit * qtyServers;
-        rows.push({ label: `VM #${idx + 1} — NVMe (${item.nvmeTb.toFixed(2)} TB por srv)`, qty: qtyServers, unitPrice: diskUnit, subtotal: diskSub });
+        rows.push({ label: `VM #${idx + 1} — NVMe (${nvmeTbVal.toFixed(2)} TB por srv)`, qty: qtyServers, unitPrice: diskUnit, subtotal: diskSub });
         subRec += diskSub;
       } else {
         // BareMetal
@@ -413,15 +424,16 @@ const OpenCalculator: React.FC = () => {
 
       // IPs
       if (ips > 0) {
-        const ipUnit = ips * config.vm_prices_brl.ip_public;
+        const ipPrice = toNum(config.vm_prices_brl.ip_public, 0);
+        const ipUnit = ips * ipPrice;
         const ipSub = ipUnit * qtyServers;
         rows.push({ label: `${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — IPs públicos (${ips} por srv)`, qty: qtyServers, unitPrice: ipUnit, subtotal: ipSub });
         subIps += ipSub;
       }
 
       // GPU
-      const gpuQty = item.gpu === 'Sem GPU' ? 0 : Math.max(1, Math.min(8, item.gpuQty));
-      const gpuUsdUnit = config.gpu_usd[item.gpu] || 0;
+      const gpuQty = item.gpu === 'Sem GPU' ? 0 : Math.max(1, Math.min(8, toNum(item.gpuQty, 0)));
+      const gpuUsdUnit = toNum(config.gpu_usd[item.gpu], 0);
       if (gpuQty > 0 && gpuUsdUnit > 0) {
         const gpuUsdPerServer = gpuUsdUnit * gpuQty;
         const gpuUsd = gpuUsdPerServer * qtyServers;
@@ -438,40 +450,52 @@ const OpenCalculator: React.FC = () => {
       setAddons(prev => ({ ...prev, antivirus: totalServers }));
     }
 
-    // Services
-    if (addons.antivirus > 0) {
-      const st = config.addons_brl.antivirus_unit * addons.antivirus;
-      rows.push({ label: 'Antivirus', qty: addons.antivirus, unitPrice: config.addons_brl.antivirus_unit, subtotal: st });
+    // Services - using toNum for all pricing
+    const antivirusQty = toNum(addons.antivirus, 0);
+    if (antivirusQty > 0) {
+      const unitPrice = toNum(config.addons_brl.antivirus_unit, 0);
+      const st = unitPrice * antivirusQty;
+      rows.push({ label: 'Antivirus', qty: antivirusQty, unitPrice, subtotal: st });
       subServices += st;
     }
     if (addons.firewall) {
-      rows.push({ label: 'Firewall PFsense', qty: 1, unitPrice: config.addons_brl.firewall_pfsense, subtotal: config.addons_brl.firewall_pfsense });
-      subServices += config.addons_brl.firewall_pfsense;
+      const unitPrice = toNum(config.addons_brl.firewall_pfsense, 0);
+      rows.push({ label: 'Firewall PFsense', qty: 1, unitPrice, subtotal: unitPrice });
+      subServices += unitPrice;
     }
-    if (addons.tsplus > 0) {
-      const st = config.addons_brl.tsplus_unit * addons.tsplus;
-      rows.push({ label: 'TS PLUS', qty: addons.tsplus, unitPrice: config.addons_brl.tsplus_unit, subtotal: st });
+    const tsplusQty = toNum(addons.tsplus, 0);
+    if (tsplusQty > 0) {
+      const unitPrice = toNum(config.addons_brl.tsplus_unit, 0);
+      const st = unitPrice * tsplusQty;
+      rows.push({ label: 'TS PLUS', qty: tsplusQty, unitPrice, subtotal: st });
       subServices += st;
     }
-    if (addons.cal > 0) {
-      const st = config.addons_brl.cal_unit * addons.cal;
-      rows.push({ label: 'CAL / TS-CAL', qty: addons.cal, unitPrice: config.addons_brl.cal_unit, subtotal: st });
+    const calQty = toNum(addons.cal, 0);
+    if (calQty > 0) {
+      const unitPrice = toNum(config.addons_brl.cal_unit, 0);
+      const st = unitPrice * calQty;
+      rows.push({ label: 'CAL / TS-CAL', qty: calQty, unitPrice, subtotal: st });
       subServices += st;
     }
-    if (addons.sql !== 'none' && addons.sqlQty > 0) {
-      const unit = config.addons_brl.sql[addons.sql] || 0;
-      const st = unit * addons.sqlQty;
-      rows.push({ label: `Licença SQL (${addons.sql.toUpperCase()})`, qty: addons.sqlQty, unitPrice: unit, subtotal: st });
+    const sqlQty = toNum(addons.sqlQty, 0);
+    if (addons.sql !== 'none' && sqlQty > 0) {
+      const unitPrice = toNum(config.addons_brl.sql?.[addons.sql], 0);
+      const st = unitPrice * sqlQty;
+      rows.push({ label: `Licença SQL (${addons.sql.toUpperCase()})`, qty: sqlQty, unitPrice, subtotal: st });
       subServices += st;
     }
-    if (addons.veeamVm > 0) {
-      const st = config.addons_brl.veeam_vm_unit * addons.veeamVm;
-      rows.push({ label: 'Veeam Backup (VM)', qty: addons.veeamVm, unitPrice: config.addons_brl.veeam_vm_unit, subtotal: st });
+    const veeamVmQty = toNum(addons.veeamVm, 0);
+    if (veeamVmQty > 0) {
+      const unitPrice = toNum(config.addons_brl.veeam_vm_unit, 0);
+      const st = unitPrice * veeamVmQty;
+      rows.push({ label: 'Veeam Backup (VM)', qty: veeamVmQty, unitPrice, subtotal: st });
       subServices += st;
     }
-    if (addons.veeamAg > 0) {
-      const st = config.addons_brl.veeam_agent_unit * addons.veeamAg;
-      rows.push({ label: 'Veeam Agent (Workstation)', qty: addons.veeamAg, unitPrice: config.addons_brl.veeam_agent_unit, subtotal: st });
+    const veeamAgQty = toNum(addons.veeamAg, 0);
+    if (veeamAgQty > 0) {
+      const unitPrice = toNum(config.addons_brl.veeam_agent_unit, 0);
+      const st = unitPrice * veeamAgQty;
+      rows.push({ label: 'Veeam Agent (Workstation)', qty: veeamAgQty, unitPrice, subtotal: st });
       subServices += st;
     }
 
@@ -479,78 +503,88 @@ const OpenCalculator: React.FC = () => {
     const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit'];
     Object.entries(config.addons_brl).forEach(([key, price]) => {
       if (!standardAddonKeys.includes(key) && typeof price === 'number') {
-        const qty = addons.customAddons?.[key] || 0;
-        if (qty > 0) {
-          const st = price * qty;
+        const qty = toNum(addons.customAddons?.[key], 0);
+        const unitPrice = toNum(price, 0);
+        if (qty > 0 && unitPrice > 0) {
+          const st = unitPrice * qty;
           const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          rows.push({ label, qty, unitPrice: price, subtotal: st });
+          rows.push({ label, qty, unitPrice, subtotal: st });
           subServices += st;
         }
       }
     });
 
-    // Backup
-    const subBackup = calculateBackupPrice(config, addons.backupPlan, addons.backupGb);
-    if (subBackup > 0) {
-      const unit = subBackup / Math.max(1, addons.backupGb);
-      rows.push({ label: `Backup ${addons.backupPlan} dias`, qty: `${addons.backupGb} GB`, unitPrice: unit, subtotal: subBackup });
+    // Backup - with safe number conversion
+    const backupGbQty = toNum(addons.backupGb, 0);
+    const subBackup = calculateBackupPrice(config, addons.backupPlan, backupGbQty);
+    if (Number.isFinite(subBackup) && subBackup > 0) {
+      const unit = subBackup / Math.max(1, backupGbQty);
+      rows.push({ label: `Backup ${addons.backupPlan} dias`, qty: `${backupGbQty} GB`, unitPrice: unit, subtotal: subBackup });
     }
 
     // Kubernetes
     let subKubernetes = 0;
     if (kubernetes.enabled) {
       const planInfo = K8S_PLANS[kubernetes.plan];
-      const basePriceMonthly = getK8sPlanBasePrice(kubernetes.plan, config);
+      const basePriceMonthly = toNum(getK8sPlanBasePrice(kubernetes.plan, config), 0);
       rows.push({ label: `Kubernetes Gerenciado — ${planInfo.shortLabel} (base)`, qty: 1, unitPrice: basePriceMonthly, subtotal: basePriceMonthly });
       subKubernetes += basePriceMonthly;
 
       // K8s extras (additional resources using VM pricing)
       const extras = kubernetes.extras || { vcpu: 0, ramGB: 0, diskGB: 0 };
-      const extrasPrice = calculateK8sExtrasPrice(extras, config);
-      if (extras.vcpu > 0) {
-        const vcpuCost = extras.vcpu * config.vm_prices_brl.vcpu;
-        rows.push({ label: `K8s — + ${extras.vcpu} vCPU adicional`, qty: 1, unitPrice: vcpuCost, subtotal: vcpuCost });
+      const extrasPrice = toNum(calculateK8sExtrasPrice(extras, config), 0);
+      const extrasVcpu = toNum(extras.vcpu, 0);
+      const extrasRamGB = toNum(extras.ramGB, 0);
+      const extrasDiskGB = toNum(extras.diskGB, 0);
+      
+      if (extrasVcpu > 0) {
+        const vcpuPrice = toNum(config.vm_prices_brl.vcpu, 0);
+        const vcpuCost = extrasVcpu * vcpuPrice;
+        rows.push({ label: `K8s — + ${extrasVcpu} vCPU adicional`, qty: 1, unitPrice: vcpuCost, subtotal: vcpuCost });
       }
-      if (extras.ramGB > 0) {
-        const ramCost = extras.ramGB * config.vm_prices_brl.ram_per_gb;
-        rows.push({ label: `K8s — + ${extras.ramGB} GB RAM adicional`, qty: 1, unitPrice: ramCost, subtotal: ramCost });
+      if (extrasRamGB > 0) {
+        const ramPrice = toNum(config.vm_prices_brl.ram_per_gb, 0);
+        const ramCost = extrasRamGB * ramPrice;
+        rows.push({ label: `K8s — + ${extrasRamGB} GB RAM adicional`, qty: 1, unitPrice: ramCost, subtotal: ramCost });
       }
-      if (extras.diskGB > 0) {
-        const diskCost = extras.diskGB * config.vm_prices_brl.nvme_per_gb;
-        rows.push({ label: `K8s — + ${extras.diskGB} GB Disco adicional`, qty: 1, unitPrice: diskCost, subtotal: diskCost });
+      if (extrasDiskGB > 0) {
+        const diskPrice = toNum(config.vm_prices_brl.nvme_per_gb, 0);
+        const diskCost = extrasDiskGB * diskPrice;
+        rows.push({ label: `K8s — + ${extrasDiskGB} GB Disco adicional`, qty: 1, unitPrice: diskCost, subtotal: diskCost });
       }
       subKubernetes += extrasPrice;
 
       // K8s add-ons (using configurable prices)
       if (kubernetes.addons.support_24x7) {
-        const price = getK8sAddonPrice('support_24x7', config);
+        const price = toNum(getK8sAddonPrice('support_24x7', config), 0);
         rows.push({ label: 'K8s — Suporte 24×7', qty: 1, unitPrice: price, subtotal: price });
         subKubernetes += price;
       }
       if (kubernetes.addons.backup_velero) {
-        const price = getK8sAddonPrice('backup_velero', config);
+        const price = toNum(getK8sAddonPrice('backup_velero', config), 0);
         rows.push({ label: 'K8s — Backup (Velero)', qty: 1, unitPrice: price, subtotal: price });
         subKubernetes += price;
       }
       if (kubernetes.addons.dr_multisite) {
-        const price = getK8sAddonPrice('dr_multisite', config);
+        const price = toNum(getK8sAddonPrice('dr_multisite', config), 0);
         rows.push({ label: 'K8s — DR multi-site', qty: 1, unitPrice: price, subtotal: price });
         subKubernetes += price;
       }
       if (kubernetes.addons.observability) {
-        const price = getK8sAddonPrice('observability', config);
+        const price = toNum(getK8sAddonPrice('observability', config), 0);
         rows.push({ label: 'K8s — Observabilidade avançada', qty: 1, unitPrice: price, subtotal: price });
         subKubernetes += price;
       }
       if (kubernetes.addons.cicd_managed) {
-        const price = getK8sAddonPrice('cicd_managed', config);
+        const price = toNum(getK8sAddonPrice('cicd_managed', config), 0);
         rows.push({ label: 'K8s — CI/CD gerenciado', qty: 1, unitPrice: price, subtotal: price });
         subKubernetes += price;
       }
-      if (kubernetes.addons.devops_hours > 0) {
-        const price = getK8sAddonPrice('devops_hours', config);
-        const devopsSubtotal = kubernetes.addons.devops_hours * price;
-        rows.push({ label: 'K8s — Horas DevOps', qty: kubernetes.addons.devops_hours, unitPrice: price, subtotal: devopsSubtotal });
+      const devopsHours = toNum(kubernetes.addons.devops_hours, 0);
+      if (devopsHours > 0) {
+        const price = toNum(getK8sAddonPrice('devops_hours', config), 0);
+        const devopsSubtotal = devopsHours * price;
+        rows.push({ label: 'K8s — Horas DevOps', qty: devopsHours, unitPrice: price, subtotal: devopsSubtotal });
         subKubernetes += devopsSubtotal;
       }
     }
@@ -563,9 +597,9 @@ const OpenCalculator: React.FC = () => {
       
       if (storageType === 'nvme') {
         // NVMe uses GB
-        const volumeGB = storage.volumeGB || storage.volumeTB * 1024 || 1;
+        const volumeGB = toNum(storage.volumeGB, 0) || toNum(storage.volumeTB, 0) * 1024 || 1;
         if (volumeGB >= 1) {
-          const pricePerGB = getNvmePricePerGB(config);
+          const pricePerGB = toNum(getNvmePricePerGB(config), 0);
           const monthlyTotal = volumeGB * pricePerGB;
           rows.push({
             label: `${typeLabel} — ${volumeGB} GB`,
@@ -577,12 +611,13 @@ const OpenCalculator: React.FC = () => {
         }
       } else {
         // SAS and S3 use TB (S3 uses same pricing as SAS)
-        if (storage.volumeTB >= 1) {
-          const pricePerTB = getStoragePricePerTB(storage.volumeTB, storage.region, config, storageType);
-          const monthlyTotal = calculateStorageMonthly(storage.volumeTB, storage.region, config, storageType);
-          const tierLabel = getStorageTierLabel(storage.volumeTB);
+        const volumeTB = toNum(storage.volumeTB, 0);
+        if (volumeTB >= 1) {
+          const pricePerTB = toNum(getStoragePricePerTB(volumeTB, storage.region, config, storageType), 0);
+          const monthlyTotal = toNum(calculateStorageMonthly(volumeTB, storage.region, config, storageType), 0);
+          const tierLabel = getStorageTierLabel(volumeTB);
           rows.push({
-            label: `${typeLabel} ${storage.region} — ${storage.volumeTB} TB (${tierLabel})`,
+            label: `${typeLabel} ${storage.region} — ${volumeTB} TB (${tierLabel})`,
             qty: 1,
             unitPrice: pricePerTB,
             subtotal: monthlyTotal,
@@ -594,9 +629,10 @@ const OpenCalculator: React.FC = () => {
 
     // OPEN SaaS (minimum 5 users enforced)
     let subOpenSaas = 0;
-    if (openSaas.enabled && openSaas.users >= 5) {
-      const pricePerUser = config.open_saas_price_per_user || 85;
-      const users = Math.max(5, openSaas.users); // Enforce minimum
+    const openSaasUsers = toNum(openSaas.users, 0);
+    if (openSaas.enabled && openSaasUsers >= 5) {
+      const pricePerUser = toNum(config.open_saas_price_per_user, 85);
+      const users = Math.max(5, openSaasUsers); // Enforce minimum
       const monthlyTotal = users * pricePerUser;
       rows.push({
         label: `OPEN SaaS — ${users} usuário(s) × R$ ${formatCurrency(pricePerUser)}/usuário`,
@@ -607,19 +643,28 @@ const OpenCalculator: React.FC = () => {
       subOpenSaas = monthlyTotal;
     }
 
-    // Calculate subtotal (price list) before discount
-    const preTotal = subRec + subIps + subServices + subBackup + subKubernetes + subStorage + subOpenSaas;
-    const discountPct = config.discount[selectedTerm] || 0;
+    // Calculate subtotal (price list) before discount - ensure all are numbers
+    const safeSubRec = Number.isFinite(subRec) ? subRec : 0;
+    const safeSubIps = Number.isFinite(subIps) ? subIps : 0;
+    const safeSubServices = Number.isFinite(subServices) ? subServices : 0;
+    const safeSubBackup = Number.isFinite(subBackup) ? subBackup : 0;
+    const safeSubKubernetes = Number.isFinite(subKubernetes) ? subKubernetes : 0;
+    const safeSubStorage = Number.isFinite(subStorage) ? subStorage : 0;
+    const safeSubOpenSaas = Number.isFinite(subOpenSaas) ? subOpenSaas : 0;
+    
+    const preTotal = safeSubRec + safeSubIps + safeSubServices + safeSubBackup + safeSubKubernetes + safeSubStorage + safeSubOpenSaas;
+    const discountPct = toNum(config.discount[selectedTerm], 0);
     const discountValue = preTotal * discountPct;
     const grandTotalBeforePartner = preTotal - discountValue;
     
     // Apply partner discount if available (from userContext)
-    const partnerDiscountPct = userContext.partnerDiscount;
+    const partnerDiscountPct = toNum(userContext.partnerDiscount, 0);
     const partnerDiscountValue = grandTotalBeforePartner * partnerDiscountPct;
     const grandTotal = grandTotalBeforePartner - partnerDiscountValue;
 
     // Calculate over values (reseller margin)
-    const overValue = Math.max(0, Math.min(reseller.overValue, grandTotal * 0.3)); // Cap at 30%
+    const resellerOverValue = toNum(reseller.overValue, 0);
+    const overValue = Math.max(0, Math.min(resellerOverValue, grandTotal * 0.3)); // Cap at 30%
     const overPercent = grandTotal > 0 ? (overValue / grandTotal) * 100 : 0;
     const totalWithOver = grandTotal + overValue;
 
@@ -635,27 +680,35 @@ const OpenCalculator: React.FC = () => {
       }));
     }
 
+    // Debug NaN detection - log if any subtotal is NaN
+    if (!Number.isFinite(safeSubRec) || !Number.isFinite(safeSubServices) || !Number.isFinite(grandTotal)) {
+      console.warn('[Calculator] NaN detected in calculation:', {
+        subRec, subIps, subServices, subBackup, subKubernetes, subStorage, subOpenSaas,
+        grandTotal, preTotal, discountPct, discountValue
+      });
+    }
+
     setResult({
       rows,
-      subRec,
-      subIps,
-      subServices,
-      subBackup,
-      subKubernetes,
-      subStorage,
-      subOpenSaas,
-      discountPct,
-      discountValue,
-      grandTotal,
+      subRec: safeSubRec,
+      subIps: safeSubIps,
+      subServices: safeSubServices,
+      subBackup: safeSubBackup,
+      subKubernetes: safeSubKubernetes,
+      subStorage: safeSubStorage,
+      subOpenSaas: safeSubOpenSaas,
+      discountPct: Number.isFinite(discountPct) ? discountPct : 0,
+      discountValue: Number.isFinite(discountValue) ? discountValue : 0,
+      grandTotal: Number.isFinite(grandTotal) ? grandTotal : 0,
       totalServers,
-      gpuUsdTotal,
-      gpuBrlTotal,
-      subtotalPriceList: grandTotalBeforePartner,
-      overValue,
-      overPercent,
-      totalWithOver,
-      partnerDiscountPct,
-      partnerDiscountValue,
+      gpuUsdTotal: Number.isFinite(gpuUsdTotal) ? gpuUsdTotal : 0,
+      gpuBrlTotal: Number.isFinite(gpuBrlTotal) ? gpuBrlTotal : 0,
+      subtotalPriceList: Number.isFinite(grandTotalBeforePartner) ? grandTotalBeforePartner : 0,
+      overValue: Number.isFinite(overValue) ? overValue : 0,
+      overPercent: Number.isFinite(overPercent) ? overPercent : 0,
+      totalWithOver: Number.isFinite(totalWithOver) ? totalWithOver : 0,
+      partnerDiscountPct: Number.isFinite(partnerDiscountPct) ? partnerDiscountPct : 0,
+      partnerDiscountValue: Number.isFinite(partnerDiscountValue) ? partnerDiscountValue : 0,
     });
   }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, antivirusManuallySet, reseller.overValue, reseller.approvalRequired, userContext]);
 
@@ -714,28 +767,90 @@ const OpenCalculator: React.FC = () => {
     const editProposal = location.state?.editProposal;
     
     if (editProposal && !initialized) {
-      // Load proposal data for editing
-      setFx(editProposal.fx || config.fx_default);
+      // Helper to safely convert any value to a number
+      const toNum = (val: any, fallback = 0): number => {
+        if (val === undefined || val === null || val === '') return fallback;
+        const parsed = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : Number(val);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
+
+      // Load proposal data for editing with normalization
+      setFx(toNum(editProposal.fx, config.fx_default));
       setSelectedTerm(editProposal.selectedTerm || "1");
       setDatacenter(editProposal.datacenter || 'SP1');
-      setClient(editProposal.client || { name: '', company: '', phone: '', email: '' });
+      setClient({
+        name: editProposal.client?.name || '',
+        company: editProposal.client?.company || '',
+        phone: editProposal.client?.phone || '',
+        email: editProposal.client?.email || '',
+      });
       setProposal(editProposal.proposal || { id: generateProposalId(), validityDays: 7, createdAt: new Date().toISOString() });
       
       // Normalize items to ensure all required fields exist (especially disks for BM)
       const normalizedItems = normalizeItems(editProposal.items || []);
       setItems(normalizedItems);
-      setAddons(editProposal.addons || {
-        backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: false,
-        tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0,
+      
+      // Normalize addons with proper number conversion
+      const rawAddons = editProposal.addons || {};
+      setAddons({
+        backupPlan: rawAddons.backupPlan || 'none',
+        backupGb: toNum(rawAddons.backupGb, 0),
+        antivirus: toNum(rawAddons.antivirus, 0),
+        firewall: Boolean(rawAddons.firewall),
+        tsplus: toNum(rawAddons.tsplus, 0),
+        cal: toNum(rawAddons.cal, 0),
+        sql: rawAddons.sql || 'none',
+        sqlQty: toNum(rawAddons.sqlQty, 0),
+        veeamVm: toNum(rawAddons.veeamVm, 0),
+        veeamAg: toNum(rawAddons.veeamAg, 0),
+        customAddons: rawAddons.customAddons || {},
       });
-      setKubernetes(editProposal.kubernetes || {
-        enabled: false, plan: 'k8s_small',
-        addons: { support_24x7: false, backup_velero: false, dr_multisite: false, observability: false, cicd_managed: false, devops_hours: 0 },
-        extras: { vcpu: 0, ramGB: 0, diskGB: 0 },
+      
+      // Normalize kubernetes
+      const rawK8s = editProposal.kubernetes || {};
+      const rawExtras = rawK8s.extras || {};
+      const rawK8sAddons = rawK8s.addons || {};
+      setKubernetes({
+        enabled: Boolean(rawK8s.enabled),
+        plan: rawK8s.plan || 'k8s_small',
+        addons: {
+          support_24x7: Boolean(rawK8sAddons.support_24x7),
+          backup_velero: Boolean(rawK8sAddons.backup_velero),
+          dr_multisite: Boolean(rawK8sAddons.dr_multisite),
+          observability: Boolean(rawK8sAddons.observability),
+          cicd_managed: Boolean(rawK8sAddons.cicd_managed),
+          devops_hours: toNum(rawK8sAddons.devops_hours, 0),
+        },
+        extras: {
+          vcpu: toNum(rawExtras.vcpu, 0),
+          ramGB: toNum(rawExtras.ramGB, 0),
+          diskGB: toNum(rawExtras.diskGB, 0),
+        },
       });
-      setStorageItems(editProposal.storageItems || []);
-      setReseller(editProposal.reseller || DEFAULT_RESELLER_STATE);
-      setOpenSaas(editProposal.openSaas || DEFAULT_OPEN_SAAS_STATE);
+      
+      // Normalize storage items
+      const rawStorageItems = editProposal.storageItems || [];
+      setStorageItems(rawStorageItems.map((s: any) => ({
+        ...s,
+        volumeTB: toNum(s.volumeTB, 1),
+        volumeGB: toNum(s.volumeGB, 0),
+      })));
+      
+      // Normalize reseller
+      const rawReseller = editProposal.reseller || {};
+      setReseller({
+        ...DEFAULT_RESELLER_STATE,
+        ...rawReseller,
+        overValue: toNum(rawReseller.overValue, 0),
+      });
+      
+      // Normalize OpenSaaS
+      const rawOpenSaas = editProposal.openSaas || {};
+      setOpenSaas({
+        enabled: Boolean(rawOpenSaas.enabled),
+        users: toNum(rawOpenSaas.users, 0),
+      });
+      
       setObservacao(editProposal.observacao || '');
       
       // Expand all loaded items
