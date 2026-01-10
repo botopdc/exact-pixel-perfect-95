@@ -502,12 +502,14 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     observacao: proposal.observacao,
   };
   
+  // IMPORTANT: This hook is used by EXECUTIVES (level 700+), so channel_type is always CLIENTE
+  // Partner proposals use useSavePartnerProposal which sets channel_type: PARCEIRO
   return {
     name: proposal.client?.name || '',
     company: proposal.client?.company || '',
     phone: proposal.client?.phone || '',
     email: proposal.client?.email || '',
-    channel_type: proposal.reseller?.enabled ? 'PARCEIRO' : 'CLIENTE',
+    channel_type: 'CLIENTE', // Executive proposals are always CLIENTE
     reseller_name: proposal.reseller?.resellerName || null,
     commission_value: proposal.reseller?.overValue || null,
     commission_reason: proposal.reseller?.overReason || null,
@@ -525,17 +527,21 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   };
 }
 
-// Hook to fetch all proposals from API
+// Hook to fetch executive proposals from API (excludes partner proposals)
 export function useProposals(page = 1, perPage = 100) {
   return useQuery({
-    queryKey: ['proposals', 'api', page, perPage],
+    queryKey: ['proposals', 'api', 'executive', page, perPage],
     queryFn: async () => {
       try {
+        // Fetch proposals with channel_type = CLIENTE (executive proposals)
+        // This excludes partner proposals (channel_type = PARCEIRO)
         const response = await openApi.getProposals({
+          channel_type: 'CLIENTE',
           __page: page,
           __perPage: perPage,
         });
         const apiProposals = response.data as ApiProposal[];
+        console.log('[useProposals] Fetched executive proposals (channel_type=CLIENTE):', apiProposals.length);
         return apiProposals.map(apiToLocal);
       } catch (error) {
         console.warn('[Proposals] API fetch failed, returning empty:', error);
@@ -546,18 +552,21 @@ export function useProposals(page = 1, perPage = 100) {
   });
 }
 
-// Hook to fetch proposals with pagination info
+// Hook to fetch executive proposals with pagination info (excludes partner proposals)
 export function useProposalsPaginated(page = 1, perPage = 20) {
   return useQuery({
-    queryKey: ['proposals', 'api', 'paginated', page, perPage],
+    queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage],
     queryFn: async () => {
       try {
+        // Fetch only executive proposals (channel_type = CLIENTE)
         const response = await openApi.getProposals({
+          channel_type: 'CLIENTE',
           __page: page,
           __perPage: perPage,
         });
         const apiProposals = response.data as ApiProposal[];
         const proposals = apiProposals.map(apiToLocal);
+        console.log('[useProposalsPaginated] Fetched executive proposals:', proposals.length);
         return {
           proposals,
           pagination: {
