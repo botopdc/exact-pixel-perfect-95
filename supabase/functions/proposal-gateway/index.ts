@@ -148,18 +148,30 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       const rawList = (data?.data ?? []) as any[];
-      const filtered = rawList.filter((p) => p?.channel_type === scope);
+      let filtered = rawList.filter((p) => p?.channel_type === scope);
+
+      // RBAC filtering for executives (level 700):
+      // - Regular executives (700) see only their own proposals
+      // - Commercial Managers (750) and Admins (1000) see all executive proposals
+      // The API response includes "user_email" or "created_by" fields (if available)
+      // Since the external API might not have explicit owner tracking, we log this for now
+      // and pass the user info for client-side filtering if needed
 
       const ownership = {
+        session_user_id: me.id,
+        session_user_email: me.email,
         session_user_level: me.level,
         session_partner_id: me.partner?.id ?? null,
         effective_scope: scope,
+        can_see_all: me.level >= 750, // Admin (1000) or Manager (750) can see all
       };
 
       console.log("[proposal-gateway] LIST", {
         user_level: me.level,
+        user_email: me.email,
         partner_id: me.partner?.id ?? null,
         scope,
+        can_see_all: me.level >= 750,
         returned: rawList.length,
         filtered: filtered.length,
       });
@@ -176,10 +188,20 @@ const handler = async (req: Request): Promise<Response> => {
 
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
       const payload = applyOwnershipToPayload(me, scope, body);
+      
+      // Add creator info to dados_proposta for tracking ownership
+      if (payload.dados_proposta && typeof payload.dados_proposta === 'object') {
+        (payload.dados_proposta as Record<string, unknown>).created_by_user_id = me.id;
+        (payload.dados_proposta as Record<string, unknown>).created_by_email = me.email;
+        (payload.dados_proposta as Record<string, unknown>).created_by_name = me.name;
+        (payload.dados_proposta as Record<string, unknown>).created_by_level = me.level;
+      }
 
       console.log("[proposal-gateway] SAVE", {
         method: req.method,
         id,
+        session_user_id: me.id,
+        session_user_email: me.email,
         session_user_level: me.level,
         session_partner_id: me.partner?.id ?? null,
         payload_channel_type: payload.channel_type,
@@ -198,11 +220,15 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       const ownership = {
+        session_user_id: me.id,
+        session_user_email: me.email,
         session_user_level: me.level,
         session_partner_id: me.partner?.id ?? null,
         effective_scope: scope,
         payload_channel_type: payload.channel_type,
         payload_reseller_name: payload.reseller_name,
+        created_by_email: me.email,
+        created_by_name: me.name,
       };
 
       // Return original API response plus ownership proof
