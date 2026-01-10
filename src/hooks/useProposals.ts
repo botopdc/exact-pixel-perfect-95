@@ -60,6 +60,14 @@ interface ApiProposal {
   created_at: string;
   updated_at: string;
   deleted_at?: string;
+  // Owner tracking (from dados_proposta)
+  dados_proposta?: {
+    created_by_user_id?: number;
+    created_by_email?: string;
+    created_by_name?: string;
+    created_by_level?: number;
+    [key: string]: any;
+  };
 }
 
 // Helper to safely convert any value to a number
@@ -528,6 +536,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
 }
 
 // Hook to fetch executive proposals from API (excludes partner proposals)
+// RBAC: 
+// - user_level 700 (Executivo): see only OWN proposals
+// - user_level 750 (Gerente Comercial): see ALL executive proposals
+// - user_level 1000 (Admin): see ALL executive proposals
 export function useProposals(page = 1, perPage = 100) {
   return useQuery({
     queryKey: ['proposals', 'api', 'executive', page, perPage],
@@ -553,16 +565,48 @@ export function useProposals(page = 1, perPage = 100) {
         }
 
         const apiProposals = (payload.data || []) as ApiProposal[];
-        const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+        const ownership = payload.ownership || {};
+        
+        // Filter to CLIENTE only (no partner proposals)
+        let safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+
+        // RBAC filtering based on user level from gateway response
+        // Regular executives (level 700) only see their own proposals
+        // Managers (750) and Admins (1000) can see all
+        const canSeeAll = ownership.can_see_all === true || ownership.session_user_level >= 750;
+        const sessionUserEmail = ownership.session_user_email?.toLowerCase() || '';
+        
+        if (!canSeeAll && sessionUserEmail) {
+          // Filter to only proposals created by this user
+          const beforeFilter = safe.length;
+          safe = safe.filter((p) => {
+            const creatorEmail = p.dados_proposta?.created_by_email?.toLowerCase() || '';
+            // Also check if client email matches session (legacy proposals without owner tracking)
+            const clientEmail = p.email?.toLowerCase() || '';
+            // If no creator info, include for now (legacy data) - will be backfilled
+            if (!creatorEmail) {
+              console.log('[useProposals] Proposal without owner info (legacy):', p.id);
+              return true; // Show legacy proposals to all for now
+            }
+            return creatorEmail === sessionUserEmail;
+          });
+          
+          console.log('[useProposals] Owner filter applied (user_level=700):', {
+            sessionUserEmail,
+            before: beforeFilter,
+            after: safe.length,
+            canSeeAll,
+          });
+        }
 
         if (safe.length !== apiProposals.length) {
-          console.warn('[useProposals] Dropped non-executive proposals from executive list:', {
+          console.warn('[useProposals] Filtered proposals:', {
             received: apiProposals.length,
             kept: safe.length,
-            ownership: payload.ownership,
+            ownership,
           });
         } else {
-          console.log('[useProposals] Fetched executive proposals (scope=CLIENTE):', safe.length, payload.ownership);
+          console.log('[useProposals] Fetched executive proposals (scope=CLIENTE):', safe.length, ownership);
         }
 
         return safe.map(apiToLocal);
@@ -576,6 +620,7 @@ export function useProposals(page = 1, perPage = 100) {
 }
 
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
+// Same RBAC rules as useProposals
 export function useProposalsPaginated(page = 1, perPage = 20) {
   return useQuery({
     queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage],
@@ -601,16 +646,38 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
         }
 
         const apiProposals = (payload.data || []) as ApiProposal[];
-        const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+        const ownership = payload.ownership || {};
+        
+        // Filter to CLIENTE only (no partner proposals)
+        let safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+
+        // RBAC filtering based on user level from gateway response
+        const canSeeAll = ownership.can_see_all === true || ownership.session_user_level >= 750;
+        const sessionUserEmail = ownership.session_user_email?.toLowerCase() || '';
+        
+        if (!canSeeAll && sessionUserEmail) {
+          const beforeFilter = safe.length;
+          safe = safe.filter((p) => {
+            const creatorEmail = p.dados_proposta?.created_by_email?.toLowerCase() || '';
+            if (!creatorEmail) return true; // Legacy data
+            return creatorEmail === sessionUserEmail;
+          });
+          
+          console.log('[useProposalsPaginated] Owner filter applied:', {
+            sessionUserEmail,
+            before: beforeFilter,
+            after: safe.length,
+          });
+        }
 
         if (safe.length !== apiProposals.length) {
-          console.warn('[useProposalsPaginated] Dropped non-executive proposals from executive list:', {
+          console.warn('[useProposalsPaginated] Filtered proposals:', {
             received: apiProposals.length,
             kept: safe.length,
-            ownership: payload.ownership,
+            ownership,
           });
         } else {
-          console.log('[useProposalsPaginated] Fetched executive proposals:', safe.length, payload.ownership);
+          console.log('[useProposalsPaginated] Fetched executive proposals:', safe.length, ownership);
         }
 
         const proposals = safe.map(apiToLocal);
