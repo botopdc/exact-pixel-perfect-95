@@ -857,9 +857,17 @@ const OpenCalculator: React.FC = () => {
       const allItemIds = (editProposal.items || []).map((item: any) => item.id);
       setExpandedItems(new Set(allItemIds));
       
-      // Mark as edit mode with proposal ID
+      // Mark as edit mode with API numeric ID (critical for updates)
       setIsEditMode(true);
-      setEditingProposalId(editProposal.proposal?.id || null);
+      // editProposal.id is the API numeric ID, proposal.id is the display ID (PROP-123)
+      const apiNumericId = editProposal.id;
+      setEditingProposalId(apiNumericId ? String(apiNumericId) : null);
+      
+      console.log('[OpenCalculator] EDIT MODE activated:', {
+        apiNumericId,
+        displayId: editProposal.proposal?.id,
+        isEditMode: true,
+      });
       
       // Hydration validation: compare saved total with loaded result
       const savedTotal = toNum(editProposal.result?.grandTotal, 0);
@@ -939,12 +947,25 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
+    // DEBUG: Log save operation mode
+    const numericApiId = editingProposalId ? parseInt(editingProposalId, 10) : null;
+    console.log('[OpenCalculator] handleSave:', {
+      mode: isEditMode ? 'EDIT' : 'CREATE',
+      editingProposalId,
+      numericApiId,
+      displayProposalId: proposal.id,
+      total: result?.grandTotal,
+    });
+    
     setSaving(true);
     try {
       if (isPartnerContext && partnerSession) {
         // Partner context: use partner proposal hook
+        // For EDIT mode, use PROP-{numericId} format so the hook detects update
+        const propostaId = isEditMode && numericApiId ? `PROP-${numericApiId}` : proposal.id;
+        
         const partnerProposalData = {
-          proposta_id: proposal.id,
+          proposta_id: propostaId,
           cliente_nome: client.name || client.company || '',
           cliente_email: client.email,
           valor_total: result?.grandTotal || 0,
@@ -966,10 +987,13 @@ const OpenCalculator: React.FC = () => {
           },
         };
 
-        await savePartnerProposalMutation.mutateAsync(partnerProposalData);
+        const saveResult = await savePartnerProposalMutation.mutateAsync(partnerProposalData);
+        console.log('[OpenCalculator] Partner save result:', { isUpdate: saveResult.isUpdate, id: saveResult.data?.api_id });
       } else {
         // Internal context: use internal proposal hook
+        // For EDIT mode, pass the API numeric ID so the hook performs UPDATE
         const proposalData: SavedProposal = {
+          id: numericApiId || undefined, // CRITICAL: API numeric ID for update detection
           fx,
           selectedTerm,
           datacenter,
@@ -987,13 +1011,25 @@ const OpenCalculator: React.FC = () => {
           observacao: observacao.trim() || undefined,
         };
 
-        await saveInternalProposalMutation.mutateAsync(proposalData);
+        const saveResult = await saveInternalProposalMutation.mutateAsync(proposalData);
+        const savedData = saveResult.data as { id?: number } | undefined;
+        console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id });
+        
+        // After successful save, update editingProposalId with the returned ID (for new proposals)
+        if (!isEditMode && savedData?.id) {
+          setIsEditMode(true);
+          setEditingProposalId(String(savedData.id));
+        }
       }
 
       // Store payload for debug purposes (admin mode)
       setLastPayload(JSON.stringify({ fx, selectedTerm, datacenter, client, proposal, items, addons, kubernetes, storageItems, reseller, openSaas, result, observacao }, null, 2));
 
-      toast({ title: 'Proposta salva', description: `Proposta ${proposal.id} salva com sucesso` });
+      const toastTitle = isEditMode ? 'Proposta atualizada' : 'Proposta salva';
+      const toastDesc = isEditMode 
+        ? `Proposta ${proposal.id} atualizada com sucesso` 
+        : `Proposta ${proposal.id} salva com sucesso`;
+      toast({ title: toastTitle, description: toastDesc });
     } catch (error: any) {
       console.error('Error saving proposal:', error);
       
@@ -1203,9 +1239,19 @@ const OpenCalculator: React.FC = () => {
                 </p>
               </div>
             </div>
-            <Badge className="bg-amber-500/30 text-amber-400 border-amber-500/50 font-mono text-sm px-3 py-1">
-              {editingProposalId}
-            </Badge>
+            <div className="flex items-center gap-3">
+              <Badge className="bg-amber-500/30 text-amber-400 border-amber-500/50 font-mono text-sm px-3 py-1">
+                PROP-{editingProposalId}
+              </Badge>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/20"
+                onClick={handleReset}
+              >
+                Cancelar Edição
+              </Button>
+            </div>
           </div>
         </div>
       )}

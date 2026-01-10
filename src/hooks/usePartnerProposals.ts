@@ -446,7 +446,7 @@ export function useSavePartnerProposal() {
         'CE1': 'Ceará',
       };
 
-      // Transform to API format
+      // Transform to API format - CRITICAL: include dados_proposta for full state preservation
       const apiData = {
         name: proposalData.cliente_nome,
         company: proposalData.dados_proposta?.client?.company || '',
@@ -463,6 +463,8 @@ export function useSavePartnerProposal() {
         addons: localAddonsToApiFormat(proposalData.dados_proposta?.addons),
         servers: localItemsToApiServers(proposalData.dados_proposta?.items),
         due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        // CRITICAL: Save complete calculator state for perfect editing restoration
+        dados_proposta: proposalData.dados_proposta,
       };
 
       let result: any;
