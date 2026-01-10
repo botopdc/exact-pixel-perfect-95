@@ -362,7 +362,8 @@ export function transformToApiProposal(
       const ram = config.baremetal.ram_tiers.find(r => r.id === bmItem.bmRam);
       
       let disksCost = 0;
-      const apiDisks: ApiProposalDisk[] = bmItem.disks.map(disk => {
+      const bmDisks = Array.isArray(bmItem.disks) ? bmItem.disks : [];
+      const apiDisks: ApiProposalDisk[] = bmDisks.map(disk => {
         const diskOption = config.baremetal.disks.find(d => d.id === disk.type);
         if (diskOption) disksCost += diskOption.price * disk.qty;
         return { id: disk.type, label: diskOption?.label || disk.type, qty: disk.qty };
@@ -527,7 +528,7 @@ export function transformApiToSavedProposal(apiProposal: ApiProposal, config: Ca
         gpuQty: bmServer.gpu_qty,
         bmCpu: bmServer.cpu_id,
         bmRam: bmServer.ram_id,
-        disks: bmServer.disks.map(d => ({ type: d.id, qty: d.qty, desc: d.label })),
+        disks: Array.isArray(bmServer.disks) ? bmServer.disks.map(d => ({ type: d.id, qty: d.qty, desc: d.label })) : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
         trafficTb: bmServer.traffic_tb,
         ips: bmServer.ips,
         qtyServers: bmServer.qty,

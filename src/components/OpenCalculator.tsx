@@ -286,11 +286,14 @@ const OpenCalculator: React.FC = () => {
   // Remove disk from BM
   const removeDisk = useCallback((itemId: string, diskIndex: number) => {
     setItems(prev => prev.map(item => {
-      if (item.id === itemId && item.type === 'bm' && item.disks.length > 1) {
-        return {
-          ...item,
-          disks: item.disks.filter((_, i) => i !== diskIndex),
-        };
+      if (item.id === itemId && item.type === 'bm') {
+        const disks = Array.isArray(item.disks) ? item.disks : [];
+        if (disks.length > 1) {
+          return {
+            ...item,
+            disks: disks.filter((_, i) => i !== diskIndex),
+          };
+        }
       }
       return item;
     }));
@@ -300,9 +303,10 @@ const OpenCalculator: React.FC = () => {
   const updateDisk = useCallback((itemId: string, diskIndex: number, updates: Partial<DiskItem>) => {
     setItems(prev => prev.map(item => {
       if (item.id === itemId && item.type === 'bm') {
+        const disks = Array.isArray(item.disks) ? item.disks : [];
         return {
           ...item,
-          disks: item.disks.map((disk, i) => i === diskIndex ? { ...disk, ...updates } : disk),
+          disks: disks.map((disk, i) => i === diskIndex ? { ...disk, ...updates } : disk),
         };
       }
       return item;
@@ -391,9 +395,10 @@ const OpenCalculator: React.FC = () => {
           subRec += ramSub;
         }
 
-        // Disks
+        // Disks - safe iteration with null check
         let diskUnitTotal = 0;
-        item.disks.forEach(disk => {
+        const itemDisks = Array.isArray(item.disks) ? item.disks : [];
+        itemDisks.forEach(disk => {
           const d = config.baremetal.disks.find(x => x.id === disk.type) || config.baremetal.disks[0];
           if (d) {
             diskUnitTotal += d.price * Math.max(1, disk.qty);
@@ -659,6 +664,48 @@ const OpenCalculator: React.FC = () => {
     calculate();
   }, [calculate]);
 
+  // Helper to normalize items ensuring disks array exists for BM items
+  const normalizeItems = useCallback((items: any[]): ServerItem[] => {
+    if (!items || !Array.isArray(items)) return [];
+    
+    return items.map((item: any) => {
+      // Ensure item has an ID
+      const id = item.id || crypto.randomUUID();
+      
+      if (item.type === 'bm') {
+        // Normalize BareMetal item - ensure disks is always an array
+        return {
+          type: 'bm' as const,
+          id,
+          gpu: item.gpu || 'Sem GPU',
+          gpuQty: item.gpuQty || 0,
+          bmCpu: item.bmCpu || config.baremetal.cpu_models[0]?.id || 'intel_xeon_e2136',
+          bmRam: item.bmRam || config.baremetal.ram_tiers[0]?.id || 'ram_128gb',
+          disks: Array.isArray(item.disks) && item.disks.length > 0 
+            ? item.disks 
+            : [{ type: config.baremetal.disks[0]?.id || 'nvme_1tb', qty: 1, desc: '' }],
+          trafficTb: item.trafficTb ?? 5,
+          ips: item.ips ?? 1,
+          qtyServers: item.qtyServers ?? 1,
+        };
+      } else {
+        // Normalize VM item (default if type not specified)
+        return {
+          type: 'vm' as const,
+          id,
+          gpu: item.gpu || 'Sem GPU',
+          gpuQty: item.gpuQty || 0,
+          vcpu: item.vcpu ?? 16,
+          ramGb: item.ramGb ?? 128,
+          nvmeTb: item.nvmeTb ?? 0.05,
+          trafficTb: item.trafficTb ?? 5,
+          ips: item.ips ?? 1,
+          qtyServers: item.qtyServers ?? 1,
+        };
+      }
+    });
+  }, [config.baremetal.cpu_models, config.baremetal.ram_tiers, config.baremetal.disks]);
+
   // Add initial VM after config loads OR load proposal for editing
   useEffect(() => {
     if (configLoading) return;
@@ -673,7 +720,10 @@ const OpenCalculator: React.FC = () => {
       setDatacenter(editProposal.datacenter || 'SP1');
       setClient(editProposal.client || { name: '', company: '', phone: '', email: '' });
       setProposal(editProposal.proposal || { id: generateProposalId(), validityDays: 7, createdAt: new Date().toISOString() });
-      setItems(editProposal.items || []);
+      
+      // Normalize items to ensure all required fields exist (especially disks for BM)
+      const normalizedItems = normalizeItems(editProposal.items || []);
+      setItems(normalizedItems);
       setAddons(editProposal.addons || {
         backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: false,
         tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0,
@@ -706,7 +756,7 @@ const OpenCalculator: React.FC = () => {
       addVM();
       setInitialized(true);
     }
-  }, [configLoading, initialized, items.length, addVM, location.state, config.fx_default, toast]);
+  }, [configLoading, initialized, items.length, addVM, location.state, config.fx_default, toast, normalizeItems]);
 
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
@@ -1441,7 +1491,7 @@ const OpenCalculator: React.FC = () => {
                                   </Button>
                                 </div>
                                 <div className="space-y-2">
-                                  {item.disks.map((disk, diskIdx) => (
+                                  {(Array.isArray(item.disks) ? item.disks : []).map((disk, diskIdx) => (
                                     <div key={diskIdx} className="flex gap-2 items-center">
                                       <Select value={disk.type} onValueChange={(v) => updateDisk(item.id, diskIdx, { type: v })}>
                                         <SelectTrigger className="flex-1 bg-input border-border">
@@ -1461,7 +1511,7 @@ const OpenCalculator: React.FC = () => {
                                         className="w-20 bg-input border-border"
                                         placeholder="Qtd"
                                       />
-                                      {item.disks.length > 1 && (
+                                      {(Array.isArray(item.disks) ? item.disks : []).length > 1 && (
                                         <Button variant="ghost" size="icon" onClick={() => removeDisk(item.id, diskIdx)} className="h-8 w-8">
                                           <Minus className="w-4 h-4" />
                                         </Button>
