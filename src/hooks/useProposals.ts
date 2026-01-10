@@ -519,19 +519,51 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // Build complete dados_proposta object with ALL calculator state
   // This ensures we can restore the exact proposal when editing
+  // CRITICAL: dados_proposta is the SOURCE OF TRUTH - do not save just the total!
   const dadosProposta = {
+    // Unique proposal identifiers
+    proposalId: proposal.proposal?.id,
+    
+    // Owner tracking (required)
+    created_by_user_id: proposal.result?.grandTotal ? (proposal as any).created_by_user_id : undefined,
+    created_by_email: (proposal as any).created_by_email,
+    created_by_name: (proposal as any).created_by_name,
+    created_by_level: (proposal as any).created_by_level,
+    created_by_role: (proposal as any).created_by_role,
+    
+    // Configuration
     fx: proposal.fx,
     selectedTerm: proposal.selectedTerm,
     datacenter: proposal.datacenter,
+    
+    // Client info
     client: proposal.client,
+    
+    // Proposal meta
     proposal: proposal.proposal,
+    
+    // ALL items with complete data (VMs, BareMetals with disks, etc)
     items: proposal.items, // Complete items with all fields
+    
+    // ALL addons
     addons: proposal.addons, // Complete addons object
+    
+    // Kubernetes complete state
     kubernetes: proposal.kubernetes, // Complete kubernetes state
+    
+    // Storage items complete
     storageItems: proposal.storageItems, // Complete storage items
+    
+    // Reseller/Commission state
     reseller: proposal.reseller, // Complete reseller state
+    
+    // OpenSaaS state
     openSaas: proposal.openSaas, // Complete OpenSaaS state
+    
+    // Computed result (for reference and validation)
     result: proposal.result, // Complete calculation result
+    
+    // Observation
     observacao: proposal.observacao,
   };
   
@@ -797,8 +829,12 @@ export function useSaveProposal() {
         payload_channel_type: (apiData as any).channel_type,
         // Validate dados_proposta contains all required data
         dados_proposta_summary: {
+          hasProposalId: Boolean(dadosProposta?.proposalId),
+          hasOwnerUserId: Boolean(dadosProposta?.created_by_user_id),
+          hasOwnerEmail: Boolean(dadosProposta?.created_by_email),
           hasItems: Boolean(dadosProposta?.items?.length),
           itemsCount: dadosProposta?.items?.length || 0,
+          itemsTypes: (dadosProposta?.items || []).map((i: any) => i.type),
           hasAddons: Boolean(dadosProposta?.addons),
           hasKubernetes: Boolean(dadosProposta?.kubernetes?.enabled),
           hasStorageItems: Boolean(dadosProposta?.storageItems?.length),
@@ -807,6 +843,11 @@ export function useSaveProposal() {
           savedTotal: dadosProposta?.result?.grandTotal,
         },
       });
+      
+      // VALIDATION: Ensure dados_proposta has items before saving
+      if (!dadosProposta?.items?.length) {
+        console.error('[SaveProposal] ERROR: No items in dados_proposta! This will cause issues on edit.');
+      }
 
       const resp = await fetch(url, {
         method: numericId ? 'PUT' : 'POST',
