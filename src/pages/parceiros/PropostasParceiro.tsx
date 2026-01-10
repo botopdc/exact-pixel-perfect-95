@@ -21,7 +21,7 @@ import {
   PartnerProposalStatus,
 } from '@/hooks/usePartnerProposals';
 import { partnerAuthService } from '@/services/partnersService';
-import { formatCurrency } from '@/lib/calculatorConfig';
+import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 
 // Status badge helper
@@ -280,7 +280,7 @@ export default function PropostasParceiro() {
                         <Badge variant="outline">{p.tipo_parceria}</Badge>
                       </td>
                       <td className="py-4 px-4 text-right font-semibold text-primary">
-                        R$ {formatCurrency(p.valor_total)}
+                        {formatCurrencyBRL(p.valor_total)}
                       </td>
                       <td className="py-4 px-4">{getStatusBadge(p.status_proposta)}</td>
                       <td className="py-4 px-4">
