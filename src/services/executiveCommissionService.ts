@@ -14,6 +14,8 @@
  * - CAP 2: Maximum R$ 20,000 per proposal
  */
 
+import { openApi, ApiUser } from '@/lib/openApi';
+
 // ============================================
 // CONSTANTS (Fixed - No dynamic configuration)
 // ============================================
@@ -115,6 +117,32 @@ export interface CommissionStats {
   propostas_com_cap_valor: number;
   economia_cap_meses: number;
   economia_cap_valor: number;
+}
+
+// API Proposal type (from external API)
+export interface ApiProposalData {
+  id: number;
+  name: string;
+  company: string;
+  email: string;
+  phone: string;
+  total: number;
+  contract_duration: number;
+  discount_pct: number;
+  status?: string;
+  channel_type?: string;
+  created_by_email?: string;
+  created_at: string;
+  updated_at: string;
+  dados_proposta?: {
+    cliente?: {
+      nome?: string;
+      empresa?: string;
+    };
+    config?: {
+      vigencia?: number;
+    };
+  };
 }
 
 // ============================================
@@ -385,80 +413,176 @@ export function groupByExecutive(
 }
 
 // ============================================
-// MOCK DATA FOR DEVELOPMENT
+// API INTEGRATION FUNCTIONS
 // ============================================
 
-export function getMockProposals(): ExecutiveProposal[] {
-  return [
-    {
-      proposal_id: 'prop-001',
-      executivo_id: 'exec-001',
-      executivo_nome: 'Carlos Silva',
-      cliente_nome: 'Tech Solutions Ltda',
-      mrr_total: 15000,
-      prazo_meses: 36,
-      status: 'validada',
-      status_pagamento: 'pendente',
-      dias_inadimplencia: 0,
-      data_aprovacao: '2025-01-15',
-      data_inicio_faturamento: '2025-02-01',
-    },
-    {
-      proposal_id: 'prop-002',
-      executivo_id: 'exec-001',
-      executivo_nome: 'Carlos Silva',
-      cliente_nome: 'Inovação Digital SA',
-      mrr_total: 50000,
-      prazo_meses: 48,
-      status: 'validada',
-      status_pagamento: 'pendente',
-      dias_inadimplencia: 0,
-      data_aprovacao: '2025-01-10',
-      data_inicio_faturamento: '2025-02-01',
-    },
-    {
-      proposal_id: 'prop-003',
-      executivo_id: 'exec-002',
-      executivo_nome: 'Maria Oliveira',
-      cliente_nome: 'Startup ABC',
-      mrr_total: 8000,
-      prazo_meses: 12,
-      status: 'validada',
-      status_pagamento: 'pago',
-      dias_inadimplencia: 0,
-      data_aprovacao: '2024-12-01',
-      data_inicio_faturamento: '2024-12-15',
-    },
-    {
-      proposal_id: 'prop-004',
-      executivo_id: 'exec-002',
-      executivo_nome: 'Maria Oliveira',
-      cliente_nome: 'Grande Empresa Corp',
-      mrr_total: 100000,
-      prazo_meses: 36,
-      status: 'validada',
-      status_pagamento: 'pendente',
-      dias_inadimplencia: 0,
-      data_aprovacao: '2025-01-20',
-      data_inicio_faturamento: '2025-02-01',
-    },
-    {
-      proposal_id: 'prop-005',
-      executivo_id: 'exec-003',
-      executivo_nome: 'João Santos',
-      cliente_nome: 'Médio Porte Ltda',
-      mrr_total: 25000,
-      prazo_meses: 24,
-      status: 'validada',
-      status_pagamento: 'suspenso',
-      dias_inadimplencia: 45,
-      data_aprovacao: '2024-11-01',
-      data_inicio_faturamento: '2024-11-15',
-    },
-  ];
+/**
+ * Transform API proposal data to internal ExecutiveProposal format
+ */
+export function transformApiProposal(
+  apiProposal: ApiProposalData,
+  executivesMap: Map<string, ApiUser>
+): ExecutiveProposal | null {
+  // Get the creator email to find the executive
+  const creatorEmail = apiProposal.created_by_email || '';
+  const executive = executivesMap.get(creatorEmail.toLowerCase());
+  
+  // If no executive found, skip this proposal
+  if (!executive) {
+    console.warn(`[CommissionService] No executive found for email: ${creatorEmail}`);
+    return null;
+  }
+  
+  // Calculate MRR from total (total is the monthly value)
+  const mrrTotal = apiProposal.total || 0;
+  
+  // Get contract duration
+  const prazoMeses = (apiProposal.contract_duration || 
+    apiProposal.dados_proposta?.config?.vigencia || 12) as 12 | 24 | 36 | 48;
+  
+  // Determine status based on API data
+  const apiStatus = (apiProposal.status || '').toLowerCase();
+  let status: ProposalStatus = 'pendente';
+  if (apiStatus === 'aprovada' || apiStatus === 'approved') {
+    status = 'aprovada';
+  } else if (apiStatus === 'validada' || apiStatus === 'validated') {
+    status = 'validada';
+  } else if (apiStatus === 'rejeitada' || apiStatus === 'rejected') {
+    status = 'rejeitada';
+  } else if (apiStatus === 'cancelada' || apiStatus === 'cancelled') {
+    status = 'cancelada';
+  }
+  
+  // Get client name
+  const clienteNome = apiProposal.company || 
+    apiProposal.dados_proposta?.cliente?.empresa || 
+    apiProposal.name || 
+    'Cliente não identificado';
+  
+  return {
+    proposal_id: String(apiProposal.id),
+    executivo_id: String(executive.id),
+    executivo_nome: executive.name,
+    cliente_nome: clienteNome,
+    mrr_total: mrrTotal,
+    prazo_meses: prazoMeses,
+    status,
+    status_pagamento: 'pendente', // Default, would come from financial system
+    dias_inadimplencia: 0, // Default, would come from financial system
+    data_aprovacao: apiProposal.created_at,
+    data_inicio_faturamento: null, // Would come from financial system
+    data_cancelamento: null,
+  };
 }
 
-export function getCalculatedCommissions(): CommissionCalculation[] {
-  const proposals = getMockProposals();
-  return proposals.map((p) => calculateProposalCommission(p));
+/**
+ * Fetch executives (level 700) from API
+ */
+export async function fetchExecutives(): Promise<Map<string, ApiUser>> {
+  try {
+    const response = await openApi.getUsers({ 
+      level: 700, 
+      __perPage: 100 
+    });
+    
+    const executives = response.data || [];
+    const map = new Map<string, ApiUser>();
+    
+    for (const exec of executives) {
+      if (exec.email) {
+        map.set(exec.email.toLowerCase(), exec);
+      }
+    }
+    
+    return map;
+  } catch (error) {
+    console.error('[CommissionService] Error fetching executives:', error);
+    return new Map();
+  }
+}
+
+/**
+ * Fetch approved/validated proposals from API
+ */
+export async function fetchApprovedProposals(): Promise<ApiProposalData[]> {
+  try {
+    // Fetch proposals with channel_type = CLIENTE (executive proposals)
+    const response = await openApi.getProposals({
+      channel_type: 'CLIENTE',
+      __perPage: 200,
+    });
+    
+    const proposals = (response.data || []) as ApiProposalData[];
+    
+    // Filter for approved/validated proposals only
+    return proposals.filter((p) => {
+      const status = (p.status || '').toLowerCase();
+      return status === 'aprovada' || status === 'validada' || 
+             status === 'approved' || status === 'validated';
+    });
+  } catch (error) {
+    console.error('[CommissionService] Error fetching proposals:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch and calculate all executive commissions from real API data
+ */
+export async function fetchAndCalculateCommissions(): Promise<{
+  commissions: CommissionCalculation[];
+  stats: CommissionStats;
+  executiveSummaries: ExecutiveCommissionSummary[];
+  loading: boolean;
+  error: string | null;
+}> {
+  try {
+    // Fetch executives and proposals in parallel
+    const [executivesMap, proposals] = await Promise.all([
+      fetchExecutives(),
+      fetchApprovedProposals(),
+    ]);
+    
+    console.log(`[CommissionService] Loaded ${executivesMap.size} executives and ${proposals.length} approved proposals`);
+    
+    // Transform API proposals to internal format
+    const executiveProposals: ExecutiveProposal[] = proposals
+      .map((p) => transformApiProposal(p, executivesMap))
+      .filter((p): p is ExecutiveProposal => p !== null);
+    
+    console.log(`[CommissionService] Transformed ${executiveProposals.length} proposals for commission calculation`);
+    
+    // Calculate commissions for each proposal
+    const commissions = executiveProposals.map((p) => calculateProposalCommission(p));
+    
+    // Calculate aggregated stats
+    const stats = calculateCommissionStats(commissions);
+    const executiveSummaries = groupByExecutive(commissions);
+    
+    return {
+      commissions,
+      stats,
+      executiveSummaries,
+      loading: false,
+      error: null,
+    };
+  } catch (error) {
+    console.error('[CommissionService] Error calculating commissions:', error);
+    return {
+      commissions: [],
+      stats: {
+        total_previsto: 0,
+        total_a_pagar: 0,
+        total_pago: 0,
+        total_executivos_ativos: 0,
+        propostas_com_cap_meses: 0,
+        propostas_com_cap_valor: 0,
+        economia_cap_meses: 0,
+        economia_cap_valor: 0,
+      },
+      executiveSummaries: [],
+      loading: false,
+      error: error instanceof Error ? error.message : 'Erro ao carregar comissões',
+    };
+  }
 }

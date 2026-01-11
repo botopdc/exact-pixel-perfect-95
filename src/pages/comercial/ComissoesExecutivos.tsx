@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +39,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   DollarSign,
   TrendingUp,
@@ -56,17 +57,15 @@ import {
   Ban,
   Eye,
   RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import {
   COMMISSION_CAPS,
   COMMISSION_RATES,
   CommissionCalculation,
-  ExecutiveCommissionSummary,
-  calculateCommissionStats,
-  getCalculatedCommissions,
-  groupByExecutive,
 } from '@/services/executiveCommissionService';
+import { useExecutiveCommissions } from '@/hooks/useExecutiveCommissions';
 
 const ComissoesExecutivos = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -74,11 +73,19 @@ const ComissoesExecutivos = () => {
   const [selectedCommission, setSelectedCommission] = useState<CommissionCalculation | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Load calculated commissions
-  const allCommissions = useMemo(() => getCalculatedCommissions(), []);
+  // Load commissions from real API
+  const {
+    commissions: allCommissions,
+    stats,
+    executiveSummaries,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useExecutiveCommissions();
   
   // Apply filters
-  const filteredCommissions = useMemo(() => {
+  const filteredCommissions = React.useMemo(() => {
     let filtered = [...allCommissions];
 
     if (searchTerm) {
@@ -102,10 +109,6 @@ const ComissoesExecutivos = () => {
 
     return filtered;
   }, [allCommissions, searchTerm, statusFilter]);
-
-  // Calculate stats
-  const stats = useMemo(() => calculateCommissionStats(allCommissions), [allCommissions]);
-  const executiveSummaries = useMemo(() => groupByExecutive(allCommissions), [allCommissions]);
 
   // Status badge for installments
   const getInstallmentBadge = (status: string) => {
@@ -181,11 +184,27 @@ const ComissoesExecutivos = () => {
             Acompanhamento e cálculo de comissões da equipe comercial interna
           </p>
         </div>
-        <Button variant="outline">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Atualizar
+        <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+          {isLoading ? 'Carregando...' : 'Atualizar'}
         </Button>
       </div>
+
+      {/* Error state */}
+      {isError && (
+        <Card className="border-destructive bg-destructive/10">
+          <CardContent className="p-4 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-destructive" />
+            <div>
+              <p className="font-medium text-destructive">Erro ao carregar comissões</p>
+              <p className="text-sm text-muted-foreground">{error?.message || 'Tente novamente mais tarde'}</p>
+            </div>
+            <Button variant="outline" size="sm" className="ml-auto" onClick={() => refetch()}>
+              Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -195,9 +214,13 @@ const ComissoesExecutivos = () => {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-500">
-              {formatCurrencyBRL(stats.total_previsto)}
-            </div>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <div className="text-2xl font-bold text-green-500">
+                {formatCurrencyBRL(stats.total_previsto)}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">Este mês</p>
           </CardContent>
         </Card>
@@ -208,9 +231,13 @@ const ComissoesExecutivos = () => {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-500">
-              {formatCurrencyBRL(stats.total_a_pagar)}
-            </div>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <div className="text-2xl font-bold text-yellow-500">
+                {formatCurrencyBRL(stats.total_a_pagar)}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">Pendente</p>
           </CardContent>
         </Card>
@@ -221,7 +248,11 @@ const ComissoesExecutivos = () => {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrencyBRL(stats.total_pago)}</div>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <div className="text-2xl font-bold">{formatCurrencyBRL(stats.total_pago)}</div>
+            )}
             <p className="text-xs text-muted-foreground">Últimos 30 dias</p>
           </CardContent>
         </Card>
@@ -232,7 +263,11 @@ const ComissoesExecutivos = () => {
             <PieChart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total_executivos_ativos}</div>
+            {isLoading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{stats.total_executivos_ativos}</div>
+            )}
             <p className="text-xs text-muted-foreground">Com comissão ativa</p>
           </CardContent>
         </Card>
@@ -333,42 +368,67 @@ const ComissoesExecutivos = () => {
             <Users className="h-5 w-5" />
             Por Executivo
           </h2>
-          {executiveSummaries.map((exec) => (
-            <Card key={exec.executivo_id} className="hover:border-primary/50 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium">{exec.executivo_nome}</h3>
-                  {exec.propostas_com_cap > 0 && (
-                    <Badge variant="outline" className="text-xs">
-                      {exec.propostas_com_cap} CAP
-                    </Badge>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Propostas</p>
-                    <p className="font-semibold">{exec.total_propostas}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Previsto</p>
-                    <p className="font-semibold text-green-500">
-                      {formatCurrencyBRL(exec.total_previsto)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">A Pagar</p>
-                    <p className="font-semibold text-yellow-500">
-                      {formatCurrencyBRL(exec.total_a_pagar)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Pago</p>
-                    <p className="font-semibold">{formatCurrencyBRL(exec.total_pago)}</p>
-                  </div>
-                </div>
+          {isLoading ? (
+            <>
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-4 space-y-3">
+                    <Skeleton className="h-5 w-32" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </>
+          ) : executiveSummaries.length === 0 ? (
+            <Card>
+              <CardContent className="p-4 text-center text-muted-foreground">
+                <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>Nenhum executivo com comissão</p>
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            executiveSummaries.map((exec) => (
+              <Card key={exec.executivo_id} className="hover:border-primary/50 transition-colors">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium">{exec.executivo_nome}</h3>
+                    {exec.propostas_com_cap > 0 && (
+                      <Badge variant="outline" className="text-xs">
+                        {exec.propostas_com_cap} CAP
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Propostas</p>
+                      <p className="font-semibold">{exec.total_propostas}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Previsto</p>
+                      <p className="font-semibold text-green-500">
+                        {formatCurrencyBRL(exec.total_previsto)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">A Pagar</p>
+                      <p className="font-semibold text-yellow-500">
+                        {formatCurrencyBRL(exec.total_a_pagar)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Pago</p>
+                      <p className="font-semibold">{formatCurrencyBRL(exec.total_pago)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </div>
 
         {/* Commissions List */}
@@ -378,11 +438,28 @@ const ComissoesExecutivos = () => {
             Comissões por Proposta ({filteredCommissions.length})
           </h2>
 
-          {filteredCommissions.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="space-y-2">
+                      <Skeleton className="h-5 w-48" />
+                      <Skeleton className="h-4 w-32" />
+                    </div>
+                    <Skeleton className="h-6 w-24" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : filteredCommissions.length === 0 ? (
             <Card>
               <CardContent className="text-center py-12 text-muted-foreground">
                 <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Nenhuma comissão encontrada</p>
+                {allCommissions.length === 0 && !isLoading && (
+                  <p className="text-sm mt-2">Não há propostas aprovadas/validadas para calcular comissões</p>
+                )}
               </CardContent>
             </Card>
           ) : (
