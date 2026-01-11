@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useArticle, useCreateArticle, useUpdateArticle } from '@/hooks/useArticles';
+import { useExternalArticle, useExternalCreateArticle, useExternalUpdateArticle } from '@/hooks/useExternalArticles';
 import { ARTICLE_CATEGORIES, ARTICLE_TEMPLATE, ArticleCategory } from '@/types/article';
 import { authService } from '@/services/authService';
+import { AccessDenied } from '@/components/articles/AccessDenied';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,12 +37,22 @@ const articleSchema = z.object({
 
 type ArticleFormData = z.infer<typeof articleSchema>;
 
+// Allowed levels: 900 (Suporte), 950 (Gerente Suporte), 1000 (Admin)
+const ALLOWED_LEVELS = [900, 950, 1000];
+
 export default function ArtigoForm({ isEdit = false }: { isEdit?: boolean }) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: existingArticle, isLoading } = useArticle(isEdit ? id : undefined);
-  const createArticle = useCreateArticle();
-  const updateArticle = useUpdateArticle();
+  
+  // Check authentication and access
+  const session = authService.getSession();
+  
+  // Parse ID as number for external API
+  const articleId = isEdit && id ? parseInt(id, 10) : undefined;
+  
+  const { data: existingArticle, isLoading } = useExternalArticle(articleId);
+  const createArticle = useExternalCreateArticle();
+  const updateArticle = useExternalUpdateArticle();
 
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -65,9 +76,25 @@ export default function ArtigoForm({ isEdit = false }: { isEdit?: boolean }) {
         visibility: existingArticle.visibility,
         content: existingArticle.content,
       });
-      setTags(existingArticle.tags);
+      setTags(existingArticle.tags || []);
     }
   }, [existingArticle, isEdit, form]);
+
+  // Redirect to login if not authenticated
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Check if user has access
+  const hasAccess = ALLOWED_LEVELS.includes(session.level);
+  
+  if (!hasAccess) {
+    return (
+      <AccessDenied 
+        message="Esta área é restrita para Suporte, Gerente de Suporte e Administradores."
+      />
+    );
+  }
 
   const handleAddTag = () => {
     const tag = tagInput.trim().replace(/^#/, '');
@@ -102,11 +129,11 @@ export default function ArtigoForm({ isEdit = false }: { isEdit?: boolean }) {
       author,
     };
 
-    if (isEdit && id) {
+    if (isEdit && articleId) {
       updateArticle.mutate(
-        { id, ...articleData },
+        { id: articleId, ...articleData },
         {
-          onSuccess: () => navigate(`/artigos/${id}`),
+          onSuccess: () => navigate(`/artigos/${articleId}`),
         }
       );
     } else {

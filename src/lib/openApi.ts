@@ -451,6 +451,102 @@ class OpenApiClient {
   async deletePartner(id: number): Promise<void> {
     await this.client.delete(`/partner/${id}`);
   }
+
+  // ============================================================================
+  // ARTICLES ENDPOINTS
+  // ============================================================================
+
+  async getArticles(params?: {
+    __page?: number;
+    __perPage?: number;
+    __limit?: number;
+    category?: string;
+    author?: string;
+    status?: 'draft' | 'published';
+    search?: string;
+    title?: string;
+  }): Promise<{ data: ApiArticle[]; total: number; current_page?: number; last_page?: number }> {
+    const response = await this.client.get('/article', { params });
+    return response.data;
+  }
+
+  async getArticle(id: number): Promise<ApiArticle> {
+    const response = await this.client.get<ApiArticle>(`/article/${id}`);
+    return response.data;
+  }
+
+  async createArticle(data: {
+    title: string;
+    content: string;
+    category: string;
+    visibility: 'private' | 'internal';
+    tags?: string[];
+    status: 'draft' | 'published';
+    author: string;
+  }): Promise<ApiArticle> {
+    const response = await this.client.post<ApiArticle>('/article', data);
+    return response.data;
+  }
+
+  async updateArticle(id: number, data: Partial<{
+    title: string;
+    content: string;
+    category: string;
+    visibility: 'private' | 'internal';
+    tags: string[];
+    status: 'draft' | 'published';
+    author: string;
+    views_count: number;
+    helpful_yes: number;
+    helpful_no: number;
+  }>): Promise<ApiArticle> {
+    const response = await this.client.put<ApiArticle>(`/article/${id}`, data);
+    return response.data;
+  }
+
+  async deleteArticle(id: number): Promise<void> {
+    await this.client.delete(`/article/${id}`);
+  }
+
+  async incrementArticleViews(id: number): Promise<void> {
+    try {
+      const article = await this.getArticle(id);
+      await this.updateArticle(id, { views_count: (article.views_count || 0) + 1 });
+    } catch (error) {
+      console.warn('[API] Failed to increment article views:', error);
+    }
+  }
+
+  async rateArticle(id: number, helpful: boolean): Promise<void> {
+    try {
+      const article = await this.getArticle(id);
+      if (helpful) {
+        await this.updateArticle(id, { helpful_yes: (article.helpful_yes || 0) + 1 });
+      } else {
+        await this.updateArticle(id, { helpful_no: (article.helpful_no || 0) + 1 });
+      }
+    } catch (error) {
+      console.warn('[API] Failed to rate article:', error);
+    }
+  }
+}
+
+// API Article type matching external API
+export interface ApiArticle {
+  id: number;
+  title: string;
+  content: string;
+  category: string;
+  visibility: 'private' | 'internal';
+  tags: string[];
+  status: 'draft' | 'published';
+  author: string;
+  views_count: number;
+  helpful_yes: number;
+  helpful_no: number;
+  reading_time_minutes: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Singleton instance
