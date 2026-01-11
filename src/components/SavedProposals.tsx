@@ -23,18 +23,64 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
-// Status display helper
+// Status display helper - shows LETTER with color and tooltip
 function getStatusBadge(status: ProposalStatus | undefined) {
   switch (status) {
     case 'A':
-      return <Badge className="bg-green-500/20 text-green-600 border-green-500/30 hover:bg-green-500/30">Aprovado</Badge>;
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-green-500/20 text-green-600 border-green-500/30 hover:bg-green-500/30 font-bold text-sm px-3">A</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Aprovado</TooltipContent>
+        </Tooltip>
+      );
     case 'R':
-      return <Badge className="bg-red-500/20 text-red-600 border-red-500/30 hover:bg-red-500/30">Recusado</Badge>;
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-red-500/20 text-red-600 border-red-500/30 hover:bg-red-500/30 font-bold text-sm px-3">R</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Recusado</TooltipContent>
+        </Tooltip>
+      );
     case 'E':
-      return <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 hover:bg-blue-500/30">Enviado</Badge>;
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-sky-500/20 text-sky-600 border-sky-500/30 hover:bg-sky-500/30 font-bold text-sm px-3">E</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Enviado</TooltipContent>
+        </Tooltip>
+      );
     default:
-      return <Badge variant="outline" className="text-muted-foreground">—</Badge>;
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 hover:bg-blue-500/30 font-bold text-sm px-3">S</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Sem status</TooltipContent>
+        </Tooltip>
+      );
+  }
+}
+
+// Get ID color class based on status
+function getIdColorClass(status: ProposalStatus | undefined): string {
+  switch (status) {
+    case 'A':
+      return 'text-green-600';
+    case 'R':
+      return 'text-red-600';
+    default:
+      return 'text-primary';
   }
 }
 
@@ -425,10 +471,12 @@ const SavedProposals: React.FC = () => {
                         <tr key={proposalId} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                           <td className="py-4 px-4 font-medium text-foreground">{clientName}</td>
                           <td className="py-4 px-4">
-                            <span className="font-mono text-sm text-primary">{proposalId}</span>
+                            <span className={`font-mono text-sm font-semibold ${getIdColorClass(p.status)}`}>{proposalId}</span>
                           </td>
                           <td className="py-4 px-4">
-                            {getStatusBadge(p.status)}
+                            <TooltipProvider>
+                              {getStatusBadge(p.status)}
+                            </TooltipProvider>
                           </td>
                           <td className="py-4 px-4 text-muted-foreground">{createdAt}</td>
                           <td className="py-4 px-4 text-muted-foreground">{validityDate}</td>
