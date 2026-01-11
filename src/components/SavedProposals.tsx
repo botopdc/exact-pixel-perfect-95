@@ -67,8 +67,14 @@ const SavedProposals: React.FC = () => {
     return proposals.filter((p) => {
       // Filter by status
       if (statusFilter !== 'all') {
-        if (statusFilter === '' && p.status) return false;
-        if (statusFilter !== '' && p.status !== statusFilter) return false;
+        const proposalStatus = p.status || ''; // Normalize undefined/null to empty string
+        if (statusFilter === '') {
+          // "Sem status" filter: show only proposals without status
+          if (proposalStatus !== '') return false;
+        } else {
+          // Specific status filter
+          if (proposalStatus !== statusFilter) return false;
+        }
       }
       
       // Filter by search query (client name or company)
@@ -111,18 +117,20 @@ const SavedProposals: React.FC = () => {
   };
 
   const handleCopyAcceptanceLink = async (proposal: SavedProposal) => {
-    const proposalId = proposal.proposal?.id || '';
+    const displayProposalId = proposal.proposal?.id || '';
+    const apiId = proposal.id ? String(proposal.id) : displayProposalId; // Use numeric API ID for update
     const baseUrl = window.location.origin;
-    const link = `${baseUrl}/proposta/${proposalId}/aceite`;
+    const link = `${baseUrl}/proposta/${displayProposalId}/aceite`;
     navigator.clipboard.writeText(link);
     
     // Track link copy
-    if (proposalId) {
-      trackEvent.mutate({ proposalId, type: 'link_copy', channel: 'ui' });
+    if (displayProposalId) {
+      trackEvent.mutate({ proposalId: displayProposalId, type: 'link_copy', channel: 'ui' });
       
       // Update status to "E" (Enviado) if not already set
       if (!proposal.status) {
-        await updateStatusMutation.mutateAsync({ id: proposalId, status: 'E' });
+        console.log('[SavedProposals] Updating status to E:', { displayProposalId, apiId });
+        await updateStatusMutation.mutateAsync({ id: apiId, status: 'E' });
       }
     }
     
@@ -209,13 +217,14 @@ const SavedProposals: React.FC = () => {
       return;
     }
 
-    const proposalId = proposal.proposal?.id || '';
-    const proposalLink = `${window.location.origin}/proposta/${proposalId}`;
+    const displayProposalId = proposal.proposal?.id || '';
+    const apiId = proposal.id ? String(proposal.id) : displayProposalId;
+    const proposalLink = `${window.location.origin}/proposta/${displayProposalId}`;
     const validityDateStr = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
       ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
       : '-';
     
-    setSendingEmailId(proposalId);
+    setSendingEmailId(displayProposalId);
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -227,7 +236,7 @@ const SavedProposals: React.FC = () => {
           body: JSON.stringify({
             clientName: proposal.client.name || proposal.client.company || 'Cliente',
             clientEmail: proposal.client.email,
-            proposalId,
+            proposalId: displayProposalId,
             proposalLink,
             totalValue: `R$ ${formatCurrency(proposal.result?.grandTotal || 0)}`,
             validityDate: validityDateStr,
@@ -242,11 +251,12 @@ const SavedProposals: React.FC = () => {
       }
       
       // Track email send
-      trackEvent.mutate({ proposalId, type: 'email_send', channel: 'ui' });
+      trackEvent.mutate({ proposalId: displayProposalId, type: 'email_send', channel: 'ui' });
       
       // Update status to "E" (Enviado) if not already set
       if (!proposal.status) {
-        await updateStatusMutation.mutateAsync({ id: proposalId, status: 'E' });
+        console.log('[SavedProposals] Updating status to E after email:', { displayProposalId, apiId });
+        await updateStatusMutation.mutateAsync({ id: apiId, status: 'E' });
       }
       
       toast({ title: 'Email enviado!', description: `Proposta enviada para ${proposal.client.email}` });

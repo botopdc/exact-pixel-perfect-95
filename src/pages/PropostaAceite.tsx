@@ -77,9 +77,19 @@ const PropostaAceite: React.FC = () => {
         channel: 'public_url',
       };
 
+      // Get the numeric API ID for proper update
+      const apiId = proposal.id ? String(proposal.id) : id;
+      
+      console.log('[PropostaAceite] Accepting proposal:', { 
+        urlId: id, 
+        apiId, 
+        numericId: proposal.id,
+        proposalDisplayId: proposal.proposal?.id 
+      });
+
       // Update proposal status
       await updateStatusMutation.mutateAsync({
-        id,
+        id: apiId,
         status: 'A',
         acceptance,
       });
@@ -121,6 +131,7 @@ const PropostaAceite: React.FC = () => {
         description: 'A confirmação foi enviada para nossa equipe comercial.' 
       });
     } catch (error: any) {
+      console.error('[PropostaAceite] Error accepting proposal:', error);
       toast({ 
         title: 'Erro ao aceitar proposta', 
         description: error.message || 'Tente novamente mais tarde', 
@@ -142,9 +153,18 @@ const PropostaAceite: React.FC = () => {
         channel: 'public_url',
       };
 
+      // Get the numeric API ID for proper update
+      const apiId = proposal.id ? String(proposal.id) : id;
+      
+      console.log('[PropostaAceite] Rejecting proposal:', { 
+        urlId: id, 
+        apiId, 
+        numericId: proposal.id 
+      });
+
       // Update proposal status
       await updateStatusMutation.mutateAsync({
-        id,
+        id: apiId,
         status: 'R',
         acceptance,
       });
@@ -163,6 +183,7 @@ const PropostaAceite: React.FC = () => {
         description: 'Sua decisão foi registrada.' 
       });
     } catch (error: any) {
+      console.error('[PropostaAceite] Error rejecting proposal:', error);
       toast({ 
         title: 'Erro ao recusar proposta', 
         description: error.message || 'Tente novamente mais tarde', 

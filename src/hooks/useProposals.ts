@@ -60,12 +60,22 @@ interface ApiProposal {
   created_at: string;
   updated_at: string;
   deleted_at?: string;
+  // Status fields (persisted at API level)
+  proposal_status?: string; // '', 'E', 'A', 'R' (Enviado, Aprovado, Recusado)
+  status_sent_at?: string;
+  status_accepted_at?: string;
+  status_rejected_at?: string;
+  acceptance_channel?: string;
+  acceptance_id?: string;
   // Owner tracking (from dados_proposta)
   dados_proposta?: {
     created_by_user_id?: number;
     created_by_email?: string;
     created_by_name?: string;
     created_by_level?: number;
+    // Status can also be stored in dados_proposta for fallback
+    status?: string;
+    acceptance?: ProposalAcceptance;
     [key: string]: any;
   };
 }
@@ -81,6 +91,14 @@ const toNum = (val: any, fallback = 0): number => {
 function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   // Check if we have the complete calculator state saved in dados_proposta (new format)
   const dadosProposta = (apiProposal as any).dados_proposta;
+  
+  // Log status resolution for debugging
+  console.log('[apiToLocal] Processing proposal', apiProposal.id, {
+    proposal_status: apiProposal.proposal_status,
+    dados_proposta_status: dadosProposta?.status,
+    status_accepted_at: apiProposal.status_accepted_at,
+    status_rejected_at: apiProposal.status_rejected_at,
+  });
   
   if (dadosProposta && typeof dadosProposta === 'object') {
     // NEW FORMAT: Complete calculator state was saved - use it directly with normalization
@@ -179,6 +197,23 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     const savedResult = dadosProposta.result;
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
     
+    // Resolve status: prioritize API-level fields, then dados_proposta
+    const resolvedStatus = (
+      apiProposal.proposal_status || 
+      dadosProposta.status || 
+      ''
+    ) as ProposalStatus;
+    
+    // Resolve acceptance info
+    const resolvedAcceptance: ProposalAcceptance | undefined = dadosProposta.acceptance || (
+      (apiProposal.status_accepted_at || apiProposal.status_rejected_at) ? {
+        id: apiProposal.acceptance_id || '',
+        acceptedAt: apiProposal.status_accepted_at,
+        rejectedAt: apiProposal.status_rejected_at,
+        channel: (apiProposal.acceptance_channel || 'public_url') as 'public_url' | 'ui' | 'email',
+      } : undefined
+    );
+    
     return {
       id: apiProposal.id,
       fx: toNum(dadosProposta.fx, toNum(apiProposal.fx, 5)),
@@ -203,7 +238,8 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       openSaas: normalizedOpenSaas,
       total: grandTotal,
       savedAt: apiProposal.created_at,
-      status: '' as ProposalStatus,
+      status: resolvedStatus,
+      acceptance: resolvedAcceptance,
       observacao: dadosProposta.observacao || apiProposal.observations || undefined,
       result: savedResult || {
         rows: [],
@@ -369,6 +405,17 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     totalWithOver: grandTotal,
   };
   
+  // Resolve status for legacy format
+  const resolvedStatus = (apiProposal.proposal_status || '') as ProposalStatus;
+  const resolvedAcceptance: ProposalAcceptance | undefined = (
+    (apiProposal.status_accepted_at || apiProposal.status_rejected_at) ? {
+      id: apiProposal.acceptance_id || '',
+      acceptedAt: apiProposal.status_accepted_at,
+      rejectedAt: apiProposal.status_rejected_at,
+      channel: (apiProposal.acceptance_channel || 'public_url') as 'public_url' | 'ui' | 'email',
+    } : undefined
+  );
+  
   return {
     id: apiProposal.id,
     fx: toNum(apiProposal.fx, 5),
@@ -403,7 +450,8 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     } : undefined,
     total: grandTotal,
     savedAt: apiProposal.created_at,
-    status: '' as ProposalStatus,
+    status: resolvedStatus,
+    acceptance: resolvedAcceptance,
     observacao: apiProposal.observations || undefined,
     result,
   };
@@ -565,6 +613,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     
     // Observation
     observacao: proposal.observacao,
+    
+    // Status fields (persisted in dados_proposta as fallback)
+    status: proposal.status || '',
+    acceptance: proposal.acceptance,
   };
   
   // IMPORTANT: This hook is used by EXECUTIVES (level 700+), so channel_type is always CLIENTE
@@ -587,6 +639,15 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     addons: addonsArray.length > 0 ? addonsArray : null,
     servers: serversArray,
     due_at: dueAt.toISOString(),
+    // STATUS FIELDS - persisted at API level for proper filtering
+    proposal_status: proposal.status || '',
+    status_sent_at: proposal.status === 'E' && !proposal.acceptance?.acceptedAt && !proposal.acceptance?.rejectedAt 
+      ? new Date().toISOString() 
+      : undefined,
+    status_accepted_at: proposal.acceptance?.acceptedAt || undefined,
+    status_rejected_at: proposal.acceptance?.rejectedAt || undefined,
+    acceptance_channel: proposal.acceptance?.channel || undefined,
+    acceptance_id: proposal.acceptance?.id || undefined,
     // CRITICAL: Save complete calculator state for perfect editing restoration
     dados_proposta: dadosProposta,
   };
@@ -919,19 +980,25 @@ export function useUpdateProposalStatus() {
       status: ProposalStatus;
       acceptance?: ProposalAcceptance;
     }) => {
+      console.log('[useUpdateProposalStatus] Starting update:', { id, status, acceptance });
+      
       // Parse numeric ID
       const numericId = parseInt(id, 10);
       let existing: ApiProposal | undefined;
       
       if (!isNaN(numericId)) {
+        console.log('[useUpdateProposalStatus] Fetching by numeric ID:', numericId);
         existing = await openApi.getProposal(numericId) as ApiProposal;
       } else {
         // Fallback: search by PROP-ID format
+        console.log('[useUpdateProposalStatus] Searching by PROP-ID format:', id);
         const response = await openApi.getProposals({ __perPage: 500 });
         existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
       }
       
       if (existing) {
+        console.log('[useUpdateProposalStatus] Found proposal:', existing.id, 'Current status:', existing.proposal_status);
+        
         const currentProposal = apiToLocal(existing);
         currentProposal.status = status;
         if (acceptance) {
@@ -939,15 +1006,33 @@ export function useUpdateProposalStatus() {
         }
         
         const apiData = localToApi(currentProposal);
+        console.log('[useUpdateProposalStatus] Updating with payload:', { 
+          proposal_status: (apiData as any).proposal_status,
+          status_accepted_at: (apiData as any).status_accepted_at,
+          status_rejected_at: (apiData as any).status_rejected_at,
+        });
+        
         const result = await openApi.updateProposal(existing.id, apiData);
-        return { success: true, data: result };
+        console.log('[useUpdateProposalStatus] Update result:', result);
+        
+        return { success: true, data: result, apiId: existing.id };
       }
       
+      console.error('[useUpdateProposalStatus] Proposal not found:', id);
       return { success: false, data: null };
     },
-    onSuccess: (_, { id }) => {
+    onSuccess: (result, { id }) => {
+      console.log('[useUpdateProposalStatus] Invalidating queries for:', id, result);
+      // Invalidate all proposal queries to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ['proposals'] });
       queryClient.invalidateQueries({ queryKey: ['proposal', 'api', id] });
+      // Also invalidate by numeric ID if we have it
+      if (result?.apiId) {
+        queryClient.invalidateQueries({ queryKey: ['proposal', 'api', String(result.apiId)] });
+      }
+    },
+    onError: (error) => {
+      console.error('[useUpdateProposalStatus] Error:', error);
     },
   });
 }
