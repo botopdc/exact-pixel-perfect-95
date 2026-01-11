@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useArticle, useDeleteArticle, useRateArticle, useIncrementViews } from '@/hooks/useArticles';
+import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
+import { useExternalArticle, useExternalDeleteArticle, useExternalRateArticle, useExternalIncrementViews } from '@/hooks/useExternalArticles';
 import { ArticleContent } from '@/components/articles/ArticleContent';
-import { ArticleCategory } from '@/types/article';
+import { AccessDenied } from '@/components/articles/AccessDenied';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,8 +40,9 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { authService } from '@/services/authService';
 
-const categoryIcons: Record<ArticleCategory, React.ComponentType<{ className?: string }>> = {
+const categoryIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   'Infraestrutura': Server,
   'Cloud / Virtualização': Cloud,
   'Backup & DR': Database,
@@ -54,35 +55,61 @@ const categoryIcons: Record<ArticleCategory, React.ComponentType<{ className?: s
   'Onboarding & Treinamento': GraduationCap,
 };
 
+// Allowed levels: 900 (Suporte), 950 (Gerente Suporte), 1000 (Admin)
+const ALLOWED_LEVELS = [900, 950, 1000];
+
 export default function ArtigoView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: article, isLoading } = useArticle(id);
-  const deleteArticle = useDeleteArticle();
-  const rateArticle = useRateArticle();
-  const incrementViews = useIncrementViews();
+  
+  // Check authentication and access
+  const session = authService.getSession();
+  
+  // Parse ID as number for external API
+  const articleId = id ? parseInt(id, 10) : undefined;
+  
+  const { data: article, isLoading } = useExternalArticle(articleId);
+  const deleteArticle = useExternalDeleteArticle();
+  const rateArticle = useExternalRateArticle();
+  const incrementViews = useExternalIncrementViews();
   const [hasRated, setHasRated] = useState(false);
   const [hasViewed, setHasViewed] = useState(false);
 
   // Increment views on mount
   useEffect(() => {
-    if (id && !hasViewed) {
-      incrementViews.mutate(id);
+    if (articleId && !hasViewed) {
+      incrementViews.mutate(articleId);
       setHasViewed(true);
     }
-  }, [id, hasViewed]);
+  }, [articleId, hasViewed]);
+
+  // Redirect to login if not authenticated
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Check if user has access
+  const hasAccess = ALLOWED_LEVELS.includes(session.level);
+  
+  if (!hasAccess) {
+    return (
+      <AccessDenied 
+        message="Esta área é restrita para Suporte, Gerente de Suporte e Administradores."
+      />
+    );
+  }
 
   const handleDelete = () => {
-    if (id) {
-      deleteArticle.mutate(id, {
+    if (articleId) {
+      deleteArticle.mutate(articleId, {
         onSuccess: () => navigate('/artigos'),
       });
     }
   };
 
   const handleRate = (helpful: boolean) => {
-    if (id && !hasRated) {
-      rateArticle.mutate({ id, helpful });
+    if (articleId && !hasRated) {
+      rateArticle.mutate({ id: articleId, helpful });
       setHasRated(true);
     }
   };
@@ -117,6 +144,7 @@ export default function ArtigoView() {
   }
 
   const IconComponent = categoryIcons[article.category] || FileText;
+  const tags = article.tags || [];
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -159,11 +187,11 @@ export default function ArtigoView() {
           </div>
           <div className="flex items-center gap-1">
             <Clock className="h-4 w-4" />
-            <span>{article.reading_time_minutes} min de leitura</span>
+            <span>{article.reading_time_minutes || 5} min de leitura</span>
           </div>
           <div className="flex items-center gap-1">
             <Eye className="h-4 w-4" />
-            <span>{article.views_count} visualizações</span>
+            <span>{article.views_count || 0} visualizações</span>
           </div>
           <span>
             Criado em{' '}
@@ -174,9 +202,9 @@ export default function ArtigoView() {
         </div>
 
         {/* Tags */}
-        {article.tags.length > 0 && (
+        {tags.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {article.tags.map((tag) => (
+            {tags.map((tag) => (
               <Badge key={tag} variant="outline" className="text-sm">
                 #{tag}
               </Badge>
@@ -205,7 +233,7 @@ export default function ArtigoView() {
                 className="gap-2"
               >
                 <ThumbsUp className="h-4 w-4" />
-                <span>{article.helpful_yes}</span>
+                <span>{article.helpful_yes || 0}</span>
               </Button>
               <Button
                 variant={hasRated ? 'ghost' : 'outline'}
@@ -215,7 +243,7 @@ export default function ArtigoView() {
                 className="gap-2"
               >
                 <ThumbsDown className="h-4 w-4" />
-                <span>{article.helpful_no}</span>
+                <span>{article.helpful_no || 0}</span>
               </Button>
             </div>
           </div>

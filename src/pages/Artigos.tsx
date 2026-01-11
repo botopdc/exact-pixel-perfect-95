@@ -1,25 +1,50 @@
-import { useState, useMemo } from 'react';
-import { useArticles, useUniqueAuthors } from '@/hooks/useArticles';
-import { ArticleCard } from '@/components/articles/ArticleCard';
-import { ArticleSidebar } from '@/components/articles/ArticleSidebar';
+import { useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useExternalArticles, useExternalUniqueAuthors } from '@/hooks/useExternalArticles';
+import { ExternalArticleCard } from '@/components/articles/ExternalArticleCard';
+import { ExternalArticleSidebar } from '@/components/articles/ExternalArticleSidebar';
 import { ArticleFilters } from '@/components/articles/ArticleFilters';
+import { AccessDenied } from '@/components/articles/AccessDenied';
 import { ArticleCategory } from '@/types/article';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText } from 'lucide-react';
+import { authService } from '@/services/authService';
+
+// Allowed levels: 900 (Suporte), 950 (Gerente Suporte), 1000 (Admin)
+const ALLOWED_LEVELS = [900, 950, 1000];
 
 export default function Artigos() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<ArticleCategory | ''>('');
   const [author, setAuthor] = useState('');
 
-  const { data: articles, isLoading } = useArticles({
+  // Check authentication and access
+  const session = authService.getSession();
+  
+  // Redirect to login if not authenticated
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Check if user has access
+  const hasAccess = ALLOWED_LEVELS.includes(session.level);
+  
+  if (!hasAccess) {
+    return (
+      <AccessDenied 
+        message="Esta área é restrita para Suporte, Gerente de Suporte e Administradores."
+      />
+    );
+  }
+
+  const { data: articles, isLoading } = useExternalArticles({
     search: search || undefined,
     category: category || undefined,
     author: author || undefined,
     status: 'published',
   });
 
-  const { data: authors = [] } = useUniqueAuthors();
+  const { data: authors = [] } = useExternalUniqueAuthors();
 
   return (
     <div className="flex gap-6">
@@ -58,7 +83,7 @@ export default function Artigos() {
         ) : articles && articles.length > 0 ? (
           <div className="space-y-4">
             {articles.map((article) => (
-              <ArticleCard key={article.id} article={article} />
+              <ExternalArticleCard key={article.id} article={article} />
             ))}
           </div>
         ) : (
@@ -78,7 +103,7 @@ export default function Artigos() {
 
       {/* Sidebar */}
       <div className="hidden xl:block w-80 flex-shrink-0">
-        <ArticleSidebar />
+        <ExternalArticleSidebar />
       </div>
     </div>
   );
