@@ -640,10 +640,17 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     servers: serversArray,
     due_at: dueAt.toISOString(),
     // STATUS FIELDS - persisted at API level for proper filtering
+    // proposal_status is the CANONICAL source of truth: '', 'E', 'A', 'R'
     proposal_status: proposal.status || '',
-    status_sent_at: proposal.status === 'E' && !proposal.acceptance?.acceptedAt && !proposal.acceptance?.rejectedAt 
-      ? new Date().toISOString() 
-      : undefined,
+    // Only set status_sent_at on first send transition
+    status_sent_at: proposal.acceptance?.acceptedAt 
+      ? undefined 
+      : proposal.acceptance?.rejectedAt 
+        ? undefined 
+        : proposal.status === 'E' 
+          ? new Date().toISOString() 
+          : undefined,
+    // Acceptance timestamps from acceptance object
     status_accepted_at: proposal.acceptance?.acceptedAt || undefined,
     status_rejected_at: proposal.acceptance?.rejectedAt || undefined,
     acceptance_channel: proposal.acceptance?.channel || undefined,
@@ -970,7 +977,8 @@ export function useUpdateProposal() {
   });
 }
 
-// Hook to update proposal status only
+// Hook to update proposal status only - THE CANONICAL WAY to change proposal status
+// Status values: '' (Sem status), 'E' (Enviado), 'A' (Aprovado), 'R' (Recusado)
 export function useUpdateProposalStatus() {
   const queryClient = useQueryClient();
 
@@ -982,10 +990,11 @@ export function useUpdateProposalStatus() {
     }) => {
       console.log('[useUpdateProposalStatus] Starting update:', { id, status, acceptance });
       
-      // Parse numeric ID
-      const numericId = parseInt(id, 10);
+      // Parse numeric ID - try direct parse first
+      let numericId = parseInt(id, 10);
       let existing: ApiProposal | undefined;
       
+      // If direct parse worked, fetch by ID
       if (!isNaN(numericId)) {
         console.log('[useUpdateProposalStatus] Fetching by numeric ID:', numericId);
         existing = await openApi.getProposal(numericId) as ApiProposal;
@@ -994,39 +1003,79 @@ export function useUpdateProposalStatus() {
         console.log('[useUpdateProposalStatus] Searching by PROP-ID format:', id);
         const response = await openApi.getProposals({ __perPage: 500 });
         existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
-      }
-      
-      if (existing) {
-        console.log('[useUpdateProposalStatus] Found proposal:', existing.id, 'Current status:', existing.proposal_status);
-        
-        const currentProposal = apiToLocal(existing);
-        currentProposal.status = status;
-        if (acceptance) {
-          currentProposal.acceptance = acceptance;
+        if (existing) {
+          numericId = existing.id;
         }
-        
-        const apiData = localToApi(currentProposal);
-        console.log('[useUpdateProposalStatus] Updating with payload:', { 
-          proposal_status: (apiData as any).proposal_status,
-          status_accepted_at: (apiData as any).status_accepted_at,
-          status_rejected_at: (apiData as any).status_rejected_at,
-        });
-        
-        const result = await openApi.updateProposal(existing.id, apiData);
-        console.log('[useUpdateProposalStatus] Update result:', result);
-        
-        return { success: true, data: result, apiId: existing.id };
       }
       
-      console.error('[useUpdateProposalStatus] Proposal not found:', id);
-      return { success: false, data: null };
+      if (!existing) {
+        console.error('[useUpdateProposalStatus] Proposal not found:', id);
+        throw new Error('Proposta não encontrada');
+      }
+      
+      console.log('[useUpdateProposalStatus] Found proposal:', existing.id, 'Current status:', existing.proposal_status);
+      
+      // Build the minimal update payload with ONLY status fields
+      // This ensures we don't accidentally overwrite other data
+      const updatePayload: Record<string, unknown> = {
+        // Required fields for API
+        name: existing.name,
+        company: existing.company,
+        phone: existing.phone,
+        email: existing.email,
+        fx: existing.fx,
+        datacenter: existing.datacenter,
+        contract_duration: existing.contract_duration,
+        discount_pct: existing.discount_pct,
+        total: existing.total,
+        due_at: existing.due_at,
+        channel_type: existing.channel_type,
+        // Preserve servers/addons/dados_proposta
+        servers: existing.servers,
+        addons: existing.addons,
+        // Update dados_proposta with new status
+        dados_proposta: {
+          ...(existing.dados_proposta || {}),
+          status: status,
+          acceptance: acceptance || (existing.dados_proposta as any)?.acceptance,
+        },
+        // STATUS FIELDS - the canonical source of truth
+        proposal_status: status,
+        // Preserve existing sent_at or set new one
+        status_sent_at: status === 'E' 
+          ? (existing.status_sent_at || new Date().toISOString())
+          : existing.status_sent_at,
+        // Set accepted_at if accepting
+        status_accepted_at: status === 'A' 
+          ? (acceptance?.acceptedAt || new Date().toISOString())
+          : existing.status_accepted_at,
+        // Set rejected_at if rejecting
+        status_rejected_at: status === 'R' 
+          ? (acceptance?.rejectedAt || new Date().toISOString())
+          : existing.status_rejected_at,
+        // Acceptance metadata
+        acceptance_channel: acceptance?.channel || existing.acceptance_channel,
+        acceptance_id: acceptance?.id || existing.acceptance_id,
+      };
+      
+      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status, {
+        proposal_status: updatePayload.proposal_status,
+        status_accepted_at: updatePayload.status_accepted_at,
+        status_rejected_at: updatePayload.status_rejected_at,
+      });
+      
+      const result = await openApi.updateProposal(numericId, updatePayload);
+      console.log('[useUpdateProposalStatus] Update result:', result);
+      
+      return { success: true, data: result, apiId: numericId };
     },
     onSuccess: (result, { id }) => {
-      console.log('[useUpdateProposalStatus] Invalidating queries for:', id, result);
+      console.log('[useUpdateProposalStatus] SUCCESS - Invalidating queries for:', id, 'apiId:', result?.apiId);
       // Invalidate all proposal queries to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      queryClient.invalidateQueries({ queryKey: ['proposal'] });
+      // Also invalidate by specific IDs
       queryClient.invalidateQueries({ queryKey: ['proposal', 'api', id] });
-      // Also invalidate by numeric ID if we have it
       if (result?.apiId) {
         queryClient.invalidateQueries({ queryKey: ['proposal', 'api', String(result.apiId)] });
       }
