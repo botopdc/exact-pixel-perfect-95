@@ -99,6 +99,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Calculator,
         allowedLevels: [1000], // Apenas Admin no DashboardLayout
       },
+      {
+        id: 'gestao-usuarios',
+        title: 'Gestão de Usuários',
+        url: '/gestao-usuarios',
+        icon: Users,
+        allowedLevels: [1000], // Apenas Admin
+      },
     ],
   },
 
@@ -120,13 +127,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         url: '/comercial/gestao-executivos',
         icon: Settings,
         allowedLevels: [1000], // Apenas Admin gerencia executivos
-      },
-      {
-        id: 'gestao-usuarios',
-        title: 'Gestão de Usuários',
-        url: '/gestao-usuarios',
-        icon: Users,
-        allowedLevels: [1000], // Apenas Admin
       },
       {
         id: 'propostas-executivos',
