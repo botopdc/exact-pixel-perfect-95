@@ -140,6 +140,49 @@ type CreateUserFormData = z.infer<typeof createUserSchema>;
 type UpdateUserFormData = z.infer<typeof updateUserSchema>;
 
 // ============================================================================
+// HELPERS - Normalização de dados da API
+// ============================================================================
+
+/**
+ * Normaliza o campo phones para sempre ser um array de strings.
+ * Suporta formatos: array, string, null/undefined, objeto com valores.
+ * Também verifica campo alternativo "phone" (legado).
+ */
+function normalizePhones(user: any): string[] {
+  // Tenta phones primeiro
+  const phones = user?.phones;
+  const phone = user?.phone;
+
+  // Se phones é array válido
+  if (Array.isArray(phones)) {
+    return phones.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
+  }
+
+  // Se phones é string
+  if (typeof phones === 'string' && phones.trim()) {
+    return [phones.trim()];
+  }
+
+  // Se phones é objeto, tenta extrair valores
+  if (phones && typeof phones === 'object' && !Array.isArray(phones)) {
+    const vals = Object.values(phones).filter((v: any) => typeof v === 'string' && v.trim());
+    if (vals.length > 0) return vals.map((v: any) => v.trim());
+  }
+
+  // Fallback para campo "phone" (legado)
+  if (Array.isArray(phone)) {
+    return phone.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
+  }
+
+  if (typeof phone === 'string' && phone.trim()) {
+    return [phone.trim()];
+  }
+
+  // Retorna array vazio se nada válido
+  return [];
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -230,7 +273,7 @@ export default function GestaoUsuarios() {
         entity_id: selectedUser.entity_id,
         name: selectedUser.name,
         email: selectedUser.email,
-        phones: selectedUser.phones || [],
+        phones: normalizePhones(selectedUser),
         birthday: selectedUser.birthday || null,
         tags: [],
         password: '',
@@ -800,16 +843,18 @@ export default function GestaoUsuarios() {
                   </div>
                 </div>
 
-                {selectedUser.phones?.length > 0 && (
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Telefones</Label>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Telefones</Label>
+                  {normalizePhones(selectedUser).length > 0 ? (
                     <div className="flex flex-wrap gap-2 mt-1">
-                      {selectedUser.phones.map((phone, i) => (
+                      {normalizePhones(selectedUser).map((phone, i) => (
                         <Badge key={i} variant="secondary">{phone}</Badge>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <p className="text-muted-foreground text-sm">Sem telefone cadastrado</p>
+                  )}
+                </div>
 
                 {selectedUser.birthday && (
                   <div>
