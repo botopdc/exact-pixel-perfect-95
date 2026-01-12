@@ -371,12 +371,16 @@ class OpenApiClient {
   // ============================================================================
 
   async getUsers(params?: {
+    __q?: string; // Search parameter
     name?: string;
     email?: string;
     level?: number;
+    entity_id?: number;
     __page?: number;
     __perPage?: number;
-  }): Promise<{ data: ApiUser[]; total: number }> {
+    __with?: string;
+    __order?: string;
+  }): Promise<{ data: ApiUser[]; total: number; current_page?: number; last_page?: number }> {
     const response = await this.client.get('/user', { params });
     return response.data;
   }
@@ -386,13 +390,37 @@ class OpenApiClient {
     return response.data;
   }
 
-  async updateUser(id: string | number, data: {
-    name?: string;
+  async createUser(data: {
+    entity_id: number;
+    name: string;
+    email: string;
+    password: string;
+    password_confirmation: string;
     phones?: string[];
+    birthday?: string | null;
+    tags?: string[];
+  }): Promise<ApiUser> {
+    const response = await this.client.post<ApiUser>('/user', data);
+    return response.data;
+  }
+
+  async updateUser(id: string | number, data: {
+    entity_id?: number;
+    name?: string;
+    email?: string;
+    password?: string;
+    password_confirmation?: string;
+    phones?: string[];
+    birthday?: string | null;
+    tags?: string[];
     is_active?: boolean;
   }): Promise<ApiUser> {
     const response = await this.client.put<ApiUser>(`/user/${id}`, data);
     return response.data;
+  }
+
+  async deleteUser(id: string | number): Promise<void> {
+    await this.client.delete(`/user/${id}`);
   }
 
   // ============================================================================
