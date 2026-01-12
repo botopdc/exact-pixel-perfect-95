@@ -122,6 +122,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         allowedLevels: [1000], // Apenas Admin gerencia executivos
       },
       {
+        id: 'gestao-usuarios',
+        title: 'Gestão de Usuários',
+        url: '/gestao-usuarios',
+        icon: Users,
+        allowedLevels: [1000], // Apenas Admin
+      },
+      {
         id: 'propostas-executivos',
         title: 'Propostas Executivos',
         url: '/comercial/propostas',
