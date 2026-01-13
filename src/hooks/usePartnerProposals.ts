@@ -3,7 +3,7 @@ import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
 import { PartnerType } from '@/types/partner';
 import { openApi } from '@/lib/openApi';
-import { CalculationResult, generateProposalId } from '@/lib/calculatorConfig';
+import { CalculationResult, generateProposalId, isValidContractMonth } from '@/lib/calculatorConfig';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 
 // Proposal status type
@@ -55,9 +55,14 @@ export interface PartnerProposal {
  * This is critical for the calculator edit mode to work correctly
  */
 function apiToLocalFormat(apiProposal: any): LocalProposalData {
-  // Map contract_duration to selectedTerm
-  const termMap: Record<number, string> = { 1: '1', 12: '12', 24: '24', 36: '36' };
-  const selectedTerm = termMap[apiProposal.contract_duration] || '1';
+  // Map contract_duration to selectedTerm (MUST include all valid plans: 1, 12, 24, 36, 48)
+  const contractDuration = apiProposal.contract_duration;
+  const selectedTerm = isValidContractMonth(contractDuration) ? String(contractDuration) : '1';
+  
+  if (!isValidContractMonth(contractDuration)) {
+    console.error('[partner-proposal-load] INVALID contract_duration:', contractDuration, '→ defaulting to 1');
+  }
+  console.log('[partner-proposal-load] contract_months=', contractDuration, 'selectedTerm=', selectedTerm);
   
   // Map datacenter string to code
   const datacenterMap: Record<string, 'SP1' | 'SP2' | 'FL1' | 'CE1'> = {
@@ -381,9 +386,19 @@ function apiToPartnerProposal(apiProposal: any, session: any): PartnerProposal {
     const savedResult = dadosProposta.result;
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
     
+    // Validate selectedTerm from dados_proposta
+    const rawSelectedTerm = dadosProposta.selectedTerm;
+    const selectedTermValid = rawSelectedTerm && isValidContractMonth(rawSelectedTerm);
+    const finalSelectedTerm = selectedTermValid ? rawSelectedTerm : '1';
+    
+    if (!selectedTermValid && rawSelectedTerm) {
+      console.error('[partner-proposal-load] INVALID selectedTerm in dados_proposta:', rawSelectedTerm, '→ defaulting to 1');
+    }
+    console.log('[partner-proposal-load] contract_months=', rawSelectedTerm, 'finalSelectedTerm=', finalSelectedTerm);
+    
     localData = {
       fx: toNum(dadosProposta.fx, toNum(apiProposal.fx, 5)),
-      selectedTerm: dadosProposta.selectedTerm || '1',
+      selectedTerm: finalSelectedTerm,
       datacenter: dadosProposta.datacenter || 'SP1',
       client: {
         name: dadosProposta.client?.name || apiProposal.name || '',
@@ -659,7 +674,13 @@ export function useSavePartnerProposal() {
         reseller_name: session.empresa,
         fx: proposalData.dados_proposta?.fx || 5,
         datacenter: datacenterNames[proposalData.dados_proposta?.datacenter] || proposalData.dados_proposta?.datacenter || 'São Paulo',
-        contract_duration: parseInt(proposalData.dados_proposta?.selectedTerm) || 1,
+        // Validate contract_duration from selectedTerm (MUST be 1, 12, 24, 36, or 48)
+        contract_duration: (() => {
+          const term = parseInt(proposalData.dados_proposta?.selectedTerm);
+          if (isValidContractMonth(term)) return term;
+          console.error('[partner-proposal-save] INVALID selectedTerm:', proposalData.dados_proposta?.selectedTerm, '→ defaulting to 1');
+          return 1;
+        })(),
         discount_pct: proposalData.dados_proposta?.result?.discountPct || 0,
         total: proposalData.valor_total,
         observations: proposalData.dados_proposta?.observacao || null,
