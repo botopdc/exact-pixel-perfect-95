@@ -14,10 +14,9 @@
  * - <= 12: prazo real
  * - > 12: 18 (CAP)
  * 
- * 3️⃣ CAP FINANCEIRO:
- * - monthly <= R$ 50k: CAP R$ 20k
- * - R$ 50k - R$ 150k: CAP R$ 35k
- * - > R$ 150k: CAP R$ 50k
+ * 3️⃣ CAP FINANCEIRO (NOVA REGRA):
+ * CAP = min(2% × TCV, R$ 100.000)
+ * TCV = valor_mensal × meses_contrato
  * 
  * 4️⃣ FÓRMULA:
  * gross = monthly × months × rate
@@ -39,6 +38,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   TrendingUp,
   AlertTriangle,
@@ -91,6 +91,7 @@ interface ProcessedProposal {
   // v2 fields
   monthly_value: number;
   contract_term_months: number;
+  tcv: number; // Total Contract Value
   months_commissioned: number;
   commission_rate: number;
   gross_commission: number;
@@ -129,6 +130,13 @@ const INSTALLMENT_COUNT = 3;
 const HIGH_RISK_DAYS = 7;
 
 // ============================================
+// CAP CONSTANTS - NEW TCV-BASED RULE
+// ============================================
+
+const CAP_PERCENTAGE = 0.02; // 2% do TCV
+const CAP_ABSOLUTE_MAX = 100000; // R$ 100.000 teto absoluto
+
+// ============================================
 // OPEN v2 CALCULATION FUNCTIONS
 // ============================================
 
@@ -149,22 +157,20 @@ function getMonthsCommissioned(term: number): number {
 }
 
 /**
- * Get CAP by ticket
- * RULE:
- * - <= R$ 50.000: R$ 20.000
- * - R$ 50.001 - R$ 150.000: R$ 35.000
- * - > R$ 150.000: R$ 50.000
+ * Get CAP based on TCV
+ * NEW RULE: CAP = min(2% × TCV, R$ 100.000)
  */
-function getCapByTicket(monthlyValue: number): number {
-  if (monthlyValue <= 50000) return 20000;
-  if (monthlyValue <= 150000) return 35000;
-  return 50000;
+function getCapByTCV(monthlyValue: number, contractTermMonths: number): number {
+  const tcv = monthlyValue * contractTermMonths;
+  const capPercentual = tcv * CAP_PERCENTAGE;
+  return Math.min(capPercentual, CAP_ABSOLUTE_MAX);
 }
 
 /**
- * Calculate v2 commission
+ * Calculate v2 commission with TCV-based CAP
  */
 function calculateCommissionV2(monthlyValue: number, term: number): {
+  tcv: number;
   months_commissioned: number;
   commission_rate: number;
   gross_commission: number;
@@ -173,15 +179,17 @@ function calculateCommissionV2(monthlyValue: number, term: number): {
   monthly_installment: number;
   cap_applied: boolean;
 } {
+  const tcv = monthlyValue * term;
   const commission_rate = getCommissionRate(term);
   const months_commissioned = getMonthsCommissioned(term);
   const gross_commission = monthlyValue * months_commissioned * commission_rate;
-  const cap = getCapByTicket(monthlyValue);
+  const cap = getCapByTCV(monthlyValue, term);
   const final_commission = Math.min(gross_commission, cap);
   const cap_applied = gross_commission > cap;
   const monthly_installment = final_commission / INSTALLMENT_COUNT;
   
   return {
+    tcv,
     months_commissioned,
     commission_rate,
     gross_commission,
@@ -631,74 +639,108 @@ export default function MeuPotencial() {
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead className="text-right">Valor Mensal</TableHead>
-                  <TableHead className="text-center">Prazo</TableHead>
-                  <TableHead className="text-center">Meses Com.</TableHead>
-                  <TableHead className="text-center">Taxa</TableHead>
-                  <TableHead className="text-right">Comissão Bruta</TableHead>
-                  <TableHead className="text-right">CAP</TableHead>
-                  <TableHead className="text-right">Comissão Final</TableHead>
-                  <TableHead className="text-right">Parcela</TableHead>
-                  <TableHead className="text-center">Risco</TableHead>
-                  <TableHead className="text-center">Ação</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {propostas.map((p) => (
-                  <TableRow key={p.id} className={p.dadosIncompletos ? 'opacity-50' : ''}>
-                    <TableCell className="font-medium">
-                      #{p.id}
-                      {p.cap_applied && (
-                        <Badge variant="outline" className="ml-2 text-xs text-orange-600 border-orange-500/30">
+            <TooltipProvider>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead className="text-right">Valor Mensal</TableHead>
+                    <TableHead className="text-right">TCV</TableHead>
+                    <TableHead className="text-center">Prazo</TableHead>
+                    <TableHead className="text-center">Meses Com.</TableHead>
+                    <TableHead className="text-center">Taxa</TableHead>
+                    <TableHead className="text-right">Comissão Bruta</TableHead>
+                    <TableHead className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger className="cursor-help underline decoration-dotted">
                           CAP
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{p.cliente}</div>
-                        {p.empresa && (
-                          <div className="text-xs text-muted-foreground">{p.empresa}</div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {p.dadosIncompletos ? '-' : formatCurrency(p.monthly_value)}
-                    </TableCell>
-                    <TableCell className="text-center">{p.contract_term_months}m</TableCell>
-                    <TableCell className="text-center">{p.months_commissioned}m</TableCell>
-                    <TableCell className="text-center">{(p.commission_rate * 100).toFixed(1)}%</TableCell>
-                    <TableCell className="text-right">
-                      {p.dadosIncompletos ? '-' : formatCurrency(p.gross_commission)}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {formatCurrency(p.cap)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium text-green-600">
-                      {p.dadosIncompletos ? 'Dados incompletos' : formatCurrency(p.final_commission)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {p.dadosIncompletos ? '-' : formatCurrency(p.monthly_installment)}
-                    </TableCell>
-                    <TableCell className="text-center">{getRiskBadge(p.risco)}</TableCell>
-                    <TableCell className="text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => window.open(`/proposta/${p.id}`, '_blank')}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">CAP = min(2% do TCV, R$ 100.000)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableHead>
+                    <TableHead className="text-right">Comissão Final</TableHead>
+                    <TableHead className="text-right">Parcela</TableHead>
+                    <TableHead className="text-center">Risco</TableHead>
+                    <TableHead className="text-center">Ação</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {propostas.map((p) => (
+                    <TableRow key={p.id} className={p.dadosIncompletos ? 'opacity-50' : ''}>
+                      <TableCell className="font-medium">
+                        #{p.id}
+                        {p.cap_applied && (
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Badge variant="outline" className="ml-2 text-xs text-orange-600 border-orange-500/30">
+                                CAP
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">CAP aplicado: min(2% do TCV, R$ 100.000)</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{p.cliente}</div>
+                          {p.empresa && (
+                            <div className="text-xs text-muted-foreground">{p.empresa}</div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.dadosIncompletos ? '-' : formatCurrency(p.monthly_value)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.dadosIncompletos ? '-' : formatCurrency(p.tcv)}
+                      </TableCell>
+                      <TableCell className="text-center">{p.contract_term_months}m</TableCell>
+                      <TableCell className="text-center">{p.months_commissioned}m</TableCell>
+                      <TableCell className="text-center">{(p.commission_rate * 100).toFixed(1)}%</TableCell>
+                      <TableCell className="text-right">
+                        {p.dadosIncompletos ? '-' : formatCurrency(p.gross_commission)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        <Tooltip>
+                          <TooltipTrigger className="cursor-help">
+                            {formatCurrency(p.cap)}
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <div className="text-xs space-y-1">
+                              <p>TCV: {formatCurrency(p.tcv)}</p>
+                              <p>2% do TCV: {formatCurrency(p.tcv * 0.02)}</p>
+                              <p>Teto: R$ 100.000</p>
+                              <p className="font-medium">CAP: {formatCurrency(p.cap)}</p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-green-600">
+                        {p.dadosIncompletos ? 'Dados incompletos' : formatCurrency(p.final_commission)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.dadosIncompletos ? '-' : formatCurrency(p.monthly_installment)}
+                      </TableCell>
+                      <TableCell className="text-center">{getRiskBadge(p.risco)}</TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => window.open(`/proposta/${p.id}`, '_blank')}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TooltipProvider>
           </div>
         </CardContent>
       </Card>

@@ -13,13 +13,14 @@
  * - <= 12 meses: prazo real
  * - > 12 meses: 18 meses (CAP)
  * 
- * 3️⃣ CAP FINANCEIRO POR TICKET:
- * - monthly_value <= R$ 50.000: CAP R$ 20.000
- * - monthly_value R$ 50.001 - R$ 150.000: CAP R$ 35.000
- * - monthly_value > R$ 150.000: CAP R$ 50.000
+ * 3️⃣ CAP FINANCEIRO (NOVA REGRA - TCV BASED):
+ * CAP = min(2% × TCV, R$ 100.000)
+ * Onde TCV = valor_mensal × meses_contrato
  * 
  * 4️⃣ FÓRMULA:
- * gross_commission = monthly_value * months_commissioned * commission_rate
+ * tcv = monthly_value × contract_term_months
+ * gross_commission = monthly_value × months_commissioned × commission_rate
+ * cap = min(0.02 × tcv, 100000)
  * final_commission = min(gross_commission, cap)
  * monthly_installment = final_commission / 3
  * 
@@ -82,6 +83,9 @@ export interface CommissionCalculation {
   // Base values
   monthly_value: number;
   contract_term_months: number;
+  
+  // TCV (Total Contract Value)
+  tcv: number;
   
   // v2 calculations
   months_commissioned: number;
@@ -172,16 +176,22 @@ export function getMonthsCommissioned(term: number): number {
 }
 
 /**
- * Get CAP based on monthly value
- * RULE:
- * - <= R$ 50.000: CAP R$ 20.000
- * - R$ 50.001 - R$ 150.000: CAP R$ 35.000
- * - > R$ 150.000: CAP R$ 50.000
+ * Get CAP based on TCV (Total Contract Value)
+ * NEW RULE: CAP = min(2% × TCV, R$ 100.000)
+ * Where TCV = monthly_value × contract_term_months
+ */
+export function getCapByTCV(monthlyValue: number, contractTermMonths: number): number {
+  const tcv = monthlyValue * contractTermMonths;
+  const capPercentual = tcv * 0.02; // 2% do TCV
+  return Math.min(capPercentual, 100000); // Teto de R$ 100.000
+}
+
+/**
+ * @deprecated Use getCapByTCV instead
+ * Mantido para compatibilidade - agora calcula baseado em TCV com prazo padrão de 12 meses
  */
 export function getCapByTicket(monthlyValue: number): number {
-  if (monthlyValue <= 50000) return 20000;
-  if (monthlyValue <= 150000) return 35000;
-  return 50000;
+  return getCapByTCV(monthlyValue, 12);
 }
 
 /**
@@ -200,13 +210,16 @@ export function calculateProposalCommission(
   const monthsCommissioned = getMonthsCommissioned(contractTermMonths);
   const capMesesAplicado = contractTermMonths > 12 && monthsCommissioned < contractTermMonths;
   
-  // Step 3: Calculate gross commission
+  // Step 3: Calculate TCV (Total Contract Value)
+  const tcv = monthlyValue * contractTermMonths;
+  
+  // Step 4: Calculate gross commission
   const grossCommission = monthlyValue * monthsCommissioned * commissionRate;
   
-  // Step 4: Get CAP based on ticket
-  const cap = getCapByTicket(monthlyValue);
+  // Step 5: Get CAP based on TCV (NEW RULE: min(2% × TCV, R$ 100.000))
+  const cap = getCapByTCV(monthlyValue, contractTermMonths);
   
-  // Step 5: Apply CAP
+  // Step 6: Apply CAP
   const finalCommission = Math.min(grossCommission, cap);
   const capApplied = grossCommission > cap;
   const valorEconomizado = capApplied ? (grossCommission - cap) : 0;
@@ -226,6 +239,7 @@ export function calculateProposalCommission(
     
     monthly_value: monthlyValue,
     contract_term_months: contractTermMonths,
+    tcv,
     
     months_commissioned: monthsCommissioned,
     commission_rate: commissionRate,

@@ -5,10 +5,9 @@
  * Regras:
  * - <= 12m: 4%, meses = prazo
  * - > 12m: 2.5%, meses = 18 (CAP)
- * - CAP financeiro por ticket:
- *   - <= R$ 50k: R$ 20k
- *   - R$ 50k-150k: R$ 35k
- *   - > R$ 150k: R$ 50k
+ * - CAP FINANCEIRO (NOVA REGRA):
+ *   CAP = min(2% × TCV, R$ 100.000)
+ *   TCV = valor_mensal × meses_contrato
  */
 
 import React, { useState } from 'react';
@@ -76,7 +75,7 @@ import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import {
   COMMISSION_RATES,
   CommissionCalculation,
-  getCapByTicket,
+  getCapByTCV,
 } from '@/services/executiveCommissionService';
 import { useExecutiveCommissions } from '@/hooks/useExecutiveCommissions';
 
@@ -306,9 +305,9 @@ const ComissoesExecutivos = () => {
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
               <DollarSign className="h-8 w-8 text-primary" />
               <div>
-                <p className="text-sm font-medium">CAP por Ticket</p>
-                <p className="text-lg font-bold">R$ 20k - 50k</p>
-                <p className="text-xs text-muted-foreground">Baseado no valor mensal</p>
+                <p className="text-sm font-medium">CAP Financeiro</p>
+                <p className="text-lg font-bold">2% do TCV</p>
+                <p className="text-xs text-muted-foreground">Teto: R$ 100.000</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
@@ -333,7 +332,7 @@ const ComissoesExecutivos = () => {
           <p className="text-xs text-muted-foreground mt-4 flex items-center gap-1">
             <Info className="h-3 w-3" />
             Taxas: ≤12m = {(COMMISSION_RATES.SHORT_TERM * 100).toFixed(0)}% | &gt;12m ={' '}
-            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP por ticket: ≤R$50k=R$20k | R$50k-150k=R$35k | &gt;R$150k=R$50k • 3 parcelas
+            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP = min(2% × TCV, R$ 100.000) • 3 parcelas
           </p>
         </CardContent>
       </Card>
@@ -577,7 +576,7 @@ const ComissoesExecutivos = () => {
           {selectedCommission && (
             <div className="px-4 pb-4 space-y-6">
               {/* Base info */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Valor Mensal</p>
                   <p className="text-lg font-bold">
@@ -587,6 +586,12 @@ const ComissoesExecutivos = () => {
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Prazo Contrato</p>
                   <p className="text-lg font-bold">{selectedCommission.contract_term_months} meses</p>
+                </div>
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-xs text-muted-foreground">TCV</p>
+                  <p className="text-lg font-bold">
+                    {formatCurrencyBRL(selectedCommission.tcv)}
+                  </p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Meses Comissionáveis</p>
@@ -612,6 +617,10 @@ const ComissoesExecutivos = () => {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">TCV (valor × prazo):</span>
+                    <span>{formatCurrencyBRL(selectedCommission.tcv)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
                       Comissão bruta (valor × meses × taxa):
                     </span>
@@ -619,9 +628,13 @@ const ComissoesExecutivos = () => {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      CAP aplicável (baseado em {formatCurrencyBRL(selectedCommission.monthly_value)}):
+                      CAP aplicável (min(2% × TCV, R$ 100.000)):
                     </span>
                     <span>{formatCurrencyBRL(selectedCommission.cap)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span className="italic">2% do TCV = {formatCurrencyBRL(selectedCommission.tcv * 0.02)}</span>
+                    <span className="italic">Teto = R$ 100.000</span>
                   </div>
 
                   {/* CAP application */}
@@ -701,7 +714,7 @@ const ComissoesExecutivos = () => {
                 <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>
                   <strong>Política OPEN v2:</strong> ≤12m = 4% (meses = prazo) | &gt;12m = 2.5% (meses = 18 máx) | 
-                  CAP por ticket: ≤R$50k = R$20k | R$50k-150k = R$35k | &gt;R$150k = R$50k | 
+                  CAP = min(2% × TCV, R$ 100.000) | TCV = valor mensal × prazo | 
                   3 parcelas mensais.
                 </p>
               </div>
