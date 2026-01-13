@@ -6,6 +6,7 @@ import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Sett
 import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
 
 import ProductIcon from './ProductIcon';
+import { EditablePriceCell } from './calculator/EditablePriceCell';
 import {
   CalculatorConfig,
   ServerItem,
@@ -33,6 +34,7 @@ import {
   DEFAULT_RESELLER_STATE,
   OpenSaaSState,
   DEFAULT_OPEN_SAAS_STATE,
+  PriceOverrideMap,
   getStoragePricePerTB,
   calculateStorageMonthly,
   getStorageTierLabel,
@@ -64,6 +66,7 @@ import {
   isOverrideAllowed,
   getPartnerTypeDiscount,
   getPricingProfileLabel,
+  canEditPriceMarkup,
   PricingRules 
 } from '@/config/pricingRules';
 
@@ -227,6 +230,8 @@ const OpenCalculator: React.FC = () => {
   const [openSaas, setOpenSaas] = useState<OpenSaaSState>(DEFAULT_OPEN_SAAS_STATE);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<CalculationResult | null>(null);
+  // Price overrides - manual markup adjustments per row (rowKey -> overrideTotal)
+  const [priceOverrides, setPriceOverrides] = useState<PriceOverrideMap>({});
   // REMOVED: antivirusManuallySet - antivirus is now 100% user-controlled, no auto-sync
   const [sendingEmail, setSendingEmail] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -238,6 +243,9 @@ const OpenCalculator: React.FC = () => {
   const [editingProposalId, setEditingProposalId] = useState<string | null>(null);
   // Check if admin mode (same PIN as /precos page)
   const isAdminMode = localStorage.getItem('open_precos_adminMode') === 'true';
+  
+  // Check if user can edit prices (markup)
+  const canEditMarkup = canEditPriceMarkup(userContext.userLevel);
 
   // Update FX when config loads
   useEffect(() => {
@@ -400,9 +408,10 @@ const OpenCalculator: React.FC = () => {
     let subRec = 0;
     let subIps = 0;
     let subServices = 0;
-  let gpuUsdTotal = 0;
+    let gpuUsdTotal = 0;
     let gpuBrlTotal = 0;
     let totalServers = 0;
+    let rowCounter = 0; // For generating unique row keys
 
     // Helper to safely convert any value to a number, defaulting to fallback
     const toNum = (val: any, fallback = 0): number => {
@@ -411,10 +420,37 @@ const OpenCalculator: React.FC = () => {
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
+    // Helper to add row with markup support
+    const addRow = (
+      label: string, 
+      qty: string | number, 
+      unitPrice: number, 
+      baseTotal: number, 
+      rowKey: string
+    ): number => {
+      const overrideTotal = priceOverrides[rowKey] ?? null;
+      const finalTotal = overrideTotal !== null ? overrideTotal : baseTotal;
+      
+      rows.push({
+        label,
+        qty,
+        unitPrice,
+        subtotal: finalTotal, // Use finalTotal for display and calculation
+        baseUnitPrice: unitPrice,
+        baseTotal,
+        overrideTotal,
+        finalTotal,
+        rowKey,
+      });
+      
+      return finalTotal; // Return finalTotal for subtotal calculations
+    };
+
     items.forEach((item, idx) => {
       const qtyServers = Math.max(1, toNum(item.qtyServers, 1));
       const ips = Math.max(0, toNum(item.ips, 0));
       totalServers += qtyServers;
+      const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
 
       if (item.type === 'vm') {
         const vcpu = Math.max(1, toNum(item.vcpu, 1));
@@ -426,22 +462,19 @@ const OpenCalculator: React.FC = () => {
         const cpuPrice = toNum(config.vm_prices_brl.vcpu, 0);
         const cpuUnit = vcpu * cpuPrice;
         const cpuSub = cpuUnit * qtyServers;
-        rows.push({ label: `VM #${idx + 1} — vCPU (${vcpu} por srv)`, qty: qtyServers, unitPrice: cpuUnit, subtotal: cpuSub });
-        subRec += cpuSub;
+        subRec += addRow(`VM #${idx + 1} — vCPU (${vcpu} por srv)`, qtyServers, cpuUnit, cpuSub, `${itemPrefix}_cpu`);
 
         // RAM
         const ramPrice = toNum(config.vm_prices_brl.ram_per_gb, 0);
         const ramUnit = ramGb * ramPrice;
         const ramSub = ramUnit * qtyServers;
-        rows.push({ label: `VM #${idx + 1} — RAM (${ramGb} GB por srv)`, qty: qtyServers, unitPrice: ramUnit, subtotal: ramSub });
-        subRec += ramSub;
+        subRec += addRow(`VM #${idx + 1} — RAM (${ramGb} GB por srv)`, qtyServers, ramUnit, ramSub, `${itemPrefix}_ram`);
 
         // Disk
         const diskPrice = toNum(config.vm_prices_brl.nvme_per_gb, 0);
         const diskUnit = nvmeGb * diskPrice;
         const diskSub = diskUnit * qtyServers;
-        rows.push({ label: `VM #${idx + 1} — NVMe (${nvmeTbVal.toFixed(2)} TB por srv)`, qty: qtyServers, unitPrice: diskUnit, subtotal: diskSub });
-        subRec += diskSub;
+        subRec += addRow(`VM #${idx + 1} — NVMe (${nvmeTbVal.toFixed(2)} TB por srv)`, qtyServers, diskUnit, diskSub, `${itemPrefix}_disk`);
       } else {
         // BareMetal
         const cpu = config.baremetal.cpu_models.find(c => c.id === item.bmCpu) || config.baremetal.cpu_models[0];
@@ -450,13 +483,11 @@ const OpenCalculator: React.FC = () => {
         if (cpu && ram) {
           // CPU
           const cpuSub = cpu.price * qtyServers;
-          rows.push({ label: `BareMetal #${idx + 1} — CPU (${cpu.label})`, qty: qtyServers, unitPrice: cpu.price, subtotal: cpuSub });
-          subRec += cpuSub;
+          subRec += addRow(`BareMetal #${idx + 1} — CPU (${cpu.label})`, qtyServers, cpu.price, cpuSub, `${itemPrefix}_cpu`);
 
           // RAM
           const ramSub = ram.price * qtyServers;
-          rows.push({ label: `BareMetal #${idx + 1} — RAM (${ram.label})`, qty: qtyServers, unitPrice: ram.price, subtotal: ramSub });
-          subRec += ramSub;
+          subRec += addRow(`BareMetal #${idx + 1} — RAM (${ram.label})`, qtyServers, ram.price, ramSub, `${itemPrefix}_ram`);
         }
 
         // Disks - safe iteration with null check
@@ -470,8 +501,7 @@ const OpenCalculator: React.FC = () => {
         });
         if (diskUnitTotal > 0) {
           const diskSub = diskUnitTotal * qtyServers;
-          rows.push({ label: `BareMetal #${idx + 1} — Discos NVMe`, qty: qtyServers, unitPrice: diskUnitTotal, subtotal: diskSub });
-          subRec += diskSub;
+          subRec += addRow(`BareMetal #${idx + 1} — Discos NVMe`, qtyServers, diskUnitTotal, diskSub, `${itemPrefix}_disks`);
         }
       }
 
@@ -480,8 +510,7 @@ const OpenCalculator: React.FC = () => {
         const ipPrice = toNum(config.vm_prices_brl.ip_public, 0);
         const ipUnit = ips * ipPrice;
         const ipSub = ipUnit * qtyServers;
-        rows.push({ label: `${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — IPs públicos (${ips} por srv)`, qty: qtyServers, unitPrice: ipUnit, subtotal: ipSub });
-        subIps += ipSub;
+        subIps += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — IPs públicos (${ips} por srv)`, qtyServers, ipUnit, ipSub, `${itemPrefix}_ips`);
       }
 
       // GPU
@@ -491,8 +520,7 @@ const OpenCalculator: React.FC = () => {
         const gpuUsdPerServer = gpuUsdUnit * gpuQty;
         const gpuUsd = gpuUsdPerServer * qtyServers;
         const gpuBrl = gpuUsd * fx;
-        rows.push({ label: `${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qty: qtyServers, unitPrice: gpuUsdPerServer * fx, subtotal: gpuBrl });
-        subRec += gpuBrl;
+        subRec += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qtyServers, gpuUsdPerServer * fx, gpuBrl, `${itemPrefix}_gpu`);
         gpuUsdTotal += gpuUsd;
         gpuBrlTotal += gpuBrl;
       }
@@ -506,48 +534,41 @@ const OpenCalculator: React.FC = () => {
     if (antivirusQty > 0) {
       const unitPrice = toNum(config.addons_brl.antivirus_unit, 0);
       const st = unitPrice * antivirusQty;
-      rows.push({ label: 'Antivirus', qty: antivirusQty, unitPrice, subtotal: st });
-      subServices += st;
+      subServices += addRow('Antivirus', antivirusQty, unitPrice, st, 'svc_antivirus');
     }
     if (addons.firewall) {
       const unitPrice = toNum(config.addons_brl.firewall_pfsense, 0);
-      rows.push({ label: 'Firewall PFsense', qty: 1, unitPrice, subtotal: unitPrice });
-      subServices += unitPrice;
+      subServices += addRow('Firewall PFsense', 1, unitPrice, unitPrice, 'svc_firewall');
     }
     const tsplusQty = toNum(addons.tsplus, 0);
     if (tsplusQty > 0) {
       const unitPrice = toNum(config.addons_brl.tsplus_unit, 0);
       const st = unitPrice * tsplusQty;
-      rows.push({ label: 'TS PLUS', qty: tsplusQty, unitPrice, subtotal: st });
-      subServices += st;
+      subServices += addRow('TS PLUS', tsplusQty, unitPrice, st, 'svc_tsplus');
     }
     const calQty = toNum(addons.cal, 0);
     if (calQty > 0) {
       const unitPrice = toNum(config.addons_brl.cal_unit, 0);
       const st = unitPrice * calQty;
-      rows.push({ label: 'CAL / TS-CAL', qty: calQty, unitPrice, subtotal: st });
-      subServices += st;
+      subServices += addRow('CAL / TS-CAL', calQty, unitPrice, st, 'svc_cal');
     }
     const sqlQty = toNum(addons.sqlQty, 0);
     if (addons.sql !== 'none' && sqlQty > 0) {
       const unitPrice = toNum(config.addons_brl.sql?.[addons.sql], 0);
       const st = unitPrice * sqlQty;
-      rows.push({ label: `Licença SQL (${addons.sql.toUpperCase()})`, qty: sqlQty, unitPrice, subtotal: st });
-      subServices += st;
+      subServices += addRow(`Licença SQL (${addons.sql.toUpperCase()})`, sqlQty, unitPrice, st, `svc_sql_${addons.sql}`);
     }
     const veeamVmQty = toNum(addons.veeamVm, 0);
     if (veeamVmQty > 0) {
       const unitPrice = toNum(config.addons_brl.veeam_vm_unit, 0);
       const st = unitPrice * veeamVmQty;
-      rows.push({ label: 'Veeam Backup (VM)', qty: veeamVmQty, unitPrice, subtotal: st });
-      subServices += st;
+      subServices += addRow('Veeam Backup (VM)', veeamVmQty, unitPrice, st, 'svc_veeam_vm');
     }
     const veeamAgQty = toNum(addons.veeamAg, 0);
     if (veeamAgQty > 0) {
       const unitPrice = toNum(config.addons_brl.veeam_agent_unit, 0);
       const st = unitPrice * veeamAgQty;
-      rows.push({ label: 'Veeam Agent (Workstation)', qty: veeamAgQty, unitPrice, subtotal: st });
-      subServices += st;
+      subServices += addRow('Veeam Agent (Workstation)', veeamAgQty, unitPrice, st, 'svc_veeam_agent');
     }
 
     // Custom add-ons (dynamic from config)
@@ -559,18 +580,18 @@ const OpenCalculator: React.FC = () => {
         if (qty > 0 && unitPrice > 0) {
           const st = unitPrice * qty;
           const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          rows.push({ label, qty, unitPrice, subtotal: st });
-          subServices += st;
+          subServices += addRow(label, qty, unitPrice, st, `svc_custom_${key}`);
         }
       }
     });
 
     // Backup - with safe number conversion
     const backupGbQty = toNum(addons.backupGb, 0);
-    const subBackup = calculateBackupPrice(config, addons.backupPlan, backupGbQty);
-    if (Number.isFinite(subBackup) && subBackup > 0) {
-      const unit = subBackup / Math.max(1, backupGbQty);
-      rows.push({ label: `Backup ${addons.backupPlan} dias`, qty: `${backupGbQty} GB`, unitPrice: unit, subtotal: subBackup });
+    let subBackup = 0;
+    const backupBasePrice = calculateBackupPrice(config, addons.backupPlan, backupGbQty);
+    if (Number.isFinite(backupBasePrice) && backupBasePrice > 0) {
+      const unit = backupBasePrice / Math.max(1, backupGbQty);
+      subBackup = addRow(`Backup ${addons.backupPlan} dias`, `${backupGbQty} GB`, unit, backupBasePrice, `backup_${addons.backupPlan}`);
     }
 
     // Kubernetes
@@ -578,12 +599,10 @@ const OpenCalculator: React.FC = () => {
     if (kubernetes.enabled) {
       const planInfo = K8S_PLANS[kubernetes.plan];
       const basePriceMonthly = toNum(getK8sPlanBasePrice(kubernetes.plan, config), 0);
-      rows.push({ label: `Kubernetes Gerenciado — ${planInfo.shortLabel} (base)`, qty: 1, unitPrice: basePriceMonthly, subtotal: basePriceMonthly });
-      subKubernetes += basePriceMonthly;
+      subKubernetes += addRow(`Kubernetes Gerenciado — ${planInfo.shortLabel} (base)`, 1, basePriceMonthly, basePriceMonthly, `k8s_base_${kubernetes.plan}`);
 
       // K8s extras (additional resources using VM pricing)
       const extras = kubernetes.extras || { vcpu: 0, ramGB: 0, diskGB: 0 };
-      const extrasPrice = toNum(calculateK8sExtrasPrice(extras, config), 0);
       const extrasVcpu = toNum(extras.vcpu, 0);
       const extrasRamGB = toNum(extras.ramGB, 0);
       const extrasDiskGB = toNum(extras.diskGB, 0);
@@ -591,52 +610,45 @@ const OpenCalculator: React.FC = () => {
       if (extrasVcpu > 0) {
         const vcpuPrice = toNum(config.vm_prices_brl.vcpu, 0);
         const vcpuCost = extrasVcpu * vcpuPrice;
-        rows.push({ label: `K8s — + ${extrasVcpu} vCPU adicional`, qty: 1, unitPrice: vcpuCost, subtotal: vcpuCost });
+        subKubernetes += addRow(`K8s — + ${extrasVcpu} vCPU adicional`, 1, vcpuCost, vcpuCost, 'k8s_extra_vcpu');
       }
       if (extrasRamGB > 0) {
         const ramPrice = toNum(config.vm_prices_brl.ram_per_gb, 0);
         const ramCost = extrasRamGB * ramPrice;
-        rows.push({ label: `K8s — + ${extrasRamGB} GB RAM adicional`, qty: 1, unitPrice: ramCost, subtotal: ramCost });
+        subKubernetes += addRow(`K8s — + ${extrasRamGB} GB RAM adicional`, 1, ramCost, ramCost, 'k8s_extra_ram');
       }
       if (extrasDiskGB > 0) {
         const diskPrice = toNum(config.vm_prices_brl.nvme_per_gb, 0);
         const diskCost = extrasDiskGB * diskPrice;
-        rows.push({ label: `K8s — + ${extrasDiskGB} GB Disco adicional`, qty: 1, unitPrice: diskCost, subtotal: diskCost });
+        subKubernetes += addRow(`K8s — + ${extrasDiskGB} GB Disco adicional`, 1, diskCost, diskCost, 'k8s_extra_disk');
       }
-      subKubernetes += extrasPrice;
 
       // K8s add-ons (using configurable prices)
       if (kubernetes.addons.support_24x7) {
         const price = toNum(getK8sAddonPrice('support_24x7', config), 0);
-        rows.push({ label: 'K8s — Suporte 24×7', qty: 1, unitPrice: price, subtotal: price });
-        subKubernetes += price;
+        subKubernetes += addRow('K8s — Suporte 24×7', 1, price, price, 'k8s_addon_support');
       }
       if (kubernetes.addons.backup_velero) {
         const price = toNum(getK8sAddonPrice('backup_velero', config), 0);
-        rows.push({ label: 'K8s — Backup (Velero)', qty: 1, unitPrice: price, subtotal: price });
-        subKubernetes += price;
+        subKubernetes += addRow('K8s — Backup (Velero)', 1, price, price, 'k8s_addon_backup');
       }
       if (kubernetes.addons.dr_multisite) {
         const price = toNum(getK8sAddonPrice('dr_multisite', config), 0);
-        rows.push({ label: 'K8s — DR multi-site', qty: 1, unitPrice: price, subtotal: price });
-        subKubernetes += price;
+        subKubernetes += addRow('K8s — DR multi-site', 1, price, price, 'k8s_addon_dr');
       }
       if (kubernetes.addons.observability) {
         const price = toNum(getK8sAddonPrice('observability', config), 0);
-        rows.push({ label: 'K8s — Observabilidade avançada', qty: 1, unitPrice: price, subtotal: price });
-        subKubernetes += price;
+        subKubernetes += addRow('K8s — Observabilidade avançada', 1, price, price, 'k8s_addon_obs');
       }
       if (kubernetes.addons.cicd_managed) {
         const price = toNum(getK8sAddonPrice('cicd_managed', config), 0);
-        rows.push({ label: 'K8s — CI/CD gerenciado', qty: 1, unitPrice: price, subtotal: price });
-        subKubernetes += price;
+        subKubernetes += addRow('K8s — CI/CD gerenciado', 1, price, price, 'k8s_addon_cicd');
       }
       const devopsHours = toNum(kubernetes.addons.devops_hours, 0);
       if (devopsHours > 0) {
         const price = toNum(getK8sAddonPrice('devops_hours', config), 0);
         const devopsSubtotal = devopsHours * price;
-        rows.push({ label: 'K8s — Horas DevOps', qty: devopsHours, unitPrice: price, subtotal: devopsSubtotal });
-        subKubernetes += devopsSubtotal;
+        subKubernetes += addRow('K8s — Horas DevOps', devopsHours, price, devopsSubtotal, 'k8s_addon_devops');
       }
     }
 
@@ -652,13 +664,7 @@ const OpenCalculator: React.FC = () => {
         if (volumeGB >= 1) {
           const pricePerGB = toNum(getNvmePricePerGB(config), 0);
           const monthlyTotal = volumeGB * pricePerGB;
-          rows.push({
-            label: `${typeLabel} — ${volumeGB} GB`,
-            qty: 1,
-            unitPrice: pricePerGB,
-            subtotal: monthlyTotal,
-          });
-          subStorage += monthlyTotal;
+          subStorage += addRow(`${typeLabel} — ${volumeGB} GB`, 1, pricePerGB, monthlyTotal, `storage_${idx}_nvme`);
         }
       } else {
         // SAS and S3 use TB (S3 uses same pricing as SAS)
@@ -667,13 +673,7 @@ const OpenCalculator: React.FC = () => {
           const pricePerTB = toNum(getStoragePricePerTB(volumeTB, storage.region, config, storageType), 0);
           const monthlyTotal = toNum(calculateStorageMonthly(volumeTB, storage.region, config, storageType), 0);
           const tierLabel = getStorageTierLabel(volumeTB);
-          rows.push({
-            label: `${typeLabel} ${storage.region} — ${volumeTB} TB (${tierLabel})`,
-            qty: 1,
-            unitPrice: pricePerTB,
-            subtotal: monthlyTotal,
-          });
-          subStorage += monthlyTotal;
+          subStorage += addRow(`${typeLabel} ${storage.region} — ${volumeTB} TB (${tierLabel})`, 1, pricePerTB, monthlyTotal, `storage_${idx}_${storageType}`);
         }
       }
     });
@@ -685,13 +685,7 @@ const OpenCalculator: React.FC = () => {
       const pricePerUser = toNum(config.open_saas_price_per_user, 85);
       const users = Math.max(5, openSaasUsers); // Enforce minimum
       const monthlyTotal = users * pricePerUser;
-      rows.push({
-        label: `OPEN SaaS — ${users} usuário(s) × R$ ${formatCurrency(pricePerUser)}/usuário`,
-        qty: users,
-        unitPrice: pricePerUser,
-        subtotal: monthlyTotal,
-      });
-      subOpenSaas = monthlyTotal;
+      subOpenSaas = addRow(`OPEN SaaS — ${users} usuário(s) × R$ ${formatCurrency(pricePerUser)}/usuário`, users, pricePerUser, monthlyTotal, 'open_saas');
     }
 
     // Calculate subtotal (price list) before discount - ensure all are numbers

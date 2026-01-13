@@ -621,6 +621,17 @@ export interface SummaryRow {
   qty: string | number;
   unitPrice: number;
   subtotal: number;
+  // Markup fields - used for manual price adjustments
+  baseUnitPrice?: number;        // Original unit price from price list
+  baseTotal?: number;            // Original total (unitPrice * qty) from price list
+  overrideTotal?: number | null; // Manually adjusted total (if any)
+  finalTotal?: number;           // Final total to use in calculations (overrideTotal || baseTotal)
+  rowKey?: string;               // Unique identifier for this row (for override tracking)
+}
+
+// Price override state - tracks manual adjustments
+export interface PriceOverrideMap {
+  [rowKey: string]: number; // rowKey -> overrideTotal
 }
 
 export interface CalculationResult {
