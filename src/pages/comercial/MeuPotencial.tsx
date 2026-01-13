@@ -1,9 +1,30 @@
 /**
  * Meu Potencial - Executive Earnings Dashboard
- * Shows real-time commission projections for level 700 executives
+ * OPEN v2 Commission Policy
  * 
- * IMPORTANT: This page only shows proposals with status === 'APPROVED'
- * and created_by === user.id (strict RBAC enforcement)
+ * ============================================
+ * REGRAS IMPLEMENTADAS:
+ * ============================================
+ * 
+ * 1️⃣ PERCENTUAL:
+ * - <= 12 meses: 4%
+ * - > 12 meses: 2.5%
+ * 
+ * 2️⃣ MESES COMISSIONÁVEIS:
+ * - <= 12: prazo real
+ * - > 12: 18 (CAP)
+ * 
+ * 3️⃣ CAP FINANCEIRO:
+ * - monthly <= R$ 50k: CAP R$ 20k
+ * - R$ 50k - R$ 150k: CAP R$ 35k
+ * - > R$ 150k: CAP R$ 50k
+ * 
+ * 4️⃣ FÓRMULA:
+ * gross = monthly × months × rate
+ * final = min(gross, cap)
+ * installment = final / 3
+ * 
+ * 5️⃣ SOMENTE status = APPROVED
  */
 
 import { useEffect, useState, useMemo } from 'react';
@@ -20,7 +41,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   TrendingUp,
-  TrendingDown,
   AlertTriangle,
   CheckCircle,
   Clock,
@@ -68,13 +88,18 @@ interface ProcessedProposal {
   id: number;
   cliente: string;
   empresa: string;
-  totalMensal: number;
-  vigenciaMeses: number;
+  // v2 fields
+  monthly_value: number;
+  contract_term_months: number;
+  months_commissioned: number;
+  commission_rate: number;
+  gross_commission: number;
+  cap: number;
+  final_commission: number;
+  monthly_installment: number;
+  cap_applied: boolean;
+  // UI fields
   dataAprovacao: string;
-  taxaComissao: number;
-  comissaoBruta: number;
-  comissaoFinal: number;
-  capAplicado: boolean;
   risco: 'BAIXO' | 'MEDIO' | 'ALTO';
   dadosIncompletos: boolean;
 }
@@ -92,18 +117,80 @@ interface PaymentMonth {
 }
 
 // ============================================
-// CONSTANTS
+// CONSTANTS - OPEN v2
 // ============================================
 
 const COMMISSION_RATES = {
-  SHORT_TERM: 0.04, // 12 months = 4%
-  LONG_TERM: 0.025, // 24/36/48 months = 2.5%
+  SHORT_TERM: 0.04, // <= 12 months = 4%
+  LONG_TERM: 0.025, // > 12 months = 2.5%
 };
 
-const MAX_COMMISSION_CAP = 20000;
-const MAX_COMMISSIONABLE_MONTHS = 12;
 const INSTALLMENT_COUNT = 3;
 const HIGH_RISK_DAYS = 7;
+
+// ============================================
+// OPEN v2 CALCULATION FUNCTIONS
+// ============================================
+
+/**
+ * Get commission rate
+ * RULE: <= 12 months = 4%, > 12 months = 2.5%
+ */
+function getCommissionRate(term: number): number {
+  return term <= 12 ? COMMISSION_RATES.SHORT_TERM : COMMISSION_RATES.LONG_TERM;
+}
+
+/**
+ * Get months commissioned
+ * RULE: <= 12 = term, > 12 = 18
+ */
+function getMonthsCommissioned(term: number): number {
+  return term <= 12 ? term : 18;
+}
+
+/**
+ * Get CAP by ticket
+ * RULE:
+ * - <= R$ 50.000: R$ 20.000
+ * - R$ 50.001 - R$ 150.000: R$ 35.000
+ * - > R$ 150.000: R$ 50.000
+ */
+function getCapByTicket(monthlyValue: number): number {
+  if (monthlyValue <= 50000) return 20000;
+  if (monthlyValue <= 150000) return 35000;
+  return 50000;
+}
+
+/**
+ * Calculate v2 commission
+ */
+function calculateCommissionV2(monthlyValue: number, term: number): {
+  months_commissioned: number;
+  commission_rate: number;
+  gross_commission: number;
+  cap: number;
+  final_commission: number;
+  monthly_installment: number;
+  cap_applied: boolean;
+} {
+  const commission_rate = getCommissionRate(term);
+  const months_commissioned = getMonthsCommissioned(term);
+  const gross_commission = monthlyValue * months_commissioned * commission_rate;
+  const cap = getCapByTicket(monthlyValue);
+  const final_commission = Math.min(gross_commission, cap);
+  const cap_applied = gross_commission > cap;
+  const monthly_installment = final_commission / INSTALLMENT_COUNT;
+  
+  return {
+    months_commissioned,
+    commission_rate,
+    gross_commission,
+    cap,
+    final_commission,
+    monthly_installment,
+    cap_applied,
+  };
+}
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -114,31 +201,6 @@ function formatCurrency(value: number): string {
     style: 'currency',
     currency: 'BRL',
   }).format(value);
-}
-
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('pt-BR');
-}
-
-function getCommissionRate(vigenciaMeses: number): number {
-  return vigenciaMeses === 12 ? COMMISSION_RATES.SHORT_TERM : COMMISSION_RATES.LONG_TERM;
-}
-
-function calculateCommission(totalMensal: number, vigenciaMeses: number): {
-  comissaoBruta: number;
-  comissaoFinal: number;
-  capAplicado: boolean;
-} {
-  const taxa = getCommissionRate(vigenciaMeses);
-  const mesesComissionaveis = Math.min(vigenciaMeses, MAX_COMMISSIONABLE_MONTHS);
-  const comissaoBruta = totalMensal * mesesComissionaveis * taxa;
-  const comissaoFinal = Math.min(comissaoBruta, MAX_COMMISSION_CAP);
-  
-  return {
-    comissaoBruta,
-    comissaoFinal,
-    capAplicado: comissaoBruta > MAX_COMMISSION_CAP,
-  };
 }
 
 function getRisk(dataAprovacao: string): 'BAIXO' | 'MEDIO' | 'ALTO' {
@@ -164,17 +226,16 @@ function getRiskBadge(risco: 'BAIXO' | 'MEDIO' | 'ALTO') {
 
 function generatePaymentSchedule(propostas: ProcessedProposal[]): PaymentMonth[] {
   const schedule: Map<string, PaymentMonth> = new Map();
-  const now = new Date();
   
   propostas.forEach((proposta) => {
     if (proposta.dadosIncompletos) return;
     
-    const valorParcela = proposta.comissaoFinal / INSTALLMENT_COUNT;
+    const valorParcela = proposta.monthly_installment;
     const baseDate = new Date(proposta.dataAprovacao);
     
     for (let i = 0; i < INSTALLMENT_COUNT; i++) {
       const paymentDate = new Date(baseDate);
-      paymentDate.setMonth(paymentDate.getMonth() + i + 1); // First payment next month
+      paymentDate.setMonth(paymentDate.getMonth() + i + 1);
       
       const mesKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
       const mesLabel = paymentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
@@ -200,7 +261,6 @@ function generatePaymentSchedule(propostas: ProcessedProposal[]): PaymentMonth[]
     }
   });
   
-  // Sort by date and limit to next 12 months
   return Array.from(schedule.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(0, 12)
@@ -223,7 +283,6 @@ export default function MeuPotencial() {
 
     async function loadData() {
       try {
-        // Get current user
         const user = await openApi.getCurrentUser();
         
         if (!mounted) return;
@@ -236,7 +295,6 @@ export default function MeuPotencial() {
         
         setUserId(user.id);
         
-        // Fetch proposals
         const response = await openApi.getProposals({
           __perPage: 500,
         });
@@ -245,9 +303,8 @@ export default function MeuPotencial() {
         
         const allProposals = (response.data || []) as ApiProposal[];
         
-        // Filter: only APPROVED proposals created by this user
+        // RULE: ONLY APPROVED proposals created by this user
         const filteredProposals = allProposals.filter((p) => {
-          // Normalize the status using the centralized function
           const normalizedStatus = normalizeStatus(p.status);
           const isApproved = normalizedStatus === 'APPROVED';
           const isOwnProposal = p.created_by === user.id;
@@ -255,33 +312,27 @@ export default function MeuPotencial() {
           return isApproved && isOwnProposal;
         });
         
-        // Process proposals
+        // Process with v2 rules
         const processed: ProcessedProposal[] = filteredProposals.map((p) => {
-          const totalMensal = p.dados_proposta?.totals?.totalMensal || p.total || 0;
-          const vigenciaMeses = p.dados_proposta?.config?.vigencia || p.contract_duration || 12;
+          const monthly_value = p.dados_proposta?.totals?.totalMensal || p.total || 0;
+          const contract_term_months = p.dados_proposta?.config?.vigencia || p.contract_duration || 12;
           const cliente = p.dados_proposta?.cliente?.nome || p.name || 'Cliente não informado';
           const empresa = p.dados_proposta?.cliente?.empresa || p.company || '';
           const dataAprovacao = p.updated_at || p.created_at;
           
-          // Check for incomplete data
-          const dadosIncompletos = !totalMensal || !vigenciaMeses || !dataAprovacao;
+          const dadosIncompletos = !monthly_value || !contract_term_months || !dataAprovacao;
           
-          const { comissaoBruta, comissaoFinal, capAplicado } = calculateCommission(
-            totalMensal,
-            vigenciaMeses
-          );
+          // Calculate using v2 rules
+          const commission = calculateCommissionV2(monthly_value, contract_term_months);
           
           return {
             id: p.id,
             cliente,
             empresa,
-            totalMensal,
-            vigenciaMeses,
+            monthly_value,
+            contract_term_months,
+            ...commission,
             dataAprovacao,
-            taxaComissao: getCommissionRate(vigenciaMeses) * 100,
-            comissaoBruta,
-            comissaoFinal,
-            capAplicado,
             risco: dadosIncompletos ? 'ALTO' : getRisk(dataAprovacao),
             dadosIncompletos,
           };
@@ -318,30 +369,58 @@ export default function MeuPotencial() {
   const stats = useMemo(() => {
     const propostasValidas = propostas.filter((p) => !p.dadosIncompletos);
     
-    const previsaoGanho = propostasValidas.reduce((sum, p) => sum + p.comissaoFinal, 0);
+    const totalContratos = propostasValidas.length;
+    const totalMensalContratado = propostasValidas.reduce((sum, p) => sum + p.monthly_value, 0);
+    const comissaoProjetada = propostasValidas.reduce((sum, p) => sum + p.final_commission, 0);
     
     const emRisco = propostasValidas
       .filter((p) => p.risco === 'ALTO' || p.risco === 'MEDIO')
-      .reduce((sum, p) => sum + p.comissaoFinal, 0);
+      .reduce((sum, p) => sum + p.final_commission, 0);
     
     const ativo = propostasValidas
       .filter((p) => p.risco === 'BAIXO')
-      .reduce((sum, p) => sum + p.comissaoFinal, 0);
+      .reduce((sum, p) => sum + p.final_commission, 0);
     
     const capAplicadoTotal = propostasValidas
-      .filter((p) => p.capAplicado)
-      .reduce((sum, p) => sum + (p.comissaoBruta - p.comissaoFinal), 0);
+      .filter((p) => p.cap_applied)
+      .reduce((sum, p) => sum + (p.gross_commission - p.final_commission), 0);
     
-    const propostasComCap = propostasValidas.filter((p) => p.capAplicado).length;
+    const propostasComCap = propostasValidas.filter((p) => p.cap_applied).length;
+    
+    // Próximas 3 parcelas
+    const now = new Date();
+    const next3Months: number[] = [];
+    for (let i = 1; i <= 3; i++) {
+      const monthDate = new Date(now);
+      monthDate.setMonth(monthDate.getMonth() + i);
+      next3Months.push(0);
+    }
+    
+    propostasValidas.forEach(p => {
+      const baseDate = new Date(p.dataAprovacao);
+      for (let i = 0; i < 3; i++) {
+        const payDate = new Date(baseDate);
+        payDate.setMonth(payDate.getMonth() + i + 1);
+        
+        const monthsFromNow = (payDate.getFullYear() - now.getFullYear()) * 12 + 
+          (payDate.getMonth() - now.getMonth());
+        
+        if (monthsFromNow >= 1 && monthsFromNow <= 3) {
+          next3Months[monthsFromNow - 1] += p.monthly_installment;
+        }
+      }
+    });
     
     return {
-      previsaoGanho,
+      totalContratos,
+      totalMensalContratado,
+      comissaoProjetada,
       emRisco,
       ativo,
       capAplicadoTotal,
       propostasComCap,
-      totalPropostas: propostasValidas.length,
       propostasIncompletas: propostas.filter((p) => p.dadosIncompletos).length,
+      proximas3Parcelas: next3Months,
     };
   }, [propostas]);
 
@@ -400,7 +479,7 @@ export default function MeuPotencial() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Meu Potencial</h1>
           <p className="text-sm text-muted-foreground">
-            Acompanhe suas comissões e projeções de ganho em tempo real
+            Política de Comissão OPEN v2 - Acompanhe suas comissões em tempo real
           </p>
         </div>
       </div>
@@ -419,13 +498,13 @@ export default function MeuPotencial() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="border-primary/30 bg-primary/5">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Previsão de Ganho (12 meses)</CardTitle>
+            <CardTitle className="text-sm font-medium">Comissão Total Projetada</CardTitle>
             <TrendingUp className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{formatCurrency(stats.previsaoGanho)}</div>
+            <div className="text-2xl font-bold text-primary">{formatCurrency(stats.comissaoProjetada)}</div>
             <p className="text-xs text-muted-foreground">
-              {stats.totalPropostas} proposta(s) aprovada(s)
+              {stats.totalContratos} contrato(s) aprovado(s)
             </p>
           </CardContent>
         </Card>
@@ -466,67 +545,74 @@ export default function MeuPotencial() {
         </Card>
       </div>
 
+      {/* Próximas 3 Parcelas */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Próximas 3 Parcelas
+          </CardTitle>
+          <CardDescription>Previsão de recebimento dos próximos 3 meses</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+            {stats.proximas3Parcelas.map((valor, i) => {
+              const date = new Date();
+              date.setMonth(date.getMonth() + i + 1);
+              const mesLabel = date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+              
+              return (
+                <div key={i} className="p-4 rounded-lg bg-muted/50 border">
+                  <p className="text-sm text-muted-foreground capitalize">{mesLabel}</p>
+                  <p className="text-xl font-bold text-foreground">{formatCurrency(valor)}</p>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* B) MONEY FUNNEL */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
-            Funil de Dinheiro
+            Resumo Financeiro
           </CardTitle>
-          <CardDescription>Visualização do fluxo de comissões</CardDescription>
+          <CardDescription>Total mensal contratado e comissão projetada</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Bar: Approved */}
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="font-medium">Aprovadas</span>
-                <span className="text-muted-foreground">
-                  {formatCurrency(stats.previsaoGanho)} em comissões
-                </span>
+                <span className="font-medium">Total Mensal Contratado</span>
+                <span className="text-muted-foreground">{formatCurrency(stats.totalMensalContratado)}</span>
               </div>
               <div className="h-8 rounded-full bg-primary/20 relative overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full flex items-center justify-center text-xs font-medium text-primary-foreground"
                   style={{ width: '100%' }}
                 >
-                  {stats.totalPropostas} propostas
+                  {stats.totalContratos} contratos
                 </div>
               </div>
             </div>
 
-            {/* Bar: Active (Low Risk) */}
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="font-medium">Ativas (Baixo Risco)</span>
-                <span className="text-muted-foreground">{formatCurrency(stats.ativo)}</span>
+                <span className="font-medium">Comissão Final (após CAP)</span>
+                <span className="text-muted-foreground">{formatCurrency(stats.comissaoProjetada)}</span>
               </div>
               <div className="h-8 rounded-full bg-green-500/20 relative overflow-hidden">
                 <div
                   className="h-full bg-green-500 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                  style={{
-                    width: stats.previsaoGanho > 0 ? `${(stats.ativo / stats.previsaoGanho) * 100}%` : '0%',
+                  style={{ 
+                    width: stats.totalMensalContratado > 0 
+                      ? `${Math.min((stats.comissaoProjetada / (stats.totalMensalContratado * 0.1)) * 100, 100)}%` 
+                      : '0%' 
                   }}
                 >
-                  {propostas.filter((p) => p.risco === 'BAIXO' && !p.dadosIncompletos).length} propostas
-                </div>
-              </div>
-            </div>
-
-            {/* Bar: At Risk */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="font-medium">Em Risco</span>
-                <span className="text-muted-foreground">{formatCurrency(stats.emRisco)}</span>
-              </div>
-              <div className="h-8 rounded-full bg-yellow-500/20 relative overflow-hidden">
-                <div
-                  className="h-full bg-yellow-500 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                  style={{
-                    width: stats.previsaoGanho > 0 ? `${(stats.emRisco / stats.previsaoGanho) * 100}%` : '0%',
-                  }}
-                >
-                  {propostas.filter((p) => (p.risco === 'ALTO' || p.risco === 'MEDIO') && !p.dadosIncompletos).length} propostas
+                  {formatCurrency(stats.comissaoProjetada)}
                 </div>
               </div>
             </div>
@@ -534,36 +620,40 @@ export default function MeuPotencial() {
         </CardContent>
       </Card>
 
-      {/* C) PROPOSALS TABLE */}
+      {/* C) PROPOSALS TABLE - V2 COLUMNS */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wallet className="h-5 w-5" />
             Propostas Aprovadas
           </CardTitle>
-          <CardDescription>Detalhamento das comissões por proposta</CardDescription>
+          <CardDescription>Detalhamento completo com regras OPEN v2</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Proposta</TableHead>
+                  <TableHead>ID</TableHead>
                   <TableHead>Cliente</TableHead>
-                  <TableHead className="text-right">Total Mensal</TableHead>
-                  <TableHead className="text-center">Vigência</TableHead>
-                  <TableHead className="text-center">% Comissão</TableHead>
+                  <TableHead className="text-right">Valor Mensal</TableHead>
+                  <TableHead className="text-center">Prazo</TableHead>
+                  <TableHead className="text-center">Meses Com.</TableHead>
+                  <TableHead className="text-center">Taxa</TableHead>
+                  <TableHead className="text-right">Comissão Bruta</TableHead>
+                  <TableHead className="text-right">CAP</TableHead>
                   <TableHead className="text-right">Comissão Final</TableHead>
+                  <TableHead className="text-right">Parcela</TableHead>
                   <TableHead className="text-center">Risco</TableHead>
                   <TableHead className="text-center">Ação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {propostas.map((proposta) => (
-                  <TableRow key={proposta.id} className={proposta.dadosIncompletos ? 'opacity-50' : ''}>
+                {propostas.map((p) => (
+                  <TableRow key={p.id} className={p.dadosIncompletos ? 'opacity-50' : ''}>
                     <TableCell className="font-medium">
-                      #{proposta.id}
-                      {proposta.capAplicado && (
+                      #{p.id}
+                      {p.cap_applied && (
                         <Badge variant="outline" className="ml-2 text-xs text-orange-600 border-orange-500/30">
                           CAP
                         </Badge>
@@ -571,34 +661,36 @@ export default function MeuPotencial() {
                     </TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{proposta.cliente}</div>
-                        {proposta.empresa && (
-                          <div className="text-xs text-muted-foreground">{proposta.empresa}</div>
+                        <div className="font-medium">{p.cliente}</div>
+                        {p.empresa && (
+                          <div className="text-xs text-muted-foreground">{p.empresa}</div>
                         )}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {proposta.dadosIncompletos ? (
-                        <span className="text-muted-foreground">-</span>
-                      ) : (
-                        formatCurrency(proposta.totalMensal)
-                      )}
+                      {p.dadosIncompletos ? '-' : formatCurrency(p.monthly_value)}
                     </TableCell>
-                    <TableCell className="text-center">{proposta.vigenciaMeses} meses</TableCell>
-                    <TableCell className="text-center">{proposta.taxaComissao.toFixed(1)}%</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {proposta.dadosIncompletos ? (
-                        <span className="text-muted-foreground">Dados incompletos</span>
-                      ) : (
-                        formatCurrency(proposta.comissaoFinal)
-                      )}
+                    <TableCell className="text-center">{p.contract_term_months}m</TableCell>
+                    <TableCell className="text-center">{p.months_commissioned}m</TableCell>
+                    <TableCell className="text-center">{(p.commission_rate * 100).toFixed(1)}%</TableCell>
+                    <TableCell className="text-right">
+                      {p.dadosIncompletos ? '-' : formatCurrency(p.gross_commission)}
                     </TableCell>
-                    <TableCell className="text-center">{getRiskBadge(proposta.risco)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {formatCurrency(p.cap)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-green-600">
+                      {p.dadosIncompletos ? 'Dados incompletos' : formatCurrency(p.final_commission)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {p.dadosIncompletos ? '-' : formatCurrency(p.monthly_installment)}
+                    </TableCell>
+                    <TableCell className="text-center">{getRiskBadge(p.risco)}</TableCell>
                     <TableCell className="text-center">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => window.open(`/proposta/${proposta.id}`, '_blank')}
+                        onClick={() => window.open(`/proposta/${p.id}`, '_blank')}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
@@ -662,45 +754,48 @@ export default function MeuPotencial() {
         </CardContent>
       </Card>
 
-      {/* E) QUICK SIMULATOR */}
+      {/* E) QUICK SIMULATOR - V2 RULES */}
       <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calculator className="h-5 w-5" />
-            Simulador Rápido
+            Simulador Rápido (OPEN v2)
           </CardTitle>
           <CardDescription>Veja quanto você pode ganhar fechando mais negócios</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
+            {/* R$ 5k - CAP R$ 20k */}
             <div className="p-4 rounded-lg bg-background border">
               <p className="text-sm text-muted-foreground mb-2">Se você fechar mais</p>
               <p className="text-2xl font-bold text-foreground">R$ 5.000/mês</p>
               <p className="text-sm text-muted-foreground mt-2">Você ganha</p>
               <p className="text-xl font-bold text-primary">
-                {formatCurrency(5000 * 12 * COMMISSION_RATES.SHORT_TERM)}
+                {formatCurrency(Math.min(5000 * 12 * 0.04, 20000))}
               </p>
-              <p className="text-xs text-muted-foreground">em comissões (12 meses, 4%)</p>
+              <p className="text-xs text-muted-foreground">12m × 4% | CAP R$ 20k</p>
             </div>
 
+            {/* R$ 30k - CAP R$ 20k */}
             <div className="p-4 rounded-lg bg-background border">
               <p className="text-sm text-muted-foreground mb-2">Se você fechar mais</p>
-              <p className="text-2xl font-bold text-foreground">R$ 10.000/mês</p>
+              <p className="text-2xl font-bold text-foreground">R$ 30.000/mês</p>
               <p className="text-sm text-muted-foreground mt-2">Você ganha</p>
               <p className="text-xl font-bold text-primary">
-                {formatCurrency(10000 * 12 * COMMISSION_RATES.SHORT_TERM)}
+                {formatCurrency(Math.min(30000 * 12 * 0.04, 20000))}
               </p>
-              <p className="text-xs text-muted-foreground">em comissões (12 meses, 4%)</p>
+              <p className="text-xs text-muted-foreground">12m × 4% | CAP R$ 20k aplicado</p>
             </div>
 
+            {/* R$ 80k - CAP R$ 35k */}
             <div className="p-4 rounded-lg bg-background border">
               <p className="text-sm text-muted-foreground mb-2">Se você fechar mais</p>
-              <p className="text-2xl font-bold text-foreground">R$ 20.000/mês</p>
+              <p className="text-2xl font-bold text-foreground">R$ 80.000/mês</p>
               <p className="text-sm text-muted-foreground mt-2">Você ganha</p>
               <p className="text-xl font-bold text-primary">
-                {formatCurrency(Math.min(20000 * 12 * COMMISSION_RATES.SHORT_TERM, MAX_COMMISSION_CAP))}
+                {formatCurrency(Math.min(80000 * 12 * 0.04, 35000))}
               </p>
-              <p className="text-xs text-muted-foreground">em comissões (CAP aplicado)</p>
+              <p className="text-xs text-muted-foreground">12m × 4% | CAP R$ 35k aplicado</p>
             </div>
           </div>
 
