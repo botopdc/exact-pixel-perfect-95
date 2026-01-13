@@ -241,13 +241,16 @@ export default function PartnerLayout() {
         return;
       }
 
+      // Verificar flag local de aceite de contrato (prioridade sobre API)
+      const localContractAccepted = localStorage.getItem('partner_contract_accepted_v2') === 'true';
+
       if (import.meta.env.DEV) {
         console.log('PartnerGuard', {
           path: pathname,
           partnerId: localSession.partnerId,
-          accepted: localSession.contrato_aceito,
+          sessionAccepted: localSession.contrato_aceito,
+          localFlagAccepted: localContractAccepted,
           status: localSession.status,
-          loading: true,
         });
       }
 
@@ -259,26 +262,25 @@ export default function PartnerLayout() {
         return;
       }
 
-      // If locally accepted, allow navigation immediately (but keep data fresh in background)
-      if (localSession.contrato_aceito === true) {
-        // Background refresh (non-blocking)
+      // Se flag local indica aceite OU sessão indica aceite, liberar acesso
+      if (localContractAccepted || localSession.contrato_aceito === true) {
+        // Background refresh (non-blocking, apenas para manter dados atualizados)
         partnerAuthService.refreshSessionFromApi().catch((err) => {
           console.warn('[PartnerLayout] Background refresh failed:', err);
         });
         return;
       }
 
-      // Contract NOT accepted locally - must verify with API before redirecting
+      // Contract NOT accepted locally - verificar com API uma única vez
       try {
         const freshSession = await partnerAuthService.refreshSessionFromApi();
 
         if (import.meta.env.DEV) {
-          console.log('PartnerGuard', {
+          console.log('PartnerGuard after refresh', {
             path: pathname,
             partnerId: freshSession?.partnerId,
             accepted: freshSession?.contrato_aceito,
             status: freshSession?.status,
-            loading: false,
           });
         }
 
@@ -295,8 +297,11 @@ export default function PartnerLayout() {
           return;
         }
 
-        // Enforce contract gate (allow only contract screen)
-        if (freshSession.contrato_aceito !== true && pathname !== contractPath) {
+        // Verificar novamente o flag local após refresh (pode ter sido atualizado)
+        const updatedLocalFlag = localStorage.getItem('partner_contract_accepted_v2') === 'true';
+        
+        // Se ainda não aceito (nem local nem API), redirecionar para contrato
+        if (!updatedLocalFlag && freshSession.contrato_aceito !== true && pathname !== contractPath) {
           navigate(contractPath, { replace: true });
           return;
         }
@@ -311,8 +316,9 @@ export default function PartnerLayout() {
 
         console.error('[PartnerLayout] Falha ao validar sessão via API:', err);
 
-        // Fallback: local session is already "not accepted" here, so enforce contract gate
-        if (pathname !== contractPath) {
+        // Fallback: verificar flag local antes de forçar contrato
+        const fallbackLocalFlag = localStorage.getItem('partner_contract_accepted_v2') === 'true';
+        if (!fallbackLocalFlag && pathname !== contractPath) {
           navigate(contractPath, { replace: true });
           return;
         }
