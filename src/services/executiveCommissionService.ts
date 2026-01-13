@@ -1,8 +1,8 @@
 /**
- * Executive Commission Service - OPEN v2 Policy
+ * Executive Commission Service - OPEN 2026 Policy
  * 
  * ============================================
- * POLÍTICA DE COMISSÃO OPEN v2 (SUBSTITUI TODAS AS ANTERIORES)
+ * POLÍTICA DE COMISSÃO OPEN 2026 (SUBSTITUI TODAS AS ANTERIORES)
  * ============================================
  * 
  * 1️⃣ PERCENTUAL POR PRAZO:
@@ -13,14 +13,15 @@
  * - <= 12 meses: prazo real
  * - > 12 meses: 18 meses (CAP)
  * 
- * 3️⃣ CAP FINANCEIRO (NOVA REGRA - TCV BASED):
- * CAP = min(2% × TCV, R$ 100.000)
- * Onde TCV = valor_mensal × meses_contrato
+ * 3️⃣ CAP FINANCEIRO (NOVA REGRA - POR FAIXA DE TICKET MENSAL):
+ * - Até R$ 50.000/mês      → CAP R$ 20.000
+ * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
+ * - Acima de R$ 150.000/mês → CAP R$ 100.000
  * 
  * 4️⃣ FÓRMULA:
  * tcv = monthly_value × contract_term_months
  * gross_commission = monthly_value × months_commissioned × commission_rate
- * cap = min(0.02 × tcv, 100000)
+ * cap = getCapByTicket(monthly_value)
  * final_commission = min(gross_commission, cap)
  * monthly_installment = final_commission / 3
  * 
@@ -176,22 +177,32 @@ export function getMonthsCommissioned(term: number): number {
 }
 
 /**
- * Get CAP based on TCV (Total Contract Value)
- * NEW RULE: CAP = min(2% × TCV, R$ 100.000)
- * Where TCV = monthly_value × contract_term_months
+ * Get CAP based on monthly ticket value - OPEN 2026 Policy
+ * 
+ * NEW RULE (by monthly ticket):
+ * - Até R$ 50.000/mês → CAP R$ 20.000
+ * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
+ * - Acima de R$ 150.000/mês → CAP R$ 100.000
+ * 
+ * @param monthlyValue - Monthly contract value
+ * @returns CAP value in BRL
  */
-export function getCapByTCV(monthlyValue: number, contractTermMonths: number): number {
-  const tcv = monthlyValue * contractTermMonths;
-  const capPercentual = tcv * 0.02; // 2% do TCV
-  return Math.min(capPercentual, 100000); // Teto de R$ 100.000
+export function getCapByTicket(monthlyValue: number): number {
+  if (monthlyValue <= 50000) {
+    return 20000; // R$ 20.000
+  } else if (monthlyValue <= 100000) {
+    return 80000; // R$ 80.000
+  } else {
+    return 100000; // R$ 100.000
+  }
 }
 
 /**
- * @deprecated Use getCapByTCV instead
- * Mantido para compatibilidade - agora calcula baseado em TCV com prazo padrão de 12 meses
+ * @deprecated Use getCapByTicket instead
+ * Mantido para compatibilidade retroativa
  */
-export function getCapByTicket(monthlyValue: number): number {
-  return getCapByTCV(monthlyValue, 12);
+export function getCapByTCV(monthlyValue: number, _contractTermMonths: number): number {
+  return getCapByTicket(monthlyValue);
 }
 
 /**
@@ -216,8 +227,13 @@ export function calculateProposalCommission(
   // Step 4: Calculate gross commission
   const grossCommission = monthlyValue * monthsCommissioned * commissionRate;
   
-  // Step 5: Get CAP based on TCV (NEW RULE: min(2% × TCV, R$ 100.000))
-  const cap = getCapByTCV(monthlyValue, contractTermMonths);
+  // Step 5: Get CAP based on monthly ticket (OPEN 2026 Policy)
+  const cap = getCapByTicket(monthlyValue);
+  
+  // Validate CAP - log violation if final would exceed CAP
+  if (grossCommission > cap) {
+    console.log(`[CommissionService] CAP applied: gross=${grossCommission.toFixed(2)}, cap=${cap}, saved=${(grossCommission - cap).toFixed(2)}`);
+  }
   
   // Step 6: Apply CAP
   const finalCommission = Math.min(grossCommission, cap);

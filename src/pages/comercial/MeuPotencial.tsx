@@ -1,6 +1,6 @@
 /**
  * Meu Potencial - Executive Earnings Dashboard
- * OPEN v2 Commission Policy
+ * OPEN 2026 Commission Policy
  * 
  * ============================================
  * REGRAS IMPLEMENTADAS:
@@ -14,9 +14,10 @@
  * - <= 12: prazo real
  * - > 12: 18 (CAP)
  * 
- * 3️⃣ CAP FINANCEIRO (NOVA REGRA):
- * CAP = min(2% × TCV, R$ 100.000)
- * TCV = valor_mensal × meses_contrato
+ * 3️⃣ CAP FINANCEIRO (NOVA REGRA - POR FAIXA DE TICKET MENSAL):
+ * - Até R$ 50.000/mês → CAP R$ 20.000
+ * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
+ * - Acima de R$ 150.000/mês → CAP R$ 100.000
  * 
  * 4️⃣ FÓRMULA:
  * gross = monthly × months × rate
@@ -130,11 +131,15 @@ const INSTALLMENT_COUNT = 3;
 const HIGH_RISK_DAYS = 7;
 
 // ============================================
-// CAP CONSTANTS - NEW TCV-BASED RULE
+// CAP CONSTANTS - OPEN 2026 (BY MONTHLY TICKET)
 // ============================================
 
-const CAP_PERCENTAGE = 0.02; // 2% do TCV
-const CAP_ABSOLUTE_MAX = 100000; // R$ 100.000 teto absoluto
+// Faixas de CAP por ticket mensal
+const CAP_FAIXA_1 = 50000;   // Até R$ 50.000/mês
+const CAP_FAIXA_2 = 100000;  // Até R$ 100.000/mês
+const CAP_VALOR_1 = 20000;   // CAP R$ 20.000
+const CAP_VALOR_2 = 80000;   // CAP R$ 80.000
+const CAP_VALOR_3 = 100000;  // CAP R$ 100.000
 
 // ============================================
 // OPEN v2 CALCULATION FUNCTIONS
@@ -157,17 +162,23 @@ function getMonthsCommissioned(term: number): number {
 }
 
 /**
- * Get CAP based on TCV
- * NEW RULE: CAP = min(2% × TCV, R$ 100.000)
+ * Get CAP based on monthly ticket - OPEN 2026
+ * - Até R$ 50.000/mês → CAP R$ 20.000
+ * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
+ * - Acima de R$ 150.000/mês → CAP R$ 100.000
  */
-function getCapByTCV(monthlyValue: number, contractTermMonths: number): number {
-  const tcv = monthlyValue * contractTermMonths;
-  const capPercentual = tcv * CAP_PERCENTAGE;
-  return Math.min(capPercentual, CAP_ABSOLUTE_MAX);
+function getCapByTicket(monthlyValue: number): number {
+  if (monthlyValue <= CAP_FAIXA_1) {
+    return CAP_VALOR_1;
+  } else if (monthlyValue <= CAP_FAIXA_2) {
+    return CAP_VALOR_2;
+  } else {
+    return CAP_VALOR_3;
+  }
 }
 
 /**
- * Calculate v2 commission with TCV-based CAP
+ * Calculate commission with ticket-based CAP - OPEN 2026
  */
 function calculateCommissionV2(monthlyValue: number, term: number): {
   tcv: number;
@@ -183,10 +194,20 @@ function calculateCommissionV2(monthlyValue: number, term: number): {
   const commission_rate = getCommissionRate(term);
   const months_commissioned = getMonthsCommissioned(term);
   const gross_commission = monthlyValue * months_commissioned * commission_rate;
-  const cap = getCapByTCV(monthlyValue, term);
+  const cap = getCapByTicket(monthlyValue); // OPEN 2026 - CAP por faixa de ticket
   const final_commission = Math.min(gross_commission, cap);
   const cap_applied = gross_commission > cap;
   const monthly_installment = final_commission / INSTALLMENT_COUNT;
+  
+  // Validation: log CAP_VIOLATION if commission exceeds cap
+  if (final_commission > cap) {
+    console.error('[MeuPotencial] CAP_VIOLATION: final_commission exceeds cap!', {
+      final_commission,
+      cap,
+      monthlyValue,
+      term,
+    });
+  }
   
   return {
     tcv,
@@ -487,7 +508,7 @@ export default function MeuPotencial() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Meu Potencial</h1>
           <p className="text-sm text-muted-foreground">
-            Política de Comissão OPEN v2 - Acompanhe suas comissões em tempo real
+            Política de Comissão OPEN 2026 - Acompanhe suas comissões em tempo real
           </p>
         </div>
       </div>
@@ -635,7 +656,9 @@ export default function MeuPotencial() {
             <Wallet className="h-5 w-5" />
             Propostas Aprovadas
           </CardTitle>
-          <CardDescription>Detalhamento completo com regras OPEN v2</CardDescription>
+          <CardDescription>
+            Detalhamento completo com regras OPEN 2026 — CAP por faixa de ticket mensal
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-x-auto">
@@ -656,8 +679,13 @@ export default function MeuPotencial() {
                         <TooltipTrigger className="cursor-help underline decoration-dotted">
                           CAP
                         </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs">CAP = min(2% do TCV, R$ 100.000)</p>
+                        <TooltipContent className="max-w-xs">
+                          <div className="text-xs space-y-1">
+                            <p className="font-medium">CAP por Faixa de Ticket Mensal:</p>
+                            <p>• Até R$ 50.000/mês → CAP R$ 20.000</p>
+                            <p>• R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000</p>
+                            <p>• Acima de R$ 150.000/mês → CAP R$ 100.000</p>
+                          </div>
                         </TooltipContent>
                       </Tooltip>
                     </TableHead>
@@ -679,8 +707,12 @@ export default function MeuPotencial() {
                                 CAP
                               </Badge>
                             </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">CAP aplicado: min(2% do TCV, R$ 100.000)</p>
+                            <TooltipContent className="max-w-xs">
+                              <div className="text-xs space-y-1">
+                                <p className="font-medium">CAP aplicado por faixa de ticket:</p>
+                                <p>Valor mensal: {formatCurrency(p.monthly_value)}</p>
+                                <p>CAP: {formatCurrency(p.cap)}</p>
+                              </div>
                             </TooltipContent>
                           </Tooltip>
                         )}
@@ -710,12 +742,14 @@ export default function MeuPotencial() {
                           <TooltipTrigger className="cursor-help">
                             {formatCurrency(p.cap)}
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent className="max-w-xs">
                             <div className="text-xs space-y-1">
-                              <p>TCV: {formatCurrency(p.tcv)}</p>
-                              <p>2% do TCV: {formatCurrency(p.tcv * 0.02)}</p>
-                              <p>Teto: R$ 100.000</p>
-                              <p className="font-medium">CAP: {formatCurrency(p.cap)}</p>
+                              <p className="font-medium">Regra CAP por faixa:</p>
+                              <p>Valor mensal: {formatCurrency(p.monthly_value)}</p>
+                              {p.monthly_value <= 50000 && <p>Faixa: Até R$ 50.000/mês → CAP R$ 20.000</p>}
+                              {p.monthly_value > 50000 && p.monthly_value <= 100000 && <p>Faixa: R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000</p>}
+                              {p.monthly_value > 100000 && <p>Faixa: Acima de R$ 150.000/mês → CAP R$ 100.000</p>}
+                              <p className="font-medium pt-1">CAP: {formatCurrency(p.cap)}</p>
                             </div>
                           </TooltipContent>
                         </Tooltip>
