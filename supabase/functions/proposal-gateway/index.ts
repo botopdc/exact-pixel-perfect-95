@@ -109,6 +109,150 @@ async function forwardJson(token: string, url: string, method: "GET" | "POST" | 
   return { res, data };
 }
 
+// ============================================================================
+// RBAC RULES FOR PROPOSAL ACCESS
+// ============================================================================
+// Level 1000 (Admin): See ALL proposals (no filter)
+// Level 750 (Gerente Comercial): See ALL proposals (no filter)
+// Level 775 (CS): See only OWN proposals (created_by === user.id)
+// Level 700 (Executivo): See only OWN proposals (created_by === user.id)
+// Level 200 (Parceiro): See only OWN proposals (created_by === user.id AND channel_type === PARCEIRO)
+// Level 1 (Cliente): See only proposals where proposal.email === user.email
+// ============================================================================
+
+function canSeeAllProposals(level: number): boolean {
+  return level === 1000 || level === 750;
+}
+
+function filterProposalsByOwnership(
+  proposals: any[],
+  me: MeResponse,
+  scope: Scope
+): any[] {
+  const level = me.level;
+  
+  // Admin (1000) and Gerente Comercial (750) see all
+  if (canSeeAllProposals(level)) {
+    console.log("[proposal-gateway] RBAC: Admin/Manager sees all proposals");
+    return proposals;
+  }
+  
+  // Client (1): Filter by email matching
+  if (level === 1) {
+    const filtered = proposals.filter((p) => {
+      const clientEmail = (p.email || "").toLowerCase();
+      const userEmail = me.email.toLowerCase();
+      return clientEmail === userEmail;
+    });
+    console.log("[proposal-gateway] RBAC: Client filter by email", { 
+      userEmail: me.email, 
+      before: proposals.length, 
+      after: filtered.length 
+    });
+    return filtered;
+  }
+  
+  // Partner (200): Filter by created_by (user ID)
+  if (level === 200) {
+    const filtered = proposals.filter((p) => {
+      // Primary: Check created_by field in dados_proposta
+      const createdById = p.dados_proposta?.created_by_user_id;
+      if (createdById !== undefined && createdById !== null) {
+        return createdById === me.id;
+      }
+      // Fallback: Check if no creator info (legacy data) - show only if reseller matches partner
+      if (me.partner?.name) {
+        return p.reseller_name === me.partner.name;
+      }
+      return false;
+    });
+    console.log("[proposal-gateway] RBAC: Partner filter by created_by", { 
+      userId: me.id, 
+      partnerName: me.partner?.name,
+      before: proposals.length, 
+      after: filtered.length 
+    });
+    return filtered;
+  }
+  
+  // Executives (700) and CS (775): Filter by created_by (user ID)
+  if (level === 700 || level === 775) {
+    const filtered = proposals.filter((p) => {
+      // Primary: Check created_by field in dados_proposta
+      const createdById = p.dados_proposta?.created_by_user_id;
+      if (createdById !== undefined && createdById !== null) {
+        return createdById === me.id;
+      }
+      // Fallback for legacy data: check email
+      const creatorEmail = (p.dados_proposta?.created_by_email || "").toLowerCase();
+      if (creatorEmail) {
+        return creatorEmail === me.email.toLowerCase();
+      }
+      // Legacy without owner info - show to all executives for now
+      console.log("[proposal-gateway] Legacy proposal without owner info:", p.id);
+      return true;
+    });
+    console.log("[proposal-gateway] RBAC: Executive/CS filter by created_by", { 
+      userId: me.id, 
+      userEmail: me.email,
+      before: proposals.length, 
+      after: filtered.length 
+    });
+    return filtered;
+  }
+  
+  // Other levels (600, 900, 950): No access to proposals
+  console.log("[proposal-gateway] RBAC: Level", level, "has no proposal access");
+  return [];
+}
+
+// Check if user can access a specific proposal
+function canAccessProposal(proposal: any, me: MeResponse): boolean {
+  const level = me.level;
+  
+  // Admin (1000) and Gerente Comercial (750) can access any
+  if (canSeeAllProposals(level)) {
+    return true;
+  }
+  
+  // Client (1): Must match email
+  if (level === 1) {
+    const clientEmail = (proposal.email || "").toLowerCase();
+    return clientEmail === me.email.toLowerCase();
+  }
+  
+  // Partner (200): Must be the creator
+  if (level === 200) {
+    const createdById = proposal.dados_proposta?.created_by_user_id;
+    if (createdById !== undefined && createdById !== null) {
+      return createdById === me.id;
+    }
+    // Fallback: reseller_name match
+    if (me.partner?.name) {
+      return proposal.reseller_name === me.partner.name;
+    }
+    return false;
+  }
+  
+  // Executives (700) and CS (775): Must be the creator
+  if (level === 700 || level === 775) {
+    const createdById = proposal.dados_proposta?.created_by_user_id;
+    if (createdById !== undefined && createdById !== null) {
+      return createdById === me.id;
+    }
+    // Fallback: email match
+    const creatorEmail = (proposal.dados_proposta?.created_by_email || "").toLowerCase();
+    if (creatorEmail) {
+      return creatorEmail === me.email.toLowerCase();
+    }
+    // Legacy without owner info - allow for now
+    return true;
+  }
+  
+  // Other levels: No access
+  return false;
+}
+
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -148,14 +292,12 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       const rawList = (data?.data ?? []) as any[];
+      
+      // First filter by scope (channel_type)
       let filtered = rawList.filter((p) => p?.channel_type === scope);
-
-      // RBAC filtering for executives (level 700):
-      // - Regular executives (700) see only their own proposals
-      // - Commercial Managers (750) and Admins (1000) see all executive proposals
-      // The API response includes "user_email" or "created_by" fields (if available)
-      // Since the external API might not have explicit owner tracking, we log this for now
-      // and pass the user info for client-side filtering if needed
+      
+      // Then apply RBAC ownership filter
+      filtered = filterProposalsByOwnership(filtered, me, scope);
 
       const ownership = {
         session_user_id: me.id,
@@ -163,7 +305,7 @@ const handler = async (req: Request): Promise<Response> => {
         session_user_level: me.level,
         session_partner_id: me.partner?.id ?? null,
         effective_scope: scope,
-        can_see_all: me.level >= 750, // Admin (1000) or Manager (750) can see all
+        can_see_all: canSeeAllProposals(me.level),
       };
 
       console.log("[proposal-gateway] LIST", {
@@ -171,8 +313,8 @@ const handler = async (req: Request): Promise<Response> => {
         user_email: me.email,
         partner_id: me.partner?.id ?? null,
         scope,
-        can_see_all: me.level >= 750,
-        returned: rawList.length,
+        can_see_all: canSeeAllProposals(me.level),
+        raw: rawList.length,
         filtered: filtered.length,
       });
 
@@ -227,6 +369,7 @@ const handler = async (req: Request): Promise<Response> => {
         effective_scope: scope,
         payload_channel_type: payload.channel_type,
         payload_reseller_name: payload.reseller_name,
+        created_by_user_id: me.id,
         created_by_email: me.email,
         created_by_name: me.name,
       };

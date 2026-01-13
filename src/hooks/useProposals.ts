@@ -660,11 +660,23 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   };
 }
 
+// ============================================================================
+// RBAC RULES FOR PROPOSAL VISIBILITY
+// ============================================================================
+// Level 1000 (Admin): See ALL proposals
+// Level 750 (Gerente Comercial): See ALL proposals
+// Level 775 (CS): See only OWN proposals (created_by === user.id)
+// Level 700 (Executivo): See only OWN proposals (created_by === user.id)
+// Level 200 (Parceiro): See only OWN proposals (created_by === user.id AND channel_type === PARCEIRO)
+// Level 1 (Cliente): See only proposals where proposal.email === user.email
+// Other levels (600, 900, 950): No access
+// ============================================================================
+
+function canSeeAllProposals(level: number): boolean {
+  return level === 1000 || level === 750;
+}
+
 // Hook to fetch executive proposals from API (excludes partner proposals)
-// RBAC: 
-// - user_level 700 (Executivo): see only OWN proposals
-// - user_level 750 (Gerente Comercial): see ALL executive proposals
-// - user_level 1000 (Admin): see ALL executive proposals
 export function useProposals(page = 1, perPage = 100) {
   return useQuery({
     queryKey: ['proposals', 'api', 'executive', page, perPage],
@@ -689,50 +701,20 @@ export function useProposals(page = 1, perPage = 100) {
           throw new Error(payload?.error || 'Falha ao listar propostas');
         }
 
+        // The gateway already applies RBAC filtering based on user level
+        // We just receive the filtered list
         const apiProposals = (payload.data || []) as ApiProposal[];
         const ownership = payload.ownership || {};
         
-        // Filter to CLIENTE only (no partner proposals)
-        let safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+        // Additional client-side safety filter: ensure only CLIENTE proposals
+        const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE');
 
-        // RBAC filtering based on user level from gateway response
-        // Regular executives (level 700) only see their own proposals
-        // Managers (750) and Admins (1000) can see all
-        const canSeeAll = ownership.can_see_all === true || ownership.session_user_level >= 750;
-        const sessionUserEmail = ownership.session_user_email?.toLowerCase() || '';
-        
-        if (!canSeeAll && sessionUserEmail) {
-          // Filter to only proposals created by this user
-          const beforeFilter = safe.length;
-          safe = safe.filter((p) => {
-            const creatorEmail = p.dados_proposta?.created_by_email?.toLowerCase() || '';
-            // Also check if client email matches session (legacy proposals without owner tracking)
-            const clientEmail = p.email?.toLowerCase() || '';
-            // If no creator info, include for now (legacy data) - will be backfilled
-            if (!creatorEmail) {
-              console.log('[useProposals] Proposal without owner info (legacy):', p.id);
-              return true; // Show legacy proposals to all for now
-            }
-            return creatorEmail === sessionUserEmail;
-          });
-          
-          console.log('[useProposals] Owner filter applied (user_level=700):', {
-            sessionUserEmail,
-            before: beforeFilter,
-            after: safe.length,
-            canSeeAll,
-          });
-        }
-
-        if (safe.length !== apiProposals.length) {
-          console.warn('[useProposals] Filtered proposals:', {
-            received: apiProposals.length,
-            kept: safe.length,
-            ownership,
-          });
-        } else {
-          console.log('[useProposals] Fetched executive proposals (scope=CLIENTE):', safe.length, ownership);
-        }
+        console.log('[useProposals] Fetched executive proposals:', {
+          received: apiProposals.length,
+          kept: safe.length,
+          ownership,
+          canSeeAll: ownership.can_see_all,
+        });
 
         return safe.map(apiToLocal);
       } catch (error) {
@@ -745,7 +727,7 @@ export function useProposals(page = 1, perPage = 100) {
 }
 
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
-// Same RBAC rules as useProposals
+// RBAC filtering is done server-side in the gateway
 export function useProposalsPaginated(page = 1, perPage = 20) {
   return useQuery({
     queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage],
@@ -770,40 +752,18 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
           throw new Error(payload?.error || 'Falha ao listar propostas');
         }
 
+        // The gateway already applies RBAC filtering
         const apiProposals = (payload.data || []) as ApiProposal[];
         const ownership = payload.ownership || {};
         
-        // Filter to CLIENTE only (no partner proposals)
-        let safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE' && !p?.reseller_name);
+        // Additional client-side safety filter
+        const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE');
 
-        // RBAC filtering based on user level from gateway response
-        const canSeeAll = ownership.can_see_all === true || ownership.session_user_level >= 750;
-        const sessionUserEmail = ownership.session_user_email?.toLowerCase() || '';
-        
-        if (!canSeeAll && sessionUserEmail) {
-          const beforeFilter = safe.length;
-          safe = safe.filter((p) => {
-            const creatorEmail = p.dados_proposta?.created_by_email?.toLowerCase() || '';
-            if (!creatorEmail) return true; // Legacy data
-            return creatorEmail === sessionUserEmail;
-          });
-          
-          console.log('[useProposalsPaginated] Owner filter applied:', {
-            sessionUserEmail,
-            before: beforeFilter,
-            after: safe.length,
-          });
-        }
-
-        if (safe.length !== apiProposals.length) {
-          console.warn('[useProposalsPaginated] Filtered proposals:', {
-            received: apiProposals.length,
-            kept: safe.length,
-            ownership,
-          });
-        } else {
-          console.log('[useProposalsPaginated] Fetched executive proposals:', safe.length, ownership);
-        }
+        console.log('[useProposalsPaginated] Fetched executive proposals:', {
+          received: apiProposals.length,
+          kept: safe.length,
+          ownership,
+        });
 
         const proposals = safe.map(apiToLocal);
         return {
