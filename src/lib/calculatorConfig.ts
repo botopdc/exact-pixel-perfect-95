@@ -125,6 +125,7 @@ export const DEFAULT_CONFIG: CalculatorConfig = {
   discount: {
     "1": 0,
     "12": 0.05,
+    "24": 0.10,
     "36": 0.12,
     "48": 0.15
   },
