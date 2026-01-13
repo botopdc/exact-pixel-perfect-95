@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
+import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
 import OpenLogo from './OpenLogo';
 import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
@@ -88,9 +88,11 @@ const SavedProposals: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // Auth check for admin
+  // Auth check for admin and executive permissions
   const session = authService.getSession();
-  const isAdmin = session?.level === 1000;
+  const userLevel = session?.level || 0;
+  const isAdmin = userLevel === 1000;
+  const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel === 1000;
   
   // Local storage hooks
   const { data: proposals = [], isLoading } = useProposals();
@@ -342,10 +344,18 @@ const SavedProposals: React.FC = () => {
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <OpenLogo />
-          <Button variant="open-outline" onClick={() => navigate('/')}>
-            <ArrowLeft className="w-4 h-4" />
-            Voltar à Calculadora
-          </Button>
+          {canCreateProposal && (
+            <Button 
+              variant="open" 
+              onClick={() => {
+                const calculatorPath = getCalculatorRoute(userLevel, false);
+                navigate(calculatorPath);
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              Criar Proposta
+            </Button>
+          )}
         </div>
       </header>
 
