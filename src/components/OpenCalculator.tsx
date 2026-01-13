@@ -50,6 +50,10 @@ import {
   getValidityDate,
   calculateBackupPrice,
   maskPhone,
+  // Contract plans centralized
+  CONTRACT_PLANS,
+  VALID_CONTRACT_MONTHS,
+  isValidContractMonth,
 } from '@/lib/calculatorConfig';
 import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -841,8 +845,15 @@ const OpenCalculator: React.FC = () => {
       }
 
       // Load proposal data for editing with normalization
+      // CRITICAL: Validate selectedTerm is a valid plan (1, 12, 24, 36, 48)
+      const validTerms = ['1', '12', '24', '36', '48'];
+      const loadedTerm = editProposal.selectedTerm;
+      const termToUse = validTerms.includes(loadedTerm) ? loadedTerm : '1';
+      
+      console.log('[proposal-load] contract_months=', loadedTerm, 'termToUse=', termToUse);
+      
       setFx(toNum(editProposal.fx, config.fx_default));
-      setSelectedTerm(editProposal.selectedTerm || "1");
+      setSelectedTerm(termToUse);
       setDatacenter(editProposal.datacenter || 'SP1');
       setClient({
         name: editProposal.client?.name || '',
@@ -1040,6 +1051,14 @@ const OpenCalculator: React.FC = () => {
       intended_channel_type: isPartnerContext ? 'PARCEIRO' : 'CLIENTE',
     });
     
+    // Validate contract term before saving
+    if (!isValidContractMonth(selectedTerm)) {
+      console.error('[OpenCalculator] INVALID selectedTerm before save:', selectedTerm);
+      toast({ title: 'Erro', description: 'Vigência inválida selecionada.', variant: 'destructive' });
+      return;
+    }
+    console.log('[OpenCalculator] Saving with selectedTerm=', selectedTerm);
+    
     setSaving(true);
     try {
       // Get owner info for tracking
@@ -1048,7 +1067,7 @@ const OpenCalculator: React.FC = () => {
       // Build complete draftState - this is the SOURCE OF TRUTH for proposal data
       const draftState = {
         fx,
-        selectedTerm,
+        selectedTerm, // Validated above
         datacenter,
         client,
         proposal,
@@ -1443,16 +1462,21 @@ const OpenCalculator: React.FC = () => {
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">Vigência (desconto)</label>
                   <div className="flex gap-2 flex-wrap">
-                    {Object.entries(config.discount).map(([term, disc]) => (
-                      <Button
-                        key={term}
-                        variant={selectedTerm === term ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setSelectedTerm(term)}
-                      >
-                        {term} {parseInt(term) === 1 ? 'mês' : 'meses'} {disc > 0 && `(-${(disc * 100).toFixed(0)}%)`}
-                      </Button>
-                    ))}
+                    {/* Use CONTRACT_PLANS for guaranteed order: 1, 12, 24, 36, 48 */}
+                    {CONTRACT_PLANS.map((plan) => {
+                      const termStr = String(plan.months);
+                      const discDecimal = plan.discount / 100;
+                      return (
+                        <Button
+                          key={termStr}
+                          variant={selectedTerm === termStr ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSelectedTerm(termStr)}
+                        >
+                          {plan.months} {plan.months === 1 ? 'mês' : 'meses'} {plan.discount > 0 && `(-${plan.discount}%)`}
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div>

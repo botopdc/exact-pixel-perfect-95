@@ -116,6 +116,62 @@ export interface CalculatorConfig {
   kubernetes_addons_pricing?: K8sAddonsPricingConfig;
 }
 
+// ============================================================================
+// CONTRACT PLANS CONFIGURATION
+// Centralized definition of all valid contract plans with their discounts
+// CRITICAL: This is the single source of truth for contract terms
+// ============================================================================
+
+/**
+ * Valid contract months - must be used consistently across the app
+ */
+export const VALID_CONTRACT_MONTHS = [1, 12, 24, 36, 48] as const;
+export type ValidContractMonth = typeof VALID_CONTRACT_MONTHS[number];
+
+/**
+ * Contract plans with labels and discounts
+ * Used in UI for buttons, in calculations, and in persistence
+ */
+export const CONTRACT_PLANS = [
+  { months: 1, discount: 0, label: "1 mês" },
+  { months: 12, discount: 5, label: "12 meses (-5%)" },
+  { months: 24, discount: 10, label: "24 meses (-10%)" },
+  { months: 36, discount: 12, label: "36 meses (-12%)" },
+  { months: 48, discount: 15, label: "48 meses (-15%)" },
+] as const;
+
+/**
+ * Discount lookup by months (for quick access)
+ */
+export const DISCOUNTS_BY_MONTHS: Record<number, number> = {
+  1: 0,
+  12: 5,
+  24: 10,
+  36: 12,
+  48: 15,
+};
+
+/**
+ * Check if a value is a valid contract month
+ */
+export function isValidContractMonth(months: number | string): boolean {
+  const num = typeof months === 'string' ? parseInt(months, 10) : months;
+  return VALID_CONTRACT_MONTHS.includes(num as ValidContractMonth);
+}
+
+/**
+ * Get discount for a given contract term (as decimal 0-1)
+ */
+export function getContractDiscount(months: number | string): number {
+  const num = typeof months === 'string' ? parseInt(months, 10) : months;
+  const discount = DISCOUNTS_BY_MONTHS[num];
+  if (discount === undefined) {
+    console.error('[CONTRACT_PLAN_ERROR] Invalid contract months:', months, '→ using 0%');
+    return 0;
+  }
+  return discount / 100; // Convert to decimal (5% → 0.05)
+}
+
 export const DEFAULT_CONFIG: CalculatorConfig = {
   meta: {
     name: "OPEN Calculator Config",

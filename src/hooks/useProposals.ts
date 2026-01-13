@@ -1,5 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalculationResult, ClientInfo, ProposalMeta, AddonsState } from '@/lib/calculatorConfig';
+import { 
+  CalculationResult, 
+  ClientInfo, 
+  ProposalMeta, 
+  AddonsState,
+  VALID_CONTRACT_MONTHS,
+  isValidContractMonth,
+} from '@/lib/calculatorConfig';
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 
@@ -277,10 +284,20 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       } : undefined
     );
     
+    // Validate and get selectedTerm from dados_proposta with logging
+    const rawSelectedTerm = dadosProposta.selectedTerm;
+    const selectedTermValid = rawSelectedTerm && isValidContractMonth(rawSelectedTerm);
+    const finalSelectedTerm = selectedTermValid ? rawSelectedTerm : '1';
+    
+    if (!selectedTermValid && rawSelectedTerm) {
+      console.error('[proposal-load] INVALID selectedTerm in dados_proposta:', rawSelectedTerm, '→ defaulting to 1');
+    }
+    console.log('[proposal-load] contract_months=', rawSelectedTerm, 'finalSelectedTerm=', finalSelectedTerm);
+    
     return {
       id: apiProposal.id,
       fx: toNum(dadosProposta.fx, toNum(apiProposal.fx, 5)),
-      selectedTerm: dadosProposta.selectedTerm || '1',
+      selectedTerm: finalSelectedTerm,
       datacenter: dadosProposta.datacenter || 'SP1',
       client: {
         name: dadosProposta.client?.name || apiProposal.name || '',
@@ -333,9 +350,15 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   // LEGACY FORMAT: Reconstruct from servers/addons arrays (backward compatibility)
   console.log('[apiToLocal] Using legacy format for proposal', apiProposal.id);
   
-  // Map contract_duration to selectedTerm
-  const termMap: Record<number, string> = { 1: '1', 12: '12', 24: '24', 36: '36' };
-  const selectedTerm = termMap[apiProposal.contract_duration] || '1';
+  // Map contract_duration to selectedTerm (MUST include all valid plans: 1, 12, 24, 36, 48)
+  // Use centralized validation
+  const contractDuration = apiProposal.contract_duration;
+  const selectedTerm = isValidContractMonth(contractDuration) ? String(contractDuration) : '1';
+  
+  if (!isValidContractMonth(contractDuration)) {
+    console.error('[proposal-load] LEGACY: INVALID contract_duration:', contractDuration, '→ defaulting to 1');
+  }
+  console.log('[proposal-load] LEGACY contract_months=', contractDuration, 'selectedTerm=', selectedTerm);
   
   // Map datacenter string to code
   const datacenterMap: Record<string, 'SP1' | 'SP2' | 'FL1' | 'CE1'> = {
@@ -537,9 +560,16 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
 
 // Transform local proposal to API format - SAVES COMPLETE DATA in dados_proposta
 function localToApi(proposal: SavedProposal): Record<string, unknown> {
-  // Map selectedTerm to contract_duration
-  const termToMonths: Record<string, number> = { '1': 1, '12': 12, '24': 24, '36': 36 };
-  const contractDuration = termToMonths[proposal.selectedTerm] || 1;
+  // Map selectedTerm to contract_duration (MUST include all valid plans: 1, 12, 24, 36, 48)
+  // Use centralized validation
+  const termAsNumber = parseInt(proposal.selectedTerm, 10);
+  const contractDuration = isValidContractMonth(termAsNumber) ? termAsNumber : 1;
+  
+  // Validate and log contract_months being saved
+  if (!isValidContractMonth(proposal.selectedTerm)) {
+    console.error('[proposal-save] INVALID contract_months:', proposal.selectedTerm, '→ defaulting to 1');
+  }
+  console.log('[proposal-save] contract_months=', contractDuration, 'selectedTerm=', proposal.selectedTerm);
   
   // Map datacenter code to string
   const datacenterNames: Record<string, string> = {
