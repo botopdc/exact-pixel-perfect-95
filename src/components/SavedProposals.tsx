@@ -353,7 +353,7 @@ const SavedProposals: React.FC = () => {
               }}
             >
               <Plus className="w-4 h-4" />
-              Criar Proposta
+              Nova Proposta
             </Button>
           )}
         </div>
