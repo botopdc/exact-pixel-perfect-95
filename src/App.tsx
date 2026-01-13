@@ -56,6 +56,7 @@ import Executivos from '@/pages/comercial/Executivos';
 import GestaoExecutivos from '@/pages/comercial/GestaoExecutivos';
 import PropostasExecutivos from '@/pages/comercial/PropostasExecutivos';
 import ComissoesExecutivos from '@/pages/comercial/ComissoesExecutivos';
+import MeuPotencial from '@/pages/comercial/MeuPotencial';
 import GestaoUsuarios from '@/pages/GestaoUsuarios';
 
 const queryClient = new QueryClient();
@@ -98,6 +99,7 @@ const App = () => (
             <Route path="/executivo/dashboard" element={<DashboardHome />} />
             <Route path="/executivo/calculadora" element={<Calculadora />} />
             <Route path="/executivo/propostas" element={<PropostasExecutivos />} />
+            <Route path="/executivo/potencial" element={<MeuPotencial />} />
           </Route>
           
           {/* Admin/internal protected dashboard routes (non-executive levels) */}
