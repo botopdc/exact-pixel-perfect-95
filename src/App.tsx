@@ -83,7 +83,6 @@ const App = () => (
           {/* Partner public routes */}
           <Route path="/parceiro/cadastro" element={<CadastroParceiro />} />
           <Route path="/parceiro/login" element={<LoginParceiro />} />
-          <Route path="/parceiro/contrato" element={<AceiteContrato />} />
           
           {/* Partner protected routes - uses same OpenCalculator component within PartnerLayout */}
           <Route element={<PartnerLayout />}>
@@ -91,6 +90,7 @@ const App = () => (
             <Route path="/parceiro/calculadora" element={<CalculadoraParceiro />} />
             <Route path="/parceiro/propostas" element={<PropostasParceiro />} />
             <Route path="/parceiro/indicacoes" element={<IndicacoesParceiro />} />
+            <Route path="/parceiro/contrato" element={<AceiteContrato />} />
           </Route>
           
           {/* Executive protected routes (user_level 700/750) - dedicated layout */}
