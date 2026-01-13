@@ -110,18 +110,37 @@ async function forwardJson(token: string, url: string, method: "GET" | "POST" | 
 }
 
 // ============================================================================
-// RBAC RULES FOR PROPOSAL ACCESS
+// RBAC RULES FOR PROPOSAL ACCESS (BASED ON API FIELDS)
 // ============================================================================
+// Source of truth: proposal.created_by (integer, nullable) from API
+// Fallback: proposal.creator?.id (from __with=creator expansion)
+// 
 // Level 1000 (Admin): See ALL proposals (no filter)
 // Level 750 (Gerente Comercial): See ALL proposals (no filter)
 // Level 775 (CS): See only OWN proposals (created_by === user.id)
 // Level 700 (Executivo): See only OWN proposals (created_by === user.id)
-// Level 200 (Parceiro): See only OWN proposals (created_by === user.id AND channel_type === PARCEIRO)
+// Level 200 (Parceiro): See only OWN proposals (created_by === user.id)
 // Level 1 (Cliente): See only proposals where proposal.email === user.email
+// 
+// IMPORTANT: Never show proposals with created_by=null to non-managers
 // ============================================================================
 
 function canSeeAllProposals(level: number): boolean {
   return level === 1000 || level === 750;
+}
+
+// Helper to get owner ID from proposal - uses API fields only
+function getProposalOwnerId(proposal: any): number | null {
+  // Primary: created_by field from API (integer, nullable)
+  if (proposal.created_by !== undefined && proposal.created_by !== null) {
+    return Number(proposal.created_by);
+  }
+  // Fallback: creator object from __with=creator expansion
+  if (proposal.creator?.id !== undefined && proposal.creator?.id !== null) {
+    return Number(proposal.creator.id);
+  }
+  // No owner info available
+  return null;
 }
 
 function filterProposalsByOwnership(
@@ -133,7 +152,9 @@ function filterProposalsByOwnership(
   
   // Admin (1000) and Gerente Comercial (750) see all
   if (canSeeAllProposals(level)) {
-    console.log("[proposal-gateway] RBAC: Admin/Manager sees all proposals");
+    console.log("[proposal-gateway] RBAC: Admin/Manager sees all proposals", {
+      count: proposals.length
+    });
     return proposals;
   }
   
@@ -152,47 +173,23 @@ function filterProposalsByOwnership(
     return filtered;
   }
   
-  // Partner (200): Filter by created_by (user ID)
-  if (level === 200) {
+  // Partner (200), Executives (700), CS (775): Filter by created_by (user ID)
+  if (level === 200 || level === 700 || level === 775) {
     const filtered = proposals.filter((p) => {
-      // Primary: Check created_by field in dados_proposta
-      const createdById = p.dados_proposta?.created_by_user_id;
-      if (createdById !== undefined && createdById !== null) {
-        return createdById === me.id;
+      const ownerId = getProposalOwnerId(p);
+      
+      // If no owner info, NEVER show to non-managers (security)
+      if (ownerId === null) {
+        console.log("[proposal-gateway] RBAC: Hiding proposal without owner:", p.id);
+        return false;
       }
-      // Fallback: Check if no creator info (legacy data) - show only if reseller matches partner
-      if (me.partner?.name) {
-        return p.reseller_name === me.partner.name;
-      }
-      return false;
+      
+      // Must be the creator
+      return ownerId === me.id;
     });
-    console.log("[proposal-gateway] RBAC: Partner filter by created_by", { 
-      userId: me.id, 
-      partnerName: me.partner?.name,
-      before: proposals.length, 
-      after: filtered.length 
-    });
-    return filtered;
-  }
-  
-  // Executives (700) and CS (775): Filter by created_by (user ID)
-  if (level === 700 || level === 775) {
-    const filtered = proposals.filter((p) => {
-      // Primary: Check created_by field in dados_proposta
-      const createdById = p.dados_proposta?.created_by_user_id;
-      if (createdById !== undefined && createdById !== null) {
-        return createdById === me.id;
-      }
-      // Fallback for legacy data: check email
-      const creatorEmail = (p.dados_proposta?.created_by_email || "").toLowerCase();
-      if (creatorEmail) {
-        return creatorEmail === me.email.toLowerCase();
-      }
-      // Legacy without owner info - show to all executives for now
-      console.log("[proposal-gateway] Legacy proposal without owner info:", p.id);
-      return true;
-    });
-    console.log("[proposal-gateway] RBAC: Executive/CS filter by created_by", { 
+    
+    const roleLabel = level === 200 ? "Partner" : level === 775 ? "CS" : "Executive";
+    console.log(`[proposal-gateway] RBAC: ${roleLabel} filter by created_by`, { 
       userId: me.id, 
       userEmail: me.email,
       before: proposals.length, 
@@ -221,32 +218,17 @@ function canAccessProposal(proposal: any, me: MeResponse): boolean {
     return clientEmail === me.email.toLowerCase();
   }
   
-  // Partner (200): Must be the creator
-  if (level === 200) {
-    const createdById = proposal.dados_proposta?.created_by_user_id;
-    if (createdById !== undefined && createdById !== null) {
-      return createdById === me.id;
+  // Partner (200), Executives (700), CS (775): Must be the creator
+  if (level === 200 || level === 700 || level === 775) {
+    const ownerId = getProposalOwnerId(proposal);
+    
+    // If no owner info, deny access (security)
+    if (ownerId === null) {
+      console.log("[proposal-gateway] RBAC: Denying access to proposal without owner:", proposal.id);
+      return false;
     }
-    // Fallback: reseller_name match
-    if (me.partner?.name) {
-      return proposal.reseller_name === me.partner.name;
-    }
-    return false;
-  }
-  
-  // Executives (700) and CS (775): Must be the creator
-  if (level === 700 || level === 775) {
-    const createdById = proposal.dados_proposta?.created_by_user_id;
-    if (createdById !== undefined && createdById !== null) {
-      return createdById === me.id;
-    }
-    // Fallback: email match
-    const creatorEmail = (proposal.dados_proposta?.created_by_email || "").toLowerCase();
-    if (creatorEmail) {
-      return creatorEmail === me.email.toLowerCase();
-    }
-    // Legacy without owner info - allow for now
-    return true;
+    
+    return ownerId === me.id;
   }
   
   // Other levels: No access
@@ -276,8 +258,10 @@ const handler = async (req: Request): Promise<Response> => {
       enforceOwnershipOrThrow(me, scope);
 
       // Forward query params (pagination/email), but always force channel_type
+      // ALWAYS include __with=creator to get owner info for RBAC
       const forwardParams = new URLSearchParams(url.searchParams);
       forwardParams.set("channel_type", scope);
+      forwardParams.set("__with", "creator"); // Essential for RBAC
       forwardParams.delete("scope");
 
       const { res, data } = await forwardJson(

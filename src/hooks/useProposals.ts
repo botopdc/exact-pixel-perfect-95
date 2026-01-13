@@ -35,6 +35,14 @@ export interface SavedProposal {
   status?: ProposalStatus;
   acceptance?: ProposalAcceptance;
   observacao?: string;
+  // RBAC fields from API (critical for access control)
+  created_by?: number | null;
+  creator?: {
+    id: number;
+    email: string;
+    name: string;
+    level: number;
+  } | null;
 }
 
 // API Proposal format (what comes from the API)
@@ -67,7 +75,15 @@ interface ApiProposal {
   status_rejected_at?: string;
   acceptance_channel?: string;
   acceptance_id?: string;
-  // Owner tracking (from dados_proposta)
+  // RBAC fields from API (critical for access control)
+  created_by?: number | null; // ID of the user who created the proposal
+  creator?: {
+    id: number;
+    email: string;
+    name: string;
+    level: number;
+  } | null; // User object from __with=creator expansion
+  // Owner tracking (from dados_proposta - legacy, still supported)
   dados_proposta?: {
     created_by_user_id?: number;
     created_by_email?: string;
@@ -241,6 +257,9 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       status: resolvedStatus,
       acceptance: resolvedAcceptance,
       observacao: dadosProposta.observacao || apiProposal.observations || undefined,
+      // RBAC fields from API - critical for access control
+      created_by: apiProposal.created_by ?? null,
+      creator: apiProposal.creator ?? null,
       result: savedResult || {
         rows: [],
         subRec: 0,
@@ -453,6 +472,9 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     status: resolvedStatus,
     acceptance: resolvedAcceptance,
     observacao: apiProposal.observations || undefined,
+    // RBAC fields from API - critical for access control
+    created_by: apiProposal.created_by ?? null,
+    creator: apiProposal.creator ?? null,
     result,
   };
 }
