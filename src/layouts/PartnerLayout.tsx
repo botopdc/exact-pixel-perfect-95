@@ -29,7 +29,6 @@ import {
   Menu,
   Building2,
   FileText,
-  Handshake,
   FileStack,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -62,6 +61,7 @@ function PartnerSidebar() {
     { title: 'Dashboard', url: '/parceiro/dashboard', icon: LayoutDashboard },
     { title: 'Calculadora de Preços', url: '/parceiro/calculadora', icon: Calculator },
     { title: 'Propostas Salvas', url: '/parceiro/propostas', icon: FileStack },
+    { title: 'Meu Contrato', url: '/parceiro/contrato', icon: FileText },
   ];
 
   // FINDER gets access to referrals
@@ -178,11 +178,6 @@ function PartnerSidebar() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuItem disabled>
-              <FileText className="mr-2 h-4 w-4" />
-              Meu Contrato
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
               Sair
