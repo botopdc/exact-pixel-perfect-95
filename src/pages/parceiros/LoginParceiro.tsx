@@ -18,15 +18,8 @@ export default function LoginParceiro() {
   // Redirect if already logged in
   useEffect(() => {
     const session = partnerAuthService.getSession();
-    if (session) {
-      // Check if contract accepted
-      if (!session.contrato_aceito) {
-        navigate('/parceiro/contrato', { replace: true });
-      } else if (session.status !== 'Ativo') {
-        // Stay on login with message
-      } else {
-        navigate('/parceiro/dashboard', { replace: true });
-      }
+    if (session && session.status === 'Ativo') {
+      navigate('/parceiro/dashboard', { replace: true });
     }
   }, [navigate]);
 
@@ -54,12 +47,8 @@ export default function LoginParceiro() {
           return;
         }
 
-        // Check if contract accepted
-        if (!result.session.contrato_aceito) {
-          navigate('/parceiro/contrato', { replace: true });
-        } else {
-          navigate('/parceiro/dashboard', { replace: true });
-        }
+        // Ir direto para o dashboard (sem verificação de contrato)
+        navigate('/parceiro/dashboard', { replace: true });
       } else {
         setError(result.error || 'Credenciais inválidas');
       }

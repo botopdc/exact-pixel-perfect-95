@@ -231,9 +231,6 @@ export default function PartnerLayout() {
     let mounted = true;
 
     const checkAuth = async () => {
-      const pathname = location.pathname;
-      const contractPath = '/parceiro/contrato';
-
       // First check local session exists
       const localSession = partnerAuthService.getSession();
       if (!localSession) {
@@ -241,15 +238,10 @@ export default function PartnerLayout() {
         return;
       }
 
-      // Verificar flag local de aceite de contrato (prioridade sobre API)
-      const localContractAccepted = localStorage.getItem('partner_contract_accepted_v2') === 'true';
-
       if (import.meta.env.DEV) {
         console.log('PartnerGuard', {
-          path: pathname,
+          path: location.pathname,
           partnerId: localSession.partnerId,
-          sessionAccepted: localSession.contrato_aceito,
-          localFlagAccepted: localContractAccepted,
           status: localSession.status,
         });
       }
@@ -262,67 +254,10 @@ export default function PartnerLayout() {
         return;
       }
 
-      // Se flag local indica aceite OU sessão indica aceite, liberar acesso
-      if (localContractAccepted || localSession.contrato_aceito === true) {
-        // Background refresh (non-blocking, apenas para manter dados atualizados)
-        partnerAuthService.refreshSessionFromApi().catch((err) => {
-          console.warn('[PartnerLayout] Background refresh failed:', err);
-        });
-        return;
-      }
-
-      // Contract NOT accepted locally - verificar com API uma única vez
-      try {
-        const freshSession = await partnerAuthService.refreshSessionFromApi();
-
-        if (import.meta.env.DEV) {
-          console.log('PartnerGuard after refresh', {
-            path: pathname,
-            partnerId: freshSession?.partnerId,
-            accepted: freshSession?.contrato_aceito,
-            status: freshSession?.status,
-          });
-        }
-
-        if (!freshSession) {
-          partnerAuthService.logout();
-          navigate('/parceiro/login', { replace: true });
-          return;
-        }
-
-        if (freshSession.status !== 'Ativo') {
-          partnerAuthService.logout();
-          toast.error('Sua conta está inativa. Entre em contato com a equipe OPEN.');
-          navigate('/parceiro/login', { replace: true });
-          return;
-        }
-
-        // Verificar novamente o flag local após refresh (pode ter sido atualizado)
-        const updatedLocalFlag = localStorage.getItem('partner_contract_accepted_v2') === 'true';
-        
-        // Se ainda não aceito (nem local nem API), redirecionar para contrato
-        if (!updatedLocalFlag && freshSession.contrato_aceito !== true && pathname !== contractPath) {
-          navigate(contractPath, { replace: true });
-          return;
-        }
-      } catch (err: any) {
-        const status = err?.response?.status;
-        if (status === 401 || status === 403) {
-          partnerAuthService.logout();
-          toast.error('Sessão expirada. Faça login novamente.');
-          navigate('/parceiro/login', { replace: true });
-          return;
-        }
-
-        console.error('[PartnerLayout] Falha ao validar sessão via API:', err);
-
-        // Fallback: verificar flag local antes de forçar contrato
-        const fallbackLocalFlag = localStorage.getItem('partner_contract_accepted_v2') === 'true';
-        if (!fallbackLocalFlag && pathname !== contractPath) {
-          navigate(contractPath, { replace: true });
-          return;
-        }
-      }
+      // Background refresh (non-blocking, apenas para manter dados atualizados)
+      partnerAuthService.refreshSessionFromApi().catch((err) => {
+        console.warn('[PartnerLayout] Background refresh failed:', err);
+      });
     };
 
     void checkAuth().finally(() => {

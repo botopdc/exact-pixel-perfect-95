@@ -290,14 +290,10 @@ export const partnerAuthService = {
 
   logout(): void {
     localStorage.removeItem(PARTNER_SESSION_KEY);
-    // Limpar flag de aceite de contrato ao fazer logout (para evitar sessões misturadas)
-    localStorage.removeItem('partner_contract_accepted_v2');
-    localStorage.removeItem('partner_contract_details_v2');
     openApi.clearToken();
   },
 
   // Get session from localStorage
-  // Verifica também o flag local de aceite de contrato
   getSession(): PartnerSession | null {
     try {
       const data = localStorage.getItem(PARTNER_SESSION_KEY);
@@ -307,14 +303,6 @@ export const partnerAuthService = {
       if (new Date(session.expiresAt) <= new Date()) {
         this.logout();
         return null;
-      }
-
-      // Verificar flag local de aceite de contrato (até API suportar)
-      const localContractAccepted = localStorage.getItem('partner_contract_accepted_v2') === 'true';
-      
-      // Se o flag local indica aceite, sobrescrever a sessão
-      if (localContractAccepted && !session.contrato_aceito) {
-        session.contrato_aceito = true;
       }
 
       return session;
@@ -330,7 +318,7 @@ export const partnerAuthService = {
   canAccessCalculator(): boolean {
     const session = this.getSession();
     if (!session) return false;
-    return session.status === 'Ativo' && session.contrato_aceito;
+    return session.status === 'Ativo';
   },
 
   // Update session with contract accepted flag (after successful API call)
