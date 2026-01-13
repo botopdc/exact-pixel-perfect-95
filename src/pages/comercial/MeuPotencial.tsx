@@ -1,6 +1,9 @@
 /**
  * Meu Potencial - Executive Earnings Dashboard
  * Shows real-time commission projections for level 700 executives
+ * 
+ * IMPORTANT: This page only shows proposals with status === 'APPROVED'
+ * and created_by === user.id (strict RBAC enforcement)
  */
 
 import { useEffect, useState, useMemo } from 'react';
@@ -8,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { openApi } from '@/lib/openApi';
 import { authService } from '@/services/authService';
+import { normalizeStatus } from '@/hooks/useProposals';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -241,11 +245,11 @@ export default function MeuPotencial() {
         
         const allProposals = (response.data || []) as ApiProposal[];
         
-        // Filter: only approved proposals created by this user
+        // Filter: only APPROVED proposals created by this user
         const filteredProposals = allProposals.filter((p) => {
-          const isApproved = p.status?.toLowerCase() === 'aprovado' || 
-                            p.status?.toLowerCase() === 'a' ||
-                            p.status === 'A';
+          // Normalize the status using the centralized function
+          const normalizedStatus = normalizeStatus(p.status);
+          const isApproved = normalizedStatus === 'APPROVED';
           const isOwnProposal = p.created_by === user.id;
           
           return isApproved && isOwnProposal;

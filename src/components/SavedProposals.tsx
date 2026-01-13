@@ -30,43 +30,64 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// Status display helper - shows LETTER with color and tooltip
+// Status display helper - shows badge with color and tooltip for STANDARDIZED status
 function getStatusBadge(status: ProposalStatus | undefined) {
-  switch (status) {
-    case 'A':
+  // Default to DRAFT if no status
+  const normalizedStatus = status || 'DRAFT';
+  
+  switch (normalizedStatus) {
+    case 'DRAFT':
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge className="bg-green-500/20 text-green-600 border-green-500/30 hover:bg-green-500/30 font-bold text-sm px-3">A</Badge>
+            <Badge className="bg-muted text-muted-foreground border-muted-foreground/30 hover:bg-muted/80 font-medium text-xs px-2">Rascunho</Badge>
           </TooltipTrigger>
-          <TooltipContent>Aprovado</TooltipContent>
+          <TooltipContent>Rascunho - Proposta ainda não enviada</TooltipContent>
         </Tooltip>
       );
-    case 'R':
+    case 'SENT':
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge className="bg-red-500/20 text-red-600 border-red-500/30 hover:bg-red-500/30 font-bold text-sm px-3">R</Badge>
+            <Badge className="bg-sky-500/20 text-sky-600 border-sky-500/30 hover:bg-sky-500/30 font-medium text-xs px-2">Enviado</Badge>
           </TooltipTrigger>
-          <TooltipContent>Recusado</TooltipContent>
+          <TooltipContent>Enviado para o cliente</TooltipContent>
         </Tooltip>
       );
-    case 'E':
+    case 'APPROVED':
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge className="bg-sky-500/20 text-sky-600 border-sky-500/30 hover:bg-sky-500/30 font-bold text-sm px-3">E</Badge>
+            <Badge className="bg-green-500/20 text-green-600 border-green-500/30 hover:bg-green-500/30 font-medium text-xs px-2">Aprovado</Badge>
           </TooltipTrigger>
-          <TooltipContent>Enviado</TooltipContent>
+          <TooltipContent>Proposta aprovada pelo cliente</TooltipContent>
+        </Tooltip>
+      );
+    case 'REJECTED':
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-red-500/20 text-red-600 border-red-500/30 hover:bg-red-500/30 font-medium text-xs px-2">Recusado</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Proposta recusada pelo cliente</TooltipContent>
+        </Tooltip>
+      );
+    case 'EXPIRED':
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-orange-500/20 text-orange-600 border-orange-500/30 hover:bg-orange-500/30 font-medium text-xs px-2">Expirado</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Proposta expirada - validade vencida</TooltipContent>
         </Tooltip>
       );
     default:
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 hover:bg-blue-500/30 font-bold text-sm px-3">S</Badge>
+            <Badge className="bg-muted text-muted-foreground border-muted-foreground/30 hover:bg-muted/80 font-medium text-xs px-2">Rascunho</Badge>
           </TooltipTrigger>
-          <TooltipContent>Sem status</TooltipContent>
+          <TooltipContent>Rascunho - Proposta ainda não enviada</TooltipContent>
         </Tooltip>
       );
   }
@@ -75,10 +96,12 @@ function getStatusBadge(status: ProposalStatus | undefined) {
 // Get ID color class based on status
 function getIdColorClass(status: ProposalStatus | undefined): string {
   switch (status) {
-    case 'A':
+    case 'APPROVED':
       return 'text-green-600';
-    case 'R':
+    case 'REJECTED':
       return 'text-red-600';
+    case 'EXPIRED':
+      return 'text-orange-600';
     default:
       return 'text-primary';
   }
@@ -115,14 +138,8 @@ const SavedProposals: React.FC = () => {
     return proposals.filter((p) => {
       // Filter by status
       if (statusFilter !== 'all') {
-        const proposalStatus = p.status || ''; // Normalize undefined/null to empty string
-        if (statusFilter === '') {
-          // "Sem status" filter: show only proposals without status
-          if (proposalStatus !== '') return false;
-        } else {
-          // Specific status filter
-          if (proposalStatus !== statusFilter) return false;
-        }
+        const proposalStatus = p.status || 'DRAFT'; // Default to DRAFT
+        if (proposalStatus !== statusFilter) return false;
       }
       
       // Filter by search query (client name or company)
@@ -175,10 +192,10 @@ const SavedProposals: React.FC = () => {
     if (displayProposalId) {
       trackEvent.mutate({ proposalId: displayProposalId, type: 'link_copy', channel: 'ui' });
       
-      // Update status to "E" (Enviado) if not already set
-      if (!proposal.status) {
-        console.log('[SavedProposals] Updating status to E:', { displayProposalId, apiId });
-        await updateStatusMutation.mutateAsync({ id: apiId, status: 'E' });
+      // Update status to SENT if still DRAFT
+      if (!proposal.status || proposal.status === 'DRAFT') {
+        console.log('[SavedProposals] Updating status to SENT:', { displayProposalId, apiId });
+        await updateStatusMutation.mutateAsync({ id: apiId, status: 'SENT' });
       }
     }
     
@@ -190,11 +207,19 @@ const SavedProposals: React.FC = () => {
   };
 
   const handleEdit = (proposal: SavedProposal) => {
-    // Block editing of approved proposals
-    if (proposal.status === 'A') {
+    // Block editing of approved or rejected proposals
+    if (proposal.status === 'APPROVED') {
       toast({ 
         title: 'Edição bloqueada', 
         description: 'Propostas aprovadas não podem ser editadas', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    if (proposal.status === 'REJECTED') {
+      toast({ 
+        title: 'Edição bloqueada', 
+        description: 'Propostas recusadas não podem ser editadas', 
         variant: 'destructive' 
       });
       return;
@@ -301,10 +326,10 @@ const SavedProposals: React.FC = () => {
       // Track email send
       trackEvent.mutate({ proposalId: displayProposalId, type: 'email_send', channel: 'ui' });
       
-      // Update status to "E" (Enviado) if not already set
-      if (!proposal.status) {
-        console.log('[SavedProposals] Updating status to E after email:', { displayProposalId, apiId });
-        await updateStatusMutation.mutateAsync({ id: apiId, status: 'E' });
+      // Update status to SENT if still DRAFT
+      if (!proposal.status || proposal.status === 'DRAFT') {
+        console.log('[SavedProposals] Updating status to SENT after email:', { displayProposalId, apiId });
+        await updateStatusMutation.mutateAsync({ id: apiId, status: 'SENT' });
       }
       
       toast({ title: 'Email enviado!', description: `Proposta enviada para ${proposal.client.email}` });
@@ -401,36 +426,44 @@ const SavedProposals: React.FC = () => {
                 Todos
               </Button>
               <Button
-                variant={statusFilter === '' ? 'open' : 'outline'}
+                variant={statusFilter === 'DRAFT' ? 'open' : 'outline'}
                 size="sm"
-                onClick={() => setStatusFilter('')}
-                className={statusFilter === '' ? '' : 'text-muted-foreground'}
+                onClick={() => setStatusFilter('DRAFT')}
+                className={statusFilter === 'DRAFT' ? '' : 'text-muted-foreground'}
               >
-                Sem status
+                Rascunho
               </Button>
               <Button
-                variant={statusFilter === 'E' ? 'open' : 'outline'}
+                variant={statusFilter === 'SENT' ? 'open' : 'outline'}
                 size="sm"
-                onClick={() => setStatusFilter('E')}
-                className={statusFilter === 'E' ? '' : 'text-blue-500 border-blue-500/30 hover:bg-blue-500/10'}
+                onClick={() => setStatusFilter('SENT')}
+                className={statusFilter === 'SENT' ? '' : 'text-sky-500 border-sky-500/30 hover:bg-sky-500/10'}
               >
                 Enviado
               </Button>
               <Button
-                variant={statusFilter === 'A' ? 'open' : 'outline'}
+                variant={statusFilter === 'APPROVED' ? 'open' : 'outline'}
                 size="sm"
-                onClick={() => setStatusFilter('A')}
-                className={statusFilter === 'A' ? '' : 'text-green-500 border-green-500/30 hover:bg-green-500/10'}
+                onClick={() => setStatusFilter('APPROVED')}
+                className={statusFilter === 'APPROVED' ? '' : 'text-green-500 border-green-500/30 hover:bg-green-500/10'}
               >
                 Aprovado
               </Button>
               <Button
-                variant={statusFilter === 'R' ? 'open' : 'outline'}
+                variant={statusFilter === 'REJECTED' ? 'open' : 'outline'}
                 size="sm"
-                onClick={() => setStatusFilter('R')}
-                className={statusFilter === 'R' ? '' : 'text-red-500 border-red-500/30 hover:bg-red-500/10'}
+                onClick={() => setStatusFilter('REJECTED')}
+                className={statusFilter === 'REJECTED' ? '' : 'text-red-500 border-red-500/30 hover:bg-red-500/10'}
               >
                 Recusado
+              </Button>
+              <Button
+                variant={statusFilter === 'EXPIRED' ? 'open' : 'outline'}
+                size="sm"
+                onClick={() => setStatusFilter('EXPIRED')}
+                className={statusFilter === 'EXPIRED' ? '' : 'text-orange-500 border-orange-500/30 hover:bg-orange-500/10'}
+              >
+                Expirado
               </Button>
             </div>
           </div>
@@ -500,9 +533,9 @@ const SavedProposals: React.FC = () => {
                                 variant="ghost" 
                                 size="icon" 
                                 onClick={() => handleEdit(p)} 
-                                className={p.status === 'A' ? "text-muted-foreground cursor-not-allowed opacity-50" : "text-primary hover:text-primary hover:bg-primary/10"} 
-                                title={p.status === 'A' ? "Proposta aprovada não pode ser editada" : "Editar proposta"}
-                                disabled={p.status === 'A'}
+                                className={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "text-muted-foreground cursor-not-allowed opacity-50" : "text-primary hover:text-primary hover:bg-primary/10"} 
+                                title={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "Proposta finalizada não pode ser editada" : "Editar proposta"}
+                                disabled={p.status === 'APPROVED' || p.status === 'REJECTED'}
                               >
                                 <Pencil className="w-4 h-4" />
                               </Button>

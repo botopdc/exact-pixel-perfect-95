@@ -32,12 +32,12 @@ const PropostaAceite: React.FC = () => {
     }
   }, [id]);
 
-  // Check if already approved/rejected - uses "Approved"/"Rejected" from API
+  // Check if already approved/rejected - uses STANDARDIZED status values
   useEffect(() => {
     const status = proposal?.status;
-    if (status === 'Approved' || status === 'A') {
+    if (status === 'APPROVED') {
       setFinalStatus('A');
-    } else if (status === 'Rejected' || status === 'R') {
+    } else if (status === 'REJECTED') {
       setFinalStatus('R');
     }
   }, [proposal?.status]);
@@ -76,11 +76,11 @@ const PropostaAceite: React.FC = () => {
         numericId: proposal.id,
       });
 
-      // Update proposal status using ONLY the "Approved" status field
+      // Update proposal status using ONLY the APPROVED status field
       // API will automatically set approved_at and status_at
       await updateStatusMutation.mutateAsync({
         id: apiId,
-        status: 'Approved',
+        status: 'APPROVED',
       });
 
       // Track accept event
@@ -144,10 +144,10 @@ const PropostaAceite: React.FC = () => {
         numericId: proposal.id,
       });
 
-      // Update proposal status using ONLY the "Rejected" status field
+      // Update proposal status using ONLY the REJECTED status field
       await updateStatusMutation.mutateAsync({
         id: apiId,
-        status: 'Rejected',
+        status: 'REJECTED',
       });
 
       // Track reject event

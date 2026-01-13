@@ -3,8 +3,48 @@ import { CalculationResult, ClientInfo, ProposalMeta, AddonsState } from '@/lib/
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 
-// Proposal status type - supports both legacy (E/A/R) and API official format (Approved/Rejected)
-export type ProposalStatus = 'E' | 'A' | 'R' | '' | 'Approved' | 'Rejected' | 'Enviado';
+// Proposal status type - STANDARDIZED to 5 canonical values
+// DRAFT = Initial state when created
+// SENT = Proposal sent to client
+// APPROVED = Client accepted the proposal
+// REJECTED = Client rejected the proposal
+// EXPIRED = Proposal validity has passed
+export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+
+// Legacy status mapping - for backward compatibility
+const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
+  '': 'DRAFT',
+  'S': 'DRAFT', // Legacy "Sem status" → DRAFT
+  'E': 'SENT',
+  'Enviado': 'SENT',
+  'A': 'APPROVED',
+  'Approved': 'APPROVED',
+  'Aprovado': 'APPROVED',
+  'R': 'REJECTED',
+  'Rejected': 'REJECTED',
+  'Recusado': 'REJECTED',
+};
+
+// Normalize any status value to canonical ProposalStatus
+export function normalizeStatus(rawStatus: string | undefined | null): ProposalStatus {
+  if (!rawStatus || rawStatus.trim() === '') return 'DRAFT';
+  const normalized = LEGACY_STATUS_MAP[rawStatus];
+  if (normalized) return normalized;
+  // If it's already a valid canonical status, return it
+  if (['DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'].includes(rawStatus)) {
+    return rawStatus as ProposalStatus;
+  }
+  // Default to DRAFT for unknown values
+  console.warn('[normalizeStatus] Unknown status value:', rawStatus, '→ DRAFT');
+  return 'DRAFT';
+}
+
+// Check if proposal is expired based on due_at date
+export function isProposalExpired(dueAt: string | undefined): boolean {
+  if (!dueAt) return false;
+  const dueDate = new Date(dueAt);
+  return dueDate < new Date();
+}
 
 // Acceptance/Rejection info
 export interface ProposalAcceptance {
@@ -216,12 +256,16 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
     
     // Resolve status: prioritize API "status" field, then proposal_status, then dados_proposta
-    const resolvedStatus = (
-      apiProposal.status ||
-      apiProposal.proposal_status || 
-      dadosProposta.status || 
-      ''
-    ) as ProposalStatus;
+    // Then normalize to canonical ProposalStatus
+    const rawStatus = apiProposal.status || apiProposal.proposal_status || dadosProposta.status || '';
+    let resolvedStatus = normalizeStatus(rawStatus);
+    
+    // Check if proposal is expired (overrides other statuses except APPROVED/REJECTED)
+    if (resolvedStatus !== 'APPROVED' && resolvedStatus !== 'REJECTED' && apiProposal.due_at) {
+      if (isProposalExpired(apiProposal.due_at)) {
+        resolvedStatus = 'EXPIRED';
+      }
+    }
     
     // Resolve acceptance info
     const resolvedAcceptance: ProposalAcceptance | undefined = dadosProposta.acceptance || (
@@ -427,8 +471,17 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     totalWithOver: grandTotal,
   };
   
-  // Resolve status for legacy format - prioritize official "status" field
-  const resolvedStatus = (apiProposal.status || apiProposal.proposal_status || '') as ProposalStatus;
+  // Resolve status for legacy format - prioritize official "status" field and normalize
+  const rawStatus = apiProposal.status || apiProposal.proposal_status || '';
+  let resolvedStatus = normalizeStatus(rawStatus);
+  
+  // Check if proposal is expired (overrides other statuses except APPROVED/REJECTED)
+  if (resolvedStatus !== 'APPROVED' && resolvedStatus !== 'REJECTED' && apiProposal.due_at) {
+    if (isProposalExpired(apiProposal.due_at)) {
+      resolvedStatus = 'EXPIRED';
+    }
+  }
+  
   const resolvedAcceptance: ProposalAcceptance | undefined = (
     (apiProposal.status_accepted_at || apiProposal.status_rejected_at) ? {
       id: apiProposal.acceptance_id || '',
@@ -665,14 +718,15 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     servers: serversArray,
     due_at: dueAt.toISOString(),
     // STATUS FIELDS - persisted at API level for proper filtering
-    // proposal_status is the CANONICAL source of truth: '', 'E', 'A', 'R'
-    proposal_status: proposal.status || '',
+    // status is the CANONICAL source of truth: 'DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'
+    proposal_status: proposal.status || 'DRAFT',
+    status: proposal.status || 'DRAFT',
     // Only set status_sent_at on first send transition
     status_sent_at: proposal.acceptance?.acceptedAt 
       ? undefined 
       : proposal.acceptance?.rejectedAt 
         ? undefined 
-        : proposal.status === 'E' 
+        : proposal.status === 'SENT' 
           ? new Date().toISOString() 
           : undefined,
     // Acceptance timestamps from acceptance object

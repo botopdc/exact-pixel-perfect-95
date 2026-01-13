@@ -193,9 +193,9 @@ const PropostaView: React.FC = () => {
     if (id) {
       trackEvent.mutate({ proposalId: id, type: 'link_copy', channel: 'ui' });
       
-      // Update status to "E" (Enviado) if not already set
-      if (!proposal?.status) {
-        await updateStatusMutation.mutateAsync({ id, status: 'E' });
+      // Update status to SENT if still DRAFT
+      if (!proposal?.status || proposal?.status === 'DRAFT') {
+        await updateStatusMutation.mutateAsync({ id, status: 'SENT' });
       }
     }
     
@@ -231,9 +231,9 @@ const PropostaView: React.FC = () => {
       if (id) {
         trackEvent.mutate({ proposalId: id, type: 'email_send', channel: 'ui' });
         
-        // Update status to "E" (Enviado) if not already set
-        if (!proposal.status) {
-          await updateStatusMutation.mutateAsync({ id, status: 'E' });
+        // Update status to SENT if still DRAFT
+        if (!proposal.status || proposal.status === 'DRAFT') {
+          await updateStatusMutation.mutateAsync({ id, status: 'SENT' });
         }
       }
       
