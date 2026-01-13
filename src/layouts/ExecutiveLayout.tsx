@@ -27,6 +27,7 @@ import {
   Menu,
   User,
   FileStack,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,11 +57,17 @@ function ExecutiveSidebar() {
     return 'Executivo';
   };
 
-  const menuItems = [
+  // Only level 700 sees "Meu Potencial"
+  const baseMenuItems = [
     { title: 'Dashboard', url: '/executivo/dashboard', icon: LayoutDashboard },
     { title: 'Calculadora de Preços', url: '/executivo/calculadora', icon: Calculator },
     { title: 'Propostas Salvas', url: '/executivo/propostas', icon: FileStack },
   ];
+  
+  // Add "Meu Potencial" only for level 700 (Executivo)
+  const menuItems = user?.level === 700 
+    ? [...baseMenuItems, { title: 'Meu Potencial', url: '/executivo/potencial', icon: TrendingUp }]
+    : baseMenuItems;
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -160,6 +167,7 @@ function ExecutiveHeader() {
     if (path === '/executivo/dashboard') return 'Dashboard';
     if (path === '/executivo/calculadora') return 'Calculadora de Preços';
     if (path === '/executivo/propostas') return 'Propostas Salvas';
+    if (path === '/executivo/potencial') return 'Meu Potencial';
     return 'Portal do Executivo';
   };
 
