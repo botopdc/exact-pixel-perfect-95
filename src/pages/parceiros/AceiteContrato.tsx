@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { partnersService, partnerAuthService } from '@/services/partnersService';
-import { openApi } from '@/lib/openApi';
 import { PARTNER_CONTRACTS, PartnerType } from '@/types/partner';
 import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
@@ -50,15 +49,7 @@ export default function AceiteContrato() {
     }
   };
 
-  const getIpAddress = async (): Promise<string> => {
-    try {
-      const response = await fetch('https://api.ipify.org?format=json');
-      const data = await response.json();
-      return data.ip;
-    } catch {
-      return 'Não disponível';
-    }
-  };
+  // Removido: getIpAddress - não é confiável no front-end e a API não suporta esse campo
 
   const handleAccept = async () => {
     if (!accepted || !partnerType || isLoading) return;
@@ -73,7 +64,6 @@ export default function AceiteContrato() {
         return;
       }
 
-      const ipAddress = await getIpAddress();
       const contract = PARTNER_CONTRACTS[partnerType];
 
       if (import.meta.env.DEV) {
@@ -84,10 +74,11 @@ export default function AceiteContrato() {
         });
       }
 
-      // 1) Persist contract acceptance via API (source of truth)
+      // Registrar aceite LOCALMENTE (API não suporta campos de contrato)
+      // Fazemos apenas 1 tentativa, sem retry automático
       const result = await partnersService.acceptContract(
         session.partnerId,
-        ipAddress,
+        undefined, // IP não é coletado no front (não confiável)
         contract.versao
       );
 
@@ -96,37 +87,21 @@ export default function AceiteContrato() {
       }
 
       if (!result.success) {
-        setError(result.error || 'Erro ao registrar aceite. Tente novamente.');
+        // Mostrar erro SEM redirecionar ou recarregar
+        setError(result.error || 'Erro ao registrar aceite. Clique para tentar novamente.');
+        setIsLoading(false);
         return;
       }
 
-      // 2) IMEDIATAMENTE depois, executar SELECT do perfil do parceiro e confirmar aceite
-      const me = await openApi.getCurrentUser({ __with: 'partner' });
-      const apiAccepted = me.partner?.contract_accepted === true;
+      // Atualizar sessão local com flag de aceite
+      partnerAuthService.updateSessionContractAccepted();
 
-      if (import.meta.env.DEV) {
-        console.log('[AceiteContrato] /auth/me after accept', {
-          partnerId: me.partner?.id,
-          contract_accepted: me.partner?.contract_accepted,
-          contract_version: me.partner?.contract_version,
-        });
-      }
-
-      if (!apiAccepted) {
-        setError(
-          'Não foi possível confirmar o aceite do contrato no servidor. Aguarde alguns segundos e tente novamente.'
-        );
-        return;
-      }
-
-      // 3) Sincroniza a sessão local com o retorno da API
-      await partnerAuthService.refreshSessionFromApi();
-
-      // 4) Redirect to dashboard only after confirmation
+      // Redirecionar para dashboard
       navigate('/parceiro/dashboard', { replace: true });
     } catch (err: any) {
       console.error('[AceiteContrato] Unexpected error:', err);
-      setError('Erro inesperado ao registrar aceite. Tente novamente.');
+      // Mostrar erro SEM redirecionar, recarregar ou retry automático
+      setError('Erro inesperado ao registrar aceite. Clique para tentar novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -264,7 +239,7 @@ export default function AceiteContrato() {
 
             <p className="text-xs text-muted-foreground mt-4 text-center">
               Ao aceitar, você confirma que leu e concorda com todos os termos do contrato.
-              A data, hora e IP serão registrados para fins de auditoria.
+              A data e hora serão registradas localmente para fins de auditoria.
             </p>
           </div>
         </div>

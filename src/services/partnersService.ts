@@ -124,36 +124,40 @@ export const partnersService = {
     return partners[index];
   },
 
-  // Aceitar contrato via API
+  // Aceitar contrato - SOMENTE LOCAL (API não suporta campos de aceite de contrato)
+  // Os campos contract_accepted, contract_accepted_at, contract_version, contract_ip
+  // NÃO existem na API PartnerUpdateRequest, então persistimos apenas localmente.
   async acceptContract(id: string, ip?: string, version?: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const partnerId = parseInt(id, 10);
-      if (isNaN(partnerId)) {
-        return { success: false, error: 'ID de parceiro inválido' };
-      }
+      const partnerId = id;
+      const STORAGE_KEY = 'partner_contract_accepted_v2';
+      const STORAGE_DETAILS_KEY = 'partner_contract_details_v2';
+      
+      // Salvar flag de aceite no localStorage (única fonte de verdade até API suportar)
+      localStorage.setItem(STORAGE_KEY, 'true');
+      
+      // Salvar detalhes para auditoria local
+      const details = {
+        partnerId,
+        acceptedAt: new Date().toISOString(),
+        contractVersion: version || '2.0',
+        // NÃO coletamos IP no front (não é confiável), registramos apenas "client-side"
+      };
+      localStorage.setItem(STORAGE_DETAILS_KEY, JSON.stringify(details));
 
-      // Persist to API
-      await openApi.updatePartner(partnerId, {
-        contract_accepted: true,
-        contract_accepted_at: new Date().toISOString(),
-        contract_version: version || '2.0',
-        contract_ip: ip || 'unknown',
-      });
-
-      // Also update localStorage for legacy support
+      // Atualizar localStorage legado também
       this.update(id, {
         contrato_aceito: true,
         data_hora_aceite: new Date().toISOString(),
-        ip_aceite: ip || 'unknown',
+        ip_aceite: ip || 'client-side',
         tipo_contrato: this.getById(id)?.tipo_parceria,
         versao_contrato: version || '2.0',
       });
 
       return { success: true };
     } catch (error: any) {
-      console.error('[PartnersService] Error accepting contract:', error);
-      const message = error?.response?.data?.message || 'Erro ao registrar aceite do contrato';
-      return { success: false, error: message };
+      console.error('[PartnersService] Error accepting contract locally:', error);
+      return { success: false, error: 'Erro ao registrar aceite do contrato' };
     }
   },
 
@@ -286,10 +290,14 @@ export const partnerAuthService = {
 
   logout(): void {
     localStorage.removeItem(PARTNER_SESSION_KEY);
+    // Limpar flag de aceite de contrato ao fazer logout (para evitar sessões misturadas)
+    localStorage.removeItem('partner_contract_accepted_v2');
+    localStorage.removeItem('partner_contract_details_v2');
     openApi.clearToken();
   },
 
-  // Get session from localStorage (does NOT mutate session based on old localStorage partner data)
+  // Get session from localStorage
+  // Verifica também o flag local de aceite de contrato
   getSession(): PartnerSession | null {
     try {
       const data = localStorage.getItem(PARTNER_SESSION_KEY);
@@ -301,7 +309,14 @@ export const partnerAuthService = {
         return null;
       }
 
-      // Return session as-is (source of truth from last API call/login)
+      // Verificar flag local de aceite de contrato (até API suportar)
+      const localContractAccepted = localStorage.getItem('partner_contract_accepted_v2') === 'true';
+      
+      // Se o flag local indica aceite, sobrescrever a sessão
+      if (localContractAccepted && !session.contrato_aceito) {
+        session.contrato_aceito = true;
+      }
+
       return session;
     } catch {
       return null;
