@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2, ShieldX } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { useProposal, useSendProposalEmail, useUpdateProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
@@ -14,6 +14,59 @@ import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
 import { ROUTES, getDashboardRoute } from '@/config/routes';
 
+// ============================================================================
+// RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS
+// ============================================================================
+// Level 1000 (Admin): Can access any proposal
+// Level 750 (Gerente Comercial): Can access any proposal
+// Level 775 (CS): Can access only OWN proposals (created_by === user.id)
+// Level 700 (Executivo): Can access only OWN proposals (created_by === user.id)
+// Level 200 (Parceiro): Can access only OWN proposals (created_by === user.id)
+// Level 1 (Cliente): Can access only proposals where proposal.email === user.email
+// ============================================================================
+
+function canAccessProposal(proposal: any, userLevel: number, userId: number | string | null, userEmail: string | null): boolean {
+  // Admin (1000) and Gerente Comercial (750) can access any
+  if (userLevel === 1000 || userLevel === 750) {
+    return true;
+  }
+  
+  // Client (1): Must match email
+  if (userLevel === 1) {
+    const clientEmail = (proposal?.client?.email || '').toLowerCase();
+    return userEmail ? clientEmail === userEmail.toLowerCase() : false;
+  }
+  
+  // Partner (200), Executives (700), CS (775): Must be the creator
+  if (userLevel === 200 || userLevel === 700 || userLevel === 775) {
+    // Check dados_proposta for created_by_user_id (preferred method)
+    // Note: The proposal object from useProposal might have this in result or directly
+    const rawProposal = proposal as any;
+    
+    // Try to get creator info from the saved proposal data
+    const createdById = rawProposal?.dados_proposta?.created_by_user_id || 
+                        rawProposal?.result?.created_by_user_id;
+    
+    if (createdById !== undefined && createdById !== null && userId) {
+      return String(createdById) === String(userId);
+    }
+    
+    // Fallback: Check email
+    const creatorEmail = rawProposal?.dados_proposta?.created_by_email || 
+                         rawProposal?.result?.created_by_email;
+    if (creatorEmail && userEmail) {
+      return creatorEmail.toLowerCase() === userEmail.toLowerCase();
+    }
+    
+    // Legacy data without owner info - allow access (will be fixed on next save)
+    console.warn('[PropostaView] Proposal without owner info, allowing access for legacy data');
+    return true;
+  }
+  
+  // Other levels (600, 900, 950): No access
+  return false;
+}
+
 const PropostaView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -21,54 +74,65 @@ const PropostaView: React.FC = () => {
   const { toast } = useToast();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   
+  // Get current user info for RBAC
+  const internalSession = authService.getSession();
+  const partnerSession = partnerAuthService.getSession();
+  const userLevel = internalSession?.level || (partnerSession ? 200 : 0);
+  const userId = internalSession?.userId || partnerSession?.partnerId || null;
+  const userEmail = internalSession?.email || partnerSession?.email || null;
+  
   // Determine dashboard route based on user context
   // CRITICAL: Check internal session FIRST to prevent partner session from overriding executive context
   const dashboardRoute = useMemo(() => {
     // First check if this is an internal user (executive or admin)
-    const internalSession = authService.getSession();
-    const userLevel = internalSession?.level || 0;
-    
-    // Executives (700/750) ALWAYS go to executive dashboard, regardless of partner session
-    if (userLevel === 700 || userLevel === 750) {
-      return ROUTES.executivo.dashboard;
-    }
-    
-    // Admin and other internal users go to admin dashboard
-    if (userLevel >= 900 || userLevel === 1000) {
+    if (internalSession) {
+      const level = internalSession.level || 0;
+      
+      // Executives (700/750) ALWAYS go to executive dashboard
+      if (level === 700 || level === 750) {
+        return ROUTES.executivo.dashboard;
+      }
+      
+      // Admin and other internal users go to admin dashboard
+      if (level >= 900 || level === 1000) {
+        return ROUTES.admin.dashboard;
+      }
+      
+      // Fallback for other authenticated internal users
       return ROUTES.admin.dashboard;
     }
     
     // Only check partner session if there's no valid internal session
-    const partnerSession = partnerAuthService.getSession();
     if (partnerSession) {
       return ROUTES.parceiro.dashboard;
     }
     
-    // Fallback for other authenticated internal users
-    if (internalSession) {
-      return ROUTES.admin.dashboard;
-    }
-    
     // Default fallback
     return ROUTES.admin.dashboard;
-  }, []);
+  }, [internalSession, partnerSession]);
   
   // Local storage hook
   const { data: proposal, isLoading } = useProposal(id);
   const sendEmailMutation = useSendProposalEmail();
   const updateStatusMutation = useUpdateProposalStatus();
   const trackEvent = useTrackEvent();
+  
+  // Check access permission
+  const hasAccess = useMemo(() => {
+    if (!proposal) return true; // Don't block while loading
+    return canAccessProposal(proposal, userLevel, userId, userEmail);
+  }, [proposal, userLevel, userId, userEmail]);
 
   // Track internal view on mount
   useEffect(() => {
-    if (id) {
+    if (id && hasAccess) {
       trackEvent.mutate({ 
         proposalId: id, 
         type: 'view_internal', 
         channel: 'ui' 
       });
     }
-  }, [id]);
+  }, [id, hasAccess]);
 
   // Fetch attachments for PDF generation
   const { data: attachments = [] } = useAttachments(id);
@@ -201,6 +265,38 @@ const PropostaView: React.FC = () => {
           <h1 className="text-2xl font-bold text-foreground mb-4">Proposta não encontrada</h1>
           <p className="text-muted-foreground mb-6">A proposta solicitada não existe ou foi removida.</p>
           <Button variant="open" onClick={() => navigate('/')}>Ir para Calculadora</Button>
+        </main>
+      </div>
+    );
+  }
+
+  // RBAC: Access denied screen
+  if (!hasAccess) {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+            <OpenLogo />
+            <Button variant="open-outline" onClick={() => navigate(dashboardRoute)}>
+              <ArrowLeft className="w-4 h-4" />
+              Voltar
+            </Button>
+          </div>
+        </header>
+        <main className="container mx-auto px-4 py-16 text-center">
+          <div className="max-w-md mx-auto">
+            <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-6">
+              <ShieldX className="w-8 h-8 text-destructive" />
+            </div>
+            <h1 className="text-2xl font-bold text-foreground mb-4">Acesso negado</h1>
+            <p className="text-muted-foreground mb-6">
+              Você não tem permissão para visualizar esta proposta. 
+              Apenas o criador da proposta ou gestores podem acessá-la.
+            </p>
+            <Button variant="open" onClick={() => navigate(dashboardRoute)}>
+              Voltar ao Dashboard
+            </Button>
+          </div>
         </main>
       </div>
     );

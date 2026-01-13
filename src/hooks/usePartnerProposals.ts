@@ -445,7 +445,17 @@ function apiToPartnerProposal(apiProposal: any, session: any): PartnerProposal {
   };
 }
 
+// ============================================================================
+// RBAC RULES FOR PARTNER PROPOSAL VISIBILITY
+// ============================================================================
+// Level 1000 (Admin): See ALL partner proposals
+// Level 750 (Gerente Comercial): See ALL partner proposals  
+// Level 200 (Parceiro): See only OWN proposals (created_by === user.id)
+// Note: The gateway now filters by created_by_user_id, not reseller_name
+// ============================================================================
+
 // Hook to fetch partner proposals from API (filtered by channel_type PARCEIRO)
+// RBAC filtering is now done server-side in the gateway using created_by_user_id
 export function usePartnerProposals(isAdmin = false) {
   const session = partnerAuthService.getSession();
   const userId = session?.partnerId || null;
@@ -472,28 +482,22 @@ export function usePartnerProposals(isAdmin = false) {
           throw new Error(payload?.error || 'Falha ao listar propostas de parceiros');
         }
 
+        // The gateway already applies RBAC filtering based on created_by_user_id
         const apiProposals = (payload.data || []) as any[];
+        const ownership = payload.ownership || {};
+        
+        // Additional client-side safety filter: ensure only PARCEIRO proposals
         const safe = apiProposals.filter((p) => p?.channel_type === 'PARCEIRO');
 
-        if (safe.length !== apiProposals.length) {
-          console.warn('[usePartnerProposals] Dropped non-partner proposals from partner list:', {
-            received: apiProposals.length,
-            kept: safe.length,
-            ownership: payload.ownership,
-          });
-        } else {
-          console.log('[usePartnerProposals] Fetched partner proposals:', safe.length, payload.ownership);
-        }
+        console.log('[usePartnerProposals] Fetched partner proposals:', {
+          received: apiProposals.length,
+          kept: safe.length,
+          ownership,
+          canSeeAll: ownership.can_see_all,
+        });
 
         const proposals = safe.map((p) => apiToPartnerProposal(p, session));
-
-        // Admin sees all
-        if (isAdmin) return proposals;
-
-        // Partner: best-effort filter by reseller_name matching their empresa
-        return userId && session?.empresa
-          ? proposals.filter((p) => p.parceiro_nome === session.empresa)
-          : [];
+        return proposals;
       } catch (error) {
         console.warn('[PartnerProposals] API fetch failed:', error);
         return [];
