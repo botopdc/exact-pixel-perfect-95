@@ -15,15 +15,44 @@ import { authService } from '@/services/authService';
 import { ROUTES, getDashboardRoute } from '@/config/routes';
 
 // ============================================================================
-// RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS
+// RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS (BASED ON API FIELDS)
 // ============================================================================
+// Source of truth: proposal.created_by (integer, nullable) from API
+// Fallback: proposal.creator?.id (from __with=creator expansion)
+//
 // Level 1000 (Admin): Can access any proposal
 // Level 750 (Gerente Comercial): Can access any proposal
 // Level 775 (CS): Can access only OWN proposals (created_by === user.id)
 // Level 700 (Executivo): Can access only OWN proposals (created_by === user.id)
 // Level 200 (Parceiro): Can access only OWN proposals (created_by === user.id)
 // Level 1 (Cliente): Can access only proposals where proposal.email === user.email
+//
+// IMPORTANT: Never show proposals with created_by=null to non-managers
 // ============================================================================
+
+// Helper to get owner ID from proposal - uses API fields only
+function getProposalOwnerId(proposal: any): number | null {
+  // The proposal comes from useProposal hook which now preserves API fields
+  
+  // Primary: created_by field from API (integer, nullable)
+  if (proposal?.created_by !== undefined && proposal?.created_by !== null) {
+    return Number(proposal.created_by);
+  }
+  
+  // Fallback: creator object from __with=creator expansion
+  if (proposal?.creator?.id !== undefined && proposal?.creator?.id !== null) {
+    return Number(proposal.creator.id);
+  }
+  
+  // Also check dados_proposta for saved ownership info (legacy from gateway)
+  if (proposal?.dados_proposta?.created_by_user_id !== undefined && 
+      proposal?.dados_proposta?.created_by_user_id !== null) {
+    return Number(proposal.dados_proposta.created_by_user_id);
+  }
+  
+  // No owner info available
+  return null;
+}
 
 function canAccessProposal(proposal: any, userLevel: number, userId: number | string | null, userEmail: string | null): boolean {
   // Admin (1000) and Gerente Comercial (750) can access any
@@ -39,28 +68,19 @@ function canAccessProposal(proposal: any, userLevel: number, userId: number | st
   
   // Partner (200), Executives (700), CS (775): Must be the creator
   if (userLevel === 200 || userLevel === 700 || userLevel === 775) {
-    // Check dados_proposta for created_by_user_id (preferred method)
-    // Note: The proposal object from useProposal might have this in result or directly
-    const rawProposal = proposal as any;
+    const ownerId = getProposalOwnerId(proposal);
     
-    // Try to get creator info from the saved proposal data
-    const createdById = rawProposal?.dados_proposta?.created_by_user_id || 
-                        rawProposal?.result?.created_by_user_id;
-    
-    if (createdById !== undefined && createdById !== null && userId) {
-      return String(createdById) === String(userId);
+    // If no owner info, deny access (security - never show proposals without owner)
+    if (ownerId === null) {
+      console.warn('[PropostaView] Proposal without owner info - access denied for security');
+      return false;
     }
     
-    // Fallback: Check email
-    const creatorEmail = rawProposal?.dados_proposta?.created_by_email || 
-                         rawProposal?.result?.created_by_email;
-    if (creatorEmail && userEmail) {
-      return creatorEmail.toLowerCase() === userEmail.toLowerCase();
+    if (userId === null) {
+      return false;
     }
     
-    // Legacy data without owner info - allow access (will be fixed on next save)
-    console.warn('[PropostaView] Proposal without owner info, allowing access for legacy data');
-    return true;
+    return ownerId === Number(userId);
   }
   
   // Other levels (600, 900, 950): No access
