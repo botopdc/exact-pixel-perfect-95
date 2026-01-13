@@ -9,7 +9,7 @@ import {
   deleteAttachment,
   reorderAttachments,
   validateFile,
-  Attachment,
+  NormalizedAttachment,
   MAX_ATTACHMENTS,
 } from '@/services/attachmentsService';
 import { useToast } from '@/hooks/use-toast';
@@ -61,7 +61,7 @@ export const useUploadAttachment = () => {
       }
 
       // Check max attachments
-      const existing = queryClient.getQueryData<Attachment[]>(
+      const existing = queryClient.getQueryData<NormalizedAttachment[]>(
         attachmentKeys.list(proposalId)
       );
       if (existing && existing.length >= MAX_ATTACHMENTS) {

@@ -29,10 +29,9 @@ import {
   useReorderAttachments,
 } from '@/hooks/useAttachments';
 import {
-  Attachment,
+  NormalizedAttachment,
   MAX_ATTACHMENTS,
   ALLOWED_MIME_TYPES,
-  MAX_FILE_SIZE,
 } from '@/services/attachmentsService';
 import { cn } from '@/lib/utils';
 
@@ -68,7 +67,7 @@ export const AttachmentsList: React.FC<AttachmentsListProps> = ({
   readOnly = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Attachment | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<NormalizedAttachment | null>(null);
 
   const { data: attachments = [], isLoading, error } = useAttachments(proposalId);
   const uploadMutation = useUploadAttachment();
@@ -94,7 +93,8 @@ export const AttachmentsList: React.FC<AttachmentsListProps> = ({
     fileInputRef.current?.click();
   };
 
-  const handleView = (attachment: Attachment) => {
+  const handleView = (attachment: NormalizedAttachment) => {
+    // Open the file URL which includes the auth token
     window.open(attachment.url, '_blank');
   };
 

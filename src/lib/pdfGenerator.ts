@@ -2,7 +2,7 @@ import { ClientInfo, ProposalMeta, CalculationResult, ResellerState, formatCurre
 import pdfMake from 'pdfmake/build/pdfmake';
 import * as pdfFonts from 'pdfmake/build/vfs_fonts';
 import { PDFDocument, PageSizes } from 'pdf-lib';
-import { Attachment } from '@/services/attachmentsService';
+import { NormalizedAttachment } from '@/services/attachmentsService';
 
 // @ts-ignore
 pdfMake.vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
@@ -17,7 +17,7 @@ interface OpenPDFParams {
   reseller?: ResellerState;
   includeCommission?: boolean;
   observacao?: string;
-  attachments?: Attachment[];
+  attachments?: NormalizedAttachment[];
 }
 
 // Generate summary page as PDF bytes using pdfMake
@@ -293,7 +293,7 @@ export const generateOpenPDF = async ({
     summaryPages.forEach((page) => mergedPdf.addPage(page));
 
     // Append attachments at the end (sorted by order)
-    const sortedAttachments = [...attachments].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const sortedAttachments = [...attachments];
     
     for (const attachment of sortedAttachments) {
       try {
