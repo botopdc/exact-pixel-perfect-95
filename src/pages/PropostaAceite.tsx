@@ -3,17 +3,12 @@ import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FileDown, Check, X, Loader2 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
-import { useProposal, useUpdateProposalStatus, ProposalAcceptance } from '@/hooks/useProposals';
+import { useProposal, useUpdateProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 import { formatCurrency, getValidityDate } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-
-// Generate unique acceptance ID
-function generateAcceptanceId(): string {
-  return `acc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
 
 const PropostaAceite: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -37,11 +32,12 @@ const PropostaAceite: React.FC = () => {
     }
   }, [id]);
 
-  // Check if already accepted/rejected
+  // Check if already approved/rejected - uses "Approved"/"Rejected" from API
   useEffect(() => {
-    if (proposal?.status === 'A') {
+    const status = proposal?.status;
+    if (status === 'Approved' || status === 'A') {
       setFinalStatus('A');
-    } else if (proposal?.status === 'R') {
+    } else if (status === 'Rejected' || status === 'R') {
       setFinalStatus('R');
     }
   }, [proposal?.status]);
@@ -71,27 +67,20 @@ const PropostaAceite: React.FC = () => {
     
     setIsAccepting(true);
     try {
-      const acceptance: ProposalAcceptance = {
-        id: generateAcceptanceId(),
-        acceptedAt: new Date().toISOString(),
-        channel: 'public_url',
-      };
-
       // Get the numeric API ID for proper update
       const apiId = proposal.id ? String(proposal.id) : id;
       
-      console.log('[PropostaAceite] Accepting proposal:', { 
+      console.log('[PropostaAceite] Accepting proposal with status="Approved":', { 
         urlId: id, 
         apiId, 
         numericId: proposal.id,
-        proposalDisplayId: proposal.proposal?.id 
       });
 
-      // Update proposal status
+      // Update proposal status using ONLY the "Approved" status field
+      // API will automatically set approved_at and status_at
       await updateStatusMutation.mutateAsync({
         id: apiId,
-        status: 'A',
-        acceptance,
+        status: 'Approved',
       });
 
       // Track accept event
@@ -99,12 +88,11 @@ const PropostaAceite: React.FC = () => {
         proposalId: id, 
         type: 'accept', 
         channel: 'public_url',
-        metadata: { acceptanceId: acceptance.id }
       });
 
       // Send confirmation email
       const clientName = proposal.client?.name || proposal.client?.company || 'Cliente';
-      const proposalId = proposal.proposal?.id || '-';
+      const proposalDisplayId = proposal.proposal?.id || '-';
       const totalValue = formatCurrency(proposal.result?.grandTotal || 0);
       const validityDateStr = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
         ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
@@ -117,7 +105,7 @@ const PropostaAceite: React.FC = () => {
         body: JSON.stringify({
           clientName,
           clientEmail: 'comercial@opendata.center',
-          proposalId,
+          proposalId: proposalDisplayId,
           proposalLink: window.location.href,
           totalValue,
           validityDate: validityDateStr,
@@ -147,26 +135,19 @@ const PropostaAceite: React.FC = () => {
     
     setIsRejecting(true);
     try {
-      const acceptance: ProposalAcceptance = {
-        id: generateAcceptanceId(),
-        rejectedAt: new Date().toISOString(),
-        channel: 'public_url',
-      };
-
       // Get the numeric API ID for proper update
       const apiId = proposal.id ? String(proposal.id) : id;
       
-      console.log('[PropostaAceite] Rejecting proposal:', { 
+      console.log('[PropostaAceite] Rejecting proposal with status="Rejected":', { 
         urlId: id, 
         apiId, 
-        numericId: proposal.id 
+        numericId: proposal.id,
       });
 
-      // Update proposal status
+      // Update proposal status using ONLY the "Rejected" status field
       await updateStatusMutation.mutateAsync({
         id: apiId,
-        status: 'R',
-        acceptance,
+        status: 'Rejected',
       });
 
       // Track reject event
@@ -174,7 +155,6 @@ const PropostaAceite: React.FC = () => {
         proposalId: id, 
         type: 'reject', 
         channel: 'public_url',
-        metadata: { acceptanceId: acceptance.id }
       });
 
       setFinalStatus('R');

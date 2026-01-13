@@ -3,8 +3,8 @@ import { CalculationResult, ClientInfo, ProposalMeta, AddonsState } from '@/lib/
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 
-// Proposal status type
-export type ProposalStatus = 'E' | 'A' | 'R' | ''; // Enviado, Aprovado, Recusado, Vazio
+// Proposal status type - supports both legacy (E/A/R) and API official format (Approved/Rejected)
+export type ProposalStatus = 'E' | 'A' | 'R' | '' | 'Approved' | 'Rejected' | 'Enviado';
 
 // Acceptance/Rejection info
 export interface ProposalAcceptance {
@@ -68,7 +68,9 @@ interface ApiProposal {
   created_at: string;
   updated_at: string;
   deleted_at?: string;
-  // Status fields (persisted at API level)
+  // Official API status field (uses "Approved", "Rejected", "Enviado")
+  status?: string;
+  // Legacy status fields (kept for backward compatibility)
   proposal_status?: string; // '', 'E', 'A', 'R' (Enviado, Aprovado, Recusado)
   status_sent_at?: string;
   status_accepted_at?: string;
@@ -213,8 +215,9 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     const savedResult = dadosProposta.result;
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
     
-    // Resolve status: prioritize API-level fields, then dados_proposta
+    // Resolve status: prioritize API "status" field, then proposal_status, then dados_proposta
     const resolvedStatus = (
+      apiProposal.status ||
       apiProposal.proposal_status || 
       dadosProposta.status || 
       ''
@@ -424,8 +427,8 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     totalWithOver: grandTotal,
   };
   
-  // Resolve status for legacy format
-  const resolvedStatus = (apiProposal.proposal_status || '') as ProposalStatus;
+  // Resolve status for legacy format - prioritize official "status" field
+  const resolvedStatus = (apiProposal.status || apiProposal.proposal_status || '') as ProposalStatus;
   const resolvedAcceptance: ProposalAcceptance | undefined = (
     (apiProposal.status_accepted_at || apiProposal.status_rejected_at) ? {
       id: apiProposal.acceptance_id || '',
@@ -960,17 +963,16 @@ export function useUpdateProposal() {
 }
 
 // Hook to update proposal status only - THE CANONICAL WAY to change proposal status
-// Status values: '' (Sem status), 'E' (Enviado), 'A' (Aprovado), 'R' (Recusado)
+// Status values per API: "Approved", "Rejected", "Enviado" (or legacy: E/A/R)
 export function useUpdateProposalStatus() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, status, acceptance }: { 
+    mutationFn: async ({ id, status }: { 
       id: string; 
       status: ProposalStatus;
-      acceptance?: ProposalAcceptance;
     }) => {
-      console.log('[useUpdateProposalStatus] Starting update:', { id, status, acceptance });
+      console.log('[useUpdateProposalStatus] Starting update:', { id, status });
       
       // Parse numeric ID - try direct parse first
       let numericId = parseInt(id, 10);
@@ -997,8 +999,9 @@ export function useUpdateProposalStatus() {
       
       console.log('[useUpdateProposalStatus] Found proposal:', existing.id, 'Current status:', existing.proposal_status);
       
-      // Build the minimal update payload with ONLY status fields
-      // This ensures we don't accidentally overwrite other data
+      // Build minimal update payload using ONLY the official API "status" field
+      // Per API spec: PATCH /api/calculator/proposal/{id} with { "status": "Approved" }
+      // The API will automatically handle approved_at/status_at
       const updatePayload: Record<string, unknown> = {
         // Required fields for API
         name: existing.name,
@@ -1015,36 +1018,13 @@ export function useUpdateProposalStatus() {
         // Preserve servers/addons/dados_proposta
         servers: existing.servers,
         addons: existing.addons,
-        // Update dados_proposta with new status
-        dados_proposta: {
-          ...(existing.dados_proposta || {}),
-          status: status,
-          acceptance: acceptance || (existing.dados_proposta as any)?.acceptance,
-        },
-        // STATUS FIELDS - the canonical source of truth
-        proposal_status: status,
-        // Preserve existing sent_at or set new one
-        status_sent_at: status === 'E' 
-          ? (existing.status_sent_at || new Date().toISOString())
-          : existing.status_sent_at,
-        // Set accepted_at if accepting
-        status_accepted_at: status === 'A' 
-          ? (acceptance?.acceptedAt || new Date().toISOString())
-          : existing.status_accepted_at,
-        // Set rejected_at if rejecting
-        status_rejected_at: status === 'R' 
-          ? (acceptance?.rejectedAt || new Date().toISOString())
-          : existing.status_rejected_at,
-        // Acceptance metadata
-        acceptance_channel: acceptance?.channel || existing.acceptance_channel,
-        acceptance_id: acceptance?.id || existing.acceptance_id,
+        dados_proposta: existing.dados_proposta,
+        // STATUS FIELD - the ONLY field needed per API spec
+        // Using the official API format: "Approved", "Rejected", "Enviado"
+        status: status,
       };
       
-      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status, {
-        proposal_status: updatePayload.proposal_status,
-        status_accepted_at: updatePayload.status_accepted_at,
-        status_rejected_at: updatePayload.status_rejected_at,
-      });
+      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status);
       
       const result = await openApi.updateProposal(numericId, updatePayload);
       console.log('[useUpdateProposalStatus] Update result:', result);
