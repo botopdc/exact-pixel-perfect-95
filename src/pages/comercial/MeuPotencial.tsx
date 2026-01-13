@@ -14,10 +14,10 @@
  * - <= 12: prazo real
  * - > 12: 18 (CAP)
  * 
- * 3️⃣ CAP FINANCEIRO (NOVA REGRA - POR FAIXA DE TICKET MENSAL):
+ * 3️⃣ CAP FINANCEIRO (POR FAIXA DE TICKET MENSAL):
  * - Até R$ 50.000/mês → CAP R$ 20.000
  * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
- * - Acima de R$ 150.000/mês → CAP R$ 100.000
+ * - Acima de R$ 100.000/mês → CAP R$ 100.000
  * 
  * 4️⃣ FÓRMULA:
  * gross = monthly × months × rate
@@ -165,7 +165,7 @@ function getMonthsCommissioned(term: number): number {
  * Get CAP based on monthly ticket - OPEN 2026
  * - Até R$ 50.000/mês → CAP R$ 20.000
  * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
- * - Acima de R$ 150.000/mês → CAP R$ 100.000
+ * - Acima de R$ 100.000/mês → CAP R$ 100.000
  */
 function getCapByTicket(monthlyValue: number): number {
   if (monthlyValue <= CAP_FAIXA_1) {
@@ -684,7 +684,7 @@ export default function MeuPotencial() {
                             <p className="font-medium">CAP por Faixa de Ticket Mensal:</p>
                             <p>• Até R$ 50.000/mês → CAP R$ 20.000</p>
                             <p>• R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000</p>
-                            <p>• Acima de R$ 150.000/mês → CAP R$ 100.000</p>
+                            <p>• Acima de R$ 100.000/mês → CAP R$ 100.000</p>
                           </div>
                         </TooltipContent>
                       </Tooltip>
@@ -748,7 +748,7 @@ export default function MeuPotencial() {
                               <p>Valor mensal: {formatCurrency(p.monthly_value)}</p>
                               {p.monthly_value <= 50000 && <p>Faixa: Até R$ 50.000/mês → CAP R$ 20.000</p>}
                               {p.monthly_value > 50000 && p.monthly_value <= 100000 && <p>Faixa: R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000</p>}
-                              {p.monthly_value > 100000 && <p>Faixa: Acima de R$ 150.000/mês → CAP R$ 100.000</p>}
+                              {p.monthly_value > 100000 && <p>Faixa: Acima de R$ 100.000/mês → CAP R$ 100.000</p>}
                               <p className="font-medium pt-1">CAP: {formatCurrency(p.cap)}</p>
                             </div>
                           </TooltipContent>

@@ -14,9 +14,9 @@
  * - > 12 meses: 18 meses (CAP)
  * 
  * 3️⃣ CAP FINANCEIRO (NOVA REGRA - POR FAIXA DE TICKET MENSAL):
- * - Até R$ 50.000/mês      → CAP R$ 20.000
+ * - Até R$ 50.000/mês → CAP R$ 20.000
  * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
- * - Acima de R$ 150.000/mês → CAP R$ 100.000
+ * - Acima de R$ 100.000/mês → CAP R$ 100.000
  * 
  * 4️⃣ FÓRMULA:
  * tcv = monthly_value × contract_term_months
@@ -179,10 +179,10 @@ export function getMonthsCommissioned(term: number): number {
 /**
  * Get CAP based on monthly ticket value - OPEN 2026 Policy
  * 
- * NEW RULE (by monthly ticket):
+ * REGRA (por faixa de ticket mensal):
  * - Até R$ 50.000/mês → CAP R$ 20.000
  * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
- * - Acima de R$ 150.000/mês → CAP R$ 100.000
+ * - Acima de R$ 100.000/mês → CAP R$ 100.000
  * 
  * @param monthlyValue - Monthly contract value
  * @returns CAP value in BRL

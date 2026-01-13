@@ -8,7 +8,7 @@
  * - CAP FINANCEIRO (POR FAIXA DE TICKET MENSAL):
  *   • Até R$ 50.000/mês → CAP R$ 20.000
  *   • R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000
- *   • Acima de R$ 150.000/mês → CAP R$ 100.000
+ *   • Acima de R$ 100.000/mês → CAP R$ 100.000
  */
 
 import React, { useState } from 'react';
@@ -308,7 +308,7 @@ const ComissoesExecutivos = () => {
                 <p className="text-sm font-medium">CAP por Faixa</p>
                 <p className="text-xs font-bold">≤50k: R$ 20k</p>
                 <p className="text-xs font-bold">≤100k: R$ 80k</p>
-                <p className="text-xs font-bold">&gt;150k: R$ 100k</p>
+                <p className="text-xs font-bold">&gt;100k: R$ 100k</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
@@ -333,7 +333,7 @@ const ComissoesExecutivos = () => {
           <p className="text-xs text-muted-foreground mt-4 flex items-center gap-1">
             <Info className="h-3 w-3" />
             Taxas: ≤12m = {(COMMISSION_RATES.SHORT_TERM * 100).toFixed(0)}% | &gt;12m ={' '}
-            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP: ≤50k→R$20k | ≤100k→R$80k | &gt;150k→R$100k • 3 parcelas
+            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP: ≤50k→R$20k | ≤100k→R$80k | &gt;100k→R$100k • 3 parcelas
           </p>
         </CardContent>
       </Card>
@@ -637,10 +637,10 @@ const ComissoesExecutivos = () => {
                     <span>{formatCurrencyBRL(selectedCommission.cap)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span className="italic">
+                     <span className="italic">
                       {selectedCommission.monthly_value <= 50000 && 'Faixa: ≤ R$ 50.000/mês → CAP R$ 20.000'}
                       {selectedCommission.monthly_value > 50000 && selectedCommission.monthly_value <= 100000 && 'Faixa: ≤ R$ 100.000/mês → CAP R$ 80.000'}
-                      {selectedCommission.monthly_value > 100000 && 'Faixa: > R$ 150.000/mês → CAP R$ 100.000'}
+                      {selectedCommission.monthly_value > 100000 && 'Faixa: > R$ 100.000/mês → CAP R$ 100.000'}
                     </span>
                   </div>
 
@@ -720,7 +720,7 @@ const ComissoesExecutivos = () => {
                 <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>
                   <strong>Política OPEN 2026:</strong> ≤12m = 4% (meses = prazo) | &gt;12m = 2.5% (meses = 18 máx) | 
-                  CAP por faixa: ≤R$50k/mês→R$20k | ≤R$100k/mês→R$80k | &gt;R$150k/mês→R$100k | 
+                  CAP por faixa: ≤R$50k/mês→R$20k | ≤R$100k/mês→R$80k | &gt;R$100k/mês→R$100k | 
                   3 parcelas mensais.
                 </p>
               </div>
