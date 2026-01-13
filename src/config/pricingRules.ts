@@ -176,6 +176,23 @@ export function canAccessCalculator(userLevel: number | null): boolean {
 }
 
 /**
+ * Verifica se o usuário pode editar preços (Markup) no Resumo
+ * Níveis permitidos: 200 (Parceiro), 700 (Comercial), 750 (Gerente Comercial), 775 (CS), 1000 (Admin)
+ * Níveis bloqueados: 1 (Cliente), 600 (RH), 900 (Suporte), 950 (Gerente Suporte)
+ */
+export function canEditPriceMarkup(userLevel: number | null): boolean {
+  if (userLevel === null) return false;
+  
+  // Níveis permitidos para edição de markup
+  const allowedLevels = [200, 700, 750, 775, 1000];
+  
+  // Admin sempre tem acesso
+  if (userLevel >= USER_LEVELS.ADMIN) return true;
+  
+  return allowedLevels.includes(userLevel);
+}
+
+/**
  * Obtém label do perfil de preços
  */
 export function getPricingProfileLabel(userLevel: number | null, partnerType?: string): string {
