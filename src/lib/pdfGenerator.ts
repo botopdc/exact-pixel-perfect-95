@@ -38,11 +38,13 @@ const generateSummaryPdfBytes = (params: OpenPDFParams): Promise<Uint8Array> => 
   ];
 
   result.rows.forEach((row) => {
+    // Use finalTotal (with markup) if available, otherwise fallback to subtotal
+    const displayTotal = row.finalTotal ?? row.subtotal;
     body.push([
       { text: row.label, style: 'td' },
       { text: String(row.qty), style: 'td', alignment: 'center' },
       { text: formatCurrency(row.unitPrice), style: 'td', alignment: 'right' },
-      { text: formatCurrency(row.subtotal), style: 'td', alignment: 'right' },
+      { text: formatCurrency(displayTotal), style: 'td', alignment: 'right' },
     ]);
   });
 

@@ -755,7 +755,7 @@ const OpenCalculator: React.FC = () => {
       partnerDiscountPct: Number.isFinite(partnerDiscountPct) ? partnerDiscountPct : 0,
       partnerDiscountValue: Number.isFinite(partnerDiscountValue) ? partnerDiscountValue : 0,
     });
-  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext]);
+  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext, priceOverrides]);
 
   // Recalculate on changes
   useEffect(() => {
@@ -922,6 +922,10 @@ const OpenCalculator: React.FC = () => {
         users: toNum(rawOpenSaas.users, 0),
       });
       
+      // Restore price overrides (markup)
+      const rawOverrides = editProposal.priceOverrides || {};
+      setPriceOverrides(rawOverrides);
+      
       setObservacao(editProposal.observacao || '');
       
       // Expand all loaded items
@@ -1054,6 +1058,7 @@ const OpenCalculator: React.FC = () => {
         storageItems, // Complete storage items
         reseller, // Complete reseller state
         openSaas, // Complete OpenSaaS state
+        priceOverrides, // Manual price adjustments (markup)
         result, // Computed result for reference
         observacao: observacao.trim() || undefined,
         // Owner tracking (required for persistence)
@@ -1208,6 +1213,20 @@ const OpenCalculator: React.FC = () => {
     }
   };
 
+  // Handle price override change from EditablePriceCell
+  const handleOverrideChange = useCallback((rowIndex: number, newTotal: number | null, rowKey?: string) => {
+    if (!rowKey) return;
+    setPriceOverrides(prev => {
+      const next = { ...prev };
+      if (newTotal === null) {
+        delete next[rowKey];
+      } else {
+        next[rowKey] = newTotal;
+      }
+      return next;
+    });
+  }, []);
+
   // Reset
   const handleReset = () => {
     setClient({ name: '', company: '', phone: '', email: '' });
@@ -1233,6 +1252,7 @@ const OpenCalculator: React.FC = () => {
     setStorageItems([]);
     setReseller(DEFAULT_RESELLER_STATE);
     setOpenSaas(DEFAULT_OPEN_SAAS_STATE);
+    setPriceOverrides({}); // Clear price overrides
     setFx(config.fx_default);
     setSelectedTerm("1");
     setDatacenter('SP1');
@@ -2617,12 +2637,20 @@ const OpenCalculator: React.FC = () => {
 
               {result && (
                 <>
-                  {/* Summary rows */}
+                  {/* Summary rows with editable prices */}
                   <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4">
                     {result.rows.map((row, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-sm py-1 border-b border-border/50">
-                        <span className="text-muted-foreground">{row.label}</span>
-                        <span className="text-foreground font-medium">{formatCurrencyBRL(row.subtotal)}</span>
+                      <div key={row.rowKey || idx} className="group flex justify-between items-center text-sm py-1 border-b border-border/50">
+                        <span className="text-muted-foreground flex-1 pr-2">{row.label}</span>
+                        <EditablePriceCell
+                          rowIndex={idx}
+                          label={row.label}
+                          baseTotal={row.baseTotal || row.subtotal}
+                          currentTotal={row.finalTotal || row.subtotal}
+                          overrideTotal={row.overrideTotal || null}
+                          canEdit={canEditMarkup}
+                          onOverrideChange={(rowIdx, newTotal) => handleOverrideChange(rowIdx, newTotal, row.rowKey)}
+                        />
                       </div>
                     ))}
                   </div>
@@ -2804,6 +2832,8 @@ const OpenCalculator: React.FC = () => {
                       reseller: { ...reseller },
                       // OpenSaaS config
                       openSaas: { ...openSaas },
+                      // Price overrides (manual markup)
+                      priceOverrides: { ...priceOverrides },
                       // Observation
                       observacao: observacao,
                       // Proposal meta
