@@ -1,13 +1,14 @@
 /**
  * Gestão de Comissões - Executivos
- * OPEN v2 Commission Policy
+ * OPEN 2026 Commission Policy
  * 
  * Regras:
  * - <= 12m: 4%, meses = prazo
  * - > 12m: 2.5%, meses = 18 (CAP)
- * - CAP FINANCEIRO (NOVA REGRA):
- *   CAP = min(2% × TCV, R$ 100.000)
- *   TCV = valor_mensal × meses_contrato
+ * - CAP FINANCEIRO (POR FAIXA DE TICKET MENSAL):
+ *   • Até R$ 50.000/mês → CAP R$ 20.000
+ *   • R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000
+ *   • Acima de R$ 150.000/mês → CAP R$ 100.000
  */
 
 import React, { useState } from 'react';
@@ -192,7 +193,7 @@ const ComissoesExecutivos = () => {
             Gestão de Comissões — Executivos
           </h1>
           <p className="text-muted-foreground">
-            Política OPEN v2 - Acompanhamento e cálculo de comissões
+            Política OPEN 2026 - CAP por faixa de ticket mensal
           </p>
         </div>
         <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
@@ -284,12 +285,11 @@ const ComissoesExecutivos = () => {
         </Card>
       </div>
 
-      {/* CAP Info Card - OPEN v2 */}
       <Card className="bg-muted/30 border-primary/20">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Shield className="h-5 w-5 text-primary" />
-            Regras de CAP — Política OPEN v2
+            Regras de CAP — Política OPEN 2026
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -305,9 +305,10 @@ const ComissoesExecutivos = () => {
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
               <DollarSign className="h-8 w-8 text-primary" />
               <div>
-                <p className="text-sm font-medium">CAP Financeiro</p>
-                <p className="text-lg font-bold">2% do TCV</p>
-                <p className="text-xs text-muted-foreground">Teto: R$ 100.000</p>
+                <p className="text-sm font-medium">CAP por Faixa</p>
+                <p className="text-xs font-bold">≤50k: R$ 20k</p>
+                <p className="text-xs font-bold">≤100k: R$ 80k</p>
+                <p className="text-xs font-bold">&gt;150k: R$ 100k</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
@@ -332,7 +333,7 @@ const ComissoesExecutivos = () => {
           <p className="text-xs text-muted-foreground mt-4 flex items-center gap-1">
             <Info className="h-3 w-3" />
             Taxas: ≤12m = {(COMMISSION_RATES.SHORT_TERM * 100).toFixed(0)}% | &gt;12m ={' '}
-            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP = min(2% × TCV, R$ 100.000) • 3 parcelas
+            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP: ≤50k→R$20k | ≤100k→R$80k | &gt;150k→R$100k • 3 parcelas
           </p>
         </CardContent>
       </Card>
@@ -566,7 +567,7 @@ const ComissoesExecutivos = () => {
           <DrawerHeader>
             <DrawerTitle className="flex items-center gap-2">
               <Calculator className="h-5 w-5" />
-              Detalhamento da Comissão - OPEN v2
+              Detalhamento da Comissão - OPEN 2026
             </DrawerTitle>
             <DrawerDescription>
               {selectedCommission?.cliente_nome} — {selectedCommission?.executivo_nome}
@@ -610,12 +611,15 @@ const ComissoesExecutivos = () => {
                 </div>
               </div>
 
-              {/* Calculation breakdown */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">Memória de Cálculo - OPEN v2</CardTitle>
+                  <CardTitle className="text-sm">Memória de Cálculo - OPEN 2026</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Valor Mensal:</span>
+                    <span>{formatCurrencyBRL(selectedCommission.monthly_value)}</span>
+                  </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">TCV (valor × prazo):</span>
                     <span>{formatCurrencyBRL(selectedCommission.tcv)}</span>
@@ -628,13 +632,16 @@ const ComissoesExecutivos = () => {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      CAP aplicável (min(2% × TCV, R$ 100.000)):
+                      CAP aplicável (por faixa de ticket):
                     </span>
                     <span>{formatCurrencyBRL(selectedCommission.cap)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span className="italic">2% do TCV = {formatCurrencyBRL(selectedCommission.tcv * 0.02)}</span>
-                    <span className="italic">Teto = R$ 100.000</span>
+                    <span className="italic">
+                      {selectedCommission.monthly_value <= 50000 && 'Faixa: ≤ R$ 50.000/mês → CAP R$ 20.000'}
+                      {selectedCommission.monthly_value > 50000 && selectedCommission.monthly_value <= 100000 && 'Faixa: ≤ R$ 100.000/mês → CAP R$ 80.000'}
+                      {selectedCommission.monthly_value > 100000 && 'Faixa: > R$ 150.000/mês → CAP R$ 100.000'}
+                    </span>
                   </div>
 
                   {/* CAP application */}
@@ -709,12 +716,11 @@ const ComissoesExecutivos = () => {
                 </CardContent>
               </Card>
 
-              {/* Tooltip explanation */}
               <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground flex items-start gap-2">
                 <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>
-                  <strong>Política OPEN v2:</strong> ≤12m = 4% (meses = prazo) | &gt;12m = 2.5% (meses = 18 máx) | 
-                  CAP = min(2% × TCV, R$ 100.000) | TCV = valor mensal × prazo | 
+                  <strong>Política OPEN 2026:</strong> ≤12m = 4% (meses = prazo) | &gt;12m = 2.5% (meses = 18 máx) | 
+                  CAP por faixa: ≤R$50k/mês→R$20k | ≤R$100k/mês→R$80k | &gt;R$150k/mês→R$100k | 
                   3 parcelas mensais.
                 </p>
               </div>
