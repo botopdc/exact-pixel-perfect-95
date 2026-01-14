@@ -38,6 +38,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   TrendingUp,
   AlertTriangle,
@@ -54,6 +56,7 @@ import {
   Percent,
   Lightbulb,
   ArrowUp,
+  Calendar,
 } from 'lucide-react';
 
 // ============================================
@@ -73,6 +76,8 @@ interface ApiProposal {
   created_by?: number;
   created_at: string;
   updated_at: string;
+  accepted_at?: string;
+  approved_at?: string;
   dados_proposta?: {
     cliente?: {
       nome?: string;
@@ -99,6 +104,7 @@ interface ProcessedProposal {
   dataAprovacao: string;
   dadosIncompletos: boolean;
   mrr: number; // MRR estimado = TCV / duração
+  basePaymentMonth: number | null; // Month index (0-11) from accepted_at/approved_at/created_at
 }
 
 // ============================================
@@ -106,6 +112,48 @@ interface ProcessedProposal {
 // ============================================
 
 const METAS_MRR = [50000, 100000, 150000, 200000];
+
+// ============================================
+// MONTH NAMES & HELPERS
+// ============================================
+
+const MONTH_NAMES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+];
+
+const MONTH_NAMES_SHORT = [
+  'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+  'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'
+];
+
+const LOCALSTORAGE_KEY = 'commission_installment_start_month';
+
+/**
+ * Get 3 consecutive months starting from baseMonthIndex (0-11)
+ * Returns array of [m1, m2, m3] with wrap-around (Dec -> Jan)
+ */
+function getInstallmentMonths(baseMonthIndex: number): [number, number, number] {
+  const m1 = baseMonthIndex % 12;
+  const m2 = (baseMonthIndex + 1) % 12;
+  const m3 = (baseMonthIndex + 2) % 12;
+  return [m1, m2, m3];
+}
+
+/**
+ * Extract month index from a date string (ISO format)
+ * Returns null if invalid
+ */
+function getMonthFromDateString(dateStr: string | undefined | null): number | null {
+  if (!dateStr) return null;
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+    return date.getMonth(); // 0-11
+  } catch {
+    return null;
+  }
+}
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -131,6 +179,25 @@ export default function MeuPotencial() {
   const [error, setError] = useState<string | null>(null);
   const [propostas, setPropostas] = useState<ProcessedProposal[]>([]);
   const [userId, setUserId] = useState<number | null>(null);
+  
+  // Global dropdown for start month (0-11), default to current month
+  const [selectedStartMonth, setSelectedStartMonth] = useState<number>(() => {
+    const stored = localStorage.getItem(LOCALSTORAGE_KEY);
+    if (stored !== null) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 11) {
+        return parsed;
+      }
+    }
+    return new Date().getMonth();
+  });
+
+  // Persist selection to localStorage
+  const handleStartMonthChange = (value: string) => {
+    const month = parseInt(value, 10);
+    setSelectedStartMonth(month);
+    localStorage.setItem(LOCALSTORAGE_KEY, value);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -176,6 +243,13 @@ export default function MeuPotencial() {
           // Calculate MRR (only if duration > 0)
           const mrr = duration > 0 ? tcv / duration : 0;
           
+          // Determine base payment month from dates (priority: accepted_at > approved_at > updated_at > created_at)
+          const basePaymentMonth = 
+            getMonthFromDateString(p.accepted_at) ??
+            getMonthFromDateString(p.approved_at) ??
+            getMonthFromDateString(p.updated_at) ??
+            getMonthFromDateString(p.created_at);
+          
           return {
             id: p.id,
             cliente: p.name || p.dados_proposta?.cliente?.nome || 'N/A',
@@ -191,6 +265,7 @@ export default function MeuPotencial() {
             dataAprovacao: p.updated_at,
             dadosIncompletos: !tcv || !duration,
             mrr,
+            basePaymentMonth,
           };
         });
 
@@ -275,6 +350,14 @@ export default function MeuPotencial() {
       invalidDurationCount,
     };
   }, [propostas]);
+
+  // ============================================
+  // INSTALLMENT MONTHS (global from dropdown)
+  // ============================================
+
+  const globalInstallmentMonths = useMemo(() => {
+    return getInstallmentMonths(selectedStartMonth);
+  }, [selectedStartMonth]);
 
   // ============================================
   // RENDER LOADING
@@ -435,30 +518,64 @@ export default function MeuPotencial() {
       {/* Próximas 3 Parcelas */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-primary" />
-            Próximas 3 Parcelas
-          </CardTitle>
-          <CardDescription>
-            Pagamento dividido em 3x (soma de todas as propostas aprovadas)
-          </CardDescription>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" />
+                Próximas 3 Parcelas
+              </CardTitle>
+              <CardDescription>
+                Pagamento dividido em 3x (soma de todas as propostas aprovadas)
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <div className="flex flex-col">
+                <span className="text-xs text-muted-foreground mb-1">Mês inicial (1/3)</span>
+                <Select value={String(selectedStartMonth)} onValueChange={handleStartMonthChange}>
+                  <SelectTrigger className="w-[140px] h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border z-50">
+                    {MONTH_NAMES.map((month, index) => (
+                      <SelectItem key={index} value={String(index)}>
+                        {month}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-[10px] text-muted-foreground mt-1">
+                  Define o mês de referência
+                </span>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 rounded-lg bg-muted/50 border">
-              <div className="text-sm text-muted-foreground mb-1">1/3</div>
+              <div className="text-sm font-medium mb-1">
+                {MONTH_NAMES[globalInstallmentMonths[0]]} — 1/3
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">Pagamento da comissão</div>
               <div className="text-xl font-bold text-primary">
                 {formatCurrency(stats.totalP1)}
               </div>
             </div>
             <div className="p-4 rounded-lg bg-muted/50 border">
-              <div className="text-sm text-muted-foreground mb-1">2/3</div>
+              <div className="text-sm font-medium mb-1">
+                {MONTH_NAMES[globalInstallmentMonths[1]]} — 2/3
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">Pagamento da comissão</div>
               <div className="text-xl font-bold text-primary">
                 {formatCurrency(stats.totalP2)}
               </div>
             </div>
             <div className="p-4 rounded-lg bg-muted/50 border">
-              <div className="text-sm text-muted-foreground mb-1">3/3</div>
+              <div className="text-sm font-medium mb-1">
+                {MONTH_NAMES[globalInstallmentMonths[2]]} — 3/3
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">Pagamento da comissão</div>
               <div className="text-xl font-bold text-primary">
                 {formatCurrency(stats.totalP3)}
               </div>
@@ -488,76 +605,128 @@ export default function MeuPotencial() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Cliente/Empresa</TableHead>
-                    <TableHead className="text-right">Duração</TableHead>
-                    <TableHead className="text-right">TCV</TableHead>
-                    <TableHead className="text-right">%</TableHead>
-                    <TableHead className="text-right">Comissão</TableHead>
-                    <TableHead className="text-right">1/3</TableHead>
-                    <TableHead className="text-right">2/3</TableHead>
-                    <TableHead className="text-right">3/3</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {propostas.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{p.cliente}</span>
-                          <span className="text-xs text-muted-foreground">{p.empresa}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {p.contract_term_months}m
-                          {!p.is_standard_duration && (
-                            <Badge variant="outline" className="text-xs ml-1">
-                              n/p
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(p.tcv)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {(p.commission_rate * 100).toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-primary">
-                        {formatCurrency(p.commission_value)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatCurrency(p.p1)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatCurrency(p.p2)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatCurrency(p.p3)}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {p.dadosIncompletos ? (
-                          <Badge variant="secondary" className="text-xs">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Incompleto
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            OK
-                          </Badge>
-                        )}
-                      </TableCell>
+            <TooltipProvider>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente/Empresa</TableHead>
+                      <TableHead className="text-right">Duração</TableHead>
+                      <TableHead className="text-right">TCV</TableHead>
+                      <TableHead className="text-right">%</TableHead>
+                      <TableHead className="text-right">Comissão</TableHead>
+                      <TableHead className="text-right">
+                        {MONTH_NAMES_SHORT[globalInstallmentMonths[0]]} (1/3)
+                      </TableHead>
+                      <TableHead className="text-right">
+                        {MONTH_NAMES_SHORT[globalInstallmentMonths[1]]} (2/3)
+                      </TableHead>
+                      <TableHead className="text-right">
+                        {MONTH_NAMES_SHORT[globalInstallmentMonths[2]]} (3/3)
+                      </TableHead>
+                      <TableHead className="text-center">Status</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {propostas.map((p) => {
+                      // Determine if proposal has its own date-based month
+                      const proposalMonths = p.basePaymentMonth !== null
+                        ? getInstallmentMonths(p.basePaymentMonth)
+                        : null;
+                      const hasCustomMonth = proposalMonths !== null && 
+                        (proposalMonths[0] !== globalInstallmentMonths[0] ||
+                         proposalMonths[1] !== globalInstallmentMonths[1] ||
+                         proposalMonths[2] !== globalInstallmentMonths[2]);
+                      
+                      return (
+                        <TableRow key={p.id}>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{p.cliente}</span>
+                              <span className="text-xs text-muted-foreground">{p.empresa}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {p.contract_term_months}m
+                              {!p.is_standard_duration && (
+                                <Badge variant="outline" className="text-xs ml-1">
+                                  n/p
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatCurrency(p.tcv)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {(p.commission_rate * 100).toFixed(1)}%
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-primary">
+                            {formatCurrency(p.commission_value)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {hasCustomMonth && proposalMonths ? (
+                              <Tooltip>
+                                <TooltipTrigger className="cursor-help underline decoration-dotted">
+                                  {formatCurrency(p.p1)}
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Real: {MONTH_NAMES[proposalMonths[0]]}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              formatCurrency(p.p1)
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {hasCustomMonth && proposalMonths ? (
+                              <Tooltip>
+                                <TooltipTrigger className="cursor-help underline decoration-dotted">
+                                  {formatCurrency(p.p2)}
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Real: {MONTH_NAMES[proposalMonths[1]]}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              formatCurrency(p.p2)
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {hasCustomMonth && proposalMonths ? (
+                              <Tooltip>
+                                <TooltipTrigger className="cursor-help underline decoration-dotted">
+                                  {formatCurrency(p.p3)}
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Real: {MONTH_NAMES[proposalMonths[2]]}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              formatCurrency(p.p3)
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {p.dadosIncompletos ? (
+                              <Badge variant="secondary" className="text-xs">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Incompleto
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                OK
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </TooltipProvider>
           )}
         </CardContent>
       </Card>
