@@ -33,12 +33,11 @@ export function useExecutiveCommissions(): UseExecutiveCommissionsResult {
   return {
     commissions: data?.commissions ?? [],
     stats: data?.stats ?? {
-      total_previsto: 0,
-      total_a_pagar: 0,
-      total_pago: 0,
+      total_tcv: 0,
+      total_comissao: 0,
+      total_contratos: 0,
       total_executivos_ativos: 0,
-      propostas_com_cap: 0,
-      economia_cap: 0,
+      taxa_media_ponderada: 0,
     },
     executiveSummaries: data?.executiveSummaries ?? [],
     isLoading,
