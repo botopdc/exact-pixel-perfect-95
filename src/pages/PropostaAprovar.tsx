@@ -1,0 +1,399 @@
+/**
+ * PropostaAprovar - Public Proposal Approval Page
+ * 
+ * This page allows clients to approve or reject proposals using an approval token.
+ * It does NOT require login - the token provides authentication.
+ * 
+ * URL Format: /proposta/aprovar?proposalId={id}&token={approval_token}
+ * 
+ * Flow:
+ * 1. Read proposalId and token from URL query params
+ * 2. Fetch proposal data to display summary
+ * 3. User clicks Approve/Reject
+ * 4. POST to define-acceptance with proposal_id (INTEGER), approval_token, status
+ */
+
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { FileDown, Check, X, Loader2, AlertCircle } from 'lucide-react';
+import OpenLogo from '@/components/OpenLogo';
+import { 
+  getProposalPublic, 
+  defineAcceptance, 
+  CalculatorProposal 
+} from '@/services/calculatorProposalService';
+import { formatCurrency } from '@/lib/calculatorConfig';
+import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
+import { generateOpenPDF } from '@/lib/pdfGenerator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+type FinalStatus = 'approved' | 'rejected' | null;
+
+const PropostaAprovar: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const { toast } = useToast();
+  
+  // URL params
+  const proposalIdParam = searchParams.get('proposalId');
+  const approvalToken = searchParams.get('token');
+  
+  // States
+  const [proposal, setProposal] = useState<CalculatorProposal | null>(null);
+  const [isLoadingProposal, setIsLoadingProposal] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [finalStatus, setFinalStatus] = useState<FinalStatus>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'Aprovado' | 'Reprovado' | null>(null);
+  
+  // Validate URL params
+  useEffect(() => {
+    if (!proposalIdParam) {
+      setLoadError('Link inválido: ID da proposta não encontrado');
+      setIsLoadingProposal(false);
+      return;
+    }
+    
+    if (!approvalToken) {
+      setLoadError('Link inválido: Token de aprovação não encontrado');
+      setIsLoadingProposal(false);
+      return;
+    }
+    
+    // Fetch proposal data
+    fetchProposal();
+  }, [proposalIdParam, approvalToken]);
+  
+  const fetchProposal = async () => {
+    if (!proposalIdParam) return;
+    
+    setIsLoadingProposal(true);
+    setLoadError(null);
+    
+    try {
+      console.log('[PropostaAprovar] Fetching proposal:', proposalIdParam);
+      const data = await getProposalPublic(proposalIdParam);
+      setProposal(data);
+      
+      // Check if already approved/rejected
+      if (data.status === 'Aprovado' || data.status === 'Approved' || data.status === 'APPROVED') {
+        setFinalStatus('approved');
+      } else if (data.status === 'Reprovado' || data.status === 'Rejected' || data.status === 'REJECTED') {
+        setFinalStatus('rejected');
+      }
+    } catch (error: any) {
+      console.error('[PropostaAprovar] Error fetching proposal:', error);
+      
+      if (error.response?.status === 404) {
+        setLoadError('Proposta não encontrada ou link inválido');
+      } else {
+        setLoadError('Erro ao carregar proposta. Tente novamente mais tarde.');
+      }
+    } finally {
+      setIsLoadingProposal(false);
+    }
+  };
+  
+  const handleConfirmAction = (action: 'Aprovado' | 'Reprovado') => {
+    setPendingAction(action);
+    setConfirmDialogOpen(true);
+  };
+  
+  const handleSubmitAcceptance = async () => {
+    if (!proposal || !approvalToken || !pendingAction) return;
+    
+    setConfirmDialogOpen(false);
+    setIsSubmitting(true);
+    
+    try {
+      // Use the numeric ID from the proposal response
+      const numericId = proposal.id;
+      
+      console.log('[PropostaAprovar] Submitting acceptance:', {
+        proposal_id: numericId,
+        status: pendingAction,
+      });
+      
+      await defineAcceptance({
+        proposal_id: numericId,
+        approval_token: approvalToken,
+        status: pendingAction,
+      });
+      
+      setFinalStatus(pendingAction === 'Aprovado' ? 'approved' : 'rejected');
+      
+      toast({
+        title: pendingAction === 'Aprovado' ? 'Proposta aprovada!' : 'Proposta recusada',
+        description: pendingAction === 'Aprovado' 
+          ? 'Nossa equipe comercial entrará em contato em breve.' 
+          : 'Sua decisão foi registrada.',
+      });
+    } catch (error: any) {
+      console.error('[PropostaAprovar] Error submitting acceptance:', error);
+      
+      let errorMessage = 'Erro ao processar sua decisão. Tente novamente.';
+      
+      if (error.response?.status === 404) {
+        errorMessage = 'Proposta não encontrada ou token expirado';
+      } else if (error.response?.status === 422) {
+        const validationErrors = error.response?.data?.errors;
+        if (validationErrors) {
+          errorMessage = Object.values(validationErrors).flat().join(', ');
+        } else {
+          errorMessage = error.response?.data?.message || 'Erro de validação';
+        }
+      }
+      
+      toast({
+        title: 'Erro',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+      setPendingAction(null);
+    }
+  };
+  
+  const handleDownloadPDF = () => {
+    if (!proposal) return;
+    
+    // Reconstruct data for PDF generation
+    const dadosProposta = proposal.dados_proposta as any;
+    
+    if (dadosProposta?.result) {
+      generateOpenPDF({
+        client: dadosProposta.client || {
+          name: proposal.name,
+          company: proposal.company,
+          email: proposal.email,
+          phone: proposal.phone,
+        },
+        proposal: dadosProposta.proposal || {
+          id: proposal.uuid || String(proposal.id),
+          createdAt: proposal.created_at,
+          validityDays: 30,
+        },
+        result: dadosProposta.result,
+        selectedTerm: String(proposal.contract_duration || 12),
+      });
+      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    } else {
+      // Cannot generate PDF without full result data
+      toast({ 
+        title: 'PDF indisponível', 
+        description: 'Entre em contato com o comercial para obter o PDF da proposta.',
+        variant: 'destructive',
+      });
+    }
+  };
+  
+  // Loading state
+  if (isLoadingProposal) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <OpenLogo />
+          <Skeleton className="h-8 w-48 mx-auto" />
+          <Skeleton className="h-4 w-64 mx-auto" />
+          <p className="text-sm text-muted-foreground">Carregando proposta...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  // Error state
+  if (loadError || !proposal) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4 p-8 max-w-md">
+          <OpenLogo />
+          <div className="flex items-center justify-center gap-2 text-destructive">
+            <AlertCircle className="w-6 h-6" />
+            <h1 className="text-xl font-bold">Link inválido</h1>
+          </div>
+          <p className="text-muted-foreground">
+            {loadError || 'A proposta solicitada não existe ou o link de aprovação expirou.'}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Entre em contato com o comercial da OPEN caso precise de um novo link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
+  const clientName = proposal.name || proposal.company || 'Cliente';
+  const totalValue = formatCurrency(proposal.total || 0);
+  
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="max-w-md w-full space-y-8">
+        <div className="text-center">
+          <OpenLogo />
+        </div>
+
+        <div className="open-card space-y-6">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-foreground mb-2">Proposta Comercial</h1>
+            <p className="text-primary font-mono text-lg">#{proposal.uuid || proposal.id}</p>
+          </div>
+
+          {/* Resumo da Proposta */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Cliente</p>
+                <p className="text-foreground font-medium">{clientName}</p>
+              </div>
+              {proposal.company && proposal.company !== clientName && (
+                <div>
+                  <p className="text-muted-foreground">Empresa</p>
+                  <p className="text-foreground font-medium">{proposal.company}</p>
+                </div>
+              )}
+              {proposal.email && (
+                <div>
+                  <p className="text-muted-foreground">Email</p>
+                  <p className="text-foreground font-medium">{proposal.email}</p>
+                </div>
+              )}
+              {proposal.datacenter && (
+                <div>
+                  <p className="text-muted-foreground">Datacenter</p>
+                  <p className="text-foreground font-medium">{proposal.datacenter}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Prazo contratual */}
+            {proposal.contract_duration && (
+              <div className="border-t border-border pt-4">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Prazo Contratual</span>
+                  <span className="text-foreground font-medium">{proposal.contract_duration} meses</span>
+                </div>
+              </div>
+            )}
+
+            {/* Total */}
+            <div className="border-t border-border pt-4 text-center">
+              <p className="text-muted-foreground text-sm">Valor Total Mensal</p>
+              <p className="text-3xl font-bold text-primary">{totalValue}</p>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="space-y-3">
+            <Button 
+              variant="open-outline" 
+              className="w-full" 
+              onClick={handleDownloadPDF}
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              Baixar Proposta em PDF
+            </Button>
+
+            {finalStatus === 'approved' ? (
+              <div className="text-center py-3 bg-success/10 border border-success/30 rounded-lg">
+                <Check className="w-6 h-6 text-success mx-auto mb-1" />
+                <p className="text-success font-medium">Proposta Aprovada</p>
+                <p className="text-success/80 text-sm">Nossa equipe entrará em contato em breve</p>
+              </div>
+            ) : finalStatus === 'rejected' ? (
+              <div className="text-center py-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                <X className="w-6 h-6 text-destructive mx-auto mb-1" />
+                <p className="text-destructive font-medium">Proposta Recusada</p>
+                <p className="text-destructive/80 text-sm">Sua decisão foi registrada</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Button 
+                  variant="success"
+                  className="w-full"
+                  onClick={() => handleConfirmAction('Aprovado')}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting && pendingAction === 'Aprovado' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4 mr-2" />
+                      APROVAR PROPOSTA
+                    </>
+                  )}
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  className="w-full text-destructive border-destructive/50 hover:bg-destructive/10"
+                  onClick={() => handleConfirmAction('Reprovado')}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting && pendingAction === 'Reprovado' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    <>
+                      <X className="w-4 h-4 mr-2" />
+                      Recusar Proposta
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <p className="text-center text-muted-foreground text-xs">
+          © {new Date().getFullYear()} OPEN Data Center. Todos os direitos reservados.
+        </p>
+      </div>
+      
+      {/* Confirmation Dialog */}
+      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingAction === 'Aprovado' ? 'Confirmar Aprovação' : 'Confirmar Recusa'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingAction === 'Aprovado' 
+                ? `Você está prestes a APROVAR a proposta no valor de ${totalValue}/mês. Esta ação não pode ser desfeita.`
+                : `Você está prestes a RECUSAR esta proposta. Esta ação não pode ser desfeita.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleSubmitAcceptance}
+              className={pendingAction === 'Aprovado' ? 'bg-success hover:bg-success/90' : 'bg-destructive hover:bg-destructive/90'}
+              disabled={isSubmitting}
+            >
+              {pendingAction === 'Aprovado' ? 'Sim, Aprovar' : 'Sim, Recusar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+};
+
+export default PropostaAprovar;

@@ -9,6 +9,9 @@ export const ROUTES = {
     login: '/login',
     proposalView: (id: string) => `/proposta/${id}`,
     proposalAccept: (id: string) => `/proposta/${id}/aceite`,
+    // New token-based approval route
+    proposalApprove: (proposalId: string, token: string) => 
+      `/proposta/aprovar?proposalId=${encodeURIComponent(proposalId)}&token=${encodeURIComponent(token)}`,
   },
   
   // Admin/Internal routes (level 1000, 900+, etc.)

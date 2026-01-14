@@ -13,6 +13,7 @@ import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
 import { authService } from '@/services/authService';
 import { ROUTES, getCalculatorRoute } from '@/config/routes';
+import { useApprovalLink } from '@/hooks/useApprovalLink';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -122,9 +123,11 @@ const SavedProposals: React.FC = () => {
   const updateStatusMutation = useUpdateProposalStatus();
   const deleteProposalMutation = useDeleteProposal();
   const trackEvent = useTrackEvent();
+  const { getApprovalLink, isLoading: isLoadingApprovalLink } = useApprovalLink();
 
   // State for actions
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
+  const [copyingLinkId, setCopyingLinkId] = useState<string | null>(null);
   const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -183,23 +186,40 @@ const SavedProposals: React.FC = () => {
 
   const handleCopyAcceptanceLink = async (proposal: SavedProposal) => {
     const displayProposalId = proposal.proposal?.id || '';
-    const apiId = proposal.id ? String(proposal.id) : displayProposalId; // Use numeric API ID for update
-    const baseUrl = window.location.origin;
-    const link = `${baseUrl}/proposta/${displayProposalId}/aceite`;
-    navigator.clipboard.writeText(link);
+    const apiId = proposal.id ? String(proposal.id) : displayProposalId;
     
-    // Track link copy
-    if (displayProposalId) {
-      trackEvent.mutate({ proposalId: displayProposalId, type: 'link_copy', channel: 'ui' });
+    setCopyingLinkId(displayProposalId);
+    
+    try {
+      // Fetch approval token and generate link with it
+      console.log('[SavedProposals] Getting approval link for:', apiId);
+      const approvalLink = await getApprovalLink(apiId);
       
-      // Update status to SENT if still DRAFT
-      if (!proposal.status || proposal.status === 'DRAFT') {
-        console.log('[SavedProposals] Updating status to SENT:', { displayProposalId, apiId });
-        await updateStatusMutation.mutateAsync({ id: apiId, status: 'SENT' });
+      // Copy to clipboard
+      await navigator.clipboard.writeText(approvalLink);
+      
+      // Track link copy
+      if (displayProposalId) {
+        trackEvent.mutate({ proposalId: displayProposalId, type: 'link_copy', channel: 'ui' });
+        
+        // Update status to SENT if still DRAFT
+        if (!proposal.status || proposal.status === 'DRAFT') {
+          console.log('[SavedProposals] Updating status to SENT:', { displayProposalId, apiId });
+          await updateStatusMutation.mutateAsync({ id: apiId, status: 'SENT' });
+        }
       }
+      
+      toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado para a área de transferência' });
+    } catch (error: any) {
+      console.error('[SavedProposals] Error getting approval link:', error);
+      toast({ 
+        title: 'Erro ao gerar link', 
+        description: error.message || 'Não foi possível gerar o link de aprovação',
+        variant: 'destructive' 
+      });
+    } finally {
+      setCopyingLinkId(null);
     }
-    
-    toast({ title: 'Link copiado!', description: 'O link da tela de aceite foi copiado para a área de transferência' });
   };
 
   const handleView = (proposalId: string) => {
@@ -542,8 +562,8 @@ const SavedProposals: React.FC = () => {
                               <Button variant="ghost" size="icon" onClick={() => handleViewAccess(proposalId)} className="text-primary hover:text-primary hover:bg-primary/10" title="Ver acessos">
                                 <BarChart3 className="w-4 h-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => handleCopyAcceptanceLink(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Copiar link de aceite">
-                                <LinkIcon className="w-4 h-4" />
+                              <Button variant="ghost" size="icon" onClick={() => handleCopyAcceptanceLink(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Copiar link de aprovação" disabled={copyingLinkId === proposalId}>
+                                {copyingLinkId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
                               </Button>
                               <Button variant="ghost" size="icon" onClick={() => handleSendEmail(p)} className="text-primary hover:text-primary hover:bg-primary/10" title={hasEmail ? "Enviar por email" : "Sem email cadastrado"} disabled={!hasEmail || sendingEmailId === proposalId}>
                                 {sendingEmailId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
