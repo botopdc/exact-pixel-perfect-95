@@ -312,7 +312,6 @@ const SavedProposals: React.FC = () => {
 
     const displayProposalId = proposal.proposal?.id || '';
     const apiId = proposal.id ? String(proposal.id) : displayProposalId;
-    const proposalLink = `${window.location.origin}/proposta/${displayProposalId}`;
     const validityDateStr = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
       ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
       : '-';
@@ -320,6 +319,24 @@ const SavedProposals: React.FC = () => {
     setSendingEmailId(displayProposalId);
 
     try {
+      // CRITICAL: First fetch approval token and build tokenized link
+      console.log('[SavedProposals] Fetching approval link for email send:', apiId);
+      let proposalLink: string;
+      
+      try {
+        proposalLink = await getApprovalLink(apiId);
+        console.log('[SavedProposals] Got tokenized approval link for email');
+      } catch (linkError: any) {
+        console.error('[SavedProposals] Failed to get approval link:', linkError);
+        toast({ 
+          title: 'Erro ao gerar link', 
+          description: linkError.message || 'Não foi possível gerar link de aprovação com token',
+          variant: 'destructive' 
+        });
+        setSendingEmailId(null);
+        return; // Block email send if we can't get token
+      }
+      
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const response = await fetch(
         `${supabaseUrl}/functions/v1/send-proposal-email`,
@@ -330,7 +347,7 @@ const SavedProposals: React.FC = () => {
             clientName: proposal.client.name || proposal.client.company || 'Cliente',
             clientEmail: proposal.client.email,
             proposalId: displayProposalId,
-            proposalLink,
+            proposalLink, // Now uses tokenized link
             totalValue: `R$ ${formatCurrency(proposal.result?.grandTotal || 0)}`,
             validityDate: validityDateStr,
           }),
