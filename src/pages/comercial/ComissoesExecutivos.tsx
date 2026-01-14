@@ -1,14 +1,12 @@
 /**
  * Gestão de Comissões - Executivos
- * OPEN 2026 Commission Policy
+ * OPEN 2026 Commission Policy v3 - SEM CAP
  * 
  * Regras:
- * - <= 12m: 4%, meses = prazo
- * - > 12m: 2.5%, meses = 18 (CAP)
- * - CAP FINANCEIRO (POR FAIXA DE TICKET MENSAL):
- *   • Até R$ 50.000/mês → CAP R$ 20.000
- *   • R$ 50.001 a R$ 100.000/mês → CAP R$ 80.000
- *   • Acima de R$ 100.000/mês → CAP R$ 100.000
+ * - 1, 12m: 4% do TCV
+ * - 24, 36, 48m: 2.5% do TCV
+ * - Fallback: < 24m = 4%, >= 24m = 2.5%
+ * - Pagamento em 3x
  */
 
 import React, { useState } from 'react';
@@ -46,12 +44,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from '@/components/ui/drawer';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   DollarSign,
@@ -66,17 +58,17 @@ import {
   Info,
   Users,
   Building2,
-  Shield,
   Ban,
   Eye,
   RefreshCw,
   AlertCircle,
+  FileText,
+  Percent,
 } from 'lucide-react';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import {
   COMMISSION_RATES,
   CommissionCalculation,
-  getCapByTCV,
 } from '@/services/executiveCommissionService';
 import { useExecutiveCommissions } from '@/hooks/useExecutiveCommissions';
 
@@ -86,7 +78,6 @@ const ComissoesExecutivos = () => {
   const [selectedCommission, setSelectedCommission] = useState<CommissionCalculation | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Load commissions from real API
   const {
     commissions: allCommissions,
     stats,
@@ -97,7 +88,6 @@ const ComissoesExecutivos = () => {
     refetch,
   } = useExecutiveCommissions();
   
-  // Apply filters
   const filteredCommissions = React.useMemo(() => {
     let filtered = [...allCommissions];
 
@@ -115,7 +105,6 @@ const ComissoesExecutivos = () => {
         if (statusFilter === 'pendente') return c.parcelas.some((p) => p.status === 'pendente');
         if (statusFilter === 'pago') return c.parcelas.every((p) => p.status === 'pago');
         if (statusFilter === 'suspenso') return c.parcelas.some((p) => p.status === 'suspenso');
-        if (statusFilter === 'com-cap') return c.cap_applied || c.cap_meses_aplicado;
         return true;
       });
     }
@@ -123,7 +112,6 @@ const ComissoesExecutivos = () => {
     return filtered;
   }, [allCommissions, searchTerm, statusFilter]);
 
-  // Status badge for installments
   const getInstallmentBadge = (status: string) => {
     const styles: Record<string, { className: string; icon: React.ReactNode }> = {
       pendente: {
@@ -152,32 +140,6 @@ const ComissoesExecutivos = () => {
     );
   };
 
-  // CAP badge
-  const getCapBadge = (commission: CommissionCalculation) => {
-    const hasCap = commission.cap_applied || commission.cap_meses_aplicado;
-    if (!hasCap) return null;
-
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge className="bg-primary/20 text-primary border-primary/50 flex items-center gap-1 cursor-help">
-              <Shield className="h-3 w-3" />
-              CAP APLICADO
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            <p className="text-sm">
-              Comissão limitada pelo CAP de ticket ({formatCurrencyBRL(commission.cap)}) 
-              ou meses (18 máx) conforme política OPEN v2.
-            </p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  };
-
-  // Open details drawer
   const openDetails = (commission: CommissionCalculation) => {
     setSelectedCommission(commission);
     setDrawerOpen(true);
@@ -193,7 +155,7 @@ const ComissoesExecutivos = () => {
             Gestão de Comissões — Executivos
           </h1>
           <p className="text-muted-foreground">
-            Política OPEN 2026 - CAP por faixa de ticket mensal
+            Política OPEN 2026 - Comissão sobre TCV
           </p>
         </div>
         <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
@@ -202,7 +164,6 @@ const ComissoesExecutivos = () => {
         </Button>
       </div>
 
-      {/* Error state */}
       {isError && (
         <Card className="border-destructive bg-destructive/10">
           <CardContent className="p-4 flex items-center gap-3">
@@ -222,7 +183,7 @@ const ComissoesExecutivos = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Previsto</CardTitle>
+            <CardTitle className="text-sm font-medium">Comissão Total</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -230,42 +191,42 @@ const ComissoesExecutivos = () => {
               <Skeleton className="h-8 w-32" />
             ) : (
               <div className="text-2xl font-bold text-green-500">
-                {formatCurrencyBRL(stats.total_previsto)}
+                {formatCurrencyBRL(stats.total_comissao)}
               </div>
             )}
-            <p className="text-xs text-muted-foreground">Este mês</p>
+            <p className="text-xs text-muted-foreground">Soma total</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">A Pagar</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-8 w-32" />
-            ) : (
-              <div className="text-2xl font-bold text-yellow-500">
-                {formatCurrencyBRL(stats.total_a_pagar)}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">Pendente</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pago</CardTitle>
+            <CardTitle className="text-sm font-medium">TCV Total</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-8 w-32" />
             ) : (
-              <div className="text-2xl font-bold">{formatCurrencyBRL(stats.total_pago)}</div>
+              <div className="text-2xl font-bold text-blue-500">
+                {formatCurrencyBRL(stats.total_tcv)}
+              </div>
             )}
-            <p className="text-xs text-muted-foreground">Últimos 30 dias</p>
+            <p className="text-xs text-muted-foreground">Valor total dos contratos</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Contratos</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <div className="text-2xl font-bold">{stats.total_contratos}</div>
+            )}
+            <p className="text-xs text-muted-foreground">Propostas aprovadas</p>
           </CardContent>
         </Card>
 
@@ -285,56 +246,42 @@ const ComissoesExecutivos = () => {
         </Card>
       </div>
 
+      {/* Policy Summary */}
       <Card className="bg-muted/30 border-primary/20">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <Shield className="h-5 w-5 text-primary" />
-            Regras de CAP — Política OPEN 2026
+            <FileText className="h-5 w-5 text-primary" />
+            Comissões — Política OPEN 2026
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <p className="text-sm text-muted-foreground">
+            Comissão: 1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | Pagamento em 3x
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
+              <Percent className="h-8 w-8 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Taxa Média</p>
+                <p className="text-2xl font-bold">{(stats.taxa_media_ponderada * 100).toFixed(2)}%</p>
+              </div>
+            </div>
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
               <Calendar className="h-8 w-8 text-primary" />
               <div>
-                <p className="text-sm font-medium">Meses Comissionáveis</p>
-                <p className="text-2xl font-bold">18 máx</p>
-                <p className="text-xs text-muted-foreground">Para contratos &gt; 12m</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
-              <DollarSign className="h-8 w-8 text-primary" />
-              <div>
-                <p className="text-sm font-medium">CAP por Faixa</p>
-                <p className="text-xs font-bold">≤50k: R$ 20k</p>
-                <p className="text-xs font-bold">≤100k: R$ 80k</p>
-                <p className="text-xs font-bold">&gt;100k: R$ 100k</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
-              <AlertTriangle className="h-8 w-8 text-yellow-500" />
-              <div>
-                <p className="text-sm font-medium">Propostas com CAP</p>
-                <p className="text-2xl font-bold">{stats.propostas_com_cap}</p>
-                <p className="text-xs text-muted-foreground">Limitadas este mês</p>
+                <p className="text-sm font-medium">Pagamento</p>
+                <p className="text-2xl font-bold">3x</p>
+                <p className="text-xs text-muted-foreground">Parcelas iguais</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-background rounded-lg border">
               <TrendingUp className="h-8 w-8 text-green-500" />
               <div>
-                <p className="text-sm font-medium">Economia Total</p>
-                <p className="text-2xl font-bold text-green-500">
-                  {formatCurrencyBRL(stats.economia_cap)}
-                </p>
-                <p className="text-xs text-muted-foreground">Via aplicação de CAPs</p>
+                <p className="text-sm font-medium">Contratos Ativos</p>
+                <p className="text-2xl font-bold text-green-500">{stats.total_contratos}</p>
               </div>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-4 flex items-center gap-1">
-            <Info className="h-3 w-3" />
-            Taxas: ≤12m = {(COMMISSION_RATES.SHORT_TERM * 100).toFixed(0)}% | &gt;12m ={' '}
-            {(COMMISSION_RATES.LONG_TERM * 100).toFixed(1)}% • CAP: ≤50k→R$20k | ≤100k→R$80k | &gt;100k→R$100k • 3 parcelas
-          </p>
         </CardContent>
       </Card>
 
@@ -360,7 +307,6 @@ const ComissoesExecutivos = () => {
                 <SelectItem value="pendente">Pendentes</SelectItem>
                 <SelectItem value="pago">Pagos</SelectItem>
                 <SelectItem value="suspenso">Suspensos</SelectItem>
-                <SelectItem value="com-cap">Com CAP aplicado</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -369,28 +315,23 @@ const ComissoesExecutivos = () => {
 
       {/* Commissions by Executive */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Executive Summary Cards */}
         <div className="lg:col-span-1 space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Users className="h-5 w-5" />
             Por Executivo
           </h2>
           {isLoading ? (
-            <>
-              {[1, 2, 3].map((i) => (
-                <Card key={i}>
-                  <CardContent className="p-4 space-y-3">
-                    <Skeleton className="h-5 w-32" />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Skeleton className="h-12 w-full" />
-                      <Skeleton className="h-12 w-full" />
-                      <Skeleton className="h-12 w-full" />
-                      <Skeleton className="h-12 w-full" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </>
+            [1, 2, 3].map((i) => (
+              <Card key={i}>
+                <CardContent className="p-4 space-y-3">
+                  <Skeleton className="h-5 w-32" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))
           ) : executiveSummaries.length === 0 ? (
             <Card>
               <CardContent className="p-4 text-center text-muted-foreground">
@@ -402,34 +343,27 @@ const ComissoesExecutivos = () => {
             executiveSummaries.map((exec) => (
               <Card key={exec.executivo_id} className="hover:border-primary/50 transition-colors">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium">{exec.executivo_nome}</h3>
-                    {exec.propostas_com_cap > 0 && (
-                      <Badge variant="outline" className="text-xs">
-                        {exec.propostas_com_cap} CAP
-                      </Badge>
-                    )}
-                  </div>
+                  <h3 className="font-medium mb-2">{exec.executivo_nome}</h3>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <p className="text-muted-foreground">Propostas</p>
                       <p className="font-semibold">{exec.total_propostas}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Previsto</p>
+                      <p className="text-muted-foreground">Comissão</p>
                       <p className="font-semibold text-green-500">
-                        {formatCurrencyBRL(exec.total_previsto)}
+                        {formatCurrencyBRL(exec.total_comissao)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">A Pagar</p>
-                      <p className="font-semibold text-yellow-500">
-                        {formatCurrencyBRL(exec.total_a_pagar)}
+                      <p className="text-muted-foreground">TCV</p>
+                      <p className="font-semibold text-blue-500">
+                        {formatCurrencyBRL(exec.total_tcv)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Pago</p>
-                      <p className="font-semibold">{formatCurrencyBRL(exec.total_pago)}</p>
+                      <p className="text-muted-foreground">Taxa Média</p>
+                      <p className="font-semibold">{(exec.taxa_media_ponderada * 100).toFixed(2)}%</p>
                     </div>
                   </div>
                 </CardContent>
@@ -438,7 +372,6 @@ const ComissoesExecutivos = () => {
           )}
         </div>
 
-        {/* Commissions List */}
         <div className="lg:col-span-2">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Building2 className="h-5 w-5" />
@@ -464,9 +397,6 @@ const ComissoesExecutivos = () => {
               <CardContent className="text-center py-12 text-muted-foreground">
                 <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Nenhuma comissão encontrada</p>
-                {allCommissions.length === 0 && !isLoading && (
-                  <p className="text-sm mt-2">Não há propostas APPROVED para calcular comissões</p>
-                )}
               </CardContent>
             </Card>
           ) : (
@@ -488,19 +418,22 @@ const ComissoesExecutivos = () => {
                       <div className="flex items-center gap-2">
                         <div className="text-right">
                           <p className="font-semibold text-primary">
-                            {formatCurrencyBRL(commission.final_commission)}
+                            {formatCurrencyBRL(commission.commission_value)}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            MRR: {formatCurrencyBRL(commission.monthly_value)}
+                            TCV: {formatCurrencyBRL(commission.tcv)}
                           </p>
                         </div>
-                        {getCapBadge(commission)}
+                        {!commission.is_standard_duration && (
+                          <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-500/30">
+                            Duração não padrão
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4">
                     <div className="space-y-4">
-                      {/* Quick info */}
                       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
@@ -510,15 +443,8 @@ const ComissoesExecutivos = () => {
                           <Calculator className="h-3 w-3" />
                           Taxa: {(commission.commission_rate * 100).toFixed(1)}%
                         </span>
-                        {commission.cap_meses_aplicado && (
-                          <span className="text-primary flex items-center gap-1">
-                            <Shield className="h-3 w-3" />
-                            Cap meses: {commission.contract_term_months} → {commission.months_commissioned}
-                          </span>
-                        )}
                       </div>
 
-                      {/* Installments table */}
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -534,7 +460,9 @@ const ComissoesExecutivos = () => {
                               <TableCell className="font-medium">{parcela.numero}/3</TableCell>
                               <TableCell>{formatCurrencyBRL(parcela.valor)}</TableCell>
                               <TableCell>
-                                {new Date(parcela.data_prevista).toLocaleDateString('pt-BR')}
+                                {parcela.data_prevista 
+                                  ? new Date(parcela.data_prevista).toLocaleDateString('pt-BR')
+                                  : 'A definir'}
                               </TableCell>
                               <TableCell>{getInstallmentBadge(parcela.status)}</TableCell>
                             </TableRow>
@@ -542,7 +470,6 @@ const ComissoesExecutivos = () => {
                         </TableBody>
                       </Table>
 
-                      {/* Details button */}
                       <Button
                         variant="outline"
                         size="sm"
@@ -567,7 +494,7 @@ const ComissoesExecutivos = () => {
           <DrawerHeader>
             <DrawerTitle className="flex items-center gap-2">
               <Calculator className="h-5 w-5" />
-              Detalhamento da Comissão - OPEN 2026
+              Detalhamento da Comissão
             </DrawerTitle>
             <DrawerDescription>
               {selectedCommission?.cliente_nome} — {selectedCommission?.executivo_nome}
@@ -576,18 +503,7 @@ const ComissoesExecutivos = () => {
 
           {selectedCommission && (
             <div className="px-4 pb-4 space-y-6">
-              {/* Base info */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <div className="p-3 bg-muted rounded-lg">
-                  <p className="text-xs text-muted-foreground">Valor Mensal</p>
-                  <p className="text-lg font-bold">
-                    {formatCurrencyBRL(selectedCommission.monthly_value)}
-                  </p>
-                </div>
-                <div className="p-3 bg-muted rounded-lg">
-                  <p className="text-xs text-muted-foreground">Prazo Contrato</p>
-                  <p className="text-lg font-bold">{selectedCommission.contract_term_months} meses</p>
-                </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">TCV</p>
                   <p className="text-lg font-bold">
@@ -595,13 +511,8 @@ const ComissoesExecutivos = () => {
                   </p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
-                  <p className="text-xs text-muted-foreground">Meses Comissionáveis</p>
-                  <p className="text-lg font-bold flex items-center gap-2">
-                    {selectedCommission.months_commissioned}
-                    {selectedCommission.cap_meses_aplicado && (
-                      <Badge className="bg-primary/20 text-primary text-xs">CAP</Badge>
-                    )}
-                  </p>
+                  <p className="text-xs text-muted-foreground">Duração</p>
+                  <p className="text-lg font-bold">{selectedCommission.contract_term_months} meses</p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Taxa</p>
@@ -609,86 +520,47 @@ const ComissoesExecutivos = () => {
                     {(selectedCommission.commission_rate * 100).toFixed(1)}%
                   </p>
                 </div>
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-xs text-muted-foreground">Comissão</p>
+                  <p className="text-lg font-bold text-primary">
+                    {formatCurrencyBRL(selectedCommission.commission_value)}
+                  </p>
+                </div>
               </div>
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">Memória de Cálculo - OPEN 2026</CardTitle>
+                  <CardTitle className="text-sm">Memória de Cálculo</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Valor Mensal:</span>
-                    <span>{formatCurrencyBRL(selectedCommission.monthly_value)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">TCV (valor × prazo):</span>
+                    <span className="text-muted-foreground">TCV (Total Contract Value):</span>
                     <span>{formatCurrencyBRL(selectedCommission.tcv)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Comissão bruta (valor × meses × taxa):
-                    </span>
-                    <span>{formatCurrencyBRL(selectedCommission.gross_commission)}</span>
+                    <span className="text-muted-foreground">Duração do contrato:</span>
+                    <span>{selectedCommission.contract_term_months} meses</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      CAP aplicável (por faixa de ticket):
-                    </span>
-                    <span>{formatCurrencyBRL(selectedCommission.cap)}</span>
+                    <span className="text-muted-foreground">Taxa de comissão:</span>
+                    <span>{(selectedCommission.commission_rate * 100).toFixed(1)}%</span>
                   </div>
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                     <span className="italic">
-                      {selectedCommission.monthly_value <= 50000 && 'Faixa: ≤ R$ 50.000/mês → CAP R$ 20.000'}
-                      {selectedCommission.monthly_value > 50000 && selectedCommission.monthly_value <= 100000 && 'Faixa: ≤ R$ 100.000/mês → CAP R$ 80.000'}
-                      {selectedCommission.monthly_value > 100000 && 'Faixa: > R$ 100.000/mês → CAP R$ 100.000'}
-                    </span>
-                  </div>
-
-                  {/* CAP application */}
-                  {(selectedCommission.cap_meses_aplicado || selectedCommission.cap_applied) && (
-                    <div className="bg-primary/10 rounded-lg p-3 space-y-2">
-                      <div className="flex items-center gap-2 text-primary font-medium">
-                        <Shield className="h-4 w-4" />
-                        CAPs Aplicados
-                      </div>
-                      {selectedCommission.cap_meses_aplicado && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Cap de meses ({selectedCommission.contract_term_months} → {selectedCommission.months_commissioned}):
-                          </span>
-                          <span className="text-primary">Aplicado</span>
-                        </div>
-                      )}
-                      {selectedCommission.cap_applied && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Cap financeiro ({formatCurrencyBRL(selectedCommission.cap)}):
-                          </span>
-                          <span className="text-green-500">
-                            -{formatCurrencyBRL(selectedCommission.valor_economizado)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span>Comissão Final:</span>
+                    <span>Comissão = TCV × Taxa:</span>
                     <span className="text-primary">
-                      {formatCurrencyBRL(selectedCommission.final_commission)}
+                      {formatCurrencyBRL(selectedCommission.commission_value)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>Parcela mensal (÷3):</span>
-                    <span>{formatCurrencyBRL(selectedCommission.monthly_installment)}</span>
+                    <span>Parcela (÷3):</span>
+                    <span>{formatCurrencyBRL(selectedCommission.installment_value)}</span>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Installments */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">Parcelas</CardTitle>
+                  <CardTitle className="text-sm">Parcelas (3x)</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -706,7 +578,9 @@ const ComissoesExecutivos = () => {
                           <TableCell className="font-medium">{parcela.numero}/3</TableCell>
                           <TableCell>{formatCurrencyBRL(parcela.valor)}</TableCell>
                           <TableCell>
-                            {new Date(parcela.data_prevista).toLocaleDateString('pt-BR')}
+                            {parcela.data_prevista 
+                              ? new Date(parcela.data_prevista).toLocaleDateString('pt-BR')
+                              : 'A definir'}
                           </TableCell>
                           <TableCell>{getInstallmentBadge(parcela.status)}</TableCell>
                         </TableRow>
@@ -719,9 +593,8 @@ const ComissoesExecutivos = () => {
               <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground flex items-start gap-2">
                 <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <p>
-                  <strong>Política OPEN 2026:</strong> ≤12m = 4% (meses = prazo) | &gt;12m = 2.5% (meses = 18 máx) | 
-                  CAP por faixa: ≤R$50k/mês→R$20k | ≤R$100k/mês→R$80k | &gt;R$100k/mês→R$100k | 
-                  3 parcelas mensais.
+                  <strong>Política OPEN 2026:</strong> 1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | 
+                  Pagamento em 3 parcelas.
                 </p>
               </div>
             </div>

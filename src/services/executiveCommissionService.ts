@@ -1,47 +1,45 @@
 /**
- * Executive Commission Service - OPEN 2026 Policy
+ * Executive Commission Service - OPEN 2026 Policy (v3)
  * 
  * ============================================
- * POLÍTICA DE COMISSÃO OPEN 2026 (SUBSTITUI TODAS AS ANTERIORES)
+ * POLÍTICA DE COMISSÃO OPEN 2026 - SEM CAP
  * ============================================
  * 
- * 1️⃣ PERCENTUAL POR PRAZO:
- * - <= 12 meses: 4%
- * - > 12 meses (24/36/48): 2.5%
+ * 1️⃣ REGRA DE COMISSÃO POR DURAÇÃO:
+ * - 1 mês = 4% do TCV
+ * - 12 meses = 4% do TCV
+ * - 24 meses = 2.5% do TCV
+ * - 36 meses = 2.5% do TCV
+ * - 48 meses = 2.5% do TCV
+ * - Fallback: < 24 meses = 4%, >= 24 meses = 2.5%
  * 
- * 2️⃣ MESES COMISSIONÁVEIS:
- * - <= 12 meses: prazo real
- * - > 12 meses: 18 meses (CAP)
+ * 2️⃣ TCV = campo "total" da proposta (Total do Contrato)
  * 
- * 3️⃣ CAP FINANCEIRO (NOVA REGRA - POR FAIXA DE TICKET MENSAL):
- * - Até R$ 50.000/mês → CAP R$ 20.000
- * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
- * - Acima de R$ 100.000/mês → CAP R$ 100.000
+ * 3️⃣ NÃO HÁ CAP - Comissão é calculada sem teto
  * 
- * 4️⃣ FÓRMULA:
- * tcv = monthly_value × contract_term_months
- * gross_commission = monthly_value × months_commissioned × commission_rate
- * cap = getCapByTicket(monthly_value)
- * final_commission = min(gross_commission, cap)
- * monthly_installment = final_commission / 3
+ * 4️⃣ PAGAMENTO: Sempre 3 parcelas iguais (3x)
  * 
- * 5️⃣ FONTE DE DADOS:
+ * 5️⃣ FÓRMULA:
+ * comissao = TCV × taxa
+ * parcela = comissao / 3
+ * 
+ * 6️⃣ FONTE DE DADOS:
  * - SOMENTE propostas com status = "APPROVED"
- * - Ignorar DRAFT, SENT, REJECTED, EXPIRED
  */
 
 import { openApi, ApiUser } from '@/lib/openApi';
 import { normalizeStatus } from '@/hooks/useProposals';
 
 // ============================================
-// CONSTANTS - OPEN v2 POLICY
+// CONSTANTS - OPEN 2026 Policy v3 (NO CAP)
 // ============================================
 
 export const COMMISSION_RATES = {
-  SHORT_TERM: 0.04, // <= 12 months = 4%
-  LONG_TERM: 0.025, // > 12 months = 2.5%
+  SHORT_TERM: 0.04, // 1, 12 months or < 24 months = 4%
+  LONG_TERM: 0.025, // 24, 36, 48 months or >= 24 months = 2.5%
 } as const;
 
+export const STANDARD_DURATIONS = [1, 12, 24, 36, 48] as const;
 export const INSTALLMENT_COUNT = 3;
 
 // ============================================
@@ -56,7 +54,7 @@ export interface ExecutiveProposal {
   executivo_id: string;
   executivo_nome: string;
   cliente_nome: string;
-  mrr_total: number;
+  tcv: number; // Total Contract Value (campo "total" da API)
   prazo_meses: number;
   status: ProposalStatus;
   status_pagamento: PaymentStatus;
@@ -69,7 +67,7 @@ export interface ExecutiveProposal {
 export interface CommissionInstallment {
   numero: 1 | 2 | 3;
   valor: number;
-  data_prevista: string;
+  data_prevista: string | null;
   data_pagamento: string | null;
   status: PaymentStatus;
   motivo_suspensao?: string;
@@ -82,26 +80,19 @@ export interface CommissionCalculation {
   cliente_nome: string;
   
   // Base values
-  monthly_value: number;
+  tcv: number; // Total Contract Value
   contract_term_months: number;
   
-  // TCV (Total Contract Value)
-  tcv: number;
-  
-  // v2 calculations
-  months_commissioned: number;
+  // Commission calculation (NO CAP)
   commission_rate: number;
-  gross_commission: number;
-  cap: number;
-  final_commission: number;
-  monthly_installment: number;
-  cap_applied: boolean;
+  commission_value: number;
   
-  // Breakdown for audit
-  cap_meses_aplicado: boolean;
-  valor_economizado: number;
-  
+  // Installments
+  installment_value: number;
   parcelas: CommissionInstallment[];
+  
+  // UI helpers
+  is_standard_duration: boolean;
   
   status: ProposalStatus;
   data_aprovacao: string;
@@ -111,20 +102,17 @@ export interface ExecutiveCommissionSummary {
   executivo_id: string;
   executivo_nome: string;
   total_propostas: number;
-  total_previsto: number;
-  total_a_pagar: number;
-  total_pago: number;
-  propostas_com_cap: number;
-  economia_total_caps: number;
+  total_tcv: number;
+  total_comissao: number;
+  taxa_media_ponderada: number;
 }
 
 export interface CommissionStats {
-  total_previsto: number;
-  total_a_pagar: number;
-  total_pago: number;
+  total_tcv: number;
+  total_comissao: number;
+  total_contratos: number;
   total_executivos_ativos: number;
-  propostas_com_cap: number;
-  economia_cap: number;
+  taxa_media_ponderada: number;
 }
 
 // API Proposal type
@@ -134,7 +122,7 @@ export interface ApiProposalData {
   company: string;
   email: string;
   phone: string;
-  total: number;
+  total: number; // TCV - Total Contract Value
   contract_duration: number;
   discount_pct: number;
   status?: string;
@@ -157,95 +145,95 @@ export interface ApiProposalData {
 }
 
 // ============================================
-// CORE CALCULATION FUNCTIONS - OPEN v2
+// CORE CALCULATION FUNCTIONS - NO CAP
 // ============================================
 
 /**
- * Get commission rate based on contract duration
- * RULE: <= 12 months = 4%, > 12 months = 2.5%
+ * Round to 2 decimal places for BRL currency
  */
-export function getCommissionRate(term: number): number {
-  return term <= 12 ? COMMISSION_RATES.SHORT_TERM : COMMISSION_RATES.LONG_TERM;
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /**
- * Get commissionable months based on contract duration
- * RULE: <= 12 = term, > 12 = 18 (CAP)
+ * Compute commission percentage based on contract duration
+ * RULES:
+ * - 1, 12 months = 4%
+ * - 24, 36, 48 months = 2.5%
+ * - Fallback: < 24 months = 4%, >= 24 months = 2.5%
  */
-export function getMonthsCommissioned(term: number): number {
-  return term <= 12 ? term : 18;
-}
-
-/**
- * Get CAP based on monthly ticket value - OPEN 2026 Policy
- * 
- * REGRA (por faixa de ticket mensal):
- * - Até R$ 50.000/mês → CAP R$ 20.000
- * - De R$ 50.001 até R$ 100.000/mês → CAP R$ 80.000
- * - Acima de R$ 100.000/mês → CAP R$ 100.000
- * 
- * @param monthlyValue - Monthly contract value
- * @returns CAP value in BRL
- */
-export function getCapByTicket(monthlyValue: number): number {
-  if (monthlyValue <= 50000) {
-    return 20000; // R$ 20.000
-  } else if (monthlyValue <= 100000) {
-    return 80000; // R$ 80.000
-  } else {
-    return 100000; // R$ 100.000
+export function computeCommissionPct(durationMonths: number): number {
+  // Standard durations
+  if (durationMonths === 1 || durationMonths === 12) {
+    return COMMISSION_RATES.SHORT_TERM; // 4%
   }
+  if (durationMonths === 24 || durationMonths === 36 || durationMonths === 48) {
+    return COMMISSION_RATES.LONG_TERM; // 2.5%
+  }
+  
+  // Fallback for non-standard durations
+  return durationMonths < 24 ? COMMISSION_RATES.SHORT_TERM : COMMISSION_RATES.LONG_TERM;
 }
 
 /**
- * @deprecated Use getCapByTicket instead
- * Mantido para compatibilidade retroativa
+ * Compute commission value from TCV and duration
+ * NO CAP - Simple multiplication
  */
-export function getCapByTCV(monthlyValue: number, _contractTermMonths: number): number {
-  return getCapByTicket(monthlyValue);
+export function computeCommissionValue(tcv: number, durationMonths: number): number {
+  const rate = computeCommissionPct(durationMonths);
+  return round2(tcv * rate);
 }
 
 /**
- * Calculate complete commission for a proposal - OPEN v2
+ * Compute 3 installments from commission value
+ * Ensures exact sum by adjusting the 3rd installment
+ */
+export function computeInstallments(commissionValue: number): { p1: number; p2: number; p3: number; total: number } {
+  const baseInstallment = round2(commissionValue / 3);
+  const p1 = baseInstallment;
+  const p2 = baseInstallment;
+  const p3 = round2(commissionValue - p1 - p2); // Ensures exact sum
+  
+  return {
+    p1,
+    p2,
+    p3,
+    total: round2(p1 + p2 + p3),
+  };
+}
+
+/**
+ * Check if duration is standard (shows badge if not)
+ */
+export function isStandardDuration(durationMonths: number): boolean {
+  return STANDARD_DURATIONS.includes(durationMonths as typeof STANDARD_DURATIONS[number]);
+}
+
+/**
+ * Calculate complete commission for a proposal - NO CAP
  */
 export function calculateProposalCommission(
   proposal: ExecutiveProposal
 ): CommissionCalculation {
-  const monthlyValue = proposal.mrr_total;
+  const tcv = proposal.tcv;
   const contractTermMonths = proposal.prazo_meses;
   
   // Step 1: Get commission rate
-  const commissionRate = getCommissionRate(contractTermMonths);
+  const commissionRate = computeCommissionPct(contractTermMonths);
   
-  // Step 2: Get months commissioned (CAP at 18 for long terms)
-  const monthsCommissioned = getMonthsCommissioned(contractTermMonths);
-  const capMesesAplicado = contractTermMonths > 12 && monthsCommissioned < contractTermMonths;
+  // Step 2: Calculate commission value (NO CAP)
+  const commissionValue = computeCommissionValue(tcv, contractTermMonths);
   
-  // Step 3: Calculate TCV (Total Contract Value)
-  const tcv = monthlyValue * contractTermMonths;
+  // Step 3: Calculate installments (3x)
+  const installments = computeInstallments(commissionValue);
+  const installmentValue = installments.p1; // Use first installment for display
   
-  // Step 4: Calculate gross commission
-  const grossCommission = monthlyValue * monthsCommissioned * commissionRate;
-  
-  // Step 5: Get CAP based on monthly ticket (OPEN 2026 Policy)
-  const cap = getCapByTicket(monthlyValue);
-  
-  // Validate CAP - log violation if final would exceed CAP
-  if (grossCommission > cap) {
-    console.log(`[CommissionService] CAP applied: gross=${grossCommission.toFixed(2)}, cap=${cap}, saved=${(grossCommission - cap).toFixed(2)}`);
-  }
-  
-  // Step 6: Apply CAP
-  const finalCommission = Math.min(grossCommission, cap);
-  const capApplied = grossCommission > cap;
-  const valorEconomizado = capApplied ? (grossCommission - cap) : 0;
-  
-  // Step 6: Calculate monthly installment
-  const monthlyInstallment = finalCommission / INSTALLMENT_COUNT;
-  
-  // Step 7: Generate installment schedule
+  // Step 4: Generate installment schedule
   const dataBase = proposal.data_inicio_faturamento || proposal.data_aprovacao;
-  const parcelas = splitIntoInstallments(finalCommission, dataBase);
+  const parcelas = createInstallmentSchedule(installments, dataBase);
+  
+  // Step 5: Check if standard duration
+  const isStandard = isStandardDuration(contractTermMonths);
   
   return {
     proposal_id: proposal.proposal_id,
@@ -253,22 +241,16 @@ export function calculateProposalCommission(
     executivo_nome: proposal.executivo_nome,
     cliente_nome: proposal.cliente_nome,
     
-    monthly_value: monthlyValue,
-    contract_term_months: contractTermMonths,
     tcv,
+    contract_term_months: contractTermMonths,
     
-    months_commissioned: monthsCommissioned,
     commission_rate: commissionRate,
-    gross_commission: grossCommission,
-    cap,
-    final_commission: finalCommission,
-    monthly_installment: monthlyInstallment,
-    cap_applied: capApplied,
+    commission_value: commissionValue,
     
-    cap_meses_aplicado: capMesesAplicado,
-    valor_economizado: valorEconomizado,
-    
+    installment_value: installmentValue,
     parcelas,
+    
+    is_standard_duration: isStandard,
     
     status: proposal.status,
     data_aprovacao: proposal.data_aprovacao,
@@ -276,23 +258,33 @@ export function calculateProposalCommission(
 }
 
 /**
- * Split commission into 3 installments
+ * Create installment schedule from computed installments
  */
-export function splitIntoInstallments(
-  valorTotal: number,
-  dataInicio: string
+function createInstallmentSchedule(
+  installments: { p1: number; p2: number; p3: number },
+  dataInicio: string | null
 ): CommissionInstallment[] {
-  const valorParcela = valorTotal / INSTALLMENT_COUNT;
-  const startDate = new Date(dataInicio);
+  const valores = [installments.p1, installments.p2, installments.p3];
   
-  return [1, 2, 3].map((numero) => {
-    const dataPrevista = new Date(startDate);
-    dataPrevista.setMonth(dataPrevista.getMonth() + numero);
+  return valores.map((valor, index) => {
+    const numero = (index + 1) as 1 | 2 | 3;
+    let dataPrevista: string | null = null;
+    
+    if (dataInicio) {
+      try {
+        const startDate = new Date(dataInicio);
+        const paymentDate = new Date(startDate);
+        paymentDate.setMonth(paymentDate.getMonth() + numero);
+        dataPrevista = paymentDate.toISOString().split('T')[0];
+      } catch {
+        dataPrevista = null;
+      }
+    }
     
     return {
-      numero: numero as 1 | 2 | 3,
-      valor: valorParcela,
-      data_prevista: dataPrevista.toISOString().split('T')[0],
+      numero,
+      valor: round2(valor),
+      data_prevista: dataPrevista,
       data_pagamento: null,
       status: 'pendente' as PaymentStatus,
     };
@@ -304,31 +296,32 @@ export function splitIntoInstallments(
 // ============================================
 
 /**
- * Calculate stats for all commissions
+ * Calculate stats for all commissions - NO CAP
  */
 export function calculateCommissionStats(
   calculations: CommissionCalculation[]
 ): CommissionStats {
   const executivosUnicos = new Set(calculations.map((c) => c.executivo_id));
   
+  const totalTcv = calculations.reduce((sum, c) => sum + c.tcv, 0);
+  const totalComissao = calculations.reduce((sum, c) => sum + c.commission_value, 0);
+  
+  // Taxa média ponderada por TCV
+  const taxaMediaPonderada = totalTcv > 0
+    ? calculations.reduce((sum, c) => sum + (c.commission_rate * c.tcv), 0) / totalTcv
+    : 0;
+  
   return {
-    total_previsto: calculations.reduce((sum, c) => sum + c.final_commission, 0),
-    total_a_pagar: calculations.reduce(
-      (sum, c) => sum + c.parcelas.filter((p) => p.status === 'pendente').reduce((s, p) => s + p.valor, 0),
-      0
-    ),
-    total_pago: calculations.reduce(
-      (sum, c) => sum + c.parcelas.filter((p) => p.status === 'pago').reduce((s, p) => s + p.valor, 0),
-      0
-    ),
+    total_tcv: round2(totalTcv),
+    total_comissao: round2(totalComissao),
+    total_contratos: calculations.length,
     total_executivos_ativos: executivosUnicos.size,
-    propostas_com_cap: calculations.filter((c) => c.cap_applied).length,
-    economia_cap: calculations.reduce((sum, c) => sum + c.valor_economizado, 0),
+    taxa_media_ponderada: round2(taxaMediaPonderada * 100) / 100,
   };
 }
 
 /**
- * Group commissions by executive
+ * Group commissions by executive - NO CAP
  */
 export function groupByExecutive(
   calculations: CommissionCalculation[]
@@ -339,33 +332,29 @@ export function groupByExecutive(
         executivo_id: calc.executivo_id,
         executivo_nome: calc.executivo_nome,
         total_propostas: 0,
-        total_previsto: 0,
-        total_a_pagar: 0,
-        total_pago: 0,
-        propostas_com_cap: 0,
-        economia_total_caps: 0,
+        total_tcv: 0,
+        total_comissao: 0,
+        taxa_media_ponderada: 0,
       };
     }
     
     const summary = acc[calc.executivo_id];
     summary.total_propostas += 1;
-    summary.total_previsto += calc.final_commission;
-    summary.total_a_pagar += calc.parcelas
-      .filter((p) => p.status === 'pendente')
-      .reduce((s, p) => s + p.valor, 0);
-    summary.total_pago += calc.parcelas
-      .filter((p) => p.status === 'pago')
-      .reduce((s, p) => s + p.valor, 0);
-    
-    if (calc.cap_applied) {
-      summary.propostas_com_cap += 1;
-    }
-    summary.economia_total_caps += calc.valor_economizado;
+    summary.total_tcv += calc.tcv;
+    summary.total_comissao += calc.commission_value;
     
     return acc;
   }, {} as Record<string, ExecutiveCommissionSummary>);
   
-  return Object.values(grouped);
+  // Calculate weighted average rate for each executive
+  return Object.values(grouped).map((summary) => {
+    const executiveCalcs = calculations.filter((c) => c.executivo_id === summary.executivo_id);
+    const weightedSum = executiveCalcs.reduce((sum, c) => sum + (c.commission_rate * c.tcv), 0);
+    summary.taxa_media_ponderada = summary.total_tcv > 0 ? round2(weightedSum / summary.total_tcv) : 0;
+    summary.total_tcv = round2(summary.total_tcv);
+    summary.total_comissao = round2(summary.total_comissao);
+    return summary;
+  });
 }
 
 // ============================================
@@ -374,6 +363,7 @@ export function groupByExecutive(
 
 /**
  * Transform API proposal data to internal ExecutiveProposal format
+ * Uses "total" as TCV (Total Contract Value)
  */
 export function transformApiProposal(
   apiProposal: ApiProposalData,
@@ -387,7 +377,8 @@ export function transformApiProposal(
     return null;
   }
   
-  const mrrTotal = apiProposal.dados_proposta?.totals?.totalMensal || apiProposal.total || 0;
+  // TCV = campo "total" da proposta
+  const tcv = apiProposal.total || 0;
   const prazoMeses = apiProposal.contract_duration || 
     apiProposal.dados_proposta?.config?.vigencia || 12;
   
@@ -413,7 +404,7 @@ export function transformApiProposal(
     executivo_id: String(executive.id),
     executivo_nome: executive.name,
     cliente_nome: clienteNome,
-    mrr_total: mrrTotal,
+    tcv,
     prazo_meses: prazoMeses,
     status,
     status_pagamento: 'pendente',
@@ -514,12 +505,11 @@ export async function fetchAndCalculateCommissions(): Promise<{
     return {
       commissions: [],
       stats: {
-        total_previsto: 0,
-        total_a_pagar: 0,
-        total_pago: 0,
+        total_tcv: 0,
+        total_comissao: 0,
+        total_contratos: 0,
         total_executivos_ativos: 0,
-        propostas_com_cap: 0,
-        economia_cap: 0,
+        taxa_media_ponderada: 0,
       },
       executiveSummaries: [],
       loading: false,
