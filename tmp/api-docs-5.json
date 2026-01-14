@@ -632,14 +632,14 @@
                 }
             }
         },
-        "/api/calculator/proposal/{id}/approval-token": {
+        "/api/calculator/proposal/{id}/get-approval-token": {
             "get": {
                 "tags": [
                     "Calculator Proposals"
                 ],
                 "summary": "Get approval token for proposal",
                 "description": "Generate or retrieve approval token for a calculator proposal",
-                "operationId": "d14c25e1610c522f307b520568df5225",
+                "operationId": "84d28e93de5af0948f1c2539ecbc1343",
                 "parameters": [
                     {
                         "name": "id",
@@ -2271,7 +2271,7 @@
                         "example": "email@opendatacenter.com.br"
                     },
                     "level": {
-                        "description": "User level: 1=Cliente, 200=Parceiro, 600=RH, 700=Comercial, 750=Gerente Comercial, 775=Sucesso do Cliente, 900=Suporte, 950=Gerente de Suporte, 1000=Admin",
+                        "description": "User level: 1=Cliente, 200=Parceiro, 600=RH, 680=BDR, 690=Arquiteto de soluções, 700=Comercial, 750=Gerente Comercial, 775=Sucesso do Cliente, 900=Suporte, 950=Gerente de Suporte, 1000=Admin",
                         "type": "integer",
                         "example": 600
                     },

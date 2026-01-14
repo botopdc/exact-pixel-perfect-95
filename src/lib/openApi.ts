@@ -39,14 +39,34 @@ export interface ApiUser {
   entity_id: number;
   name: string;
   email: string;
-  level: number; // 1=Cliente, 200=Parceiro, 600=RH, 700=Comercial, 750=Gerente Comercial, 775=CS, 900=Suporte, 950=Gerente Suporte, 1000=Admin
+  level: number; // 1=Cliente, 200=Parceiro, 600=RH, 680=BDR, 690=Arquiteto de soluções, 700=Comercial, 750=Gerente Comercial, 775=CS, 900=Suporte, 950=Gerente Suporte, 1000=Admin
   roles: string[];
   preferences: Record<string, unknown>;
   phones: string[];
   birthday: string | null;
   avatar: string | null;
+  oauth_google?: string | null;
+  hr_name?: string | null;
+  email_verified_at?: string | null;
+  can_receive_emails?: boolean;
+  is_login_ldap?: boolean;
+  last_login_at?: string | null;
+  last_ip?: string | null;
+  sprite?: string | null;
+  obs?: string | null;
+  demo?: boolean;
+  authcode?: string | null;
+  authcode_at?: string | null;
+  cs_contact_preference?: string | null;
+  created_by?: number | null;
+  updated_by?: number | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
+  postponed?: boolean;
+  docnum?: string | null;
+  signer?: boolean;
+  tags?: string[];
   // Partner data (when requested with __with=partner)
   partner?: ApiPartner | null;
 }
@@ -93,9 +113,13 @@ export interface CalculatorConfigApiResponse {
 }
 
 // User level mapping
+// 1=Cliente, 200=Parceiro, 600=RH, 680=BDR, 690=Arquiteto de soluções, 700=Comercial, 750=Gerente Comercial, 775=Sucesso do Cliente, 900=Suporte, 950=Gerente de Suporte, 1000=Admin
 export const USER_LEVELS = {
   CLIENTE: 1,
+  PARCEIRO: 200,
   RH: 600,
+  BDR: 680,
+  ARQUITETO_SOLUCOES: 690,
   COMERCIAL: 700,
   GERENTE_COMERCIAL: 750,
   SUCESSO_CLIENTE: 775,
