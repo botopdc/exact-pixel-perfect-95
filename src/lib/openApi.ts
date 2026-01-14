@@ -369,14 +369,14 @@ class OpenApiClient {
   /**
    * Get approval token for a proposal
    * 
-   * GET /api/calculator/proposal/{id}/approval-token
+   * GET /api/calculator/proposal/{id}/get-approval-token
    * 
    * @param idOrUuid - Proposal ID (numeric) or UUID (string)
    * @returns Approval token for the proposal
    */
   async getProposalApprovalToken(idOrUuid: string | number): Promise<{ token: string }> {
     const response = await this.client.get<{ token: string }>(
-      `/calculator/proposal/${idOrUuid}/approval-token`
+      `/calculator/proposal/${idOrUuid}/get-approval-token`
     );
     return response.data;
   }
