@@ -601,6 +601,79 @@
                 }
             }
         },
+        "/api/calculator/proposal/define-acceptance": {
+            "post": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Define proposal acceptance",
+                "description": "Accept or reject a calculator proposal using approval token",
+                "operationId": "2f6310bd44cb3fe0ef4cdac7b89a4228",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DefineProposalAcceptanceRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Acceptance defined successfully"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    }
+                }
+            }
+        },
+        "/api/calculator/proposal/{id}/approval-token": {
+            "get": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Get approval token for proposal",
+                "description": "Generate or retrieve approval token for a calculator proposal",
+                "operationId": "d14c25e1610c522f307b520568df5225",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Proposal ID or UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Approval token retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "token": {
+                                            "type": "string",
+                                            "example": "abc123def456"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    }
+                }
+            }
+        },
         "/api/calculator/proposal/{idOrUuid}/file": {
             "post": {
                 "tags": [
@@ -1577,6 +1650,35 @@
                 },
                 "type": "object"
             },
+            "DefineProposalAcceptanceRequest": {
+                "required": [
+                    "proposal_id",
+                    "approval_token",
+                    "status"
+                ],
+                "properties": {
+                    "proposal_id": {
+                        "description": "ID of the proposal to accept/reject",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "approval_token": {
+                        "description": "Unique approval token for the proposal",
+                        "type": "string",
+                        "example": "abc123def456"
+                    },
+                    "status": {
+                        "description": "Acceptance status",
+                        "type": "string",
+                        "enum": [
+                            "Aprovado",
+                            "Reprovado"
+                        ],
+                        "example": "Aprovado"
+                    }
+                },
+                "type": "object"
+            },
             "PartnerStoreRequest": {
                 "required": [
                     "name",
@@ -2004,6 +2106,15 @@
                         "type": "string",
                         "format": "date-time",
                         "nullable": true
+                    },
+                    "files": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CalculatorProposalFile"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "Files associated with the proposal"
                     }
                 },
                 "type": "object"
@@ -2056,57 +2167,6 @@
                         "description": "Last update timestamp",
                         "type": "string",
                         "format": "date-time"
-                    }
-                },
-                "type": "object"
-            },
-            "AuditLog": {
-                "title": "AuditLog",
-                "description": "AuditLog model",
-                "properties": {
-                    "id": {
-                        "description": "AuditLog ID",
-                        "type": "integer",
-                        "example": 1
-                    },
-                    "description": {
-                        "description": "Description of the audit log",
-                        "type": "string",
-                        "example": "Updated user information"
-                    },
-                    "action": {
-                        "description": "Action performed in the audit log",
-                        "type": "string",
-                        "example": "Create, Update, Delete"
-                    },
-                    "old_value": {
-                        "description": "Old values before the action",
-                        "type": "object",
-                        "nullable": true
-                    },
-                    "new_value": {
-                        "description": "New values after the action",
-                        "type": "object",
-                        "nullable": true
-                    },
-                    "meta": {
-                        "description": "Additional metadata related to the audit log",
-                        "type": "object",
-                        "nullable": true
-                    },
-                    "created_at": {
-                        "description": "Creation timestamp",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "creator": {
-                        "oneOf": [
-                            {
-                                "$ref": "#/components/schemas/User"
-                            }
-                        ],
-                        "nullable": true,
-                        "description": "User who the log is related to"
                     }
                 },
                 "type": "object"

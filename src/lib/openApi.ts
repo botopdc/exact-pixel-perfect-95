@@ -366,6 +366,36 @@ class OpenApiClient {
     await this.client.delete(`/calculator/proposal/${id}`);
   }
 
+  /**
+   * Get approval token for a proposal
+   * 
+   * GET /api/calculator/proposal/{id}/approval-token
+   * 
+   * @param idOrUuid - Proposal ID (numeric) or UUID (string)
+   * @returns Approval token for the proposal
+   */
+  async getProposalApprovalToken(idOrUuid: string | number): Promise<{ token: string }> {
+    const response = await this.client.get<{ token: string }>(
+      `/calculator/proposal/${idOrUuid}/approval-token`
+    );
+    return response.data;
+  }
+
+  /**
+   * Define proposal acceptance (approve or reject)
+   * 
+   * POST /api/calculator/proposal/define-acceptance
+   * 
+   * @param payload - Acceptance payload per DefineProposalAcceptanceRequest schema
+   */
+  async defineProposalAcceptance(payload: {
+    proposal_id: number;
+    approval_token: string;
+    status: 'Aprovado' | 'Reprovado';
+  }): Promise<void> {
+    await this.client.post('/calculator/proposal/define-acceptance', payload);
+  }
+
   // ============================================================================
   // USERS ENDPOINTS
   // ============================================================================

@@ -20,6 +20,7 @@ import VagasJson from '@/pages/VagasJson';
 import Calculadora from '@/pages/Calculadora';
 import PropostaView from '@/pages/PropostaView';
 import PropostaAceite from '@/pages/PropostaAceite';
+import PropostaAprovar from '@/pages/PropostaAprovar';
 import Propostas from '@/pages/Propostas';
 import Precos from '@/pages/Precos';
 import Artigos from '@/pages/Artigos';
@@ -74,6 +75,7 @@ const App = () => (
           {/* Public proposal routes (for clients) */}
           <Route path="/proposta/:id" element={<PropostaView />} />
           <Route path="/proposta/:id/aceite" element={<PropostaAceite />} />
+          <Route path="/proposta/aprovar" element={<PropostaAprovar />} />
           
           {/* Public job routes */}
           <Route path="/vagas" element={<VagasPublic />} />

@@ -13,6 +13,7 @@ import { useAttachments } from '@/hooks/useAttachments';
 import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
 import { ROUTES, getDashboardRoute } from '@/config/routes';
+import { useApprovalLink } from '@/hooks/useApprovalLink';
 
 // ============================================================================
 // RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS (BASED ON API FIELDS)
@@ -93,6 +94,8 @@ const PropostaView: React.FC = () => {
   const location = useLocation();
   const { toast } = useToast();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [isCopyingLink, setIsCopyingLink] = useState(false);
+  const { getApprovalLink } = useApprovalLink();
   
   // Get current user info for RBAC
   const internalSession = authService.getSession();
@@ -185,21 +188,28 @@ const PropostaView: React.FC = () => {
   };
 
   const handleCopyLink = async () => {
-    const baseUrl = window.location.origin;
-    const link = `${baseUrl}/proposta/${id}/aceite`;
-    navigator.clipboard.writeText(link);
+    if (!id) return;
     
-    // Track link copy
-    if (id) {
+    setIsCopyingLink(true);
+    try {
+      // Fetch approval token and generate link with it
+      const approvalLink = await getApprovalLink(id);
+      await navigator.clipboard.writeText(approvalLink);
+      
+      // Track link copy
       trackEvent.mutate({ proposalId: id, type: 'link_copy', channel: 'ui' });
       
       // Update status to SENT if still DRAFT
       if (!proposal?.status || proposal?.status === 'DRAFT') {
         await updateStatusMutation.mutateAsync({ id, status: 'SENT' });
       }
+      
+      toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado' });
+    } catch (error: any) {
+      toast({ title: 'Erro', description: error.message || 'Erro ao gerar link', variant: 'destructive' });
+    } finally {
+      setIsCopyingLink(false);
     }
-    
-    toast({ title: 'Link copiado!', description: 'O link da tela de aceite foi copiado para a área de transferência' });
   };
 
   const handleSendEmail = async () => {
@@ -340,9 +350,9 @@ const PropostaView: React.FC = () => {
         <div className="max-w-[960px] mx-auto px-6 py-3 flex items-center justify-between">
           <OpenLogo />
           <div className="flex items-center gap-2">
-            <Button variant="open-outline" size="sm" onClick={handleCopyLink}>
-              <LinkIcon className="w-4 h-4" />
-              Copiar Link
+            <Button variant="open-outline" size="sm" onClick={handleCopyLink} disabled={isCopyingLink}>
+              {isCopyingLink ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
+              {isCopyingLink ? 'Gerando...' : 'Copiar Link'}
             </Button>
             <Button variant="open" size="sm" onClick={handleSendEmail} disabled={!clientEmail || isSendingEmail}>
               {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
