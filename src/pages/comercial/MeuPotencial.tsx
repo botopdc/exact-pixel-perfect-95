@@ -1,6 +1,6 @@
 /**
  * Meu Potencial - Executive Earnings Dashboard
- * OPEN 2026 Commission Policy v3 - SEM CAP
+ * OPEN 2026 Commission Policy - SEM CAP
  * 
  * ============================================
  * REGRAS IMPLEMENTADAS:
@@ -18,6 +18,12 @@
  * 4️⃣ PAGAMENTO: Sempre 3 parcelas iguais
  * 
  * 5️⃣ SOMENTE status = APPROVED
+ * 
+ * 6️⃣ ROLLING WINDOW: Previsão sempre começa no mês atual
+ * 
+ * 7️⃣ STATUS: Ativo (<= 30 dias), Em Risco (31-45 dias), Expirado (> 45 dias)
+ * 
+ * 8️⃣ HISTÓRICO: A partir de Jan/2026
  */
 
 import { useEffect, useState, useMemo } from 'react';
@@ -30,7 +36,6 @@ import {
   computeCommissionValue,
   computeInstallments,
   isStandardDuration,
-  STANDARD_DURATIONS,
 } from '@/services/executiveCommissionService';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,7 +43,6 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   TrendingUp,
@@ -48,20 +52,39 @@ import {
   DollarSign,
   Eye,
   ChevronDown,
+  ChevronRight,
   Calculator,
-  Target,
   Wallet,
   BarChart3,
   FileText,
   Percent,
-  Lightbulb,
-  ArrowUp,
   Calendar,
+  AlertCircle,
+  History,
+  Shield,
+  ShieldAlert,
+  ShieldX,
 } from 'lucide-react';
+
+// ============================================
+// CONFIGURATION
+// ============================================
+
+// System start month (fixed)
+const SYSTEM_START_YEAR = 2026;
+const SYSTEM_START_MONTH = 0; // January = 0
+
+// Status thresholds (in days)
+const STATUS_THRESHOLDS = {
+  ACTIVE_MAX_DAYS: 30,
+  AT_RISK_MAX_DAYS: 45,
+} as const;
 
 // ============================================
 // TYPES
 // ============================================
+
+type ProposalAgeStatus = 'ATIVO' | 'EM_RISCO' | 'EXPIRADO';
 
 interface ApiProposal {
   id: number;
@@ -78,22 +101,14 @@ interface ApiProposal {
   updated_at: string;
   accepted_at?: string;
   approved_at?: string;
-  dados_proposta?: {
-    cliente?: {
-      nome?: string;
-      empresa?: string;
-    };
-    config?: {
-      vigencia?: number;
-    };
-  };
+  sent_at?: string;
 }
 
 interface ProcessedProposal {
   id: number;
   cliente: string;
   empresa: string;
-  tcv: number; // Total Contract Value
+  tcv: number;
   contract_term_months: number;
   commission_rate: number;
   commission_value: number;
@@ -101,20 +116,37 @@ interface ProcessedProposal {
   p2: number;
   p3: number;
   is_standard_duration: boolean;
-  dataAprovacao: string;
   dadosIncompletos: boolean;
-  mrr: number; // MRR estimado = TCV / duração
-  basePaymentMonth: number | null; // Month index (0-11) from accepted_at/approved_at/created_at
+  
+  // Date and status
+  baseDate: Date | null;
+  basePaymentMonth: number; // 0-11
+  basePaymentYear: number;
+  ageInDays: number;
+  ageStatus: ProposalAgeStatus;
+}
+
+interface MonthYear {
+  month: number; // 0-11
+  year: number;
+}
+
+interface MonthlyInstallment {
+  proposalId: number;
+  cliente: string;
+  parcela: '1/3' | '2/3' | '3/3';
+  valor: number;
+}
+
+interface MonthlyGroup {
+  monthYear: MonthYear;
+  label: string;
+  installments: MonthlyInstallment[];
+  total: number;
 }
 
 // ============================================
-// MRR CONFIGURATION
-// ============================================
-
-const METAS_MRR = [50000, 100000, 150000, 200000];
-
-// ============================================
-// MONTH NAMES & HELPERS
+// MONTH NAMES
 // ============================================
 
 const MONTH_NAMES = [
@@ -126,34 +158,6 @@ const MONTH_NAMES_SHORT = [
   'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'
 ];
-
-const LOCALSTORAGE_KEY = 'commission_installment_start_month';
-
-/**
- * Get 3 consecutive months starting from baseMonthIndex (0-11)
- * Returns array of [m1, m2, m3] with wrap-around (Dec -> Jan)
- */
-function getInstallmentMonths(baseMonthIndex: number): [number, number, number] {
-  const m1 = baseMonthIndex % 12;
-  const m2 = (baseMonthIndex + 1) % 12;
-  const m3 = (baseMonthIndex + 2) % 12;
-  return [m1, m2, m3];
-}
-
-/**
- * Extract month index from a date string (ISO format)
- * Returns null if invalid
- */
-function getMonthFromDateString(dateStr: string | undefined | null): number | null {
-  if (!dateStr) return null;
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return null;
-    return date.getMonth(); // 0-11
-  } catch {
-    return null;
-  }
-}
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -169,6 +173,81 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+function getCurrentMonthYear(): MonthYear {
+  const now = new Date();
+  return {
+    month: now.getMonth(),
+    year: now.getFullYear(),
+  };
+}
+
+function addMonths(base: MonthYear, months: number): MonthYear {
+  let totalMonths = base.year * 12 + base.month + months;
+  return {
+    year: Math.floor(totalMonths / 12),
+    month: totalMonths % 12,
+  };
+}
+
+function getMonthYearLabel(my: MonthYear): string {
+  return `${MONTH_NAMES[my.month]}/${my.year}`;
+}
+
+function getMonthYearKey(my: MonthYear): string {
+  return `${my.year}-${String(my.month).padStart(2, '0')}`;
+}
+
+function parseDate(dateStr: string | undefined | null): Date | null {
+  if (!dateStr) return null;
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+    return date;
+  } catch {
+    return null;
+  }
+}
+
+function daysBetween(date1: Date, date2: Date): number {
+  const diffTime = Math.abs(date2.getTime() - date1.getTime());
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+}
+
+function getAgeStatus(ageInDays: number): ProposalAgeStatus {
+  if (ageInDays <= STATUS_THRESHOLDS.ACTIVE_MAX_DAYS) {
+    return 'ATIVO';
+  } else if (ageInDays <= STATUS_THRESHOLDS.AT_RISK_MAX_DAYS) {
+    return 'EM_RISCO';
+  }
+  return 'EXPIRADO';
+}
+
+function getStatusBadge(status: ProposalAgeStatus) {
+  switch (status) {
+    case 'ATIVO':
+      return (
+        <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
+          <Shield className="h-3 w-3 mr-1" />
+          Ativo
+        </Badge>
+      );
+    case 'EM_RISCO':
+      return (
+        <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30">
+          <ShieldAlert className="h-3 w-3 mr-1" />
+          Em Risco
+        </Badge>
+      );
+    case 'EXPIRADO':
+      return (
+        <Badge className="bg-gray-500/20 text-gray-500 border-gray-500/30">
+          <ShieldX className="h-3 w-3 mr-1" />
+          Expirado
+        </Badge>
+      );
+  }
+}
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -179,25 +258,10 @@ export default function MeuPotencial() {
   const [error, setError] = useState<string | null>(null);
   const [propostas, setPropostas] = useState<ProcessedProposal[]>([]);
   const [userId, setUserId] = useState<number | null>(null);
-  
-  // Global dropdown for start month (0-11), default to current month
-  const [selectedStartMonth, setSelectedStartMonth] = useState<number>(() => {
-    const stored = localStorage.getItem(LOCALSTORAGE_KEY);
-    if (stored !== null) {
-      const parsed = parseInt(stored, 10);
-      if (!isNaN(parsed) && parsed >= 0 && parsed <= 11) {
-        return parsed;
-      }
-    }
-    return new Date().getMonth();
-  });
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
 
-  // Persist selection to localStorage
-  const handleStartMonthChange = (value: string) => {
-    const month = parseInt(value, 10);
-    setSelectedStartMonth(month);
-    localStorage.setItem(LOCALSTORAGE_KEY, value);
-  };
+  // Current month/year (rolling window base)
+  const currentMonthYear = useMemo(() => getCurrentMonthYear(), []);
 
   useEffect(() => {
     let mounted = true;
@@ -223,6 +287,7 @@ export default function MeuPotencial() {
         if (!mounted) return;
         
         const allProposals = (response.data || []) as ApiProposal[];
+        const now = new Date();
         
         // RULE: ONLY APPROVED proposals created by this user
         const filteredProposals = allProposals.filter((p) => {
@@ -235,25 +300,31 @@ export default function MeuPotencial() {
         // Process proposals
         const processed: ProcessedProposal[] = filteredProposals.map((p) => {
           const tcv = p.total || 0;
-          const duration = p.contract_duration || p.dados_proposta?.config?.vigencia || 0;
+          const duration = p.contract_duration || 0;
           const rate = computeCommissionPct(duration);
           const commission = computeCommissionValue(tcv, duration);
           const installments = computeInstallments(commission);
           
-          // Calculate MRR (only if duration > 0)
-          const mrr = duration > 0 ? tcv / duration : 0;
+          // Determine base date (priority: accepted_at > approved_at > sent_at > updated_at)
+          const baseDate = 
+            parseDate(p.accepted_at) ||
+            parseDate(p.approved_at) ||
+            parseDate(p.sent_at) ||
+            parseDate(p.updated_at) ||
+            parseDate(p.created_at);
           
-          // Determine base payment month from dates (priority: accepted_at > approved_at > updated_at > created_at)
-          const basePaymentMonth = 
-            getMonthFromDateString(p.accepted_at) ??
-            getMonthFromDateString(p.approved_at) ??
-            getMonthFromDateString(p.updated_at) ??
-            getMonthFromDateString(p.created_at);
+          // Calculate age and status
+          const ageInDays = baseDate ? daysBetween(baseDate, now) : 0;
+          const ageStatus = baseDate ? getAgeStatus(ageInDays) : 'ATIVO';
+          
+          // Payment month/year (from real date or current month)
+          const basePaymentMonth = baseDate ? baseDate.getMonth() : currentMonthYear.month;
+          const basePaymentYear = baseDate ? baseDate.getFullYear() : currentMonthYear.year;
           
           return {
             id: p.id,
-            cliente: p.name || p.dados_proposta?.cliente?.nome || 'N/A',
-            empresa: p.company || p.dados_proposta?.cliente?.empresa || 'N/A',
+            cliente: p.name || 'N/A',
+            empresa: p.company || 'N/A',
             tcv,
             contract_term_months: duration,
             commission_rate: rate,
@@ -262,10 +333,12 @@ export default function MeuPotencial() {
             p2: installments.p2,
             p3: installments.p3,
             is_standard_duration: isStandardDuration(duration),
-            dataAprovacao: p.updated_at,
             dadosIncompletos: !tcv || !duration,
-            mrr,
+            baseDate,
             basePaymentMonth,
+            basePaymentYear,
+            ageInDays,
+            ageStatus,
           };
         });
 
@@ -291,7 +364,7 @@ export default function MeuPotencial() {
     return () => {
       mounted = false;
     };
-  }, [navigate]);
+  }, [navigate, currentMonthYear]);
 
   // ============================================
   // COMPUTED VALUES
@@ -307,57 +380,151 @@ export default function MeuPotencial() {
       ? propostas.reduce((sum, p) => sum + (p.commission_rate * p.tcv), 0) / totalTCV
       : 0;
     
-    // Sum of all installments
-    const totalP1 = propostas.reduce((sum, p) => sum + p.p1, 0);
-    const totalP2 = propostas.reduce((sum, p) => sum + p.p2, 0);
-    const totalP3 = propostas.reduce((sum, p) => sum + p.p3, 0);
+    // By status
+    const activeProposals = propostas.filter(p => p.ageStatus === 'ATIVO');
+    const atRiskProposals = propostas.filter(p => p.ageStatus === 'EM_RISCO');
+    const expiredProposals = propostas.filter(p => p.ageStatus === 'EXPIRADO');
+    
+    const activeCommission = activeProposals.reduce((sum, p) => sum + p.commission_value, 0);
+    const atRiskCommission = atRiskProposals.reduce((sum, p) => sum + p.commission_value, 0);
+    const expiredCommission = expiredProposals.reduce((sum, p) => sum + p.commission_value, 0);
 
     return {
       totalCommission,
       totalTCV,
       contractCount,
       avgRate,
-      totalP1,
-      totalP2,
-      totalP3,
+      activeCommission,
+      atRiskCommission,
+      expiredCommission,
+      activeCount: activeProposals.length,
+      atRiskCount: atRiskProposals.length,
+      expiredCount: expiredProposals.length,
     };
   }, [propostas]);
 
   // ============================================
-  // MRR CALCULATIONS
+  // ROLLING WINDOW - 3 MONTHS PROJECTION
   // ============================================
 
-  const mrrStats = useMemo(() => {
-    // Only consider proposals with valid duration for MRR
-    const validProposals = propostas.filter(p => p.contract_term_months > 0);
-    const mrrAtual = validProposals.reduce((sum, p) => sum + p.mrr, 0);
-    
-    // Find next target above current MRR
-    const sortedMetas = [...METAS_MRR].sort((a, b) => a - b);
-    const proximaMeta = sortedMetas.find(meta => meta > mrrAtual) || sortedMetas[sortedMetas.length - 1];
-    
-    const gap = Math.max(0, proximaMeta - mrrAtual);
-    const metaAtingida = mrrAtual >= proximaMeta;
-    
-    // Count proposals without valid duration
-    const invalidDurationCount = propostas.filter(p => p.contract_term_months <= 0).length;
+  const rollingMonths = useMemo((): MonthYear[] => {
+    return [
+      currentMonthYear,
+      addMonths(currentMonthYear, 1),
+      addMonths(currentMonthYear, 2),
+    ];
+  }, [currentMonthYear]);
 
-    return {
-      mrrAtual,
-      proximaMeta,
-      gap,
-      metaAtingida,
-      invalidDurationCount,
-    };
+  // Group installments by month for preview
+  const monthlyProjection = useMemo((): MonthlyGroup[] => {
+    const groups: Record<string, MonthlyGroup> = {};
+    
+    // Initialize 3 months
+    rollingMonths.forEach((my, idx) => {
+      const key = getMonthYearKey(my);
+      groups[key] = {
+        monthYear: my,
+        label: `${MONTH_NAMES[my.month]} ${my.year}`,
+        installments: [],
+        total: 0,
+      };
+    });
+    
+    // Map each proposal's installments
+    propostas.forEach((p) => {
+      // Use proposal's real date or current month
+      const baseMonthYear: MonthYear = {
+        month: p.basePaymentMonth,
+        year: p.basePaymentYear,
+      };
+      
+      // P1 -> base month, P2 -> base+1, P3 -> base+2
+      const p1Month = baseMonthYear;
+      const p2Month = addMonths(baseMonthYear, 1);
+      const p3Month = addMonths(baseMonthYear, 2);
+      
+      const parcelas: Array<{ month: MonthYear; parcela: '1/3' | '2/3' | '3/3'; valor: number }> = [
+        { month: p1Month, parcela: '1/3', valor: p.p1 },
+        { month: p2Month, parcela: '2/3', valor: p.p2 },
+        { month: p3Month, parcela: '3/3', valor: p.p3 },
+      ];
+      
+      parcelas.forEach(({ month, parcela, valor }) => {
+        const key = getMonthYearKey(month);
+        if (groups[key]) {
+          groups[key].installments.push({
+            proposalId: p.id,
+            cliente: p.cliente,
+            parcela,
+            valor,
+          });
+          groups[key].total += valor;
+        }
+      });
+    });
+    
+    return rollingMonths.map(my => groups[getMonthYearKey(my)]);
+  }, [propostas, rollingMonths]);
+
+  // ============================================
+  // HISTORY - Since Jan/2026
+  // ============================================
+
+  const commissionHistory = useMemo(() => {
+    const history: MonthlyGroup[] = [];
+    const startMonthYear: MonthYear = { month: SYSTEM_START_MONTH, year: SYSTEM_START_YEAR };
+    
+    // Generate 12 months from system start
+    for (let i = 0; i < 12; i++) {
+      const my = addMonths(startMonthYear, i);
+      const key = getMonthYearKey(my);
+      
+      const group: MonthlyGroup = {
+        monthYear: my,
+        label: `${MONTH_NAMES[my.month]} ${my.year}`,
+        installments: [],
+        total: 0,
+      };
+      
+      // Find installments for this month
+      propostas.forEach((p) => {
+        const baseMonthYear: MonthYear = {
+          month: p.basePaymentMonth,
+          year: p.basePaymentYear,
+        };
+        
+        const parcelas: Array<{ month: MonthYear; parcela: '1/3' | '2/3' | '3/3'; valor: number }> = [
+          { month: baseMonthYear, parcela: '1/3', valor: p.p1 },
+          { month: addMonths(baseMonthYear, 1), parcela: '2/3', valor: p.p2 },
+          { month: addMonths(baseMonthYear, 2), parcela: '3/3', valor: p.p3 },
+        ];
+        
+        parcelas.forEach(({ month, parcela, valor }) => {
+          if (month.month === my.month && month.year === my.year) {
+            group.installments.push({
+              proposalId: p.id,
+              cliente: p.cliente,
+              parcela,
+              valor,
+            });
+            group.total += valor;
+          }
+        });
+      });
+      
+      history.push(group);
+    }
+    
+    return history;
   }, [propostas]);
 
-  // ============================================
-  // INSTALLMENT MONTHS (global from dropdown)
-  // ============================================
-
-  const globalInstallmentMonths = useMemo(() => {
-    return getInstallmentMonths(selectedStartMonth);
-  }, [selectedStartMonth]);
+  // Toggle month expansion
+  const toggleMonth = (key: string) => {
+    setExpandedMonths(prev => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
   // ============================================
   // RENDER LOADING
@@ -419,31 +586,30 @@ export default function MeuPotencial() {
           Meu Potencial
         </h1>
         <p className="text-muted-foreground">
-          Visualize suas comissões e potencial de ganhos baseados nas propostas aprovadas
+          Visualize suas comissões baseadas nas propostas aprovadas — Política OPEN 2026
         </p>
       </div>
 
       {/* Policy Summary */}
       <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <FileText className="h-5 w-5 text-primary" />
-            Comissões — Política OPEN 2026
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="py-4">
           <div className="flex flex-wrap items-center gap-4 text-sm">
             <Badge variant="outline" className="text-sm py-1">
-              Comissão: 1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | Pagamento em 3x
+              <FileText className="h-3 w-3 mr-1" />
+              1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | Pagamento em 3x
+            </Badge>
+            <Badge variant="outline" className="text-sm py-1">
+              <Calendar className="h-3 w-3 mr-1" />
+              Período atual: {MONTH_NAMES[currentMonthYear.month]}/{currentMonthYear.year}
             </Badge>
           </div>
         </CardContent>
       </Card>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - Restored Layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Comissão Total Projetada */}
-        <Card>
+        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <DollarSign className="h-4 w-4" />
@@ -455,25 +621,43 @@ export default function MeuPotencial() {
               {formatCurrency(stats.totalCommission)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Soma das comissões aprovadas
+              Soma de todas as comissões
             </p>
           </CardContent>
         </Card>
 
-        {/* TCV Total */}
-        <Card>
+        {/* Em Risco */}
+        <Card className={`${stats.atRiskCount > 0 ? 'bg-gradient-to-br from-amber-500/10 to-amber-500/5 border-amber-500/20' : ''}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Wallet className="h-4 w-4" />
-              TCV Total
+              <ShieldAlert className="h-4 w-4 text-amber-500" />
+              Em Risco
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(stats.totalTCV)}
+            <div className={`text-2xl font-bold ${stats.atRiskCount > 0 ? 'text-amber-500' : ''}`}>
+              {formatCurrency(stats.atRiskCommission)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Total Contract Value
+              {stats.atRiskCount} proposta(s) entre 31-45 dias
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Ativo */}
+        <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Shield className="h-4 w-4 text-green-500" />
+              Ativo
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">
+              {formatCurrency(stats.activeCommission)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.activeCount} proposta(s) até 30 dias
             </p>
           </CardContent>
         </Card>
@@ -495,101 +679,122 @@ export default function MeuPotencial() {
             </p>
           </CardContent>
         </Card>
+      </div>
 
-        {/* Taxa Média */}
+      {/* Previsão de Pagamento - Rolling Window */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            Previsão de Pagamento
+          </CardTitle>
+          <CardDescription>
+            Próximos 3 meses a partir de {MONTH_NAMES[currentMonthYear.month]}/{currentMonthYear.year} — Atualiza automaticamente ao virar o mês
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {monthlyProjection.map((group, idx) => {
+            const key = getMonthYearKey(group.monthYear);
+            const isExpanded = expandedMonths[key] ?? false;
+            const parcelaLabel = ['1/3', '2/3', '3/3'][idx];
+            
+            return (
+              <Collapsible key={key} open={isExpanded} onOpenChange={() => toggleMonth(key)}>
+                <CollapsibleTrigger asChild>
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50 border cursor-pointer hover:bg-muted/70 transition-colors">
+                    <div className="flex items-center gap-3">
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <div>
+                        <div className="font-medium">
+                          {group.label} — {parcelaLabel}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {group.installments.length} parcela(s)
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xl font-bold text-primary">
+                      {formatCurrency(group.total)}
+                    </div>
+                  </div>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-2 pl-8 space-y-2">
+                    {group.installments.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-2">
+                        Nenhuma parcela prevista para este mês
+                      </p>
+                    ) : (
+                      group.installments.map((inst, i) => (
+                        <div key={`${inst.proposalId}-${inst.parcela}-${i}`} className="flex items-center justify-between p-2 rounded bg-background border text-sm">
+                          <span>
+                            #{inst.proposalId} — {inst.cliente} ({inst.parcela})
+                          </span>
+                          <span className="font-medium">{formatCurrency(inst.valor)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      {/* Resumo Financeiro */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              TCV Total
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold">
+              {formatCurrency(stats.totalTCV)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Comissão Total
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-primary">
+              {formatCurrency(stats.totalCommission)}
+            </div>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Percent className="h-4 w-4" />
-              Taxa Média
+              Taxa Média Ponderada
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl font-bold">
               {(stats.avgRate * 100).toFixed(2)}%
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Ponderada por TCV
-            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Próximas 3 Parcelas */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary" />
-                Próximas 3 Parcelas
-              </CardTitle>
-              <CardDescription>
-                Pagamento dividido em 3x (soma de todas as propostas aprovadas)
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <div className="flex flex-col">
-                <span className="text-xs text-muted-foreground mb-1">Mês inicial (1/3)</span>
-                <Select value={String(selectedStartMonth)} onValueChange={handleStartMonthChange}>
-                  <SelectTrigger className="w-[140px] h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-background border z-50">
-                    {MONTH_NAMES.map((month, index) => (
-                      <SelectItem key={index} value={String(index)}>
-                        {month}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-[10px] text-muted-foreground mt-1">
-                  Define o mês de referência
-                </span>
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 rounded-lg bg-muted/50 border">
-              <div className="text-sm font-medium mb-1">
-                {MONTH_NAMES[globalInstallmentMonths[0]]} — 1/3
-              </div>
-              <div className="text-xs text-muted-foreground mb-2">Pagamento da comissão</div>
-              <div className="text-xl font-bold text-primary">
-                {formatCurrency(stats.totalP1)}
-              </div>
-            </div>
-            <div className="p-4 rounded-lg bg-muted/50 border">
-              <div className="text-sm font-medium mb-1">
-                {MONTH_NAMES[globalInstallmentMonths[1]]} — 2/3
-              </div>
-              <div className="text-xs text-muted-foreground mb-2">Pagamento da comissão</div>
-              <div className="text-xl font-bold text-primary">
-                {formatCurrency(stats.totalP2)}
-              </div>
-            </div>
-            <div className="p-4 rounded-lg bg-muted/50 border">
-              <div className="text-sm font-medium mb-1">
-                {MONTH_NAMES[globalInstallmentMonths[2]]} — 3/3
-              </div>
-              <div className="text-xs text-muted-foreground mb-2">Pagamento da comissão</div>
-              <div className="text-xl font-bold text-primary">
-                {formatCurrency(stats.totalP3)}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Comissões por Proposta */}
+      {/* Propostas Aprovadas */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-primary" />
-            Comissões por Proposta
+            Propostas Aprovadas
           </CardTitle>
           <CardDescription>
             Detalhamento por contrato (ordenado por maior comissão)
@@ -601,7 +806,7 @@ export default function MeuPotencial() {
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>Nenhuma proposta aprovada encontrada</p>
               <p className="text-sm mt-2">
-                Suas propostas aprovadas aparecerão aqui com o cálculo de comissão
+                Suas propostas aprovadas aparecerão aqui
               </p>
             </div>
           ) : (
@@ -610,119 +815,86 @@ export default function MeuPotencial() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Cliente/Empresa</TableHead>
-                      <TableHead className="text-right">Duração</TableHead>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Cliente</TableHead>
                       <TableHead className="text-right">TCV</TableHead>
+                      <TableHead className="text-right">Prazo</TableHead>
                       <TableHead className="text-right">%</TableHead>
-                      <TableHead className="text-right">Comissão</TableHead>
-                      <TableHead className="text-right">
-                        {MONTH_NAMES_SHORT[globalInstallmentMonths[0]]} (1/3)
-                      </TableHead>
-                      <TableHead className="text-right">
-                        {MONTH_NAMES_SHORT[globalInstallmentMonths[1]]} (2/3)
-                      </TableHead>
-                      <TableHead className="text-right">
-                        {MONTH_NAMES_SHORT[globalInstallmentMonths[2]]} (3/3)
-                      </TableHead>
+                      <TableHead className="text-right">Comissão Total</TableHead>
+                      <TableHead className="text-right">Parcela (1/3)</TableHead>
                       <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="text-center">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {propostas.map((p) => {
-                      // Determine if proposal has its own date-based month
-                      const proposalMonths = p.basePaymentMonth !== null
-                        ? getInstallmentMonths(p.basePaymentMonth)
-                        : null;
-                      const hasCustomMonth = proposalMonths !== null && 
-                        (proposalMonths[0] !== globalInstallmentMonths[0] ||
-                         proposalMonths[1] !== globalInstallmentMonths[1] ||
-                         proposalMonths[2] !== globalInstallmentMonths[2]);
-                      
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell>
-                            <div className="flex flex-col">
-                              <span className="font-medium">{p.cliente}</span>
-                              <span className="text-xs text-muted-foreground">{p.empresa}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {p.contract_term_months}m
-                              {!p.is_standard_duration && (
-                                <Badge variant="outline" className="text-xs ml-1">
-                                  n/p
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {formatCurrency(p.tcv)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {(p.commission_rate * 100).toFixed(1)}%
-                          </TableCell>
-                          <TableCell className="text-right font-bold text-primary">
-                            {formatCurrency(p.commission_value)}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {hasCustomMonth && proposalMonths ? (
-                              <Tooltip>
-                                <TooltipTrigger className="cursor-help underline decoration-dotted">
-                                  {formatCurrency(p.p1)}
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Real: {MONTH_NAMES[proposalMonths[0]]}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              formatCurrency(p.p1)
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {hasCustomMonth && proposalMonths ? (
-                              <Tooltip>
-                                <TooltipTrigger className="cursor-help underline decoration-dotted">
-                                  {formatCurrency(p.p2)}
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Real: {MONTH_NAMES[proposalMonths[1]]}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              formatCurrency(p.p2)
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {hasCustomMonth && proposalMonths ? (
-                              <Tooltip>
-                                <TooltipTrigger className="cursor-help underline decoration-dotted">
-                                  {formatCurrency(p.p3)}
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Real: {MONTH_NAMES[proposalMonths[2]]}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              formatCurrency(p.p3)
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {p.dadosIncompletos ? (
-                              <Badge variant="secondary" className="text-xs">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                Incompleto
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                OK
+                    {propostas.map((p) => (
+                      <TableRow key={p.id} className={p.ageStatus === 'EXPIRADO' ? 'opacity-50' : ''}>
+                        <TableCell className="font-mono text-xs">
+                          #{p.id}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{p.cliente}</span>
+                            <span className="text-xs text-muted-foreground">{p.empresa}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(p.tcv)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {p.contract_term_months}m
+                            {!p.is_standard_duration && (
+                              <Badge variant="outline" className="text-xs ml-1">
+                                n/p
                               </Badge>
                             )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(p.commission_rate * 100).toFixed(1)}%
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-primary">
+                          {formatCurrency(p.commission_value)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          <Tooltip>
+                            <TooltipTrigger className="cursor-help">
+                              {formatCurrency(p.p1)}
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>{MONTH_NAMES[p.basePaymentMonth]}/{p.basePaymentYear}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {p.dadosIncompletos ? (
+                            <Badge variant="secondary" className="text-xs">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Incompleto
+                            </Badge>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                {getStatusBadge(p.ageStatus)}
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{p.ageInDays} dias desde aprovação</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => navigate(`/propostas/${p.id}`)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
@@ -731,109 +903,80 @@ export default function MeuPotencial() {
         </CardContent>
       </Card>
 
-      {/* Sugestões — MRR para aumentar comissão */}
-      <Card className="bg-gradient-to-r from-amber-500/10 to-orange-500/5 border-amber-500/20">
+      {/* Histórico de Comissões */}
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Lightbulb className="h-5 w-5 text-amber-500" />
-            Sugestões — MRR para aumentar comissão
+            <History className="h-5 w-5 text-primary" />
+            Histórico de Comissões (desde Jan/2026)
           </CardTitle>
           <CardDescription>
-            Acompanhe seu MRR aprovado e veja quanto falta para atingir as metas
-            {mrrStats.invalidDurationCount > 0 && (
-              <span className="block text-xs text-amber-500 mt-1">
-                ⚠️ {mrrStats.invalidDurationCount} proposta(s) sem duração válida (não contabilizadas no MRR)
-              </span>
-            )}
+            Timeline mensal de parcelas previstas — 12 meses a partir de Janeiro/2026
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* MRR Atual */}
-            <div className="p-4 rounded-lg bg-background/80 border">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <BarChart3 className="h-4 w-4" />
-                MRR Atual (Aprovado)
-              </div>
-              <div className="text-2xl font-bold text-primary">
-                {formatCurrency(mrrStats.mrrAtual)}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Receita mensal recorrente
-              </p>
-            </div>
-
-            {/* Próxima Meta */}
-            <div className="p-4 rounded-lg bg-background/80 border">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <Target className="h-4 w-4" />
-                Próxima Meta
-              </div>
-              <div className="text-2xl font-bold">
-                {formatCurrency(mrrStats.proximaMeta)}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Meta de MRR
-              </p>
-            </div>
-
-            {/* Falta para a Meta */}
-            <div className="p-4 rounded-lg bg-background/80 border">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <ArrowUp className="h-4 w-4" />
-                Falta para a Meta
-              </div>
-              <div className={`text-2xl font-bold ${mrrStats.metaAtingida ? 'text-green-500' : 'text-amber-500'}`}>
-                {mrrStats.metaAtingida ? (
-                  <span className="flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5" />
-                    Meta atingida!
-                  </span>
-                ) : (
-                  formatCurrency(mrrStats.gap)
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                GAP para próxima meta
-              </p>
-            </div>
-
-            {/* Sugestão Prática */}
-            <div className="p-4 rounded-lg bg-background/80 border">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <Lightbulb className="h-4 w-4" />
-                Sugestão Prática
-              </div>
-              <div className="text-sm font-medium">
-                {mrrStats.metaAtingida ? (
-                  <span className="text-green-500">
-                    Você já bateu a meta. Próximo passo: aumentar ticket médio ou reduzir churn.
-                  </span>
-                ) : (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    Faltam {formatCurrency(mrrStats.gap)} de MRR. Foque em fechar 1 contrato de ~{formatCurrency(mrrStats.gap)} MRR ou 2 de ~{formatCurrency(mrrStats.gap / 2)}.
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Metas disponíveis */}
-          <div className="mt-4 pt-4 border-t">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <span>Metas configuradas:</span>
-              {METAS_MRR.map((meta) => (
-                <Badge 
-                  key={meta} 
-                  variant={mrrStats.mrrAtual >= meta ? "default" : "outline"}
-                  className={mrrStats.mrrAtual >= meta ? "bg-green-500/20 text-green-500 border-green-500/30" : ""}
-                >
-                  {mrrStats.mrrAtual >= meta && <CheckCircle className="h-3 w-3 mr-1" />}
-                  {formatCurrency(meta)}
-                </Badge>
-              ))}
-            </div>
-          </div>
+        <CardContent className="space-y-3">
+          {commissionHistory.map((group) => {
+            const key = getMonthYearKey(group.monthYear);
+            const isExpanded = expandedMonths[key] ?? false;
+            const isPast = group.monthYear.year < currentMonthYear.year || 
+              (group.monthYear.year === currentMonthYear.year && group.monthYear.month < currentMonthYear.month);
+            const isCurrent = group.monthYear.year === currentMonthYear.year && 
+              group.monthYear.month === currentMonthYear.month;
+            
+            return (
+              <Collapsible key={key} open={isExpanded} onOpenChange={() => toggleMonth(key)}>
+                <CollapsibleTrigger asChild>
+                  <div className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors ${
+                    isCurrent ? 'bg-primary/10 border-primary/30' : 
+                    isPast ? 'bg-muted/30 opacity-70' : 'bg-muted/50'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span className={`font-medium ${isCurrent ? 'text-primary' : ''}`}>
+                          {group.label}
+                        </span>
+                        {isCurrent && (
+                          <Badge variant="outline" className="text-xs">Atual</Badge>
+                        )}
+                        {isPast && (
+                          <Badge variant="secondary" className="text-xs">Passado</Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        ({group.installments.length} parcelas)
+                      </span>
+                    </div>
+                    <div className={`text-lg font-bold ${isCurrent ? 'text-primary' : ''}`}>
+                      {formatCurrency(group.total)}
+                    </div>
+                  </div>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-2 pl-8 space-y-1">
+                    {group.installments.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-2">
+                        Nenhuma parcela neste mês
+                      </p>
+                    ) : (
+                      group.installments.map((inst, i) => (
+                        <div key={`${inst.proposalId}-${inst.parcela}-${i}`} className="flex items-center justify-between p-2 rounded bg-background border text-sm">
+                          <span>
+                            #{inst.proposalId} — {inst.cliente} ({inst.parcela})
+                          </span>
+                          <span className="font-medium">{formatCurrency(inst.valor)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
         </CardContent>
       </Card>
 
