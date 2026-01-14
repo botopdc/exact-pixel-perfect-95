@@ -51,6 +51,8 @@ export const USER_LEVEL_OPTIONS = [
   { value: 1, label: 'Cliente' },
   { value: 200, label: 'Parceiro' },
   { value: 600, label: 'RH' },
+  { value: 680, label: 'BDR' },
+  { value: 690, label: 'Arquiteto de Soluções' },
   { value: 700, label: 'Comercial' },
   { value: 750, label: 'Gerente Comercial' },
   { value: 775, label: 'Sucesso do Cliente' },
