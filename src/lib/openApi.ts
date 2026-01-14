@@ -352,8 +352,8 @@ class OpenApiClient {
     return response.data;
   }
 
-  async getProposal(id: number): Promise<unknown> {
-    const response = await this.client.get(`/calculator/proposal/${id}`);
+  async getProposal(idOrUuid: number | string): Promise<unknown> {
+    const response = await this.client.get(`/calculator/proposal/${idOrUuid}`);
     return response.data;
   }
 

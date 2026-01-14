@@ -219,8 +219,6 @@ const PropostaView: React.FC = () => {
     }
 
     const proposalId = proposal.proposal?.id || '';
-    const baseUrl = window.location.origin;
-    const proposalLink = `${baseUrl}/proposta/${proposalId}`;
     const validityDateStr = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
       ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
       : '-';
@@ -228,11 +226,29 @@ const PropostaView: React.FC = () => {
     setIsSendingEmail(true);
     
     try {
+      // CRITICAL: First fetch approval token and build tokenized link
+      console.log('[PropostaView] Fetching approval link for email send:', id);
+      let proposalLink: string;
+      
+      try {
+        proposalLink = await getApprovalLink(id!);
+        console.log('[PropostaView] Got tokenized approval link for email');
+      } catch (linkError: any) {
+        console.error('[PropostaView] Failed to get approval link:', linkError);
+        toast({ 
+          title: 'Erro ao gerar link', 
+          description: linkError.message || 'Não foi possível gerar link de aprovação com token',
+          variant: 'destructive' 
+        });
+        setIsSendingEmail(false);
+        return; // Block email send if we can't get token
+      }
+      
       await sendEmailMutation.mutateAsync({
         clientName: proposal.client.name || proposal.client.company || 'Cliente',
         clientEmail: proposal.client.email,
         proposalId,
-        proposalLink,
+        proposalLink, // Now uses tokenized link
         totalValue: `R$ ${formatCurrency(proposal.result?.grandTotal || 0)}`,
         validityDate: validityDateStr,
       });
