@@ -168,7 +168,7 @@ export async function buildApprovalLink(
 
   if (!validatedProposal) {
     throw new ApprovalLinkError(
-      `Proposta não encontrada neste ambiente (identificador: ${primary}${secondary ? ` / ${secondary}` : ''})`,
+      `Proposta não existe neste ambiente (BASE_URL: ${API_BASE_URL}, identifier: ${primary}${secondary ? ` / ${secondary}` : ''}).`,
       {
         baseUrl: API_BASE_URL,
         primaryIdentifier: primary,
@@ -204,7 +204,7 @@ export async function buildApprovalLink(
 
   if (!token) {
     throw new ApprovalLinkError(
-      `Endpoint approval-token indisponível ou rota não publicada neste ambiente (BASE_URL: ${API_BASE_URL}, identifier: ${workingIdentifier})`,
+      `Proposta existe (200), porém a rota approval-token não está publicada neste ambiente (BASE_URL: ${API_BASE_URL}). Acione backend/deploy.`,
       {
         baseUrl: API_BASE_URL,
         primaryIdentifier: primary,
