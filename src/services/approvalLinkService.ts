@@ -203,8 +203,8 @@ export async function buildApprovalLink(
   }
 
   if (!token) {
-    throw new ApprovalLinkError(
-      `Proposta existe (200), porém a rota approval-token não está publicada neste ambiente (BASE_URL: ${API_BASE_URL}). Acione backend/deploy.`,
+  throw new ApprovalLinkError(
+      `Proposta existe (200), porém a rota get-approval-token não está publicada neste ambiente (BASE_URL: ${API_BASE_URL}). Acione backend/deploy.`,
       {
         baseUrl: API_BASE_URL,
         primaryIdentifier: primary,

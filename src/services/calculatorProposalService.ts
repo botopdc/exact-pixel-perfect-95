@@ -61,7 +61,7 @@ export interface CalculatorProposal {
 /**
  * Get approval token for a proposal
  * 
- * GET /api/calculator/proposal/{id}/approval-token
+ * GET /api/calculator/proposal/{id}/get-approval-token
  * 
  * @param idOrUuid - Proposal ID (numeric) or UUID (string)
  * @returns Approval token for the proposal
@@ -70,7 +70,7 @@ export async function getApprovalToken(idOrUuid: string): Promise<ApprovalTokenR
   console.log('[calculatorProposalService] Getting approval token for:', idOrUuid);
   
   const response = await publicClient.get<ApprovalTokenResponse>(
-    `/calculator/proposal/${idOrUuid}/approval-token`
+    `/calculator/proposal/${idOrUuid}/get-approval-token`
   );
   
   console.log('[calculatorProposalService] Got approval token:', response.data.token.substring(0, 8) + '...');
