@@ -55,7 +55,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     category: CONFIG_MAPPINGS.GERAL_CONFIG.category,
     section: CONFIG_MAPPINGS.GERAL_CONFIG.section,
     config: [
-      { label: 'FX Padrão', by: 'unit', type: 'USD', value: fxValue, price: fxValue },
+      { label: 'FX Padrão', by: 'unit', type: 'USD', value: fxValue },
     ],
   });
 
@@ -67,7 +67,6 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       by: 'percentage',
       type: 'PERCENTAGE',
       value: discountValue,
-      price: discountValue,
     };
   });
   if (discountItems.length > 0) {
@@ -83,10 +82,10 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     category: CONFIG_MAPPINGS.VM_PRICES.category,
     section: CONFIG_MAPPINGS.VM_PRICES.section,
     config: [
-      { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0, price: Number(config.vm_prices_brl.vcpu) || 0 },
-      { label: 'RAM por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0, price: Number(config.vm_prices_brl.ram_per_gb) || 0 },
-      { label: 'NVMe por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0, price: Number(config.vm_prices_brl.nvme_per_gb) || 0 },
-      { label: 'IP Público', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.ip_public) || 0, price: Number(config.vm_prices_brl.ip_public) || 0 },
+      { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0 },
+      { label: 'RAM por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0 },
+      { label: 'NVMe por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0 },
+      { label: 'IP Público', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.ip_public) || 0 },
     ],
   });
 
@@ -98,7 +97,6 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       by: 'unit',
       type: 'USD',
       value: gpuValue,
-      price: gpuValue,
     };
   });
   if (gpuItems.length > 0) {
@@ -111,13 +109,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 5. BareMetal - CPU Models
   const cpuItems: ConfigItem[] = config.baremetal.cpu_models.map((cpu) => {
-    const cpuValue = Number(cpu.price) || 0;
     return {
       label: cpu.label,
       by: 'unit',
       type: 'BRL',
-      value: cpuValue,
-      price: cpuValue,
+      value: Number(cpu.price) || 0,
     };
   });
   if (cpuItems.length > 0) {
@@ -130,13 +126,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 6. BareMetal - RAM Tiers
   const ramItems: ConfigItem[] = config.baremetal.ram_tiers.map((ram) => {
-    const ramValue = Number(ram.price) || 0;
     return {
       label: ram.label,
       by: 'gb',
       type: 'BRL',
-      value: ramValue,
-      price: ramValue,
+      value: Number(ram.price) || 0,
       gb: ram.gb,
     };
   });
@@ -150,13 +144,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 7. BareMetal - Disks
   const diskItems: ConfigItem[] = config.baremetal.disks.map((disk) => {
-    const diskValue = Number(disk.price) || 0;
     return {
       label: disk.label,
       by: 'tb',
       type: 'BRL',
-      value: diskValue,
-      price: diskValue,
+      value: Number(disk.price) || 0,
       tb: disk.tb,
     };
   });
@@ -173,28 +165,22 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   const addons = config.addons_brl;
   
   if (typeof addons.antivirus_unit === 'number') {
-    const val = Number(addons.antivirus_unit) || 0;
-    addonItems.push({ label: 'Antivírus', by: 'unit', type: 'BRL', value: val, price: val });
+    addonItems.push({ label: 'Antivírus', by: 'unit', type: 'BRL', value: Number(addons.antivirus_unit) || 0 });
   }
   if (typeof addons.firewall_pfsense === 'number') {
-    const val = Number(addons.firewall_pfsense) || 0;
-    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: val, price: val });
+    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 });
   }
   if (typeof addons.tsplus_unit === 'number') {
-    const val = Number(addons.tsplus_unit) || 0;
-    addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', value: val, price: val });
+    addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', value: Number(addons.tsplus_unit) || 0 });
   }
   if (typeof addons.cal_unit === 'number') {
-    const val = Number(addons.cal_unit) || 0;
-    addonItems.push({ label: 'CAL', by: 'unit', type: 'BRL', value: val, price: val });
+    addonItems.push({ label: 'CAL', by: 'unit', type: 'BRL', value: Number(addons.cal_unit) || 0 });
   }
   if (typeof addons.veeam_vm_unit === 'number') {
-    const val = Number(addons.veeam_vm_unit) || 0;
-    addonItems.push({ label: 'Veeam VM', by: 'unit', type: 'BRL', value: val, price: val });
+    addonItems.push({ label: 'Veeam VM', by: 'unit', type: 'BRL', value: Number(addons.veeam_vm_unit) || 0 });
   }
   if (typeof addons.veeam_agent_unit === 'number') {
-    const val = Number(addons.veeam_agent_unit) || 0;
-    addonItems.push({ label: 'Veeam Agent', by: 'unit', type: 'BRL', value: val, price: val });
+    addonItems.push({ label: 'Veeam Agent', by: 'unit', type: 'BRL', value: Number(addons.veeam_agent_unit) || 0 });
   }
   
   if (addonItems.length > 0) {
@@ -208,13 +194,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   // 9. SQL Server prices
   if (addons.sql && typeof addons.sql === 'object') {
     const sqlItems: ConfigItem[] = Object.entries(addons.sql).map(([edition, price]) => {
-      const sqlValue = Number(price) || 0;
       return {
         label: edition === 'none' ? 'Nenhum' : edition.charAt(0).toUpperCase() + edition.slice(1),
         by: 'license',
         type: 'BRL',
-        value: sqlValue,
-        price: sqlValue,
+        value: Number(price) || 0,
       };
     });
     if (sqlItems.length > 0) {
@@ -229,13 +213,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   // 10. Storage prices
   if (config.storage_prices) {
     const storageItems: ConfigItem[] = Object.entries(config.storage_prices).map(([region, price]) => {
-      const storageValue = Number(price) || 0;
       return {
         label: region,
         by: 'tb',
         type: 'BRL',
-        value: storageValue,
-        price: storageValue,
+        value: Number(price) || 0,
       };
     });
     if (storageItems.length > 0) {
@@ -250,13 +232,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   // 11. Kubernetes plans
   if (config.kubernetes_pricing) {
     const k8sItems: ConfigItem[] = Object.entries(config.kubernetes_pricing).map(([plan, data]) => {
-      const k8sValue = Number((data as any)?.basePriceMonthly) || 0;
       return {
         label: plan,
         by: 'plan',
         type: 'BRL',
-        value: k8sValue,
-        price: k8sValue,
+        value: Number((data as any)?.basePriceMonthly) || 0,
       };
     });
     if (k8sItems.length > 0) {
@@ -271,13 +251,11 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   // 12. Kubernetes add-ons
   if (config.kubernetes_addons_pricing) {
     const k8sAddonItems: ConfigItem[] = Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => {
-      const addonValue = Number(price) || 0;
       return {
         label: addon,
         by: 'unit',
         type: 'BRL',
-        value: addonValue,
-        price: addonValue,
+        value: Number(price) || 0,
       };
     });
     if (k8sAddonItems.length > 0) {
