@@ -590,7 +590,49 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // Transform addons to API format: array of {name, price, quantity}
   // Note: The full addons state is saved in dados_proposta, this is just for API compatibility
+  // IMPORTANT: Storage, Kubernetes, and OPEN SaaS are INDEPENDENT products (not servers)
+  // They should be added to addons array to allow proposals without VM/BM
   const addonsArray: Array<{ name: string; price: number; quantity: number }> = [];
+  
+  // ============================================
+  // INDEPENDENT PRODUCTS (don't require servers)
+  // ============================================
+  
+  // Storage items - add each storage configuration as an addon
+  if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
+    for (const storage of proposal.storageItems) {
+      if (storage.volumeTB >= 1) {
+        addonsArray.push({
+          name: `Storage ${storage.type || 'SAN'} ${storage.volumeTB}TB`,
+          price: storage.price || 0,
+          quantity: 1,
+        });
+      }
+    }
+  }
+  
+  // Kubernetes - add as addon if enabled
+  if (proposal.kubernetes && proposal.kubernetes.enabled) {
+    const k8s = proposal.kubernetes;
+    addonsArray.push({
+      name: `Kubernetes ${k8s.plan || 'Standard'}`,
+      price: k8s.price || 0,
+      quantity: 1,
+    });
+  }
+  
+  // OPEN SaaS - add as addon if enabled with sufficient users
+  if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users >= 5) {
+    addonsArray.push({
+      name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
+      price: proposal.openSaas.price || 0,
+      quantity: proposal.openSaas.users,
+    });
+  }
+  
+  // ============================================
+  // STANDARD ADDONS (services/extras)
+  // ============================================
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
