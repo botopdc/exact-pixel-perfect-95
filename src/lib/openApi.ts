@@ -12,6 +12,35 @@ const INTERNAL_SESSION_KEY = 'open_auth_session_v1';
 const PARTNER_SESSION_KEY = 'open_partner_session_v1';
 
 // ============================================================================
+// ADDON LABEL MAP - Technical keys for addons (never use visual labels as keys)
+// ============================================================================
+
+const ADDON_LABEL_TO_KEY: Record<string, string> = {
+  'Antivírus': 'antivirus_unit',
+  'Antivirus': 'antivirus_unit',
+  'Firewall pfSense': 'firewall_pfsense',
+  'TSplus': 'tsplus_unit',
+  'CAL': 'cal_unit',
+  'Veeam VM': 'veeam_vm_unit',
+  'Veeam Agent': 'veeam_agent_unit',
+};
+
+// Storage Advanced labels to keys
+const STORAGE_LABEL_TO_KEY: Record<string, { region: 'br' | 'usa'; tier: string } | { type: 'nvme' }> = {
+  'sas_br_pricePerTB_1_10': { region: 'br', tier: 'pricePerTB_1_10' },
+  'sas_br_pricePerTB_11_100': { region: 'br', tier: 'pricePerTB_11_100' },
+  'sas_br_pricePerTB_101_500': { region: 'br', tier: 'pricePerTB_101_500' },
+  'sas_br_pricePerTB_501_1024': { region: 'br', tier: 'pricePerTB_501_1024' },
+  'sas_br_pricePerTB_gt_1024': { region: 'br', tier: 'pricePerTB_gt_1024' },
+  'sas_usa_pricePerTB_1_10': { region: 'usa', tier: 'pricePerTB_1_10' },
+  'sas_usa_pricePerTB_11_100': { region: 'usa', tier: 'pricePerTB_11_100' },
+  'sas_usa_pricePerTB_101_500': { region: 'usa', tier: 'pricePerTB_101_500' },
+  'sas_usa_pricePerTB_501_1024': { region: 'usa', tier: 'pricePerTB_501_1024' },
+  'sas_usa_pricePerTB_gt_1024': { region: 'usa', tier: 'pricePerTB_gt_1024' },
+  'nvme_pricePerGB': { type: 'nvme' },
+};
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -79,6 +108,24 @@ export interface LoginResponse {
 export interface ApiError {
   message: string;
   errors?: Record<string, string[]>;
+}
+
+// Article type from API
+export interface ApiArticle {
+  id: number;
+  title: string;
+  content: string;
+  category: string;
+  visibility: 'private' | 'internal';
+  tags: string[];
+  status: 'draft' | 'published';
+  author: string;
+  reading_time_minutes?: number;
+  views_count?: number;
+  helpful_yes?: number;
+  helpful_no?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Calculator config from API
@@ -264,6 +311,14 @@ class OpenApiClient {
       baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
       addons_brl: {},
       backup_tables_brl_per_gb: {},
+      // Initialize storage_pricing structure
+      storage_pricing: {
+        sas: {
+          br: { pricePerTB_1_10: 119, pricePerTB_11_100: 99, pricePerTB_101_500: 75, pricePerTB_501_1024: 55, pricePerTB_gt_1024: 45 },
+          usa: { pricePerTB_1_10: 99, pricePerTB_11_100: 79, pricePerTB_101_500: 55, pricePerTB_501_1024: 45, pricePerTB_gt_1024: 42 },
+        },
+        nvme: { pricePerGB: 0.90 },
+      },
     };
 
     for (const item of items) {
@@ -334,27 +389,77 @@ class OpenApiClient {
           break;
           
         case 'Add-ons':
+          // Use technical keys, not visual labels
           for (const entry of configData || []) {
-            if (entry.label) config.addons_brl[entry.label] = getValue(entry);
+            if (entry.label) {
+              const technicalKey = ADDON_LABEL_TO_KEY[entry.label] || entry.label;
+              config.addons_brl[technicalKey] = getValue(entry);
+            }
           }
           break;
           
         case 'Storage':
-          if (!config.storage_prices) config.storage_prices = {};
-          for (const entry of configData || []) {
-            if (entry.label) config.storage_prices[entry.label] = getValue(entry);
+          // Handle legacy "Preços de Storage"
+          if (item.section === 'Preços de Storage') {
+            if (!config.storage_prices) config.storage_prices = {};
+            for (const entry of configData || []) {
+              if (entry.label) config.storage_prices[entry.label] = getValue(entry);
+            }
+          }
+          // Handle new "Storage Avançado"
+          if (item.section === 'Storage Avançado') {
+            // Ensure storage_pricing is initialized
+            if (!config.storage_pricing) {
+              config.storage_pricing = {
+                sas: {
+                  br: { pricePerTB_1_10: 119, pricePerTB_11_100: 99, pricePerTB_101_500: 75, pricePerTB_501_1024: 55, pricePerTB_gt_1024: 45 },
+                  usa: { pricePerTB_1_10: 99, pricePerTB_11_100: 79, pricePerTB_101_500: 55, pricePerTB_501_1024: 45, pricePerTB_gt_1024: 42 },
+                },
+                nvme: { pricePerGB: 0.90 },
+              };
+            }
+            
+            for (const entry of configData || []) {
+              const mapping = STORAGE_LABEL_TO_KEY[entry.label];
+              if (mapping) {
+                const v = getValue(entry);
+                if ('type' in mapping && mapping.type === 'nvme') {
+                  config.storage_pricing.nvme.pricePerGB = v;
+                } else if ('region' in mapping) {
+                  (config.storage_pricing.sas[mapping.region] as any)[mapping.tier] = v;
+                }
+              }
+            }
           }
           break;
           
         case 'Kubernetes':
           if (!config.kubernetes_pricing) config.kubernetes_pricing = {};
           if (!config.kubernetes_addons_pricing) config.kubernetes_addons_pricing = {};
-          for (const entry of configData || []) {
-            const v = getValue(entry);
-            if (entry.type === 'addon') {
-              config.kubernetes_addons_pricing[entry.label] = v;
-            } else {
+          
+          if (item.section === 'Planos Kubernetes') {
+            for (const entry of configData || []) {
+              const v = getValue(entry);
               config.kubernetes_pricing[entry.label] = { basePriceMonthly: v };
+            }
+          }
+          if (item.section === 'Add-ons Kubernetes') {
+            for (const entry of configData || []) {
+              const v = getValue(entry);
+              config.kubernetes_addons_pricing[entry.label] = v;
+            }
+          }
+          break;
+          
+        case 'SQL Server':
+          // SQL prices go into addons_brl.sql
+          if (!config.addons_brl.sql) {
+            config.addons_brl.sql = {};
+          }
+          for (const entry of configData || []) {
+            if (entry.label) {
+              const sqlKey = entry.label.toLowerCase() === 'nenhum' ? 'none' : entry.label.toLowerCase();
+              (config.addons_brl.sql as Record<string, number>)[sqlKey] = getValue(entry);
             }
           }
           break;
@@ -444,6 +549,65 @@ class OpenApiClient {
   }): Promise<{ data: ApiUser[]; total: number; current_page?: number; last_page?: number }> {
     const response = await this.client.get('/user', { params });
     return response.data;
+}
+
+  // ============================================================================
+  // ARTICLES ENDPOINTS
+  // ============================================================================
+
+  async getArticles(params?: {
+    category?: string;
+    author?: string;
+    status?: string;
+    title?: string;
+    __page?: number;
+    __perPage?: number;
+  }): Promise<{ data: ApiArticle[]; total: number }> {
+    const response = await this.client.get('/article', { params });
+    return response.data;
+  }
+
+  async getArticle(id: number): Promise<ApiArticle> {
+    const response = await this.client.get<ApiArticle>(`/article/${id}`);
+    return response.data;
+  }
+
+  async createArticle(data: {
+    title: string;
+    content: string;
+    category: string;
+    visibility: 'private' | 'internal';
+    tags?: string[];
+    status: 'draft' | 'published';
+    author: string;
+  }): Promise<ApiArticle> {
+    const response = await this.client.post<ApiArticle>('/article', data);
+    return response.data;
+  }
+
+  async updateArticle(id: number, data: Partial<{
+    title: string;
+    content: string;
+    category: string;
+    visibility: 'private' | 'internal';
+    tags: string[];
+    status: 'draft' | 'published';
+    author: string;
+  }>): Promise<ApiArticle> {
+    const response = await this.client.put<ApiArticle>(`/article/${id}`, data);
+    return response.data;
+  }
+
+  async deleteArticle(id: number): Promise<void> {
+    await this.client.delete(`/article/${id}`);
+  }
+
+  async incrementArticleViews(id: number): Promise<void> {
+    await this.client.post(`/article/${id}/view`);
+  }
+
+  async rateArticle(id: number, helpful: boolean): Promise<void> {
+    await this.client.post(`/article/${id}/rate`, { helpful });
   }
 
   async getUser(id: string | number): Promise<ApiUser> {
@@ -504,139 +668,62 @@ class OpenApiClient {
   }
 
   async getPartners(params?: {
+    __q?: string;
+    name?: string;
+    type?: string;
+    status?: string;
     __page?: number;
     __perPage?: number;
-    __with?: string; // e.g. 'responsible' to include user data
-    id?: number;
-    docnum?: string;
-    name?: string;
-    status?: 'Pendente' | 'Aprovado' | 'Reprovado';
-    type?: 'ISV' | 'VAR' | 'FINDER';
-  }): Promise<{ data: ApiPartner[]; total: number; current_page: number; last_page: number }> {
+    __with?: string;
+  }): Promise<{ data: ApiPartner[]; total: number; current_page?: number; last_page?: number }> {
     const response = await this.client.get('/partner', { params });
     return response.data;
   }
 
-  async getPartner(id: number): Promise<ApiPartner> {
-    const response = await this.client.get<ApiPartner>(`/partner/${id}`);
+  async getPartner(id: string | number): Promise<ApiPartner> {
+    const response = await this.client.get(`/partner/${id}`);
     return response.data;
   }
 
-  async updatePartner(id: number, data: {
-    name?: string;
-    docnum?: string;
-    type?: 'ISV' | 'VAR' | 'FINDER';
-    status?: 'Pendente' | 'Aprovado' | 'Reprovado';
-    responsible_id?: number | null;
-    contract_accepted?: boolean;
-    contract_accepted_at?: string;
-    contract_version?: string;
-    contract_ip?: string;
-  }): Promise<ApiPartner> {
+  async updatePartner(id: string | number, data: Partial<{
+    name: string;
+    docnum: string;
+    type: 'ISV' | 'VAR' | 'FINDER';
+    status: 'Pendente' | 'Aprovado' | 'Reprovado';
+    responsible_id: number | null;
+  }>): Promise<ApiPartner> {
     const response = await this.client.put<ApiPartner>(`/partner/${id}`, data);
     return response.data;
   }
 
-  async deletePartner(id: number): Promise<void> {
+  async deletePartner(id: string | number): Promise<void> {
     await this.client.delete(`/partner/${id}`);
   }
 
   // ============================================================================
-  // ARTICLES ENDPOINTS
+  // FILE UPLOAD ENDPOINTS
   // ============================================================================
 
-  async getArticles(params?: {
-    __page?: number;
-    __perPage?: number;
-    __limit?: number;
-    category?: string;
-    author?: string;
-    status?: 'draft' | 'published';
-    search?: string;
-    title?: string;
-  }): Promise<{ data: ApiArticle[]; total: number; current_page?: number; last_page?: number }> {
-    const response = await this.client.get('/article', { params });
+  async uploadProposalFile(proposalId: number | string, file: File): Promise<{ url: string; filename: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await this.client.post<{ url: string; filename: string }>(
+      `/calculator/proposal/${proposalId}/file`,
+      formData
+    );
     return response.data;
   }
 
-  async getArticle(id: number): Promise<ApiArticle> {
-    const response = await this.client.get<ApiArticle>(`/article/${id}`);
+  async getProposalFiles(proposalId: number | string): Promise<Array<{ id: number; filename: string; url: string; created_at: string }>> {
+    const response = await this.client.get(`/calculator/proposal/${proposalId}/files`);
     return response.data;
   }
 
-  async createArticle(data: {
-    title: string;
-    content: string;
-    category: string;
-    visibility: 'private' | 'internal';
-    tags?: string[];
-    status: 'draft' | 'published';
-    author: string;
-  }): Promise<ApiArticle> {
-    const response = await this.client.post<ApiArticle>('/article', data);
-    return response.data;
-  }
-
-  async updateArticle(id: number, data: Partial<{
-    title: string;
-    content: string;
-    category: string;
-    visibility: 'private' | 'internal';
-    tags: string[];
-    status: 'draft' | 'published';
-    author: string;
-    views_count: number;
-    helpful_yes: number;
-    helpful_no: number;
-  }>): Promise<ApiArticle> {
-    const response = await this.client.put<ApiArticle>(`/article/${id}`, data);
-    return response.data;
-  }
-
-  async deleteArticle(id: number): Promise<void> {
-    await this.client.delete(`/article/${id}`);
-  }
-
-  async incrementArticleViews(id: number): Promise<void> {
-    try {
-      const article = await this.getArticle(id);
-      await this.updateArticle(id, { views_count: (article.views_count || 0) + 1 });
-    } catch (error) {
-      console.warn('[API] Failed to increment article views:', error);
-    }
-  }
-
-  async rateArticle(id: number, helpful: boolean): Promise<void> {
-    try {
-      const article = await this.getArticle(id);
-      if (helpful) {
-        await this.updateArticle(id, { helpful_yes: (article.helpful_yes || 0) + 1 });
-      } else {
-        await this.updateArticle(id, { helpful_no: (article.helpful_no || 0) + 1 });
-      }
-    } catch (error) {
-      console.warn('[API] Failed to rate article:', error);
-    }
+  async deleteProposalFile(proposalId: number | string, fileId: number): Promise<void> {
+    await this.client.delete(`/calculator/proposal/${proposalId}/file/${fileId}`);
   }
 }
 
-// API Article type matching external API
-export interface ApiArticle {
-  id: number;
-  title: string;
-  content: string;
-  category: string;
-  visibility: 'private' | 'internal';
-  tags: string[];
-  status: 'draft' | 'published';
-  author: string;
-  views_count: number;
-  helpful_yes: number;
-  helpful_no: number;
-  reading_time_minutes: number;
-  created_at: string;
-  updated_at: string;
-}
-
-// Singleton instance
+// Export singleton instance
 export const openApi = new OpenApiClient();
