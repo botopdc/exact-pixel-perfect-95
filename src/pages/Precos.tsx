@@ -729,15 +729,6 @@ const Precos = () => {
               </Button>
             )}
             
-            {/* Refresh Button */}
-            <Button variant="outline" onClick={() => refreshFromApi()} disabled={isLoading || isSaving}>
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Atualizar da API
-            </Button>
           </div>
         </header>
 
