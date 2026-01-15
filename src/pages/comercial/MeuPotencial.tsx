@@ -37,10 +37,12 @@ import {
   computeInstallments,
   isStandardDuration,
 } from '@/services/executiveCommissionService';
+import { useMRRGoals } from '@/hooks/useMRRGoals';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -64,6 +66,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldX,
+  Target,
 } from 'lucide-react';
 
 // ============================================
@@ -260,6 +263,8 @@ export default function MeuPotencial() {
   const [userId, setUserId] = useState<number | null>(null);
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
 
+  // MRR Goals hook
+  const { getGoalForExecutive, isLoading: isLoadingGoals } = useMRRGoals();
   // Current month/year (rolling window base)
   const currentMonthYear = useMemo(() => getCurrentMonthYear(), []);
 
@@ -389,6 +394,12 @@ export default function MeuPotencial() {
     const atRiskCommission = atRiskProposals.reduce((sum, p) => sum + p.commission_value, 0);
     const expiredCommission = expiredProposals.reduce((sum, p) => sum + p.commission_value, 0);
 
+    // Calculate MRR: for each proposal, MRR = TCV / contract_duration
+    const mrrTotal = propostas.reduce((sum, p) => {
+      const months = p.contract_term_months || 1;
+      return sum + (p.tcv / months);
+    }, 0);
+
     return {
       totalCommission,
       totalTCV,
@@ -400,8 +411,14 @@ export default function MeuPotencial() {
       activeCount: activeProposals.length,
       atRiskCount: atRiskProposals.length,
       expiredCount: expiredProposals.length,
+      mrrTotal,
     };
   }, [propostas]);
+
+  // MRR Goal for this executive
+  const mrrMeta = userId ? getGoalForExecutive(userId) : 0;
+  const mrrProgress = mrrMeta > 0 ? Math.min((stats.mrrTotal / mrrMeta) * 100, 100) : 0;
+  const mrrGap = Math.max(mrrMeta - stats.mrrTotal, 0);
 
   // ============================================
   // ROLLING WINDOW - 3 MONTHS PROJECTION
@@ -680,6 +697,41 @@ export default function MeuPotencial() {
           </CardContent>
         </Card>
       </div>
+
+      {/* MRR Goal Progress Card */}
+      {mrrMeta > 0 && (
+        <Card className="border-primary/30 bg-gradient-to-r from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-primary" />
+              Meta MRR
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="p-3 bg-background rounded-lg border">
+                <p className="text-xs text-muted-foreground">Meta MRR</p>
+                <p className="text-xl font-bold text-primary">{formatCurrency(mrrMeta)}</p>
+              </div>
+              <div className="p-3 bg-background rounded-lg border">
+                <p className="text-xs text-muted-foreground">MRR Atual</p>
+                <p className="text-xl font-bold text-blue-500">{formatCurrency(stats.mrrTotal)}</p>
+              </div>
+              <div className="p-3 bg-background rounded-lg border">
+                <p className="text-xs text-muted-foreground">Falta para Meta</p>
+                <p className={`text-xl font-bold ${mrrGap > 0 ? 'text-amber-500' : 'text-green-500'}`}>
+                  {mrrGap > 0 ? formatCurrency(mrrGap) : 'Meta atingida! 🎉'}
+                </p>
+              </div>
+              <div className="p-3 bg-background rounded-lg border">
+                <p className="text-xs text-muted-foreground mb-2">Progresso</p>
+                <Progress value={mrrProgress} className="h-3" />
+                <p className="text-sm font-semibold mt-1">{mrrProgress.toFixed(0)}%</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Previsão de Pagamento - Rolling Window */}
       <Card>

@@ -361,19 +361,32 @@ export function groupByExecutive(
 // API INTEGRATION FUNCTIONS
 // ============================================
 
+// Extended API proposal type with created_by
+export interface ApiProposalDataExtended extends ApiProposalData {
+  created_by?: number;
+  accepted_at?: string;
+  approved_at?: string;
+}
+
 /**
  * Transform API proposal data to internal ExecutiveProposal format
- * Uses "total" as TCV (Total Contract Value)
+ * Uses created_by ID to match executives
  */
-export function transformApiProposal(
-  apiProposal: ApiProposalData,
-  executivesMap: Map<string, ApiUser>
+export function transformApiProposalById(
+  apiProposal: ApiProposalDataExtended,
+  executivesById: Map<number, ApiUser>
 ): ExecutiveProposal | null {
-  const creatorEmail = apiProposal.created_by_email || '';
-  const executive = executivesMap.get(creatorEmail.toLowerCase());
+  const createdById = apiProposal.created_by;
+  
+  if (!createdById) {
+    console.warn(`[CommissionService] No created_by for proposal ${apiProposal.id}`);
+    return null;
+  }
+  
+  const executive = executivesById.get(createdById);
   
   if (!executive) {
-    console.warn(`[CommissionService] No executive found for email: ${creatorEmail}`);
+    // Not an executive (could be admin, partner, etc.)
     return null;
   }
   
@@ -399,6 +412,12 @@ export function transformApiProposal(
     apiProposal.name || 
     'Cliente não identificado';
   
+  // Use accepted_at > approved_at > updated_at > created_at for approval date
+  const dataAprovacao = apiProposal.accepted_at || 
+    (apiProposal as any).approved_at || 
+    apiProposal.updated_at || 
+    apiProposal.created_at;
+  
   return {
     proposal_id: String(apiProposal.id),
     executivo_id: String(executive.id),
@@ -409,31 +428,47 @@ export function transformApiProposal(
     status,
     status_pagamento: 'pendente',
     dias_inadimplencia: 0,
-    data_aprovacao: apiProposal.updated_at || apiProposal.created_at,
+    data_aprovacao: dataAprovacao,
     data_inicio_faturamento: null,
     data_cancelamento: null,
   };
 }
 
 /**
- * Fetch executives (level 700) from API
+ * Fetch executives (level 700) from API with pagination
+ * Returns map by ID for faster lookup
  */
-export async function fetchExecutives(): Promise<Map<string, ApiUser>> {
+export async function fetchExecutivesById(): Promise<Map<number, ApiUser>> {
   try {
-    const response = await openApi.getUsers({ 
-      level: 700, 
-      __perPage: 100 
-    });
+    const allExecutives: ApiUser[] = [];
+    let page = 1;
+    const perPage = 100;
+    let hasMore = true;
     
-    const executives = response.data || [];
-    const map = new Map<string, ApiUser>();
-    
-    for (const exec of executives) {
-      if (exec.email) {
-        map.set(exec.email.toLowerCase(), exec);
-      }
+    while (hasMore) {
+      const response = await openApi.getUsers({ 
+        level: 700, 
+        __page: page,
+        __perPage: perPage,
+      });
+      
+      const executives = response.data || [];
+      allExecutives.push(...executives);
+      
+      // Check if there are more pages
+      hasMore = executives.length === perPage;
+      page++;
+      
+      // Safety limit
+      if (page > 50) break;
     }
     
+    const map = new Map<number, ApiUser>();
+    for (const exec of allExecutives) {
+      map.set(exec.id, exec);
+    }
+    
+    console.log(`[CommissionService] Fetched ${map.size} executives`);
     return map;
   } catch (error) {
     console.error('[CommissionService] Error fetching executives:', error);
@@ -442,23 +477,42 @@ export async function fetchExecutives(): Promise<Map<string, ApiUser>> {
 }
 
 /**
- * Fetch APPROVED proposals from API
+ * Fetch ALL APPROVED proposals from API with pagination
  * RULE: Only status = "APPROVED" generates commission
  */
-export async function fetchApprovedProposals(): Promise<ApiProposalData[]> {
+export async function fetchAllApprovedProposals(): Promise<ApiProposalDataExtended[]> {
   try {
-    const response = await openApi.getProposals({
-      channel_type: 'CLIENTE',
-      __perPage: 200,
-    });
+    const allProposals: ApiProposalDataExtended[] = [];
+    let page = 1;
+    const perPage = 200;
+    let hasMore = true;
     
-    const proposals = (response.data || []) as ApiProposalData[];
+    while (hasMore) {
+      const response = await openApi.getProposals({
+        __page: page,
+        __perPage: perPage,
+      });
+      
+      const proposals = (response.data || []) as ApiProposalDataExtended[];
+      
+      // Filter APPROVED only
+      const approved = proposals.filter((p) => {
+        const normalized = normalizeStatus(p.status);
+        return normalized === 'APPROVED';
+      });
+      
+      allProposals.push(...approved);
+      
+      // Check if there are more pages
+      hasMore = proposals.length === perPage;
+      page++;
+      
+      // Safety limit
+      if (page > 100) break;
+    }
     
-    // ONLY APPROVED proposals
-    return proposals.filter((p) => {
-      const normalized = normalizeStatus(p.status);
-      return normalized === 'APPROVED';
-    });
+    console.log(`[CommissionService] Fetched ${allProposals.length} APPROVED proposals`);
+    return allProposals;
   } catch (error) {
     console.error('[CommissionService] Error fetching proposals:', error);
     return [];
@@ -476,15 +530,21 @@ export async function fetchAndCalculateCommissions(): Promise<{
   error: string | null;
 }> {
   try {
-    const [executivesMap, proposals] = await Promise.all([
-      fetchExecutives(),
-      fetchApprovedProposals(),
+    const [executivesById, proposals] = await Promise.all([
+      fetchExecutivesById(),
+      fetchAllApprovedProposals(),
     ]);
     
-    console.log(`[CommissionService] Loaded ${executivesMap.size} executives and ${proposals.length} APPROVED proposals`);
+    console.log(`[CommissionService] Loaded ${executivesById.size} executives and ${proposals.length} APPROVED proposals`);
     
+    // Filter proposals by executives (channel_type = CLIENTE or empty, created_by in executives)
     const executiveProposals: ExecutiveProposal[] = proposals
-      .map((p) => transformApiProposal(p, executivesMap))
+      .filter((p) => {
+        // Only CLIENTE or empty channel_type (not PARCEIRO)
+        const channelType = (p.channel_type || '').toUpperCase();
+        return channelType === 'CLIENTE' || channelType === '';
+      })
+      .map((p) => transformApiProposalById(p, executivesById))
       .filter((p): p is ExecutiveProposal => p !== null);
     
     console.log(`[CommissionService] Transformed ${executiveProposals.length} proposals for commission calculation`);
@@ -516,4 +576,72 @@ export async function fetchAndCalculateCommissions(): Promise<{
       error: error instanceof Error ? error.message : 'Erro ao carregar comissões',
     };
   }
+}
+
+// Legacy function for backwards compatibility
+export function transformApiProposal(
+  apiProposal: ApiProposalData,
+  executivesMap: Map<string, ApiUser>
+): ExecutiveProposal | null {
+  const creatorEmail = apiProposal.created_by_email || '';
+  const executive = executivesMap.get(creatorEmail.toLowerCase());
+  
+  if (!executive) {
+    return null;
+  }
+  
+  const tcv = apiProposal.total || 0;
+  const prazoMeses = apiProposal.contract_duration || 
+    apiProposal.dados_proposta?.config?.vigencia || 12;
+  
+  const apiStatus = (apiProposal.status || '').toLowerCase();
+  let status: ProposalStatus = 'pendente';
+  if (apiStatus === 'aprovada' || apiStatus === 'approved') {
+    status = 'aprovada';
+  }
+  
+  return {
+    proposal_id: String(apiProposal.id),
+    executivo_id: String(executive.id),
+    executivo_nome: executive.name,
+    cliente_nome: apiProposal.company || apiProposal.name || 'N/A',
+    tcv,
+    prazo_meses: prazoMeses,
+    status,
+    status_pagamento: 'pendente',
+    dias_inadimplencia: 0,
+    data_aprovacao: apiProposal.updated_at || apiProposal.created_at,
+    data_inicio_faturamento: null,
+    data_cancelamento: null,
+  };
+}
+
+// Legacy - keep for backwards compatibility
+export async function fetchExecutives(): Promise<Map<string, ApiUser>> {
+  try {
+    const response = await openApi.getUsers({ 
+      level: 700, 
+      __perPage: 500 
+    });
+    
+    const executives = response.data || [];
+    const map = new Map<string, ApiUser>();
+    
+    for (const exec of executives) {
+      if (exec.email) {
+        map.set(exec.email.toLowerCase(), exec);
+      }
+    }
+    
+    return map;
+  } catch (error) {
+    console.error('[CommissionService] Error fetching executives:', error);
+    return new Map();
+  }
+}
+
+// Legacy - keep for backwards compatibility
+export async function fetchApprovedProposals(): Promise<ApiProposalData[]> {
+  const proposals = await fetchAllApprovedProposals();
+  return proposals;
 }

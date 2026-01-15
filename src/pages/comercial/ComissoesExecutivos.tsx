@@ -7,13 +7,18 @@
  * - 24, 36, 48m: 2.5% do TCV
  * - Fallback: < 24m = 4%, >= 24m = 2.5%
  * - Pagamento em 3x
+ * 
+ * Metas MRR:
+ * - Admin (1000) e Gerente (750) podem editar metas
+ * - Metas são salvas em calculator/config com category="Comissões", section="Metas MRR Executivos"
  */
 
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import {
   Table,
   TableBody,
@@ -64,19 +69,29 @@ import {
   AlertCircle,
   FileText,
   Percent,
+  Target,
+  Save,
 } from 'lucide-react';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import {
   COMMISSION_RATES,
   CommissionCalculation,
+  ExecutiveCommissionSummary,
 } from '@/services/executiveCommissionService';
 import { useExecutiveCommissions } from '@/hooks/useExecutiveCommissions';
+import { useMRRGoals, ExecutiveMRRGoal } from '@/hooks/useMRRGoals';
+import { openApi } from '@/lib/openApi';
 
 const ComissoesExecutivos = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedCommission, setSelectedCommission] = useState<CommissionCalculation | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [userLevel, setUserLevel] = useState<number>(0);
+  
+  // Local state for editing goals
+  const [localGoals, setLocalGoals] = useState<Record<number, number>>({});
+  const [hasChanges, setHasChanges] = useState(false);
 
   const {
     commissions: allCommissions,
@@ -87,6 +102,34 @@ const ComissoesExecutivos = () => {
     error,
     refetch,
   } = useExecutiveCommissions();
+  
+  const {
+    goals: mrrGoals,
+    isLoading: isLoadingGoals,
+    saveGoals,
+    isSaving,
+    getGoalForExecutive,
+  } = useMRRGoals();
+  
+  // Check user level on mount
+  useEffect(() => {
+    openApi.getCurrentUser().then((user) => {
+      setUserLevel(user.level);
+    }).catch(() => {
+      setUserLevel(0);
+    });
+  }, []);
+  
+  // Initialize local goals when mrrGoals load
+  useEffect(() => {
+    const goalsMap: Record<number, number> = {};
+    mrrGoals.forEach((g) => {
+      goalsMap[g.executiveId] = g.metaMRR;
+    });
+    setLocalGoals(goalsMap);
+  }, [mrrGoals]);
+  
+  const canEditGoals = userLevel === 1000 || userLevel === 750;
   
   const filteredCommissions = React.useMemo(() => {
     let filtered = [...allCommissions];
@@ -284,6 +327,130 @@ const ComissoesExecutivos = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* MRR Goals Section - Only visible to Admin (1000) and Manager (750) */}
+      {(userLevel === 1000 || userLevel === 750) && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5 text-primary" />
+                  Metas MRR por Executivo
+                </CardTitle>
+                <CardDescription>
+                  Configure metas mensais de MRR para cada executivo
+                </CardDescription>
+              </div>
+              <Button
+                onClick={() => {
+                  const goalsToSave: ExecutiveMRRGoal[] = Object.entries(localGoals).map(([id, meta]) => ({
+                    executiveId: parseInt(id, 10),
+                    metaMRR: meta,
+                  }));
+                  saveGoals(goalsToSave);
+                  setHasChanges(false);
+                }}
+                disabled={!hasChanges || isSaving}
+                className="min-w-[120px]"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Salvar Metas
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoading || isLoadingGoals ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : executiveSummaries.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">
+                Nenhum executivo com propostas aprovadas encontrado
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Executivo</TableHead>
+                    <TableHead className="text-right">MRR Atual (R$)</TableHead>
+                    <TableHead className="text-right">Meta MRR (R$)</TableHead>
+                    <TableHead className="w-[200px]">Progresso</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {executiveSummaries.map((exec) => {
+                    const execId = parseInt(exec.executivo_id, 10);
+                    // Calculate MRR: for each proposal, MRR = total / contract_duration
+                    const execCommissions = allCommissions.filter((c) => c.executivo_id === exec.executivo_id);
+                    const mrrAtual = execCommissions.reduce((sum, c) => {
+                      const months = c.contract_term_months || 1;
+                      return sum + (c.tcv / months);
+                    }, 0);
+                    const metaMRR = localGoals[execId] || 0;
+                    const progress = metaMRR > 0 ? Math.min((mrrAtual / metaMRR) * 100, 100) : 0;
+                    const gap = Math.max(metaMRR - mrrAtual, 0);
+                    
+                    return (
+                      <TableRow key={exec.executivo_id}>
+                        <TableCell className="font-medium">{exec.executivo_nome}</TableCell>
+                        <TableCell className="text-right">
+                          <span className="font-semibold text-blue-500">
+                            {formatCurrencyBRL(mrrAtual)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {canEditGoals ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              className="w-32 text-right ml-auto"
+                              value={localGoals[execId] || ''}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setLocalGoals((prev) => ({ ...prev, [execId]: value }));
+                                setHasChanges(true);
+                              }}
+                            />
+                          ) : (
+                            <span>{formatCurrencyBRL(metaMRR)}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <Progress value={progress} className="h-2" />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>{progress.toFixed(0)}%</span>
+                              {gap > 0 && (
+                                <span className="text-amber-500">
+                                  Falta: {formatCurrencyBRL(gap)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card>
