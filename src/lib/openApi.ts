@@ -349,8 +349,10 @@ class OpenApiClient {
             for (const entry of configData || []) {
               const v = getValue(entry);
               if (entry.label === 'vCPU') config.vm_prices_brl.vcpu = v;
-              if (entry.label === 'RAM por GB') config.vm_prices_brl.ram_per_gb = v;
-              if (entry.label === 'NVMe por GB') config.vm_prices_brl.nvme_per_gb = v;
+              // CSV uses "RAM" with "by: GB", not "RAM por GB"
+              if (entry.label === 'RAM') config.vm_prices_brl.ram_per_gb = v;
+              // CSV uses "NVMe" with "by: GB", not "NVMe por GB"
+              if (entry.label === 'NVMe') config.vm_prices_brl.nvme_per_gb = v;
               if (entry.label === 'IP Público') config.vm_prices_brl.ip_public = v;
             }
           }
@@ -370,21 +372,39 @@ class OpenApiClient {
               price: getValue(e),
             }));
           }
-          if (item.section === 'Tiers de RAM') {
-            config.baremetal.ram_tiers = (configData || []).map((e: any) => ({
-              id: e.label || '',
-              label: e.label || '',
-              gb: e.gb || 0,
-              price: getValue(e),
-            }));
+          // Match exact section name from API: "Opções de RAM"
+          if (item.section === 'Opções de RAM') {
+            config.baremetal.ram_tiers = (configData || []).map((e: any) => {
+              // Extract GB from label if not provided (e.g., "128GB" -> 128)
+              let gb = e.gb || 0;
+              if (!gb && e.label) {
+                const match = e.label.match(/^(\d+)GB$/i);
+                if (match) gb = parseInt(match[1], 10);
+              }
+              return {
+                id: e.label || '',
+                label: e.label || '',
+                gb,
+                price: getValue(e),
+              };
+            });
           }
-          if (item.section === 'Discos') {
-            config.baremetal.disks = (configData || []).map((e: any) => ({
-              id: e.label || '',
-              label: e.label || '',
-              tb: e.tb || 0,
-              price: getValue(e),
-            }));
+          // Match exact section name from API: "Opções de Disco"
+          if (item.section === 'Opções de Disco') {
+            config.baremetal.disks = (configData || []).map((e: any) => {
+              // Extract TB from label if not provided (e.g., "1TB NVMe" -> 1)
+              let tb = e.tb || 0;
+              if (!tb && e.label) {
+                const match = e.label.match(/^(\d+)TB/i);
+                if (match) tb = parseInt(match[1], 10);
+              }
+              return {
+                id: e.label || '',
+                label: e.label || '',
+                tb,
+                price: getValue(e),
+              };
+            });
           }
           break;
           
