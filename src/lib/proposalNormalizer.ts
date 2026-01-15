@@ -116,11 +116,17 @@ export interface NormalizedCalculatorState {
 }
 
 // Virtual product names that should be ignored during hydration
+// Includes both new __VIRTUAL__ format and legacy format for backward compatibility
 const VIRTUAL_PRODUCT_PREFIXES = [
+  '__virtual__storage__:',
+  '__virtual__kubernetes__:',
+  '__virtual__opensaas__:',
+  '__virtual__bundle__:',
+  'virtual_product_bundle',
+  // Legacy format (for backward compatibility with old proposals)
   'storage ',
   'kubernetes ',
   'open saas',
-  'virtual_product_bundle',
 ];
 
 function isVirtualProduct(name: string): boolean {

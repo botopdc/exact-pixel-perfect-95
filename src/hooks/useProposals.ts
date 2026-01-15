@@ -362,10 +362,10 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   }
   
   // LEGACY FORMAT: Reconstruct from servers/addons arrays (backward compatibility)
+  // This path handles proposals that don't have dados_proposta OR where dados_proposta is empty
   console.log('[apiToLocal] Using legacy format for proposal', apiProposal.id);
   
   // Map contract_duration to selectedTerm (MUST include all valid plans: 1, 12, 24, 36, 48)
-  // Use centralized validation
   const contractDuration = apiProposal.contract_duration;
   const selectedTerm = isValidContractMonth(contractDuration) ? String(contractDuration) : '1';
   
@@ -404,24 +404,122 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     }
   }
   
-  // Transform API servers array to local items format + build rows for result
-  // IMPORTANT: Skip virtual products (Storage, Kubernetes, OPEN SaaS, VIRTUAL_PRODUCT_BUNDLE)
-  // These are only in servers[] for API compatibility, NOT real VMs/BMs
+  // ============================================
+  // VIRTUAL SERVER RECONSTRUCTION
+  // Parse __VIRTUAL__ prefixed servers to reconstruct independent products
+  // ============================================
   const rows: Array<{ label: string; qty: string | number; unitPrice: number; subtotal: number }> = [];
   let serversSubtotal = 0;
+  let reconstructedStorageItems: any[] = [];
+  let reconstructedKubernetes: any = null;
+  let reconstructedOpenSaas: any = null;
   
-  // Helper to detect virtual product names
-  const isVirtualProduct = (name: string): boolean => {
-    if (!name) return false;
+  // Helper to detect and parse virtual server names
+  const parseVirtualServer = (name: string): { type: 'storage' | 'kubernetes' | 'opensaas' | 'bundle' | null; payload: any } => {
+    if (!name) return { type: null, payload: null };
+    
+    // New format: __VIRTUAL__TYPE__:JSON
+    if (name.startsWith('__VIRTUAL__STORAGE__:')) {
+      try {
+        const json = name.substring('__VIRTUAL__STORAGE__:'.length);
+        return { type: 'storage', payload: JSON.parse(json) };
+      } catch (e) {
+        console.warn('[apiToLocal] Failed to parse virtual storage:', e);
+        return { type: 'storage', payload: null };
+      }
+    }
+    if (name.startsWith('__VIRTUAL__KUBERNETES__:')) {
+      try {
+        const json = name.substring('__VIRTUAL__KUBERNETES__:'.length);
+        return { type: 'kubernetes', payload: JSON.parse(json) };
+      } catch (e) {
+        console.warn('[apiToLocal] Failed to parse virtual kubernetes:', e);
+        return { type: 'kubernetes', payload: null };
+      }
+    }
+    if (name.startsWith('__VIRTUAL__OPENSAAS__:')) {
+      try {
+        const json = name.substring('__VIRTUAL__OPENSAAS__:'.length);
+        return { type: 'opensaas', payload: JSON.parse(json) };
+      } catch (e) {
+        console.warn('[apiToLocal] Failed to parse virtual opensaas:', e);
+        return { type: 'opensaas', payload: null };
+      }
+    }
+    if (name.startsWith('__VIRTUAL__BUNDLE__:') || name === 'VIRTUAL_PRODUCT_BUNDLE') {
+      return { type: 'bundle', payload: null };
+    }
+    
+    // Legacy format: detect by name pattern (for backward compatibility)
     const lower = name.toLowerCase();
-    return lower.startsWith('storage ') || 
-           lower.startsWith('kubernetes ') || 
-           lower.startsWith('open saas') ||
-           lower === 'virtual_product_bundle';
+    if (lower.startsWith('storage ')) return { type: 'storage', payload: null };
+    if (lower.startsWith('kubernetes ')) return { type: 'kubernetes', payload: null };
+    if (lower.startsWith('open saas')) return { type: 'opensaas', payload: null };
+    
+    return { type: null, payload: null };
   };
   
+  // First pass: extract virtual servers and reconstruct independent products
+  for (const server of (apiProposal.servers || [])) {
+    const serverName = server.name || '';
+    const virtual = parseVirtualServer(serverName);
+    
+    if (virtual.type === 'storage') {
+      if (virtual.payload?.items) {
+        // New format: has embedded storage items
+        reconstructedStorageItems = virtual.payload.items;
+        console.log('[apiToLocal] Reconstructed storage items from virtual server:', reconstructedStorageItems.length);
+      } else {
+        // Legacy format: try to parse from name (e.g., "Storage SAN 0.1TB")
+        const match = serverName.match(/storage\s+(\w+)\s+([\d.]+)(TB|GB)/i);
+        if (match) {
+          const storageType = match[1].toUpperCase();
+          const value = parseFloat(match[2]);
+          const unit = match[3].toUpperCase();
+          reconstructedStorageItems.push({
+            id: crypto.randomUUID(),
+            storageType: storageType === 'SAN' ? 'SAN' : 'NAS',
+            region: 'SP1',
+            volumeTB: unit === 'TB' ? value : 0,
+            volumeGB: unit === 'GB' ? value : 0,
+          });
+          console.log('[apiToLocal] Reconstructed legacy storage item:', { storageType, value, unit });
+        }
+      }
+    } else if (virtual.type === 'kubernetes') {
+      if (virtual.payload) {
+        // New format: has embedded kubernetes state
+        reconstructedKubernetes = virtual.payload;
+        console.log('[apiToLocal] Reconstructed kubernetes from virtual server:', reconstructedKubernetes);
+      } else {
+        // Legacy format: enable with defaults
+        reconstructedKubernetes = { enabled: true, plan: 'k8s_small' };
+        console.log('[apiToLocal] Reconstructed legacy kubernetes (defaults)');
+      }
+    } else if (virtual.type === 'opensaas') {
+      if (virtual.payload) {
+        // New format: has embedded openSaas state
+        reconstructedOpenSaas = virtual.payload;
+        console.log('[apiToLocal] Reconstructed openSaas from virtual server:', reconstructedOpenSaas);
+      } else {
+        // Legacy format: parse from name (e.g., "OPEN SaaS 5 usuários")
+        const match = serverName.match(/open\s*saas\s+(\d+)/i);
+        const users = match ? parseInt(match[1], 10) : 1;
+        reconstructedOpenSaas = { enabled: true, users };
+        console.log('[apiToLocal] Reconstructed legacy openSaas:', { users });
+      }
+    }
+    // Skip 'bundle' type - it's just a placeholder
+  }
+  
+  // Second pass: filter out virtual servers and process real VM/BM servers
   const items = (apiProposal.servers || [])
-    .filter((server: any) => !isVirtualProduct(server.name || '')) // Skip virtual products
+    .filter((server: any) => {
+      const serverName = server.name || '';
+      const virtual = parseVirtualServer(serverName);
+      // Keep only NON-virtual servers (real VMs/BMs)
+      return virtual.type === null;
+    })
     .map((server: any, idx: number) => {
       const serverName = server.name || 'Server';
       const price = toNum(server.price, 0);
@@ -446,7 +544,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       
       serversSubtotal += subtotal;
       
-      // Detect if VM or BareMetal based on name
+      // Detect if VM or BareMetal based on name and specs
       const isVM = serverName.toLowerCase().includes('vm') || vcpu > 0;
       
       if (isVM) {
@@ -468,9 +566,9 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
           id: crypto.randomUUID(),
           gpu: 'Sem GPU',
           gpuQty: 0,
-          bmCpu: 'intel_xeon_e2136', // Default
+          bmCpu: 'intel_xeon_e2136',
           bmRam: 'ram_128gb',
-          disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }], // Always initialize disks array
+          disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }],
           trafficTb: 5,
           ips: 1,
           qtyServers: quantity,
@@ -542,6 +640,14 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     } : undefined
   );
   
+  // Log what was reconstructed from virtual servers
+  console.log('[apiToLocal] LEGACY reconstruction results:', {
+    items: items.length,
+    storageItems: reconstructedStorageItems.length,
+    kubernetes: !!reconstructedKubernetes,
+    openSaas: !!reconstructedOpenSaas,
+  });
+  
   return {
     id: apiProposal.id,
     fx: toNum(apiProposal.fx, 5),
@@ -560,8 +666,10 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     },
     items,
     addons: addonsObj,
-    kubernetes: {},
-    storageItems: [],
+    // USE RECONSTRUCTED VALUES from virtual servers (not empty defaults!)
+    kubernetes: reconstructedKubernetes || {},
+    storageItems: reconstructedStorageItems,
+    openSaas: reconstructedOpenSaas || undefined,
     reseller: apiProposal.reseller_name ? {
       enabled: true,
       viewMode: 'INTERNO' as const,
@@ -758,57 +866,63 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // ============================================
   // WORKAROUND: API OPDC requires servers array to have at least 1 item
   // When there are no VMs/BMs but there are independent products (Storage, Kubernetes, OPEN SaaS),
-  // we add them to the servers array as virtual items to satisfy the API validation.
+  // we add VIRTUAL SERVERS with special __VIRTUAL__ prefix for reconstruction during edit.
   // The full state is preserved in dados_proposta for accurate restoration.
-  // FIX: Removed volumeTB >= 1 and users >= 5 restrictions
+  // 
+  // VIRTUAL SERVER FORMAT (for fallback reconstruction):
+  // __VIRTUAL__STORAGE__:<JSON with storageItems array>
+  // __VIRTUAL__KUBERNETES__:<JSON with kubernetes state>
+  // __VIRTUAL__OPENSAAS__:<JSON with openSaas state>
   // ============================================
   if (serversArray.length === 0) {
-    // Add Storage items as virtual servers (accept any volume > 0)
-    if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
-      for (const storage of proposal.storageItems) {
-        const volumeTB = toNum(storage.volumeTB, 0);
-        const volumeGB = toNum(storage.volumeGB, 0);
-        const effectiveTB = volumeTB > 0 ? volumeTB : (volumeGB > 0 ? volumeGB / 1024 : 0);
-        
-        if (volumeTB > 0 || volumeGB > 0) {
-          const displaySize = effectiveTB >= 1 
-            ? `${effectiveTB.toFixed(effectiveTB % 1 === 0 ? 0 : 2)}TB`
-            : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
-          serversArray.push({
-            name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
-            vcpu: 0,
-            ram: 0,
-            storage: Math.round((volumeTB || volumeGB / 1024) * 1024), // Convert to GB
-            price: storage.price || 0,
-            quantity: 1,
-          });
-        }
-      }
-    }
+    let hasAnyIndependentProduct = false;
     
-    // Add Kubernetes as virtual server
-    if (proposal.kubernetes && proposal.kubernetes.enabled) {
-      const k8s = proposal.kubernetes;
+    // Check for Storage items (accept any volume > 0)
+    const validStorageItems = (proposal.storageItems || []).filter((storage: any) => {
+      const volumeTB = toNum(storage.volumeTB, 0);
+      const volumeGB = toNum(storage.volumeGB, 0);
+      return volumeTB > 0 || volumeGB > 0;
+    });
+    
+    if (validStorageItems.length > 0) {
+      hasAnyIndependentProduct = true;
+      // Encode storage items in virtual server name for fallback reconstruction
+      const storagePayload = JSON.stringify({ items: validStorageItems });
       serversArray.push({
-        name: `Kubernetes ${k8s.plan || 'Standard'}`,
-        vcpu: k8s.extras?.vcpu || 0,
-        ram: k8s.extras?.ramGB || 0,
-        storage: k8s.extras?.diskGB || 0,
-        price: k8s.price || 0,
+        name: `__VIRTUAL__STORAGE__:${storagePayload}`,
+        vcpu: 0,
+        ram: 0,
+        storage: 0,
+        price: 0,
         quantity: 1,
       });
     }
     
-    // Add OPEN SaaS as virtual server (accept any users > 0)
-    // FIX: Removed users >= 5 restriction
-    if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users > 0) {
+    // Check for Kubernetes (enabled = true)
+    if (proposal.kubernetes && proposal.kubernetes.enabled) {
+      hasAnyIndependentProduct = true;
+      const k8sPayload = JSON.stringify(proposal.kubernetes);
       serversArray.push({
-        name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
+        name: `__VIRTUAL__KUBERNETES__:${k8sPayload}`,
         vcpu: 0,
         ram: 0,
         storage: 0,
-        price: proposal.openSaas.price || 0,
-        quantity: proposal.openSaas.users,
+        price: 0,
+        quantity: 1,
+      });
+    }
+    
+    // Check for OPEN SaaS (enabled = true AND users > 0)
+    if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users > 0) {
+      hasAnyIndependentProduct = true;
+      const saasPayload = JSON.stringify(proposal.openSaas);
+      serversArray.push({
+        name: `__VIRTUAL__OPENSAAS__:${saasPayload}`,
+        vcpu: 0,
+        ram: 0,
+        storage: 0,
+        price: 0,
+        quantity: 1,
       });
     }
     
@@ -819,13 +933,17 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     if (serversArray.length === 0) {
       console.warn('[localToApi] No items found, adding VIRTUAL_PRODUCT_BUNDLE fallback');
       serversArray.push({
-        name: 'VIRTUAL_PRODUCT_BUNDLE',
+        name: '__VIRTUAL__BUNDLE__:{}',
         vcpu: 0,
         ram: 0,
         storage: 0,
         price: 0,
         quantity: 1,
       });
+    }
+    
+    if (hasAnyIndependentProduct) {
+      console.log('[localToApi] Created virtual servers for independent products:', serversArray.map(s => s.name.substring(0, 50)));
     }
   }
   
