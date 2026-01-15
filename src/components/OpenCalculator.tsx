@@ -989,19 +989,20 @@ const OpenCalculator: React.FC = () => {
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
 
-  // Check if there's at least one sellable product (VM, BareMetal, Kubernetes, Storage, or OPEN SaaS)
-  const hasSellableProduct = useCallback(() => {
+  // Check if there's at least one sellable item (servers OR any product/addon)
+  // IMPORTANT: Storage, Kubernetes, OPEN SaaS are now independent products that DON'T require VM/BM
+  const hasAnyItem = useCallback(() => {
+    // Core products (servers)
     const hasVM = items.some(i => i.type === 'vm');
     const hasBareMetal = items.some(i => i.type === 'bm');
+    
+    // Independent products (don't require servers)
     const hasKubernetes = kubernetes.enabled;
     const hasStorage = storageItems.some(s => s.volumeTB >= 1);
     const hasOpenSaaS = openSaas.enabled && openSaas.users >= 5;
-    return hasVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS;
-  }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users]);
-
-  // Check if only add-ons are selected (no main product)
-  const hasOnlyAddons = useCallback(() => {
-    const hasAnyAddon = addons.backupPlan !== 'none' || 
+    
+    // Add-ons (also considered valid items for saving)
+    const hasAddons = addons.backupPlan !== 'none' || 
       addons.backupGb > 0 || 
       addons.antivirus > 0 || 
       addons.firewall || 
@@ -1009,10 +1010,10 @@ const OpenCalculator: React.FC = () => {
       addons.cal > 0 || 
       addons.sql !== 'none' || 
       addons.veeamVm > 0 || 
-      addons.veeamAg > 0 ||
-      Object.entries(addons).some(([key, val]) => !['backupPlan', 'backupGb', 'antivirus', 'firewall', 'tsplus', 'cal', 'sql', 'sqlQty', 'veeamVm', 'veeamAg'].includes(key) && val);
-    return hasAnyAddon && !hasSellableProduct();
-  }, [addons, hasSellableProduct]);
+      addons.veeamAg > 0;
+    
+    return hasVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS || hasAddons;
+  }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users, addons]);
 
   // Save proposal via API
   const handleSave = async () => {
@@ -1020,12 +1021,9 @@ const OpenCalculator: React.FC = () => {
       toast({ title: 'Erro', description: 'Informe o nome do cliente ou empresa', variant: 'destructive' });
       return;
     }
-    if (hasOnlyAddons()) {
-      toast({ title: 'Erro', description: 'Add-ons precisam estar associados a pelo menos um produto principal.', variant: 'destructive' });
-      return;
-    }
-    if (!hasSellableProduct()) {
-      toast({ title: 'Erro', description: 'Adicione pelo menos um produto (VM, BareMetal, Kubernetes, Storage ou OPEN SaaS).', variant: 'destructive' });
+    // Validate: at least one item (server, product, or addon) must exist
+    if (!hasAnyItem()) {
+      toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para salvar a proposta.', variant: 'destructive' });
       return;
     }
     // Block save if approval is pending
@@ -1155,8 +1153,8 @@ const OpenCalculator: React.FC = () => {
 
   // Generate PDF
   const handleGeneratePDF = async () => {
-    if (!hasSellableProduct()) {
-      toast({ title: 'Erro', description: 'Adicione pelo menos um produto (VM, BareMetal, Kubernetes, Storage ou OPEN SaaS).', variant: 'destructive' });
+    if (!hasAnyItem()) {
+      toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para gerar o PDF.', variant: 'destructive' });
       return;
     }
     // Block PDF if approval is pending
@@ -1185,8 +1183,8 @@ const OpenCalculator: React.FC = () => {
       toast({ title: 'Erro', description: 'Informe o e-mail do cliente para enviar a proposta', variant: 'destructive' });
       return;
     }
-    if (!hasSellableProduct()) {
-      toast({ title: 'Erro', description: 'Adicione pelo menos um produto (VM, BareMetal, Kubernetes, Storage ou OPEN SaaS).', variant: 'destructive' });
+    if (!hasAnyItem()) {
+      toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para enviar a proposta.', variant: 'destructive' });
       return;
     }
 
