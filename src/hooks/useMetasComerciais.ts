@@ -336,6 +336,11 @@ async function fetchMetasEntries(): Promise<Map<number, { entryId: number; data:
   return result;
 }
 
+/**
+ * Save metas entry - ONLY updates existing configs via PUT.
+ * API does NOT support POST to create new configs.
+ * If no existing entry is found, we throw an error.
+ */
 async function saveMetasEntry(
   yearData: YearGoalData,
   existingEntryId?: number
@@ -356,26 +361,68 @@ async function saveMetasEntry(
 
   console.log('[MetasComerciais] Saving payload:', JSON.stringify(payload, null, 2));
 
-  try {
-    if (existingEntryId) {
-      const response = await axios.put<MetasConfigEntry>(
-        `${API_BASE_URL}/calculator/config/${existingEntryId}`,
-        payload,
-        { headers }
-      );
-      return response.data;
+  // API only supports PUT for existing entries
+  if (!existingEntryId) {
+    // Try to find an existing entry for Metas/Comercial
+    const entriesMap = await fetchMetasEntries();
+    const existingEntry = entriesMap.get(yearData.year);
+    
+    if (existingEntry) {
+      existingEntryId = existingEntry.entryId;
     } else {
-      const response = await axios.post<MetasConfigEntry>(
-        `${API_BASE_URL}/calculator/config`,
-        payload,
-        { headers }
+      // Check if there's any Metas/Comercial entry we can reuse
+      const allEntries = await fetchAllMetasConfigEntries();
+      const metasEntry = allEntries.find(e => 
+        e.category === METAS_CATEGORY && e.section === METAS_SECTION
       );
-      return response.data;
+      
+      if (metasEntry) {
+        existingEntryId = metasEntry.id;
+      } else {
+        throw new Error(
+          'API atual não permite criar novas configurações (somente leitura). ' +
+          'Entre em contato com o administrador para criar uma entrada de Metas/Comercial no banco.'
+        );
+      }
     }
+  }
+
+  try {
+    console.log(`[MetasComerciais] PUT /calculator/config/${existingEntryId}`);
+    const response = await axios.put<MetasConfigEntry>(
+      `${API_BASE_URL}/calculator/config/${existingEntryId}`,
+      payload,
+      { headers }
+    );
+    return response.data;
   } catch (err: any) {
-    console.error('[MetasComerciais] API Error:', err.response?.status, err.response?.data);
+    const status = err.response?.status;
+    console.error('[MetasComerciais] API Error:', status, err.response?.data);
+    
+    if (status === 405) {
+      throw new Error(
+        'API atual não permite salvar configurações (somente leitura). ' +
+        'Verifique se o endpoint de escrita está disponível.'
+      );
+    }
     throw err;
   }
+}
+
+/**
+ * Fetch all config entries (not just parsed metas) to find any Metas entry
+ */
+async function fetchAllMetasConfigEntries(): Promise<MetasConfigEntry[]> {
+  const token = getToken();
+  const response = await axios.get<PaginatedResponse>(`${API_BASE_URL}/calculator/config`, {
+    params: { 
+      __perPage: 200,
+      category: METAS_CATEGORY,
+      section: METAS_SECTION,
+    },
+    headers: { Authorization: token ? `Bearer ${token}` : '' },
+  });
+  return response.data.data || [];
 }
 
 // Hook
@@ -428,7 +475,8 @@ export function useMetasComerciais() {
     },
     onError: (err: any) => {
       console.error('[MetasComerciais] Save error:', err);
-      toast.error(err?.response?.data?.message || 'Erro ao salvar metas');
+      const message = err?.message || err?.response?.data?.message || 'Erro ao salvar metas';
+      toast.error(message);
     },
   });
 
