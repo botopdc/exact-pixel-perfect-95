@@ -50,21 +50,26 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   }> = [];
 
   // 1. Geral - Configurações Gerais (FX)
+  const fxValue = Number(config.fx_default) || 0;
   payloads.push({
     category: CONFIG_MAPPINGS.GERAL_CONFIG.category,
     section: CONFIG_MAPPINGS.GERAL_CONFIG.section,
     config: [
-      { label: 'FX Padrão', by: 'unit', type: 'USD', price: config.fx_default },
+      { label: 'FX Padrão', by: 'unit', type: 'USD', value: fxValue, price: fxValue },
     ],
   });
 
   // 2. Geral - Descontos por Prazo
-  const discountItems: ConfigItem[] = Object.entries(config.discount || {}).map(([months, rate]) => ({
-    label: months === '1' ? '1 mês' : `${months} meses`,
-    by: 'percentage',
-    type: 'PERCENTAGE',
-    price: (rate as number) * 100, // Convert to percentage
-  }));
+  const discountItems: ConfigItem[] = Object.entries(config.discount || {}).map(([months, rate]) => {
+    const discountValue = Number((rate as number) * 100) || 0;
+    return {
+      label: months === '1' ? '1 mês' : `${months} meses`,
+      by: 'percentage',
+      type: 'PERCENTAGE',
+      value: discountValue,
+      price: discountValue,
+    };
+  });
   if (discountItems.length > 0) {
     payloads.push({
       category: CONFIG_MAPPINGS.GERAL_DESCONTO.category,
@@ -78,20 +83,24 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     category: CONFIG_MAPPINGS.VM_PRICES.category,
     section: CONFIG_MAPPINGS.VM_PRICES.section,
     config: [
-      { label: 'vCPU', by: 'unit', type: 'BRL', price: config.vm_prices_brl.vcpu },
-      { label: 'RAM por GB', by: 'gb', type: 'BRL', price: config.vm_prices_brl.ram_per_gb },
-      { label: 'NVMe por GB', by: 'gb', type: 'BRL', price: config.vm_prices_brl.nvme_per_gb },
-      { label: 'IP Público', by: 'unit', type: 'BRL', price: config.vm_prices_brl.ip_public },
+      { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0, price: Number(config.vm_prices_brl.vcpu) || 0 },
+      { label: 'RAM por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0, price: Number(config.vm_prices_brl.ram_per_gb) || 0 },
+      { label: 'NVMe por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0, price: Number(config.vm_prices_brl.nvme_per_gb) || 0 },
+      { label: 'IP Público', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.ip_public) || 0, price: Number(config.vm_prices_brl.ip_public) || 0 },
     ],
   });
 
   // 4. GPU Prices
-  const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {}).map(([name, price]) => ({
-    label: name,
-    by: 'unit',
-    type: 'USD',
-    price: price as number,
-  }));
+  const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {}).map(([name, price]) => {
+    const gpuValue = Number(price) || 0;
+    return {
+      label: name,
+      by: 'unit',
+      type: 'USD',
+      value: gpuValue,
+      price: gpuValue,
+    };
+  });
   if (gpuItems.length > 0) {
     payloads.push({
       category: CONFIG_MAPPINGS.GPU_PRICES.category,
@@ -101,12 +110,16 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   }
 
   // 5. BareMetal - CPU Models
-  const cpuItems: ConfigItem[] = config.baremetal.cpu_models.map((cpu) => ({
-    label: cpu.label,
-    by: 'unit',
-    type: 'BRL',
-    price: cpu.price,
-  }));
+  const cpuItems: ConfigItem[] = config.baremetal.cpu_models.map((cpu) => {
+    const cpuValue = Number(cpu.price) || 0;
+    return {
+      label: cpu.label,
+      by: 'unit',
+      type: 'BRL',
+      value: cpuValue,
+      price: cpuValue,
+    };
+  });
   if (cpuItems.length > 0) {
     payloads.push({
       category: CONFIG_MAPPINGS.BAREMETAL_CPU.category,
@@ -116,13 +129,17 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   }
 
   // 6. BareMetal - RAM Tiers
-  const ramItems: ConfigItem[] = config.baremetal.ram_tiers.map((ram) => ({
-    label: ram.label,
-    by: 'gb',
-    type: 'BRL',
-    price: ram.price,
-    gb: ram.gb,
-  }));
+  const ramItems: ConfigItem[] = config.baremetal.ram_tiers.map((ram) => {
+    const ramValue = Number(ram.price) || 0;
+    return {
+      label: ram.label,
+      by: 'gb',
+      type: 'BRL',
+      value: ramValue,
+      price: ramValue,
+      gb: ram.gb,
+    };
+  });
   if (ramItems.length > 0) {
     payloads.push({
       category: CONFIG_MAPPINGS.BAREMETAL_RAM.category,
@@ -132,13 +149,17 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   }
 
   // 7. BareMetal - Disks
-  const diskItems: ConfigItem[] = config.baremetal.disks.map((disk) => ({
-    label: disk.label,
-    by: 'tb',
-    type: 'BRL',
-    price: disk.price,
-    tb: disk.tb,
-  }));
+  const diskItems: ConfigItem[] = config.baremetal.disks.map((disk) => {
+    const diskValue = Number(disk.price) || 0;
+    return {
+      label: disk.label,
+      by: 'tb',
+      type: 'BRL',
+      value: diskValue,
+      price: diskValue,
+      tb: disk.tb,
+    };
+  });
   if (diskItems.length > 0) {
     payloads.push({
       category: CONFIG_MAPPINGS.BAREMETAL_DISK.category,
@@ -152,22 +173,28 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   const addons = config.addons_brl;
   
   if (typeof addons.antivirus_unit === 'number') {
-    addonItems.push({ label: 'Antivírus', by: 'unit', type: 'BRL', price: addons.antivirus_unit });
+    const val = Number(addons.antivirus_unit) || 0;
+    addonItems.push({ label: 'Antivírus', by: 'unit', type: 'BRL', value: val, price: val });
   }
   if (typeof addons.firewall_pfsense === 'number') {
-    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', price: addons.firewall_pfsense });
+    const val = Number(addons.firewall_pfsense) || 0;
+    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: val, price: val });
   }
   if (typeof addons.tsplus_unit === 'number') {
-    addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', price: addons.tsplus_unit });
+    const val = Number(addons.tsplus_unit) || 0;
+    addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', value: val, price: val });
   }
   if (typeof addons.cal_unit === 'number') {
-    addonItems.push({ label: 'CAL', by: 'unit', type: 'BRL', price: addons.cal_unit });
+    const val = Number(addons.cal_unit) || 0;
+    addonItems.push({ label: 'CAL', by: 'unit', type: 'BRL', value: val, price: val });
   }
   if (typeof addons.veeam_vm_unit === 'number') {
-    addonItems.push({ label: 'Veeam VM', by: 'unit', type: 'BRL', price: addons.veeam_vm_unit });
+    const val = Number(addons.veeam_vm_unit) || 0;
+    addonItems.push({ label: 'Veeam VM', by: 'unit', type: 'BRL', value: val, price: val });
   }
   if (typeof addons.veeam_agent_unit === 'number') {
-    addonItems.push({ label: 'Veeam Agent', by: 'unit', type: 'BRL', price: addons.veeam_agent_unit });
+    const val = Number(addons.veeam_agent_unit) || 0;
+    addonItems.push({ label: 'Veeam Agent', by: 'unit', type: 'BRL', value: val, price: val });
   }
   
   if (addonItems.length > 0) {
@@ -180,12 +207,16 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 9. SQL Server prices
   if (addons.sql && typeof addons.sql === 'object') {
-    const sqlItems: ConfigItem[] = Object.entries(addons.sql).map(([edition, price]) => ({
-      label: edition === 'none' ? 'Nenhum' : edition.charAt(0).toUpperCase() + edition.slice(1),
-      by: 'license',
-      type: 'BRL',
-      price: price as number,
-    }));
+    const sqlItems: ConfigItem[] = Object.entries(addons.sql).map(([edition, price]) => {
+      const sqlValue = Number(price) || 0;
+      return {
+        label: edition === 'none' ? 'Nenhum' : edition.charAt(0).toUpperCase() + edition.slice(1),
+        by: 'license',
+        type: 'BRL',
+        value: sqlValue,
+        price: sqlValue,
+      };
+    });
     if (sqlItems.length > 0) {
       payloads.push({
         category: CONFIG_MAPPINGS.SQL_SERVER.category,
@@ -197,12 +228,16 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 10. Storage prices
   if (config.storage_prices) {
-    const storageItems: ConfigItem[] = Object.entries(config.storage_prices).map(([region, price]) => ({
-      label: region,
-      by: 'tb',
-      type: 'BRL',
-      price: price as number,
-    }));
+    const storageItems: ConfigItem[] = Object.entries(config.storage_prices).map(([region, price]) => {
+      const storageValue = Number(price) || 0;
+      return {
+        label: region,
+        by: 'tb',
+        type: 'BRL',
+        value: storageValue,
+        price: storageValue,
+      };
+    });
     if (storageItems.length > 0) {
       payloads.push({
         category: CONFIG_MAPPINGS.STORAGE.category,
@@ -214,12 +249,16 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 11. Kubernetes plans
   if (config.kubernetes_pricing) {
-    const k8sItems: ConfigItem[] = Object.entries(config.kubernetes_pricing).map(([plan, data]) => ({
-      label: plan,
-      by: 'plan',
-      type: 'BRL',
-      price: (data as any)?.basePriceMonthly || 0,
-    }));
+    const k8sItems: ConfigItem[] = Object.entries(config.kubernetes_pricing).map(([plan, data]) => {
+      const k8sValue = Number((data as any)?.basePriceMonthly) || 0;
+      return {
+        label: plan,
+        by: 'plan',
+        type: 'BRL',
+        value: k8sValue,
+        price: k8sValue,
+      };
+    });
     if (k8sItems.length > 0) {
       payloads.push({
         category: CONFIG_MAPPINGS.KUBERNETES_PLANS.category,
@@ -231,12 +270,16 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
 
   // 12. Kubernetes add-ons
   if (config.kubernetes_addons_pricing) {
-    const k8sAddonItems: ConfigItem[] = Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => ({
-      label: addon,
-      by: 'unit',
-      type: 'BRL',
-      price: price as number,
-    }));
+    const k8sAddonItems: ConfigItem[] = Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => {
+      const addonValue = Number(price) || 0;
+      return {
+        label: addon,
+        by: 'unit',
+        type: 'BRL',
+        value: addonValue,
+        price: addonValue,
+      };
+    });
     if (k8sAddonItems.length > 0) {
       payloads.push({
         category: CONFIG_MAPPINGS.KUBERNETES_ADDONS.category,
