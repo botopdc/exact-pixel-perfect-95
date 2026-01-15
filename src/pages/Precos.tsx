@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Loader2, Shield, ShieldOff, History, Lock, AlertTriangle, X, Check, Plus, Trash2, Save, Cloud, CloudOff } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Loader2, Shield, ShieldOff, History, Lock, AlertTriangle, X, Check, Plus, Trash2, Save, Cloud, CloudOff, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import { generateApiDocumentationPdf } from '@/lib/documentationPdfGenerator';
 
 // ============ ADMIN PIN ============
 const ADMIN_PIN = "OPEN2026";
@@ -728,6 +729,17 @@ const Precos = () => {
                 Entrar em Modo Admin
               </Button>
             )}
+
+            {/* API Documentation PDF Button */}
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={generateApiDocumentationPdf}
+              className="gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              Exportar Doc API
+            </Button>
             
           </div>
         </header>
