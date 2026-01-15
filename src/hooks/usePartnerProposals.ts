@@ -560,47 +560,147 @@ export function useAllPartnerProposals() {
 }
 
 // Transform local items (VM/BM format) to API servers format
-function localItemsToApiServers(items: any[]): Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }> {
-  if (!items || !Array.isArray(items)) return [];
+// NOTE: Also handles independent products (Storage, Kubernetes, OPEN SaaS) when no VMs/BMs exist
+// This is a workaround because the API OPDC requires `servers` to have at least 1 item
+function localItemsToApiServers(
+  items: any[],
+  storageItems?: any[],
+  kubernetes?: any,
+  openSaas?: any
+): Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }> {
+  const serversArray: Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }> = [];
   
-  return items.map((item: any, idx: number) => {
-    if (item.type === 'vm') {
-      return {
-        name: `VM #${idx + 1}`,
-        vcpu: item.vcpu || 0,
-        ram: item.ramGb || 0,
-        storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
-        price: 0, // Will be calculated by backend
-        quantity: item.qtyServers || 1,
-      };
-    } else if (item.type === 'bm') {
-      return {
-        name: `BareMetal #${idx + 1}`,
-        vcpu: 0, // BM doesn't have vCPU in the same way
+  // First, add VMs and Bare Metals
+  if (items && Array.isArray(items)) {
+    for (const [idx, item] of items.entries()) {
+      if (item.type === 'vm') {
+        serversArray.push({
+          name: `VM #${idx + 1}`,
+          vcpu: item.vcpu || 0,
+          ram: item.ramGb || 0,
+          storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
+          price: 0, // Will be calculated by backend
+          quantity: item.qtyServers || 1,
+        });
+      } else if (item.type === 'bm') {
+        serversArray.push({
+          name: `BareMetal #${idx + 1}`,
+          vcpu: 0, // BM doesn't have vCPU in the same way
+          ram: 0,
+          storage: 0,
+          price: 0,
+          quantity: item.qtyServers || 1,
+        });
+      } else {
+        // Fallback for legacy format
+        serversArray.push({
+          name: item.name || item.label || 'Server',
+          vcpu: item.vcpu || item.cpu || 0,
+          ram: item.ram || item.memory || item.ramGb || 0,
+          storage: item.storage || item.disk || Math.round((item.nvmeTb || 0) * 1024) || 0,
+          price: item.price || item.total || 0,
+          quantity: item.quantity || item.qtyServers || 1,
+        });
+      }
+    }
+  }
+  
+  // WORKAROUND: If no servers, add independent products as virtual servers
+  // This satisfies the API requirement of at least 1 server item
+  if (serversArray.length === 0) {
+    // Add Storage items as virtual servers
+    if (storageItems && Array.isArray(storageItems)) {
+      for (const storage of storageItems) {
+        if (storage.volumeTB >= 1) {
+          serversArray.push({
+            name: `Storage ${storage.type || storage.storageType || 'SAN'} ${storage.volumeTB}TB`,
+            vcpu: 0,
+            ram: 0,
+            storage: Math.round(storage.volumeTB * 1024), // Convert TB to GB
+            price: storage.price || 0,
+            quantity: 1,
+          });
+        }
+      }
+    }
+    
+    // Add Kubernetes as virtual server
+    if (kubernetes && kubernetes.enabled) {
+      serversArray.push({
+        name: `Kubernetes ${kubernetes.plan || 'Standard'}`,
+        vcpu: kubernetes.extras?.vcpu || 0,
+        ram: kubernetes.extras?.ramGB || 0,
+        storage: kubernetes.extras?.diskGB || 0,
+        price: kubernetes.price || 0,
+        quantity: 1,
+      });
+    }
+    
+    // Add OPEN SaaS as virtual server
+    if (openSaas && openSaas.enabled && openSaas.users >= 5) {
+      serversArray.push({
+        name: `OPEN SaaS ${openSaas.users} usuários`,
+        vcpu: 0,
         ram: 0,
         storage: 0,
-        price: 0,
-        quantity: item.qtyServers || 1,
-      };
-    } else {
-      // Fallback for legacy format
-      return {
-        name: item.name || item.label || 'Server',
-        vcpu: item.vcpu || item.cpu || 0,
-        ram: item.ram || item.memory || item.ramGb || 0,
-        storage: item.storage || item.disk || Math.round((item.nvmeTb || 0) * 1024) || 0,
-        price: item.price || item.total || 0,
-        quantity: item.quantity || item.qtyServers || 1,
-      };
+        price: openSaas.price || 0,
+        quantity: openSaas.users,
+      });
     }
-  });
+  }
+  
+  return serversArray;
 }
 
 // Transform local addons to API format
-function localAddonsToApiFormat(addons: any): Array<{ name: string; price: number; quantity: number }> {
-  if (!addons || typeof addons !== 'object') return [];
-  
+// Also includes independent products (Storage, Kubernetes, OPEN SaaS) in addons array
+function localAddonsToApiFormat(
+  addons: any,
+  storageItems?: any[],
+  kubernetes?: any,
+  openSaas?: any
+): Array<{ name: string; price: number; quantity: number }> {
   const result: Array<{ name: string; price: number; quantity: number }> = [];
+  
+  // ============================================
+  // INDEPENDENT PRODUCTS (don't require servers)
+  // ============================================
+  
+  // Storage items
+  if (storageItems && Array.isArray(storageItems)) {
+    for (const storage of storageItems) {
+      if (storage.volumeTB >= 1) {
+        result.push({
+          name: `Storage ${storage.type || storage.storageType || 'SAN'} ${storage.volumeTB}TB`,
+          price: storage.price || 0,
+          quantity: 1,
+        });
+      }
+    }
+  }
+  
+  // Kubernetes
+  if (kubernetes && kubernetes.enabled) {
+    result.push({
+      name: `Kubernetes ${kubernetes.plan || 'Standard'}`,
+      price: kubernetes.price || 0,
+      quantity: 1,
+    });
+  }
+  
+  // OPEN SaaS
+  if (openSaas && openSaas.enabled && openSaas.users >= 5) {
+    result.push({
+      name: `OPEN SaaS ${openSaas.users} usuários`,
+      price: openSaas.price || 0,
+      quantity: openSaas.users,
+    });
+  }
+  
+  // ============================================
+  // STANDARD ADDONS (services/extras)
+  // ============================================
+  if (!addons || typeof addons !== 'object') return result;
   
   // Standard addon mappings
   const addonMappings: Array<{ key: string; label: string }> = [
@@ -684,8 +784,18 @@ export function useSavePartnerProposal() {
         discount_pct: proposalData.dados_proposta?.result?.discountPct || 0,
         total: proposalData.valor_total,
         observations: proposalData.dados_proposta?.observacao || null,
-        addons: localAddonsToApiFormat(proposalData.dados_proposta?.addons),
-        servers: localItemsToApiServers(proposalData.dados_proposta?.items),
+        addons: localAddonsToApiFormat(
+          proposalData.dados_proposta?.addons,
+          proposalData.dados_proposta?.storageItems,
+          proposalData.dados_proposta?.kubernetes,
+          proposalData.dados_proposta?.openSaas
+        ),
+        servers: localItemsToApiServers(
+          proposalData.dados_proposta?.items,
+          proposalData.dados_proposta?.storageItems,
+          proposalData.dados_proposta?.kubernetes,
+          proposalData.dados_proposta?.openSaas
+        ),
         due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         // CRITICAL: Save complete calculator state for perfect editing restoration
         dados_proposta: proposalData.dados_proposta,
@@ -713,9 +823,14 @@ export function useSavePartnerProposal() {
         },
       });
       
-      // VALIDATION: Ensure dados_proposta has items before saving
-      if (!draftState?.items?.length) {
-        console.error('[SavePartnerProposal] ERROR: No items in dados_proposta! This will cause issues on edit.');
+      // VALIDATION: Check if there's at least one item (servers, storage, kubernetes, or openSaas)
+      const hasItems = draftState?.items?.length > 0;
+      const hasStorage = draftState?.storageItems?.some((s: any) => s.volumeTB >= 1);
+      const hasKubernetes = draftState?.kubernetes?.enabled;
+      const hasOpenSaas = draftState?.openSaas?.enabled && draftState?.openSaas?.users >= 5;
+      
+      if (!hasItems && !hasStorage && !hasKubernetes && !hasOpenSaas) {
+        console.warn('[SavePartnerProposal] Warning: No items in dados_proposta. Proposal may have issues on edit.');
       }
 
       let result: any;
