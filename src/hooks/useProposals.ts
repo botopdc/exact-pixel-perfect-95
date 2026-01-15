@@ -153,7 +153,7 @@ const toNum = (val: any, fallback = 0): number => {
 };
 
 // Transform API proposal to local format - PRESERVES COMPLETE DATA from dados_proposta if available
-function apiToLocal(apiProposal: ApiProposal): SavedProposal {
+export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   // Check if we have the complete calculator state saved in dados_proposta (new format)
   // IMPORTANT: dados_proposta may come as string (JSON serialized) - must parse it first
   let dadosProposta = (apiProposal as any).dados_proposta;
