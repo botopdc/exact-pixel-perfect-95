@@ -77,7 +77,7 @@ interface MetasConfigEntry {
     label: string;
     by: string;
     type: string;
-    value: YearGoalData | string;
+    value: number | string;
   }>;
   created_at: string;
   updated_at: string;
@@ -167,6 +167,146 @@ function getToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
 }
 
+// Config item type for API
+interface ConfigItem {
+  label: string;
+  value: number;
+  by: string;
+  type: string;
+}
+
+// Parse config items from API response into YearGoalData
+function parseConfigToYearData(config: ConfigItem[], year: number): YearGoalData {
+  const data = createEmptyYearGoal(year);
+  const executivesMap = new Map<number, Partial<ExecutiveGoal>>();
+
+  for (const item of config) {
+    const { label, value } = item;
+    const numValue = typeof value === 'string' ? parseFloat(value) : (value || 0);
+
+    // Global targets
+    if (label === 'global_annual_target') {
+      data.global.annualTarget = numValue;
+    } else if (label === 'global_mrr_target') {
+      data.global.globalMRRTarget = numValue;
+    }
+    // Quarter weights
+    else if (label === 'q1_weight') {
+      data.global.quarterWeights.Q1 = numValue;
+    } else if (label === 'q2_weight') {
+      data.global.quarterWeights.Q2 = numValue;
+    } else if (label === 'q3_weight') {
+      data.global.quarterWeights.Q3 = numValue;
+    } else if (label === 'q4_weight') {
+      data.global.quarterWeights.Q4 = numValue;
+    }
+    // Monthly targets
+    else if (label.startsWith('month_')) {
+      const month = label.replace('month_', '') as keyof MonthlyTargets;
+      if (MONTH_KEYS.includes(month)) {
+        data.global.monthlyTargets[month] = numValue;
+      }
+    }
+    // Executive data: exec_<ID>_<field>
+    else if (label.startsWith('exec_')) {
+      const match = label.match(/^exec_(\d+)_(.+)$/);
+      if (match) {
+        const execId = parseInt(match[1], 10);
+        const field = match[2];
+        
+        if (!executivesMap.has(execId)) {
+          executivesMap.set(execId, {
+            id: execId,
+            name: '',
+            email: '',
+            teamType: 'interno',
+            annualTarget: 0,
+            monthlyMRRTarget: 0,
+            monthlyTargets: { ...DEFAULT_MONTHLY_TARGETS },
+            quarterTargets: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+          });
+        }
+        
+        const exec = executivesMap.get(execId)!;
+        
+        if (field === 'name' && typeof value === 'string') {
+          exec.name = value;
+        } else if (field === 'email' && typeof value === 'string') {
+          exec.email = value;
+        } else if (field === 'team') {
+          exec.teamType = numValue === 1 ? 'externo' : 'interno';
+        } else if (field === 'annual') {
+          exec.annualTarget = numValue;
+        } else if (field === 'mrr') {
+          exec.monthlyMRRTarget = numValue;
+        } else if (field.startsWith('m_')) {
+          const month = field.replace('m_', '') as keyof MonthlyTargets;
+          if (MONTH_KEYS.includes(month) && exec.monthlyTargets) {
+            exec.monthlyTargets[month] = numValue;
+          }
+        } else if (field.startsWith('q')) {
+          const q = field.toUpperCase() as keyof QuarterWeights;
+          if (['Q1', 'Q2', 'Q3', 'Q4'].includes(q) && exec.quarterTargets) {
+            exec.quarterTargets[q as keyof QuarterWeights] = numValue;
+          }
+        }
+      }
+    }
+  }
+
+  // Convert map to array
+  data.executives = Array.from(executivesMap.values()) as ExecutiveGoal[];
+  
+  return data;
+}
+
+// Convert YearGoalData to config items for API
+function yearDataToConfig(yearData: YearGoalData): ConfigItem[] {
+  const config: ConfigItem[] = [];
+  const { global, executives, year } = yearData;
+
+  // Year identifier
+  config.push({ label: 'year', value: year, by: 'year', type: 'BRL' });
+
+  // Global targets
+  config.push({ label: 'global_annual_target', value: global.annualTarget || 0, by: 'year', type: 'BRL' });
+  config.push({ label: 'global_mrr_target', value: global.globalMRRTarget || 0, by: 'month', type: 'BRL' });
+
+  // Quarter weights
+  config.push({ label: 'q1_weight', value: global.quarterWeights.Q1 || 0, by: 'percent', type: 'BRL' });
+  config.push({ label: 'q2_weight', value: global.quarterWeights.Q2 || 0, by: 'percent', type: 'BRL' });
+  config.push({ label: 'q3_weight', value: global.quarterWeights.Q3 || 0, by: 'percent', type: 'BRL' });
+  config.push({ label: 'q4_weight', value: global.quarterWeights.Q4 || 0, by: 'percent', type: 'BRL' });
+
+  // Monthly targets
+  for (const month of MONTH_KEYS) {
+    config.push({ label: `month_${month}`, value: global.monthlyTargets[month] || 0, by: 'month', type: 'BRL' });
+  }
+
+  // Executives - each field as separate item (fallback approach for API compatibility)
+  for (const exec of executives || []) {
+    const prefix = `exec_${exec.id}`;
+    
+    // Store numeric values only (API doesn't accept string in value)
+    config.push({ label: `${prefix}_annual`, value: exec.annualTarget || 0, by: 'year', type: 'BRL' });
+    config.push({ label: `${prefix}_mrr`, value: exec.monthlyMRRTarget || 0, by: 'month', type: 'BRL' });
+    config.push({ label: `${prefix}_team`, value: exec.teamType === 'externo' ? 1 : 0, by: 'meta', type: 'BRL' });
+    
+    // Monthly targets per executive
+    for (const month of MONTH_KEYS) {
+      config.push({ label: `${prefix}_m_${month}`, value: exec.monthlyTargets?.[month] || 0, by: 'month', type: 'BRL' });
+    }
+    
+    // Quarter targets per executive
+    config.push({ label: `${prefix}_q1`, value: exec.quarterTargets?.Q1 || 0, by: 'quarter', type: 'BRL' });
+    config.push({ label: `${prefix}_q2`, value: exec.quarterTargets?.Q2 || 0, by: 'quarter', type: 'BRL' });
+    config.push({ label: `${prefix}_q3`, value: exec.quarterTargets?.Q3 || 0, by: 'quarter', type: 'BRL' });
+    config.push({ label: `${prefix}_q4`, value: exec.quarterTargets?.Q4 || 0, by: 'quarter', type: 'BRL' });
+  }
+
+  return config;
+}
+
 // API Functions
 async function fetchMetasEntries(): Promise<Map<number, { entryId: number; data: YearGoalData }>> {
   const token = getToken();
@@ -180,24 +320,15 @@ async function fetchMetasEntries(): Promise<Map<number, { entryId: number; data:
 
   for (const entry of entries) {
     if (entry.category === METAS_CATEGORY && entry.section === METAS_SECTION) {
-      for (const item of entry.config || []) {
-        if (item.label.startsWith('year_')) {
-          const yearStr = item.label.replace('year_', '');
-          const year = parseInt(yearStr, 10);
-          if (!isNaN(year)) {
-            let data: YearGoalData;
-            if (typeof item.value === 'string') {
-              try {
-                data = JSON.parse(item.value);
-              } catch {
-                data = createEmptyYearGoal(year);
-              }
-            } else {
-              data = item.value as YearGoalData;
-            }
-            result.set(year, { entryId: entry.id, data });
-          }
-        }
+      const configItems = (entry.config || []) as unknown as ConfigItem[];
+      
+      // Find the year from config
+      const yearItem = configItems.find(c => c.label === 'year');
+      const year = yearItem ? (typeof yearItem.value === 'number' ? yearItem.value : parseInt(String(yearItem.value), 10)) : null;
+      
+      if (year && !isNaN(year)) {
+        const data = parseConfigToYearData(configItems, year);
+        result.set(year, { entryId: entry.id, data });
       }
     }
   }
@@ -210,16 +341,12 @@ async function saveMetasEntry(
   existingEntryId?: number
 ): Promise<MetasConfigEntry> {
   const token = getToken();
-  const headers = { Authorization: token ? `Bearer ${token}` : '' };
+  const headers = { 
+    Authorization: token ? `Bearer ${token}` : '',
+    'Content-Type': 'application/json',
+  };
 
-  const config = [
-    {
-      label: `year_${yearData.year}`,
-      by: 'year',
-      type: 'JSON',
-      value: JSON.stringify(yearData),
-    },
-  ];
+  const config = yearDataToConfig(yearData);
 
   const payload = {
     category: METAS_CATEGORY,
@@ -227,20 +354,27 @@ async function saveMetasEntry(
     config,
   };
 
-  if (existingEntryId) {
-    const response = await axios.put<MetasConfigEntry>(
-      `${API_BASE_URL}/calculator/config/${existingEntryId}`,
-      payload,
-      { headers }
-    );
-    return response.data;
-  } else {
-    const response = await axios.post<MetasConfigEntry>(
-      `${API_BASE_URL}/calculator/config`,
-      payload,
-      { headers }
-    );
-    return response.data;
+  console.log('[MetasComerciais] Saving payload:', JSON.stringify(payload, null, 2));
+
+  try {
+    if (existingEntryId) {
+      const response = await axios.put<MetasConfigEntry>(
+        `${API_BASE_URL}/calculator/config/${existingEntryId}`,
+        payload,
+        { headers }
+      );
+      return response.data;
+    } else {
+      const response = await axios.post<MetasConfigEntry>(
+        `${API_BASE_URL}/calculator/config`,
+        payload,
+        { headers }
+      );
+      return response.data;
+    }
+  } catch (err: any) {
+    console.error('[MetasComerciais] API Error:', err.response?.status, err.response?.data);
+    throw err;
   }
 }
 
