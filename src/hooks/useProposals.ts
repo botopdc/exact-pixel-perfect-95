@@ -744,8 +744,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     contract_duration: contractDuration,
     discount_pct: discountPct,
     total: proposal.total || proposal.result?.grandTotal || 0,
-    addons: addonsArray.length > 0 ? addonsArray : null,
-    servers: serversArray,
+    // CRITICAL: Always send arrays (even empty) to satisfy API schema
+    // servers is REQUIRED by the API, addons is optional but we always send array
+    addons: addonsArray,
+    servers: serversArray, // Always an array, even if empty []
     due_at: dueAt.toISOString(),
     // STATUS FIELDS - persisted at API level for proper filtering
     // status is the CANONICAL source of truth: 'DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'
