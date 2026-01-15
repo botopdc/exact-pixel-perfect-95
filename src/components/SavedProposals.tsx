@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
 import OpenLogo from './OpenLogo';
-import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus } from '@/hooks/useProposals';
+import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal } from '@/hooks/useProposals';
+import { openApi } from '@/lib/openApi';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
@@ -226,7 +227,10 @@ const SavedProposals: React.FC = () => {
     navigate(`/proposta/${proposalId}`);
   };
 
-  const handleEdit = (proposal: SavedProposal) => {
+  // State for loading edit
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const handleEdit = async (proposal: SavedProposal) => {
     // Block editing of approved or rejected proposals
     if (proposal.status === 'APPROVED') {
       toast({ 
@@ -245,39 +249,68 @@ const SavedProposals: React.FC = () => {
       return;
     }
     
-    // Verify proposal has required structure
-    if (!proposal.client || !proposal.items) {
-      toast({
-        title: 'Erro ao carregar proposta',
-        description: 'Dados da proposta estão incompletos ou corrompidos',
-        variant: 'destructive',
-      });
-      console.error('[SavedProposals] Invalid proposal data:', proposal);
-      return;
-    }
-    
-    const proposalId = proposal.proposal?.id || '';
+    const apiId = proposal.id;
+    const displayProposalId = proposal.proposal?.id || '';
     
     // Track edit open
-    if (proposalId) {
-      trackEvent.mutate({ proposalId, type: 'edit_open', channel: 'ui' });
+    if (displayProposalId) {
+      trackEvent.mutate({ proposalId: displayProposalId, type: 'edit_open', channel: 'ui' });
     }
     
     // Navigate to calculator with edit mode - use centralized route config
     const userLevel = session?.level || 0;
     const calculatorPath = getCalculatorRoute(userLevel, false); // false = not a partner context
     
-    // CRITICAL: Ensure API numeric ID is passed for proper update detection
-    console.log('[SavedProposals] editProposal click', { 
-      apiId: proposal.id, // API numeric ID
-      displayId: proposalId,
-      userLevel, 
-      calculatorPath,
-      itemsCount: proposal.items?.length || 0,
-      hasResult: Boolean(proposal.result),
+    console.log('[SavedProposals] Edit clicked - fetching complete proposal from API', { 
+      apiId,
+      displayId: displayProposalId,
     });
     
-    navigate(calculatorPath, { state: { editProposal: proposal } });
+    // CRITICAL: Always fetch the complete proposal from API before navigating
+    // The list data does NOT contain dados_proposta, causing hydration failures for Storage/K8s/OpenSaaS
+    if (!apiId) {
+      toast({
+        title: 'Erro ao carregar proposta',
+        description: 'ID da proposta não encontrado',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setEditingId(String(apiId));
+    
+    try {
+      const fullProposal = await openApi.getProposal(apiId);
+      
+      console.log('[SavedProposals] Fetched complete proposal from API:', {
+        apiId,
+        hasDadosProposta: Boolean((fullProposal as any)?.dados_proposta),
+        hasItems: Boolean((fullProposal as any)?.items),
+        itemsCount: (fullProposal as any)?.items?.length || 0,
+      });
+      
+      // Convert API response to local format for calculator hydration
+      const localProposal = apiToLocal(fullProposal as any);
+      
+      console.log('[SavedProposals] Converted to local format:', {
+        hasClient: Boolean(localProposal.client),
+        itemsCount: localProposal.items?.length || 0,
+        storageItemsCount: localProposal.storageItems?.length || 0,
+        kubernetesEnabled: localProposal.kubernetes?.enabled,
+        openSaasEnabled: localProposal.openSaas?.enabled,
+      });
+      
+      navigate(calculatorPath, { state: { editProposal: localProposal } });
+    } catch (error: any) {
+      console.error('[SavedProposals] Error fetching complete proposal:', error);
+      toast({
+        title: 'Erro ao carregar proposta',
+        description: error.message || 'Falha ao buscar dados completos da proposta',
+        variant: 'destructive',
+      });
+    } finally {
+      setEditingId(null);
+    }
   };
 
   const handleViewAccess = (proposalId: string) => {
@@ -572,9 +605,9 @@ const SavedProposals: React.FC = () => {
                                 onClick={() => handleEdit(p)} 
                                 className={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "text-muted-foreground cursor-not-allowed opacity-50" : "text-primary hover:text-primary hover:bg-primary/10"} 
                                 title={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "Proposta finalizada não pode ser editada" : "Editar proposta"}
-                                disabled={p.status === 'APPROVED' || p.status === 'REJECTED'}
+                                disabled={p.status === 'APPROVED' || p.status === 'REJECTED' || editingId === String(p.id)}
                               >
-                                <Pencil className="w-4 h-4" />
+                                {editingId === String(p.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
                               </Button>
                               <Button variant="ghost" size="icon" onClick={() => handleViewAccess(proposalId)} className="text-primary hover:text-primary hover:bg-primary/10" title="Ver acessos">
                                 <BarChart3 className="w-4 h-4" />

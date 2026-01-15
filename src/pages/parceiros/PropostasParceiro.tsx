@@ -24,6 +24,8 @@ import { partnerAuthService } from '@/services/partnersService';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import { generateOpenPDF } from '@/lib/pdfGenerator';
 import { ROUTES } from '@/config/routes';
+import { openApi } from '@/lib/openApi';
+import { apiToLocal } from '@/hooks/useProposals';
 
 // Status badge helper
 function getStatusBadge(status: PartnerProposalStatus) {
@@ -59,6 +61,7 @@ export default function PropostasParceiro() {
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<PartnerProposalStatus | 'all'>('all');
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   // Filtered proposals
   const filteredProposals = useMemo(() => {
@@ -87,7 +90,7 @@ export default function PropostasParceiro() {
     navigate(`/proposta/${proposalId}`);
   };
 
-  const handleEdit = (proposal: PartnerProposal) => {
+  const handleEdit = async (proposal: PartnerProposal) => {
     if (proposal.status_proposta !== 'Rascunho') {
       toast({
         title: 'Edição bloqueada',
@@ -97,34 +100,57 @@ export default function PropostasParceiro() {
       return;
     }
 
-    // Verify dados_proposta has required structure
-    const proposalData = proposal.dados_proposta;
-    if (!proposalData || !proposalData.client || !proposalData.items) {
+    const apiId = proposal.api_id;
+    if (!apiId) {
       toast({
         title: 'Erro ao carregar proposta',
-        description: 'Dados da proposta estão incompletos ou corrompidos',
+        description: 'ID da proposta não encontrado',
         variant: 'destructive',
       });
-      console.error('[PropostasParceiro] Invalid proposal data:', proposalData);
       return;
     }
 
-    // CRITICAL: Include API numeric ID for proper update detection in edit mode
-    // The calculator expects 'id' to be the API numeric ID for UPDATE operations
-    const editProposalWithId = {
-      ...proposalData,
-      id: proposal.api_id, // API numeric ID from the proposal
-    };
-
-    console.log('[PropostasParceiro] Navigating to edit mode:', {
-      apiId: proposal.api_id,
+    console.log('[PropostasParceiro] Edit clicked - fetching complete proposal from API', {
+      apiId,
       proposalId: proposal.proposta_id,
-      itemsCount: proposalData.items?.length || 0,
-      hasResult: Boolean(proposalData.result),
     });
 
-    // Navigate to calculator with edit mode - use centralized route config
-    navigate(ROUTES.parceiro.calculator, { state: { editProposal: editProposalWithId } });
+    // CRITICAL: Always fetch the complete proposal from API before navigating
+    // The list data may NOT contain complete dados_proposta, causing hydration failures
+    setEditingId(apiId);
+
+    try {
+      const fullProposal = await openApi.getProposal(apiId);
+
+      console.log('[PropostasParceiro] Fetched complete proposal from API:', {
+        apiId,
+        hasDadosProposta: Boolean((fullProposal as any)?.dados_proposta),
+        hasItems: Boolean((fullProposal as any)?.items),
+        itemsCount: (fullProposal as any)?.items?.length || 0,
+      });
+
+      // Convert API response to local format for calculator hydration
+      const localProposal = apiToLocal(fullProposal as any);
+
+      console.log('[PropostasParceiro] Converted to local format:', {
+        hasClient: Boolean(localProposal.client),
+        itemsCount: localProposal.items?.length || 0,
+        storageItemsCount: localProposal.storageItems?.length || 0,
+        kubernetesEnabled: localProposal.kubernetes?.enabled,
+        openSaasEnabled: localProposal.openSaas?.enabled,
+      });
+
+      navigate(ROUTES.parceiro.calculator, { state: { editProposal: localProposal } });
+    } catch (error: any) {
+      console.error('[PropostasParceiro] Error fetching complete proposal:', error);
+      toast({
+        title: 'Erro ao carregar proposta',
+        description: error.message || 'Falha ao buscar dados completos da proposta',
+        variant: 'destructive',
+      });
+    } finally {
+      setEditingId(null);
+    }
   };
 
   const handleDuplicate = async (proposalId: string) => {
@@ -315,9 +341,9 @@ export default function PropostasParceiro() {
                             onClick={() => handleEdit(p)}
                             className={canEdit ? 'text-primary hover:text-primary hover:bg-primary/10' : 'text-muted-foreground opacity-50 cursor-not-allowed'}
                             title={canEdit ? 'Editar proposta' : 'Apenas rascunhos podem ser editados'}
-                            disabled={!canEdit}
+                            disabled={!canEdit || editingId === p.api_id}
                           >
-                            <Pencil className="w-4 h-4" />
+                            {editingId === p.api_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
                           </Button>
                           <Button
                             variant="ghost"
