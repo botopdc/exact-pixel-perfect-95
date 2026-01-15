@@ -715,6 +715,55 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     }
   }
   
+  // ============================================
+  // WORKAROUND: API OPDC requires servers array to have at least 1 item
+  // When there are no VMs/BMs but there are independent products (Storage, Kubernetes, OPEN SaaS),
+  // we add them to the servers array as virtual items to satisfy the API validation.
+  // The full state is preserved in dados_proposta for accurate restoration.
+  // ============================================
+  if (serversArray.length === 0) {
+    // Add Storage items as virtual servers
+    if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
+      for (const storage of proposal.storageItems) {
+        if (storage.volumeTB >= 1) {
+          serversArray.push({
+            name: `Storage ${storage.type || storage.storageType || 'SAN'} ${storage.volumeTB}TB`,
+            vcpu: 0,
+            ram: 0,
+            storage: Math.round(storage.volumeTB * 1024), // Convert TB to GB
+            price: storage.price || 0,
+            quantity: 1,
+          });
+        }
+      }
+    }
+    
+    // Add Kubernetes as virtual server
+    if (proposal.kubernetes && proposal.kubernetes.enabled) {
+      const k8s = proposal.kubernetes;
+      serversArray.push({
+        name: `Kubernetes ${k8s.plan || 'Standard'}`,
+        vcpu: k8s.extras?.vcpu || 0,
+        ram: k8s.extras?.ramGB || 0,
+        storage: k8s.extras?.diskGB || 0,
+        price: k8s.price || 0,
+        quantity: 1,
+      });
+    }
+    
+    // Add OPEN SaaS as virtual server
+    if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users >= 5) {
+      serversArray.push({
+        name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
+        vcpu: 0,
+        ram: 0,
+        storage: 0,
+        price: proposal.openSaas.price || 0,
+        quantity: proposal.openSaas.users,
+      });
+    }
+  }
+  
   // Build complete dados_proposta object with ALL calculator state
   // This ensures we can restore the exact proposal when editing
   // CRITICAL: dados_proposta is the SOURCE OF TRUTH - do not save just the total!
@@ -1025,9 +1074,14 @@ export function useSaveProposal() {
         },
       });
       
-      // VALIDATION: Ensure dados_proposta has items before saving
-      if (!dadosProposta?.items?.length) {
-        console.error('[SaveProposal] ERROR: No items in dados_proposta! This will cause issues on edit.');
+      // VALIDATION: Check if there's at least one item (servers, storage, kubernetes, or openSaas)
+      const hasItems = dadosProposta?.items?.length > 0;
+      const hasStorage = dadosProposta?.storageItems?.some((s: any) => s.volumeTB >= 1);
+      const hasKubernetes = dadosProposta?.kubernetes?.enabled;
+      const hasOpenSaas = dadosProposta?.openSaas?.enabled && dadosProposta?.openSaas?.users >= 5;
+      
+      if (!hasItems && !hasStorage && !hasKubernetes && !hasOpenSaas) {
+        console.warn('[SaveProposal] Warning: No items in dados_proposta. Proposal may have issues on edit.');
       }
 
       const resp = await fetch(url, {
