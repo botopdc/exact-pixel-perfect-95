@@ -58,6 +58,7 @@ import GestaoExecutivos from '@/pages/comercial/GestaoExecutivos';
 import PropostasExecutivos from '@/pages/comercial/PropostasExecutivos';
 import ComissoesExecutivos from '@/pages/comercial/ComissoesExecutivos';
 import MeuPotencial from '@/pages/comercial/MeuPotencial';
+import MeuPotencialGerente from '@/pages/comercial/MeuPotencialGerente';
 import MetasComerciais from '@/pages/comercial/MetasComerciais';
 import GestaoUsuarios from '@/pages/GestaoUsuarios';
 
@@ -103,6 +104,7 @@ const App = () => (
             <Route path="/executivo/calculadora" element={<Calculadora />} />
             <Route path="/executivo/propostas" element={<PropostasExecutivos />} />
             <Route path="/executivo/potencial" element={<MeuPotencial />} />
+            <Route path="/executivo/potencial-gerente" element={<MeuPotencialGerente />} />
           </Route>
           
           {/* Admin/internal protected dashboard routes (non-executive levels) */}

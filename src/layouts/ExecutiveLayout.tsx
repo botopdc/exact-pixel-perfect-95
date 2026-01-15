@@ -57,17 +57,20 @@ function ExecutiveSidebar() {
     return 'Executivo';
   };
 
-  // Only level 700 sees "Meu Potencial"
+  // Menu items based on user level
   const baseMenuItems = [
     { title: 'Dashboard', url: '/executivo/dashboard', icon: LayoutDashboard },
     { title: 'Calculadora de Preços', url: '/executivo/calculadora', icon: Calculator },
     { title: 'Propostas Salvas', url: '/executivo/propostas', icon: FileStack },
   ];
   
-  // Add "Meu Potencial" only for level 700 (Executivo)
+  // Level 700 (Executivo) sees "Meu Potencial" (individual)
+  // Level 750 (Gerente) sees "Meu Potencial" (team aggregated - 1% TCV)
   const menuItems = user?.level === 700 
     ? [...baseMenuItems, { title: 'Meu Potencial', url: '/executivo/potencial', icon: TrendingUp }]
-    : baseMenuItems;
+    : user?.level === 750
+      ? [...baseMenuItems, { title: 'Meu Potencial', url: '/executivo/potencial-gerente', icon: TrendingUp }]
+      : baseMenuItems;
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -168,6 +171,7 @@ function ExecutiveHeader() {
     if (path === '/executivo/calculadora') return 'Calculadora de Preços';
     if (path === '/executivo/propostas') return 'Propostas Salvas';
     if (path === '/executivo/potencial') return 'Meu Potencial';
+    if (path === '/executivo/potencial-gerente') return 'Meu Potencial (Gerente)';
     return 'Portal do Executivo';
   };
 
