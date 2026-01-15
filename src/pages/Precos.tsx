@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Loader2, Shield, ShieldOff, History, Lock, AlertTriangle, X, Check, Plus, Trash2, Save } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Loader2, Shield, ShieldOff, History, Lock, AlertTriangle, X, Check, Plus, Trash2, Save, Cloud, CloudOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useConfigWithFallback } from '@/hooks/useConfig';
+import { useConfigPersistence } from '@/hooks/useConfigPersistence';
 import { formatCurrency, CalculatorConfig, CpuModel, RamTier, DiskOption, StorageType, STORAGE_TYPE_LABELS, StorageRegionPricing, K8S_PLANS, K8sPlan, KubernetesPricingConfig, K8S_ADDONS_PRICES, K8S_ADDONS_LABELS, K8sAddonsPricingConfig, getK8sAddonPrice } from '@/lib/calculatorConfig';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -29,10 +29,9 @@ interface PriceChangeLog {
   adminSession: boolean;
 }
 
-// ============ LOCAL STORAGE KEYS ============
+// ============ LOCAL STORAGE KEYS (only for admin state and logs) ============
 const ADMIN_STORAGE_KEY = 'open_precos_isAdmin';
 const LOG_STORAGE_KEY = 'open_precos_changeLog';
-const LOCAL_CONFIG_KEY = 'open_precos_localConfig';
 
 // ============ HELPERS ============
 const loadAdminState = (): boolean => {
@@ -65,23 +64,6 @@ const saveChangeLog = (log: PriceChangeLog[]): void => {
     localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(log));
   } catch {
     console.error('Failed to save change log');
-  }
-};
-
-const loadLocalConfig = (): Partial<CalculatorConfig> | null => {
-  try {
-    const stored = localStorage.getItem(LOCAL_CONFIG_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
-};
-
-const saveLocalConfig = (config: CalculatorConfig): void => {
-  try {
-    localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(config));
-  } catch {
-    console.error('Failed to save local config');
   }
 };
 
@@ -121,11 +103,17 @@ const getActionColor = (action: string): string => {
 const generateId = () => Math.random().toString(36).substring(2, 10);
 
 const Precos = () => {
-  const { config: apiConfig, isLoading, refetch } = useConfigWithFallback();
-  
-  // Local editable config state
-  const [localConfig, setLocalConfig] = useState<CalculatorConfig | null>(null);
-  const [hasLocalChanges, setHasLocalChanges] = useState(false);
+  // Use the new persistence hook that saves to API
+  const { 
+    config, 
+    isLoading, 
+    isSaving, 
+    isDirty: hasLocalChanges, 
+    updateConfig: updateConfigFromHook, 
+    saveToApi, 
+    resetToApi, 
+    refreshFromApi 
+  } = useConfigPersistence();
   
   // Admin state
   const [isAdmin, setIsAdmin] = useState<boolean>(() => loadAdminState());
@@ -152,23 +140,6 @@ const Precos = () => {
   const [newGpu, setNewGpu] = useState({ name: '', price: 0 });
   const [newSql, setNewSql] = useState({ name: '', price: 0 });
   const [newAddon, setNewAddon] = useState({ key: '', label: '', price: 0 });
-
-  // Initialize local config from API or localStorage
-  useEffect(() => {
-    if (apiConfig) {
-      const savedLocal = loadLocalConfig();
-      if (savedLocal) {
-        // Merge saved local changes with API config
-        setLocalConfig({ ...apiConfig, ...savedLocal } as CalculatorConfig);
-        setHasLocalChanges(true);
-      } else {
-        setLocalConfig(apiConfig);
-      }
-    }
-  }, [apiConfig]);
-
-  // The config to display/edit
-  const config = localConfig || apiConfig;
 
   // Persist admin state changes
   useEffect(() => {
@@ -211,7 +182,7 @@ const Precos = () => {
     return true;
   }, [isAdmin]);
 
-  // Update local config and persist
+  // Update config with admin check
   const updateConfig = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
     if (!isAdmin || !config) {
       toast({
@@ -222,13 +193,8 @@ const Precos = () => {
       return;
     }
     
-    setLocalConfig(prev => {
-      const newConfig = updater(prev || config);
-      saveLocalConfig(newConfig);
-      setHasLocalChanges(true);
-      return newConfig;
-    });
-  }, [isAdmin, config]);
+    updateConfigFromHook(updater);
+  }, [isAdmin, config, updateConfigFromHook]);
 
   // Handle PIN submission
   const handlePinSubmit = () => {
@@ -264,16 +230,10 @@ const Precos = () => {
   };
 
   // Reset to API config
-  const handleResetToApi = () => {
+  const handleResetToApi = async () => {
     if (!isAdmin) return;
-    localStorage.removeItem(LOCAL_CONFIG_KEY);
-    setLocalConfig(apiConfig);
-    setHasLocalChanges(false);
+    await resetToApi();
     addLogEntry('UPDATE_ITEM', 'geral', 'Reset para API', 'configuração local', 'configuração API');
-    toast({
-      title: 'Configuração resetada',
-      description: 'Configuração local removida. Usando valores da API.',
-    });
   };
 
   // ============ BAREMETAL CPU ============
@@ -608,17 +568,10 @@ const Precos = () => {
     toast({ title: 'Add-on removido', description: addonLabel });
   };
 
-  // ============ SAVE CONFIG ============
-  const handleSaveConfig = () => {
-    if (!isAdmin || !localConfig) return;
-    
-    // Save locally only
-    saveLocalConfig(localConfig);
-    
-    toast({ 
-      title: 'Configuração salva', 
-      description: 'As alterações foram salvas localmente com sucesso.' 
-    });
+  // ============ SAVE CONFIG TO API ============
+  const handleSaveConfig = async () => {
+    if (!isAdmin) return;
+    await saveToApi();
   };
 
   // ============ VM PRICES ============
@@ -777,7 +730,7 @@ const Precos = () => {
             )}
             
             {/* Refresh Button */}
-            <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+            <Button variant="outline" onClick={() => refreshFromApi()} disabled={isLoading || isSaving}>
               {isLoading ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
@@ -801,10 +754,15 @@ const Precos = () => {
         {/* Info Banner */}
         <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-border">
           <p className="text-sm text-muted-foreground">
-            Os preços são carregados da API externa. Alterações feitas aqui são salvas localmente.
+            Os preços são carregados da API. Clique em "Salvar Preços" para persistir as alterações no banco de dados.
             {isAdmin && (
               <span className="text-green-500 ml-2">
                 • Modo Admin: edição habilitada.
+              </span>
+            )}
+            {isSaving && (
+              <span className="text-blue-500 ml-2">
+                • Salvando na API...
               </span>
             )}
           </p>
