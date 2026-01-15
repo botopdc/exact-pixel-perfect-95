@@ -110,7 +110,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     ],
   },
 
-  // ========== COMERCIAL (GESTÃO - ADMIN ONLY) ==========
+  // ========== COMERCIAL (GESTÃO - ADMIN E GERENTE COMERCIAL) ==========
   {
     id: 'comercial',
     title: 'COMERCIAL',
@@ -120,21 +120,21 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Executivos',
         url: '/comercial/executivos',
         icon: UserCheck,
-        allowedLevels: [1000], // Apenas Admin vê lista de executivos
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-executivos',
         title: 'Gestão de Executivos',
         url: '/comercial/gestao-executivos',
         icon: Settings,
-        allowedLevels: [1000], // Apenas Admin gerencia executivos
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'propostas-executivos',
         title: 'Propostas Executivos',
         url: '/comercial/propostas',
         icon: FileStack,
-        allowedLevels: [1000], // Admin vê todas as propostas de executivos aqui
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'metas-comerciais',
@@ -148,12 +148,12 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Gestão de Comissões',
         url: '/comercial/comissoes',
         icon: DollarSign,
-        allowedLevels: [1000], // Apenas Admin
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
     ],
   },
 
-  // ========== PARCEIROS (GESTÃO - ADMIN ONLY) ==========
+  // ========== PARCEIROS (GESTÃO - ADMIN E GERENTE COMERCIAL) ==========
   {
     id: 'parceiros',
     title: 'PARCEIROS',
@@ -163,28 +163,28 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Executivo Parceiros',
         url: '/parceiros/executivo',
         icon: PieChart,
-        allowedLevels: [1000], // Apenas Admin
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-parceiros',
         title: 'Gestão de Parceiros',
         url: '/parceiros/gestao',
         icon: Handshake,
-        allowedLevels: [1000], // Apenas Admin
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'propostas-parceiros',
         title: 'Propostas Parceiros',
         url: '/parceiros/propostas',
         icon: FileStack,
-        allowedLevels: [1000], // Admin vê todas as propostas de parceiros
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-comissoes-parceiros',
         title: 'Gestão de Comissões',
         url: '/parceiros/comissoes',
         icon: DollarSign,
-        allowedLevels: [1000], // Apenas Admin
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
     ],
   },
@@ -414,9 +414,14 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
   if (pathname.match(/^\/rh\/vagas\/[^/]+\/editar$/)) {
     return isRouteAllowed('/rh/vagas', userLevel);
   }
-  // Rotas de comercial herdam permissão (apenas Admin)
+  // Rotas de comercial herdam permissão (Admin e Gerente Comercial)
   if (pathname.match(/^\/comercial\//)) {
-    return userLevel >= USER_LEVELS.ADMIN;
+    return userLevel === USER_LEVELS.GERENTE_COMERCIAL || userLevel >= USER_LEVELS.ADMIN;
+  }
+  
+  // Rotas de parceiros (gestão) para Admin e Gerente Comercial
+  if (pathname.match(/^\/parceiros\/(executivo|gestao|propostas|comissoes)/)) {
+    return userLevel === USER_LEVELS.GERENTE_COMERCIAL || userLevel >= USER_LEVELS.ADMIN;
   }
   
   // Rotas do portal executivo (700/750) 
