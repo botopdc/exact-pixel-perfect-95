@@ -17,11 +17,11 @@ export default function LoginPage() {
 
   // Get correct redirect path based on user level
   const getRedirectPath = (level: number) => {
-    // Executivos (700/750) go to executive portal
-    if (level === 700 || level === 750) {
+    // Only Executivo (700) goes to executive portal with simplified menu
+    if (level === 700) {
       return '/executivo/dashboard';
     }
-    // Admin and others go to main dashboard
+    // Gerente Comercial (750), Admin (1000), and all others go to main dashboard with full menu
     return '/dashboard';
   };
 

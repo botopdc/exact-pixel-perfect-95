@@ -52,25 +52,13 @@ function ExecutiveSidebar() {
     navigate('/login');
   };
 
-  const getLevelLabel = () => {
-    if (user?.level === 750) return 'Gerente Comercial';
-    return 'Executivo';
-  };
-
-  // Menu items based on user level
-  const baseMenuItems = [
+  // Menu items for level 700 (Executivo) only - this layout is simplified
+  const menuItems = [
     { title: 'Dashboard', url: '/executivo/dashboard', icon: LayoutDashboard },
     { title: 'Calculadora de Preços', url: '/executivo/calculadora', icon: Calculator },
     { title: 'Propostas Salvas', url: '/executivo/propostas', icon: FileStack },
+    { title: 'Meu Potencial', url: '/executivo/potencial', icon: TrendingUp },
   ];
-  
-  // Level 700 (Executivo) sees "Meu Potencial" (individual)
-  // Level 750 (Gerente) sees "Meu Potencial" (team aggregated - 1% TCV)
-  const menuItems = user?.level === 700 
-    ? [...baseMenuItems, { title: 'Meu Potencial', url: '/executivo/potencial', icon: TrendingUp }]
-    : user?.level === 750
-      ? [...baseMenuItems, { title: 'Meu Potencial', url: '/executivo/potencial-gerente', icon: TrendingUp }]
-      : baseMenuItems;
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -92,7 +80,7 @@ function ExecutiveSidebar() {
           <div className="mx-2 mb-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
             <div className="flex items-center gap-2 mb-2">
               <Badge variant="outline" className="text-xs">
-                {getLevelLabel()}
+                Executivo
               </Badge>
             </div>
             <p className="text-sm font-medium text-foreground truncate">{user.name || user.email}</p>
@@ -206,13 +194,15 @@ export default function ExecutiveLayout() {
         return;
       }
       
-      // Must be executive (700 or 750)
-      if (user.level !== 700 && user.level !== 750) {
-        // Admin goes to DashboardLayout, others to login
-        if (user.level === 1000) {
-          // Admin should not use this layout
+      // This layout is ONLY for level 700 (Executivo)
+      // Level 750 (Gerente Comercial) and 1000 (Admin) use DashboardLayout with full menu
+      if (user.level !== 700) {
+        // Redirect managers and admins to full dashboard
+        if (user.level === 750 || user.level === 1000) {
+          navigate('/dashboard', { replace: true });
           return;
         }
+        // Others are not allowed
         toast.error('Acesso restrito a Executivos');
         authService.logout();
         navigate('/login', { replace: true });
