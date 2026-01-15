@@ -73,6 +73,7 @@ import {
   canEditPriceMarkup,
   PricingRules 
 } from '@/config/pricingRules';
+import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/proposalNormalizer';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -816,162 +817,57 @@ const OpenCalculator: React.FC = () => {
     const editProposal = location.state?.editProposal;
     
     if (editProposal && !initialized) {
-      // Helper to safely convert any value to a number
-      const toNum = (val: any, fallback = 0): number => {
-        if (val === undefined || val === null || val === '') return fallback;
-        const parsed = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : Number(val);
-        return Number.isFinite(parsed) ? parsed : fallback;
-      };
-
-      // VALIDATION: Log what we're about to hydrate
-      console.log('[OpenCalculator] HYDRATION START:', {
-        proposalId: editProposal.proposal?.id || editProposal.id,
-        hasClient: Boolean(editProposal.client),
-        hasItems: Boolean(editProposal.items?.length),
-        itemsCount: editProposal.items?.length || 0,
-        itemsTypes: (editProposal.items || []).map((i: any) => i.type),
-        hasAddons: Boolean(editProposal.addons),
-        hasKubernetes: Boolean(editProposal.kubernetes?.enabled),
-        hasStorageItems: Boolean(editProposal.storageItems?.length),
-        hasOpenSaas: Boolean(editProposal.openSaas?.enabled),
-        hasResult: Boolean(editProposal.result),
-        savedTotal: editProposal.result?.grandTotal,
-        ownerUserId: editProposal.created_by_user_id,
-      });
-
-      // CRITICAL: Verify we have items before proceeding
-      if (!editProposal.items || editProposal.items.length === 0) {
-        console.error('[OpenCalculator] HYDRATION ERROR: No items found in editProposal! This may cause incorrect totals.');
-      }
-
-      // Load proposal data for editing with normalization
-      // CRITICAL: Validate selectedTerm is a valid plan (1, 12, 24, 36, 48)
-      const validTerms = ['1', '12', '24', '36', '48'];
-      const loadedTerm = editProposal.selectedTerm;
-      const termToUse = validTerms.includes(loadedTerm) ? loadedTerm : '1';
+      // Use centralized normalizer for hydration
+      console.log('[OpenCalculator] HYDRATION START using normalizeProposalForEdit');
       
-      console.log('[proposal-load] contract_months=', loadedTerm, 'termToUse=', termToUse);
+      const normalized = normalizeProposalForEdit(editProposal);
       
-      setFx(toNum(editProposal.fx, config.fx_default));
-      setSelectedTerm(termToUse);
-      setDatacenter(editProposal.datacenter || 'SP1');
-      setClient({
-        name: editProposal.client?.name || '',
-        company: editProposal.client?.company || '',
-        phone: editProposal.client?.phone || '',
-        email: editProposal.client?.email || '',
-      });
-      setProposal(editProposal.proposal || { id: generateProposalId(), validityDays: 7, createdAt: new Date().toISOString() });
-      
-      // Normalize items to ensure all required fields exist (especially disks for BM)
-      // CRITICAL: This is the source of truth - do NOT use defaults if we have saved items
-      const normalizedItems = normalizeItems(editProposal.items || []);
-      setItems(normalizedItems);
-      
-      // Normalize addons with proper number conversion
-      // CRITICAL: Use ALL saved addon values, don't reset to defaults
-      const rawAddons = editProposal.addons || {};
-      setAddons({
-        backupPlan: rawAddons.backupPlan || 'none',
-        backupGb: toNum(rawAddons.backupGb, 0),
-        antivirus: toNum(rawAddons.antivirus, 0),
-        firewall: Boolean(rawAddons.firewall),
-        tsplus: toNum(rawAddons.tsplus, 0),
-        cal: toNum(rawAddons.cal, 0),
-        sql: rawAddons.sql || 'none',
-        sqlQty: toNum(rawAddons.sqlQty, 0),
-        veeamVm: toNum(rawAddons.veeamVm, 0),
-        veeamAg: toNum(rawAddons.veeamAg, 0),
-        customAddons: rawAddons.customAddons || {},
+      console.log('[OpenCalculator] Normalized result:', {
+        vmCount: normalized.vmItems.length,
+        bmCount: normalized.baremetalItems.length,
+        storageCount: normalized.storageItems.length,
+        kubernetesEnabled: normalized.kubernetes.enabled,
+        openSaasEnabled: normalized.openSaas.enabled,
+        selectedTerm: normalized.selectedTerm,
+        grandTotal: normalized.totals.grandTotal,
       });
       
-      // NOTE: No need to set antivirusManuallySet - antivirus is now 100% user-controlled
+      // Apply normalized state to calculator
+      setFx(normalized.fx);
+      setSelectedTerm(normalized.selectedTerm);
+      setDatacenter(normalized.datacenter);
+      setClient(normalized.client);
+      setProposal(normalized.proposal);
       
-      // Normalize kubernetes
-      const rawK8s = editProposal.kubernetes || {};
-      const rawExtras = rawK8s.extras || {};
-      const rawK8sAddons = rawK8s.addons || {};
-      setKubernetes({
-        enabled: Boolean(rawK8s.enabled),
-        plan: rawK8s.plan || 'k8s_small',
-        addons: {
-          support_24x7: Boolean(rawK8sAddons.support_24x7),
-          backup_velero: Boolean(rawK8sAddons.backup_velero),
-          dr_multisite: Boolean(rawK8sAddons.dr_multisite),
-          observability: Boolean(rawK8sAddons.observability),
-          cicd_managed: Boolean(rawK8sAddons.cicd_managed),
-          devops_hours: toNum(rawK8sAddons.devops_hours, 0),
-        },
-        extras: {
-          vcpu: toNum(rawExtras.vcpu, 0),
-          ramGB: toNum(rawExtras.ramGB, 0),
-          diskGB: toNum(rawExtras.diskGB, 0),
-        },
-      });
+      // Merge VM and BM items into single items array
+      // CRITICAL: Do NOT create default BareMetal when there are no servers
+      const allItems = normalizedToCalculatorItems(normalized);
+      setItems(allItems);
       
-      // Normalize storage items
-      const rawStorageItems = editProposal.storageItems || [];
-      setStorageItems(rawStorageItems.map((s: any) => ({
-        ...s,
-        id: s.id || crypto.randomUUID(),
-        volumeTB: toNum(s.volumeTB, 1),
-        volumeGB: toNum(s.volumeGB, 0),
-      })));
-      
-      // Normalize reseller
-      const rawReseller = editProposal.reseller || {};
-      setReseller({
-        ...DEFAULT_RESELLER_STATE,
-        ...rawReseller,
-        overValue: toNum(rawReseller.overValue, 0),
-      });
-      
-      // Normalize OpenSaaS
-      const rawOpenSaas = editProposal.openSaas || {};
-      setOpenSaas({
-        enabled: Boolean(rawOpenSaas.enabled),
-        users: toNum(rawOpenSaas.users, 0),
-      });
-      
-      // Restore price overrides (markup)
-      const rawOverrides = editProposal.priceOverrides || {};
-      setPriceOverrides(rawOverrides);
-      
-      setObservacao(editProposal.observacao || '');
+      setAddons(normalized.addons);
+      setKubernetes(normalized.kubernetes);
+      setStorageItems(normalized.storageItems);
+      setReseller(normalized.reseller);
+      setOpenSaas(normalized.openSaas);
+      setPriceOverrides(normalized.priceOverrides);
+      setObservacao(normalized.observacao);
       
       // Expand all loaded items
-      const allItemIds = normalizedItems.map((item: any) => item.id);
+      const allItemIds = allItems.map((item: any) => item.id);
       setExpandedItems(new Set(allItemIds));
       
       // Mark as edit mode with API numeric ID (critical for updates)
       setIsEditMode(true);
-      // editProposal.id is the API numeric ID, proposal.id is the display ID (PROP-123)
-      const apiNumericId = editProposal.id;
-      setEditingProposalId(apiNumericId ? String(apiNumericId) : null);
+      setEditingProposalId(normalized.apiId ? String(normalized.apiId) : null);
       
       console.log('[OpenCalculator] EDIT MODE activated:', {
-        apiNumericId,
-        displayId: editProposal.proposal?.id,
+        apiNumericId: normalized.apiId,
+        displayId: normalized.displayId,
         isEditMode: true,
-        hydratedItemsCount: normalizedItems.length,
-      });
-      
-      // Hydration validation: compare saved total with loaded result
-      const savedTotal = toNum(editProposal.result?.grandTotal, 0);
-      const savedItemsCount = normalizedItems.length;
-      const savedAddonsActive = Object.keys(rawAddons).filter(k => {
-        const v = rawAddons[k];
-        return v && (typeof v === 'number' ? v > 0 : typeof v === 'boolean' ? v : typeof v === 'string' ? v !== 'none' : typeof v === 'object');
-      }).length;
-      
-      console.log('[OpenCalculator] HYDRATION COMPLETE:', {
-        proposalId: editProposal.proposal?.id,
-        savedTotal,
-        hydratedItemsCount: savedItemsCount,
-        activeAddonsCount: savedAddonsActive,
-        hasKubernetes: Boolean(rawK8s.enabled),
-        hasStorage: rawStorageItems.length,
-        hasOpenSaas: Boolean(rawOpenSaas.enabled),
+        hydratedItemsCount: allItems.length,
+        storageCount: normalized.storageItems.length,
+        kubernetesEnabled: normalized.kubernetes.enabled,
+        openSaasEnabled: normalized.openSaas.enabled,
       });
       
       setInitialized(true);
@@ -979,12 +875,14 @@ const OpenCalculator: React.FC = () => {
       // Clear the navigation state to prevent re-loading on refresh
       window.history.replaceState({}, document.title);
       
-      toast({ title: 'Proposta carregada', description: `Editando proposta ${editProposal.proposal?.id || ''}` });
+      toast({ title: 'Proposta carregada', description: `Editando proposta ${normalized.displayId}` });
     } else if (!initialized && items.length === 0) {
+      // CRITICAL: Only add default VM for NEW proposals, not edits
+      // Do NOT create default BareMetal when editing proposals without servers
       addVM();
       setInitialized(true);
     }
-  }, [configLoading, initialized, items.length, addVM, location.state, config.fx_default, toast, normalizeItems]);
+  }, [configLoading, initialized, items.length, addVM, location.state, config.fx_default, toast]);
 
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
