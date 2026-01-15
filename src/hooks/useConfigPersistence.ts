@@ -9,7 +9,6 @@ import { CalculatorConfig, DEFAULT_CONFIG } from '@/lib/calculatorConfig';
 import { useConfigWithFallback, CONFIG_QUERY_KEY } from '@/hooks/useConfig';
 import {
   getCalculatorConfigs,
-  createCalculatorConfig,
   updateCalculatorConfig,
   CalculatorConfigEntry,
   ConfigItem,
@@ -30,12 +29,19 @@ interface ConfigPersistenceState {
 }
 
 // ============================================================================
-// STORAGE ADVANCED MAPPING (category: Storage, section: Storage Avançado)
+// STORAGE MAPPINGS (aligned with CSV IDs 8 and 9)
+// Storage SAS (ID 8) uses a special nested object format for Brasil/Estados Unidos
+// SSD NVMe (ID 9) uses standard array format
 // ============================================================================
 
-const STORAGE_ADVANCED_MAPPING = {
+const STORAGE_SAS_MAPPING = {
   category: 'Storage',
-  section: 'Storage Avançado',
+  section: 'Storage SAS',
+};
+
+const STORAGE_NVME_MAPPING = {
+  category: 'Storage',
+  section: 'SSD NVMe',
 };
 
 // ============================================================================
@@ -59,23 +65,22 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     existingId?: number;
   }> = [];
 
-  // 1. Geral - Configurações Gerais (FX)
+  // 1. Geral - Taxa de Câmbio (ID 12)
   const fxValue = Number(config.fx_default) || 0;
   payloads.push({
-    category: CONFIG_MAPPINGS.GERAL_CONFIG.category,
-    section: CONFIG_MAPPINGS.GERAL_CONFIG.section,
+    category: CONFIG_MAPPINGS.GERAL_FX.category,
+    section: CONFIG_MAPPINGS.GERAL_FX.section,
     config: [
-      { label: 'FX Padrão', by: 'unit', type: 'USD', value: fxValue },
+      { label: 'Cotação Padrão', type: 'BRL', value: fxValue },
     ],
   });
 
-  // 2. Geral - Descontos por Prazo
+  // 2. Geral - Descontos por Vigência (ID 13)
   const discountItems: ConfigItem[] = Object.entries(config.discount || {}).map(([months, rate]) => {
     const discountValue = Number((rate as number) * 100) || 0;
     return {
       label: months === '1' ? '1 mês' : `${months} meses`,
-      by: 'percentage',
-      type: 'PERCENTAGE',
+      type: 'percentage',
       value: discountValue,
     };
   });
@@ -87,26 +92,24 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 3. VM Prices
+  // 3. VM Prices (ID 1) - Labels must match CSV exactly
   payloads.push({
     category: CONFIG_MAPPINGS.VM_PRICES.category,
     section: CONFIG_MAPPINGS.VM_PRICES.section,
     config: [
       { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0 },
-      { label: 'RAM por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0 },
-      { label: 'NVMe por GB', by: 'gb', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0 },
+      { label: 'RAM', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0 },
+      { label: 'NVMe', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0 },
       { label: 'IP Público', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.ip_public) || 0 },
     ],
   });
 
-  // 4. GPU Prices
+  // 4. GPU Prices (ID 5) - type is USD as per CSV
   const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {}).map(([name, price]) => {
-    const gpuValue = Number(price) || 0;
     return {
       label: name,
-      by: 'unit',
       type: 'USD',
-      value: gpuValue,
+      value: Number(price) || 0,
     };
   });
   if (gpuItems.length > 0) {
@@ -117,11 +120,10 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 5. BareMetal - CPU Models
+  // 5. BareMetal - CPU Models (ID 2) - no 'by' field in CSV
   const cpuItems: ConfigItem[] = config.baremetal.cpu_models.map((cpu) => {
     return {
       label: cpu.label,
-      by: 'unit',
       type: 'BRL',
       value: Number(cpu.price) || 0,
     };
@@ -134,14 +136,12 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 6. BareMetal - RAM Tiers
+  // 6. BareMetal - RAM Options (ID 3) - no 'by' field in CSV
   const ramItems: ConfigItem[] = config.baremetal.ram_tiers.map((ram) => {
     return {
       label: ram.label,
-      by: 'gb',
       type: 'BRL',
       value: Number(ram.price) || 0,
-      gb: ram.gb,
     };
   });
   if (ramItems.length > 0) {
@@ -152,14 +152,13 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 7. BareMetal - Disks
+  // 7. BareMetal - Disk Options (ID 4) - has 'by: unit' in CSV
   const diskItems: ConfigItem[] = config.baremetal.disks.map((disk) => {
     return {
       label: disk.label,
-      by: 'tb',
+      by: 'unit',
       type: 'BRL',
       value: Number(disk.price) || 0,
-      tb: disk.tb,
     };
   });
   if (diskItems.length > 0) {
@@ -170,15 +169,15 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 8. Add-ons (using visual labels for API, but reading from technical keys)
+  // 8. Add-ons (ID 6) - Labels must match CSV exactly: "Antivirus", "Firewall pfSense", etc.
   const addonItems: ConfigItem[] = [];
   const addons = config.addons_brl;
   
   if (typeof addons.antivirus_unit === 'number') {
-    addonItems.push({ label: 'Antivírus', by: 'unit', type: 'BRL', value: Number(addons.antivirus_unit) || 0 });
+    addonItems.push({ label: 'Antivirus', by: 'unit', type: 'BRL', value: Number(addons.antivirus_unit) || 0 });
   }
   if (typeof addons.firewall_pfsense === 'number') {
-    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 });
+    addonItems.push({ label: 'Firewall pfSense', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 });
   }
   if (typeof addons.tsplus_unit === 'number') {
     addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', value: Number(addons.tsplus_unit) || 0 });
@@ -201,12 +200,19 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 9. SQL Server prices
+  // 9. SQL Server prices (ID 7) - Labels: "Nenhum", "WEB", "WE", "STD"
   if (addons.sql && typeof addons.sql === 'object') {
     const sqlItems: ConfigItem[] = Object.entries(addons.sql).map(([edition, price]) => {
+      // Map edition keys to exact CSV labels
+      let label = edition;
+      if (edition === 'none') label = 'Nenhum';
+      else if (edition === 'web') label = 'WEB';
+      else if (edition === 'we') label = 'WE';
+      else if (edition === 'std') label = 'STD';
+      else label = edition.toUpperCase();
+      
       return {
-        label: edition === 'none' ? 'Nenhum' : edition.charAt(0).toUpperCase() + edition.slice(1),
-        by: 'license',
+        label,
         type: 'BRL',
         value: Number(price) || 0,
       };
@@ -220,57 +226,66 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     }
   }
 
-  // 10. Storage Avançado (SAS BR, SAS USA, NVMe)
+  // 10. Storage SAS (ID 8) - Uses nested object format: {Brasil: [...], Estados Unidos: [...]}
+  // 11. Storage NVMe (ID 9) - Uses array format: [{label, by, type, value}]
   if (config.storage_pricing) {
-    const storageAdvancedItems: ConfigItem[] = [];
     const sp = config.storage_pricing;
     
-    // SAS BR (5 tiers)
-    if (sp.sas?.br) {
-      storageAdvancedItems.push(
-        { label: 'sas_br_pricePerTB_1_10', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_1_10) || 0 },
-        { label: 'sas_br_pricePerTB_11_100', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_11_100) || 0 },
-        { label: 'sas_br_pricePerTB_101_500', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_101_500) || 0 },
-        { label: 'sas_br_pricePerTB_501_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_501_1024) || 0 },
-        { label: 'sas_br_pricePerTB_gt_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_gt_1024) || 0 },
-      );
-    }
-    
-    // SAS USA (5 tiers)
-    if (sp.sas?.usa) {
-      storageAdvancedItems.push(
-        { label: 'sas_usa_pricePerTB_1_10', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_1_10) || 0 },
-        { label: 'sas_usa_pricePerTB_11_100', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_11_100) || 0 },
-        { label: 'sas_usa_pricePerTB_101_500', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_101_500) || 0 },
-        { label: 'sas_usa_pricePerTB_501_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_501_1024) || 0 },
-        { label: 'sas_usa_pricePerTB_gt_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_gt_1024) || 0 },
-      );
-    }
-    
-    // NVMe
-    if (sp.nvme) {
-      storageAdvancedItems.push(
-        { label: 'nvme_pricePerGB', by: 'gb', type: 'BRL', value: Number(sp.nvme.pricePerGB) || 0 },
-      );
-    }
-    
-    if (storageAdvancedItems.length > 0) {
+    // Storage SAS - Build the nested object format as per CSV
+    if (sp.sas?.br || sp.sas?.usa) {
+      const sasConfig: any = {};
+      
+      if (sp.sas?.br) {
+        sasConfig['Brasil'] = [
+          { label: '1-10 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_1_10) || 0 },
+          { label: '11-100 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_11_100) || 0 },
+          { label: '101-500 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_101_500) || 0 },
+          { label: '501-1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_501_1024) || 0 },
+          { label: '>1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_gt_1024) || 0 },
+        ];
+      }
+      
+      if (sp.sas?.usa) {
+        sasConfig['Estados Unidos'] = [
+          { label: '1-10 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_1_10) || 0 },
+          { label: '11-100 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_11_100) || 0 },
+          { label: '101-500 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_101_500) || 0 },
+          { label: '501-1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_501_1024) || 0 },
+          { label: '>1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_gt_1024) || 0 },
+        ];
+      }
+      
+      // Note: Storage SAS uses a special object format, not an array
+      // The API should accept this nested structure
       payloads.push({
-        category: STORAGE_ADVANCED_MAPPING.category,
-        section: STORAGE_ADVANCED_MAPPING.section,
-        config: storageAdvancedItems,
+        category: STORAGE_SAS_MAPPING.category,
+        section: STORAGE_SAS_MAPPING.section,
+        config: sasConfig as any, // Special nested format
+      });
+    }
+    
+    // Storage NVMe (ID 9) - Standard array format
+    if (sp.nvme) {
+      payloads.push({
+        category: STORAGE_NVME_MAPPING.category,
+        section: STORAGE_NVME_MAPPING.section,
+        config: [
+          { label: 'Preço por GB', by: 'GB', type: 'BRL', value: Number(sp.nvme.pricePerGB) || 0 },
+        ],
       });
     }
   }
 
-  // 11. Kubernetes plans (type: 'plan')
+  // 12. Kubernetes plans (ID 10) - Format: {label, description, type, by, value}
   if (config.kubernetes_pricing) {
     const k8sItems: ConfigItem[] = Object.entries(config.kubernetes_pricing).map(([plan, data]) => {
+      const planData = data as any;
       return {
         label: plan,
-        by: 'plan',
-        type: 'plan', // Differentiate from addons
-        value: Number((data as any)?.basePriceMonthly) || 0,
+        description: planData?.description || '',
+        type: 'BRL',
+        by: 'month',
+        value: Number(planData?.basePriceMonthly) || 0,
       };
     });
     if (k8sItems.length > 0) {
@@ -282,13 +297,18 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     }
   }
 
-  // 12. Kubernetes add-ons (type: 'addon')
+  // 13. Kubernetes add-ons (ID 11) - Format: {label, type, by, value}
   if (config.kubernetes_addons_pricing) {
     const k8sAddonItems: ConfigItem[] = Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => {
+      // Determine the 'by' field based on addon type
+      let by = 'month';
+      if (addon.toLowerCase().includes('horas') || addon.toLowerCase().includes('devops')) {
+        by = 'hour';
+      }
       return {
         label: addon,
-        by: 'unit',
-        type: 'addon', // Differentiate from plans
+        type: 'BRL',
+        by,
         value: Number(price) || 0,
       };
     });
@@ -379,24 +399,19 @@ export function useConfigPersistence() {
       
       console.log('[ConfigPersistence] Saving payloads:', payloads.map(p => `${p.category}/${p.section}`));
       
-      // Process each payload
+      // Process each payload - ONLY UPDATE existing entries (no POST/create)
       for (const payload of payloads) {
         const existingId = findEntryId(payload.category, payload.section);
         
         if (existingId) {
-          // Update existing entry
+          // Update existing entry via PUT
           await updateCalculatorConfig(existingId, {
             config: payload.config,
           });
           console.log(`[ConfigPersistence] Updated: ${payload.category}/${payload.section} (ID: ${existingId})`);
         } else {
-          // Create new entry
-          await createCalculatorConfig({
-            category: payload.category,
-            section: payload.section,
-            config: payload.config,
-          });
-          console.log(`[ConfigPersistence] Created: ${payload.category}/${payload.section}`);
+          // Config not found in database - skip with warning
+          console.warn(`[ConfigPersistence] Skipped: ${payload.category}/${payload.section} - not found in database (no POST available)`);
         }
       }
 

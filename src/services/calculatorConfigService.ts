@@ -32,17 +32,15 @@ apiClient.interceptors.request.use((config) => {
 // ============================================================================
 
 /**
- * Config item structure for POST/PUT
- * Based on CalculatorConfigStoreRequest schema
+ * Config item structure for PUT requests
+ * Based on CalculatorConfig schema from API docs
  */
 export interface ConfigItem {
   label: string;
-  by?: string;  // e.g., "unit", "gb", "tb"
-  type?: string; // e.g., "BRL", "USD", "PERCENTAGE"
+  by?: string;         // e.g., "unit", "GB", "TB", "month", "hour"
+  type?: string;       // e.g., "BRL", "USD", "percentage"
   value?: number;
-  price?: number; // Alternative to value (API may use either)
-  gb?: number;    // For RAM items
-  tb?: number;    // For disk items
+  description?: string; // Used in Kubernetes plans
 }
 
 /**
@@ -95,6 +93,7 @@ export interface CalculatorConfigUpdateRequest {
 
 /**
  * Fetch all calculator configurations from API
+ * GET /api/calculator/config
  */
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
   const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
@@ -105,6 +104,7 @@ export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
 
 /**
  * Fetch a single config by ID
+ * GET /api/calculator/config/{id}
  */
 export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigEntry> {
   const response = await apiClient.get<CalculatorConfigEntry>(`/calculator/config/${id}`);
@@ -112,17 +112,11 @@ export async function getCalculatorConfigById(id: number): Promise<CalculatorCon
 }
 
 /**
- * Create a new calculator configuration
- */
-export async function createCalculatorConfig(
-  payload: CalculatorConfigStoreRequest
-): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.post<CalculatorConfigEntry>('/calculator/config', payload);
-  return response.data;
-}
-
-/**
  * Update an existing calculator configuration
+ * PUT /api/calculator/config/{id}
+ * 
+ * NOTE: API only supports updating existing configs. 
+ * There is NO POST endpoint to create new configs.
  */
 export async function updateCalculatorConfig(
   id: number,
@@ -130,13 +124,6 @@ export async function updateCalculatorConfig(
 ): Promise<CalculatorConfigEntry> {
   const response = await apiClient.put<CalculatorConfigEntry>(`/calculator/config/${id}`, payload);
   return response.data;
-}
-
-/**
- * Delete a calculator configuration (if supported by API)
- */
-export async function deleteCalculatorConfig(id: number): Promise<void> {
-  await apiClient.delete(`/calculator/config/${id}`);
 }
 
 // ============================================================================
@@ -152,39 +139,58 @@ export function findConfigEntry(
 }
 
 // ============================================================================
-// CATEGORY / SECTION MAPPING
+// CATEGORY / SECTION MAPPING (aligned with actual database values from CSV)
 // ============================================================================
 
 /**
  * Standard category/section mappings used by the pricing configuration
+ * IMPORTANT: These MUST match exactly the values in the database (calculator_configs table)
+ * 
+ * Database IDs:
+ * 1  - VM / Preços de VM
+ * 2  - BareMetal / Modelos de CPU
+ * 3  - BareMetal / Opções de RAM
+ * 4  - BareMetal / Opções de Disco
+ * 5  - GPU / Preços de GPU
+ * 6  - Add-ons / Add-ons
+ * 7  - SQL Server / SQL Server
+ * 8  - Storage / Storage SAS
+ * 9  - Storage / SSD NVMe
+ * 10 - Kubernetes / Preços Base dos Planos
+ * 11 - Kubernetes / Add-ons Kubernetes
+ * 12 - Geral / Taxa de Câmbio
+ * 13 - Geral / Descontos por Vigência
+ * 14 - Geral / OPEN SaaS
  */
 export const CONFIG_MAPPINGS = {
-  // General settings
-  GERAL_CONFIG: { category: 'Geral', section: 'Configurações Gerais' },
-  GERAL_DESCONTO: { category: 'Geral', section: 'Descontos por Prazo' },
+  // General settings (IDs 12, 13, 14)
+  GERAL_FX: { category: 'Geral', section: 'Taxa de Câmbio' },
+  GERAL_DESCONTO: { category: 'Geral', section: 'Descontos por Vigência' },
+  GERAL_SAAS: { category: 'Geral', section: 'OPEN SaaS' },
   
-  // VM prices
+  // VM prices (ID 1)
   VM_PRICES: { category: 'VM', section: 'Preços de VM' },
   
-  // GPU prices
+  // GPU prices (ID 5)
   GPU_PRICES: { category: 'GPU', section: 'Preços de GPU' },
   
-  // BareMetal
+  // BareMetal (IDs 2, 3, 4)
   BAREMETAL_CPU: { category: 'BareMetal', section: 'Modelos de CPU' },
-  BAREMETAL_RAM: { category: 'BareMetal', section: 'Tiers de RAM' },
-  BAREMETAL_DISK: { category: 'BareMetal', section: 'Discos' },
+  BAREMETAL_RAM: { category: 'BareMetal', section: 'Opções de RAM' },
+  BAREMETAL_DISK: { category: 'BareMetal', section: 'Opções de Disco' },
   
-  // Add-ons
-  ADDONS: { category: 'Add-ons', section: 'Preços de Add-ons' },
+  // Add-ons (ID 6)
+  ADDONS: { category: 'Add-ons', section: 'Add-ons' },
   
-  // SQL Server (part of add-ons)
-  SQL_SERVER: { category: 'SQL Server', section: 'Licenças SQL' },
+  // SQL Server (ID 7)
+  SQL_SERVER: { category: 'SQL Server', section: 'SQL Server' },
   
-  // Storage
-  STORAGE: { category: 'Storage', section: 'Preços de Storage' },
+  // Storage (IDs 8, 9)
+  STORAGE_SAS: { category: 'Storage', section: 'Storage SAS' },
+  STORAGE_NVME: { category: 'Storage', section: 'SSD NVMe' },
   
-  // Kubernetes
-  KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Planos Kubernetes' },
+  // Kubernetes (IDs 10, 11)
+  KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Preços Base dos Planos' },
   KUBERNETES_ADDONS: { category: 'Kubernetes', section: 'Add-ons Kubernetes' },
 } as const;
 
