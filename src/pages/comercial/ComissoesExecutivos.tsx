@@ -424,9 +424,9 @@ const ComissoesExecutivos = () => {
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <p className="font-semibold">{exec.executivo_nome}</p>
-                      <p className="text-xs text-muted-foreground">{exec.total_contratos} contrato(s)</p>
+                      <p className="text-xs text-muted-foreground">{exec.total_propostas} contrato(s)</p>
                     </div>
-                    <Badge variant="outline">{((exec.taxa_media || 0) * 100).toFixed(1)}%</Badge>
+                    <Badge variant="outline">{((exec.taxa_media_ponderada || 0) * 100).toFixed(1)}%</Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-2 bg-muted/50 rounded-lg">
@@ -483,11 +483,11 @@ const ComissoesExecutivos = () => {
                     </TableRow>
                   ) : (
                     filteredCommissions.slice(0, 20).map((c) => (
-                      <TableRow key={c.id}>
+                      <TableRow key={c.proposal_id}>
                         <TableCell className="font-medium">{c.cliente_nome}</TableCell>
                         <TableCell>{c.executivo_nome}</TableCell>
                         <TableCell className="text-right text-blue-500">{formatCurrencyBRL(c.tcv)}</TableCell>
-                        <TableCell className="text-right text-green-500">{formatCurrencyBRL(c.comissao_total)}</TableCell>
+                        <TableCell className="text-right text-green-500">{formatCurrencyBRL(c.commission_value)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             {c.parcelas.slice(0, 3).map((p, i) => getInstallmentBadge(p.status))}
@@ -532,11 +532,11 @@ const ComissoesExecutivos = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Taxa</p>
-                  <p className="font-medium">{(selectedCommission.taxa_comissao * 100).toFixed(1)}%</p>
+                  <p className="font-medium">{(selectedCommission.commission_rate * 100).toFixed(1)}%</p>
                 </div>
                 <div className="col-span-2">
                   <p className="text-sm text-muted-foreground">Comissão Total</p>
-                  <p className="text-2xl font-bold text-green-500">{formatCurrencyBRL(selectedCommission.comissao_total)}</p>
+                  <p className="text-2xl font-bold text-green-500">{formatCurrencyBRL(selectedCommission.commission_value)}</p>
                 </div>
               </div>
               <div>
