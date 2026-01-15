@@ -220,6 +220,7 @@ function DashboardHeader() {
     if (path === '/comercial/propostas') return 'Propostas Executivos';
     if (path === '/comercial/metas') return 'Metas Comerciais';
     if (path === '/comercial/comissoes') return 'Gestão de Comissões';
+    if (path === '/comercial/potencial-gerente') return 'Meu Potencial (Gerente)';
     if (path === '/parceiros/executivo') return 'Executivo Parceiros';
     if (path === '/parceiros/gestao') return 'Gestão de Parceiros';
     if (path === '/parceiros/propostas') return 'Propostas Parceiros';

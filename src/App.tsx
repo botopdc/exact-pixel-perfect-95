@@ -98,13 +98,12 @@ const App = () => (
             <Route path="/parceiro/contrato" element={<AceiteContrato />} />
           </Route>
           
-          {/* Executive protected routes (user_level 700/750) - dedicated layout */}
+          {/* Executive protected routes (user_level 700 ONLY) - dedicated simplified layout */}
           <Route element={<ExecutiveLayout />}>
             <Route path="/executivo/dashboard" element={<DashboardHome />} />
             <Route path="/executivo/calculadora" element={<Calculadora />} />
             <Route path="/executivo/propostas" element={<PropostasExecutivos />} />
             <Route path="/executivo/potencial" element={<MeuPotencial />} />
-            <Route path="/executivo/potencial-gerente" element={<MeuPotencialGerente />} />
           </Route>
           
           {/* Admin/internal protected dashboard routes (non-executive levels) */}
@@ -113,13 +112,14 @@ const App = () => (
             <Route path="/dashboard" element={<DashboardHome />} />
             <Route path="/ceo" element={<DashboardExecutivo />} />
             
-            {/* Comercial (Admin only) */}
+            {/* Comercial (levels 750 and 1000) */}
             <Route path="/calculadora" element={<Calculadora />} />
             <Route path="/comercial/executivos" element={<Executivos />} />
             <Route path="/comercial/gestao-executivos" element={<GestaoExecutivos />} />
             <Route path="/comercial/propostas" element={<PropostasExecutivos />} />
             <Route path="/comercial/metas" element={<MetasComerciais />} />
             <Route path="/comercial/comissoes" element={<ComissoesExecutivos />} />
+            <Route path="/comercial/potencial-gerente" element={<MeuPotencialGerente />} />
             <Route path="/gestao-usuarios" element={<GestaoUsuarios />} />
             
             {/* Parceiros */}

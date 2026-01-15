@@ -21,11 +21,22 @@ export const ROUTES = {
     ceo: '/ceo',
   },
   
-  // Executive routes (level 700/750)
+  // Executive routes (level 700 only - simplified layout)
   executivo: {
     dashboard: '/executivo/dashboard',
     calculator: '/executivo/calculadora',
     proposals: '/executivo/propostas',
+    potential: '/executivo/potencial',
+  },
+  
+  // Manager routes (level 750 - uses DashboardLayout with full menu)
+  gerente: {
+    dashboard: '/dashboard',
+    calculator: '/calculadora',
+    proposals: '/comercial/propostas',
+    potential: '/comercial/potencial-gerente',
+    goals: '/comercial/metas',
+    commissions: '/comercial/comissoes',
   },
   
   // Partner routes (level 200)
@@ -54,12 +65,13 @@ export function getDashboardRoute(userLevel: number | undefined, isPartner: bool
     return ROUTES.parceiro.dashboard;
   }
   
-  // Executive levels (700 = Comercial, 750 = Gerente Comercial)
-  if (userLevel === 700 || userLevel === 750) {
+  // Level 700 (Executivo) uses simplified ExecutiveLayout
+  if (userLevel === 700) {
     return ROUTES.executivo.dashboard;
   }
   
-  // All other internal users (admin, support, CS, etc.)
+  // Level 750 (Gerente Comercial) uses DashboardLayout with full menu
+  // All other internal users (admin, support, CS, etc.) also use DashboardLayout
   return ROUTES.admin.dashboard;
 }
 
@@ -71,10 +83,12 @@ export function getCalculatorRoute(userLevel: number | undefined, isPartner: boo
     return ROUTES.parceiro.calculator;
   }
   
-  if (userLevel === 700 || userLevel === 750) {
+  // Level 700 (Executivo) uses simplified ExecutiveLayout
+  if (userLevel === 700) {
     return ROUTES.executivo.calculator;
   }
   
+  // Level 750 and others use main calculator in DashboardLayout
   return ROUTES.admin.calculator;
 }
 
@@ -86,9 +100,11 @@ export function getProposalsRoute(userLevel: number | undefined, isPartner: bool
     return ROUTES.parceiro.proposals;
   }
   
-  if (userLevel === 700 || userLevel === 750) {
+  // Level 700 (Executivo) uses simplified ExecutiveLayout
+  if (userLevel === 700) {
     return ROUTES.executivo.proposals;
   }
   
-  return '/comercial/propostas';
+  // Level 750 and others use main proposals in DashboardLayout
+  return ROUTES.gerente.proposals;
 }

@@ -83,7 +83,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Dashboard',
         url: '/dashboard',
         icon: LayoutDashboard,
-        allowedLevels: [600, 775, 900, 950, 1000], // Executivos (700/750) usam ExecutiveLayout
+        allowedLevels: [600, 750, 775, 900, 950, 1000], // Gerente Comercial (750) agora usa DashboardLayout
       },
       {
         id: 'ceo-view',
@@ -148,6 +148,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Gestão de Comissões',
         url: '/comercial/comissoes',
         icon: DollarSign,
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
+      },
+      {
+        id: 'potencial-gerente',
+        title: 'Meu Potencial (Gerente)',
+        url: '/comercial/potencial-gerente',
+        icon: TrendingUp,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
     ],
@@ -424,9 +431,10 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
     return userLevel === USER_LEVELS.GERENTE_COMERCIAL || userLevel >= USER_LEVELS.ADMIN;
   }
   
-  // Rotas do portal executivo (700/750) 
+  // Rotas do portal executivo - APENAS level 700 (Executivo)
+  // Level 750 (Gerente Comercial) usa DashboardLayout com menu completo
   if (pathname.match(/^\/executivo\//)) {
-    return userLevel === 700 || userLevel === 750;
+    return userLevel === 700;
   }
 
   // Verifica mapeamento estático
