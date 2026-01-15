@@ -30,11 +30,21 @@ interface ConfigPersistenceState {
 }
 
 // ============================================================================
+// STORAGE ADVANCED MAPPING (category: Storage, section: Storage Avançado)
+// ============================================================================
+
+const STORAGE_ADVANCED_MAPPING = {
+  category: 'Storage',
+  section: 'Storage Avançado',
+};
+
+// ============================================================================
 // TRANSFORM: CalculatorConfig → API Entries
 // ============================================================================
 
 /**
  * Transform local CalculatorConfig back to API format for saving
+ * CRITICAL: All items MUST have `value` field (not `price`)
  */
 function configToApiPayloads(config: CalculatorConfig): Array<{
   category: string;
@@ -160,7 +170,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 8. Add-ons (excluding SQL which is separate)
+  // 8. Add-ons (using visual labels for API, but reading from technical keys)
   const addonItems: ConfigItem[] = [];
   const addons = config.addons_brl;
   
@@ -210,32 +220,56 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     }
   }
 
-  // 10. Storage prices
-  if (config.storage_prices) {
-    const storageItems: ConfigItem[] = Object.entries(config.storage_prices).map(([region, price]) => {
-      return {
-        label: region,
-        by: 'tb',
-        type: 'BRL',
-        value: Number(price) || 0,
-      };
-    });
-    if (storageItems.length > 0) {
+  // 10. Storage Avançado (SAS BR, SAS USA, NVMe)
+  if (config.storage_pricing) {
+    const storageAdvancedItems: ConfigItem[] = [];
+    const sp = config.storage_pricing;
+    
+    // SAS BR (5 tiers)
+    if (sp.sas?.br) {
+      storageAdvancedItems.push(
+        { label: 'sas_br_pricePerTB_1_10', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_1_10) || 0 },
+        { label: 'sas_br_pricePerTB_11_100', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_11_100) || 0 },
+        { label: 'sas_br_pricePerTB_101_500', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_101_500) || 0 },
+        { label: 'sas_br_pricePerTB_501_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_501_1024) || 0 },
+        { label: 'sas_br_pricePerTB_gt_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.br.pricePerTB_gt_1024) || 0 },
+      );
+    }
+    
+    // SAS USA (5 tiers)
+    if (sp.sas?.usa) {
+      storageAdvancedItems.push(
+        { label: 'sas_usa_pricePerTB_1_10', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_1_10) || 0 },
+        { label: 'sas_usa_pricePerTB_11_100', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_11_100) || 0 },
+        { label: 'sas_usa_pricePerTB_101_500', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_101_500) || 0 },
+        { label: 'sas_usa_pricePerTB_501_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_501_1024) || 0 },
+        { label: 'sas_usa_pricePerTB_gt_1024', by: 'tb', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_gt_1024) || 0 },
+      );
+    }
+    
+    // NVMe
+    if (sp.nvme) {
+      storageAdvancedItems.push(
+        { label: 'nvme_pricePerGB', by: 'gb', type: 'BRL', value: Number(sp.nvme.pricePerGB) || 0 },
+      );
+    }
+    
+    if (storageAdvancedItems.length > 0) {
       payloads.push({
-        category: CONFIG_MAPPINGS.STORAGE.category,
-        section: CONFIG_MAPPINGS.STORAGE.section,
-        config: storageItems,
+        category: STORAGE_ADVANCED_MAPPING.category,
+        section: STORAGE_ADVANCED_MAPPING.section,
+        config: storageAdvancedItems,
       });
     }
   }
 
-  // 11. Kubernetes plans
+  // 11. Kubernetes plans (type: 'plan')
   if (config.kubernetes_pricing) {
     const k8sItems: ConfigItem[] = Object.entries(config.kubernetes_pricing).map(([plan, data]) => {
       return {
         label: plan,
         by: 'plan',
-        type: 'BRL',
+        type: 'plan', // Differentiate from addons
         value: Number((data as any)?.basePriceMonthly) || 0,
       };
     });
@@ -248,13 +282,13 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     }
   }
 
-  // 12. Kubernetes add-ons
+  // 12. Kubernetes add-ons (type: 'addon')
   if (config.kubernetes_addons_pricing) {
     const k8sAddonItems: ConfigItem[] = Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => {
       return {
         label: addon,
         by: 'unit',
-        type: 'BRL',
+        type: 'addon', // Differentiate from plans
         value: Number(price) || 0,
       };
     });
@@ -343,6 +377,8 @@ export function useConfigPersistence() {
       // Convert local config to API payloads
       const payloads = configToApiPayloads(localConfig);
       
+      console.log('[ConfigPersistence] Saving payloads:', payloads.map(p => `${p.category}/${p.section}`));
+      
       // Process each payload
       for (const payload of payloads) {
         const existingId = findEntryId(payload.category, payload.section);
@@ -365,11 +401,14 @@ export function useConfigPersistence() {
       }
 
       // Refresh data from API
-      await Promise.all([
-        fetchApiEntries(),
-        queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY }),
-        refetch(),
-      ]);
+      await fetchApiEntries();
+      await queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
+      const result = await refetch();
+      
+      // Update local config with fresh API data
+      if (result.data) {
+        setLocalConfig(result.data);
+      }
 
       setIsDirty(false);
       
