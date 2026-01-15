@@ -320,9 +320,10 @@ export default function DashboardLayout() {
         return;
       }
       
-      // Executivos (700/750) devem usar ExecutiveLayout
+      // Apenas Executivos (700) usam ExecutiveLayout
+      // Gerente Comercial (750) usa DashboardLayout com menu completo
       const user = authService.getCurrentUser();
-      if (user?.level === 700 || user?.level === 750) {
+      if (user?.level === 700) {
         navigate('/executivo/dashboard', { replace: true });
         return;
       }

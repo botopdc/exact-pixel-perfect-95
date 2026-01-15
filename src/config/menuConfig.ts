@@ -83,29 +83,28 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: 'Dashboard',
         url: '/dashboard',
         icon: LayoutDashboard,
-        allowedLevels: [600, 750, 775, 900, 950, 1000], // Gerente Comercial (750) agora usa DashboardLayout
+        allowedLevels: [600, 750, 775, 900, 950, 1000], // Gerente Comercial (750) usa DashboardLayout
       },
       {
         id: 'ceo-view',
         title: 'CEO View',
         url: '/ceo',
         icon: Crown,
-        allowedLevels: [1000],
+        allowedLevels: [1000], // Apenas Admin - CEO View é restrito
       },
-      // Calculadora no menu principal apenas para Admin
       {
         id: 'calculadora-main',
         title: 'Calculadora de Preços',
         url: '/calculadora',
         icon: Calculator,
-        allowedLevels: [1000], // Apenas Admin no DashboardLayout
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-usuarios',
         title: 'Gestão de Usuários',
         url: '/gestao-usuarios',
         icon: Users,
-        allowedLevels: [1000], // Apenas Admin
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
     ],
   },
