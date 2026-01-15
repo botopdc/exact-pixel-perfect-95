@@ -27,6 +27,7 @@ import {
   UserCheck,
   Settings,
   Handshake,
+  Target,
 } from 'lucide-react';
 
 // ============================================================================
@@ -134,6 +135,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         url: '/comercial/propostas',
         icon: FileStack,
         allowedLevels: [1000], // Admin vê todas as propostas de executivos aqui
+      },
+      {
+        id: 'metas-comerciais',
+        title: 'Metas',
+        url: '/comercial/metas',
+        icon: Target,
+        allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'comissoes-executivos',

@@ -58,6 +58,7 @@ import GestaoExecutivos from '@/pages/comercial/GestaoExecutivos';
 import PropostasExecutivos from '@/pages/comercial/PropostasExecutivos';
 import ComissoesExecutivos from '@/pages/comercial/ComissoesExecutivos';
 import MeuPotencial from '@/pages/comercial/MeuPotencial';
+import MetasComerciais from '@/pages/comercial/MetasComerciais';
 import GestaoUsuarios from '@/pages/GestaoUsuarios';
 
 const queryClient = new QueryClient();
@@ -115,6 +116,7 @@ const App = () => (
             <Route path="/comercial/executivos" element={<Executivos />} />
             <Route path="/comercial/gestao-executivos" element={<GestaoExecutivos />} />
             <Route path="/comercial/propostas" element={<PropostasExecutivos />} />
+            <Route path="/comercial/metas" element={<MetasComerciais />} />
             <Route path="/comercial/comissoes" element={<ComissoesExecutivos />} />
             <Route path="/gestao-usuarios" element={<GestaoUsuarios />} />
             
