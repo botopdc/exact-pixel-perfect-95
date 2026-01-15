@@ -155,7 +155,19 @@ const toNum = (val: any, fallback = 0): number => {
 // Transform API proposal to local format - PRESERVES COMPLETE DATA from dados_proposta if available
 function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   // Check if we have the complete calculator state saved in dados_proposta (new format)
-  const dadosProposta = (apiProposal as any).dados_proposta;
+  // IMPORTANT: dados_proposta may come as string (JSON serialized) - must parse it first
+  let dadosProposta = (apiProposal as any).dados_proposta;
+  
+  // FIX: If dados_proposta is a string, parse it
+  if (typeof dadosProposta === 'string') {
+    try {
+      dadosProposta = JSON.parse(dadosProposta);
+      console.log('[apiToLocal] Parsed dados_proposta from string for proposal', apiProposal.id);
+    } catch (e) {
+      console.error('[apiToLocal] Failed to parse dados_proposta string, falling back to legacy', e);
+      dadosProposta = null;
+    }
+  }
   
   // Log status resolution for debugging
   console.log('[apiToLocal] Processing proposal', apiProposal.id, {
@@ -163,6 +175,8 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     dados_proposta_status: dadosProposta?.status,
     status_accepted_at: apiProposal.status_accepted_at,
     status_rejected_at: apiProposal.status_rejected_at,
+    dados_proposta_type: typeof dadosProposta,
+    has_dados_proposta: !!dadosProposta,
   });
   
   if (dadosProposta && typeof dadosProposta === 'object') {
@@ -391,64 +405,78 @@ function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   }
   
   // Transform API servers array to local items format + build rows for result
+  // IMPORTANT: Skip virtual products (Storage, Kubernetes, OPEN SaaS, VIRTUAL_PRODUCT_BUNDLE)
+  // These are only in servers[] for API compatibility, NOT real VMs/BMs
   const rows: Array<{ label: string; qty: string | number; unitPrice: number; subtotal: number }> = [];
   let serversSubtotal = 0;
   
-  const items = (apiProposal.servers || []).map((server: any, idx: number) => {
-    const serverName = server.name || 'Server';
-    const price = toNum(server.price, 0);
-    const quantity = toNum(server.quantity, 1);
-    const subtotal = price * quantity;
-    
-    // Build display label with specs
-    const vcpu = toNum(server.vcpu, 0);
-    const ram = toNum(server.ram, 0);
-    const storage = toNum(server.storage, 0);
-    const specLabel = vcpu > 0 || ram > 0 || storage > 0
-      ? `${serverName} (${vcpu} vCPU, ${ram}GB RAM, ${storage}GB)`
-      : serverName;
-    
-    // Add row for result
-    rows.push({
-      label: specLabel,
-      qty: quantity,
-      unitPrice: price,
-      subtotal: subtotal,
+  // Helper to detect virtual product names
+  const isVirtualProduct = (name: string): boolean => {
+    if (!name) return false;
+    const lower = name.toLowerCase();
+    return lower.startsWith('storage ') || 
+           lower.startsWith('kubernetes ') || 
+           lower.startsWith('open saas') ||
+           lower === 'virtual_product_bundle';
+  };
+  
+  const items = (apiProposal.servers || [])
+    .filter((server: any) => !isVirtualProduct(server.name || '')) // Skip virtual products
+    .map((server: any, idx: number) => {
+      const serverName = server.name || 'Server';
+      const price = toNum(server.price, 0);
+      const quantity = toNum(server.quantity, 1);
+      const subtotal = price * quantity;
+      
+      // Build display label with specs
+      const vcpu = toNum(server.vcpu, 0);
+      const ram = toNum(server.ram, 0);
+      const storage = toNum(server.storage, 0);
+      const specLabel = vcpu > 0 || ram > 0 || storage > 0
+        ? `${serverName} (${vcpu} vCPU, ${ram}GB RAM, ${storage}GB)`
+        : serverName;
+      
+      // Add row for result
+      rows.push({
+        label: specLabel,
+        qty: quantity,
+        unitPrice: price,
+        subtotal: subtotal,
+      });
+      
+      serversSubtotal += subtotal;
+      
+      // Detect if VM or BareMetal based on name
+      const isVM = serverName.toLowerCase().includes('vm') || vcpu > 0;
+      
+      if (isVM) {
+        return {
+          type: 'vm' as const,
+          id: crypto.randomUUID(),
+          gpu: 'Sem GPU',
+          gpuQty: 0,
+          vcpu: vcpu || 16,
+          ramGb: ram || 128,
+          nvmeTb: (storage || 50) / 1024, // Convert GB to TB
+          trafficTb: 5,
+          ips: 1,
+          qtyServers: quantity,
+        };
+      } else {
+        return {
+          type: 'bm' as const,
+          id: crypto.randomUUID(),
+          gpu: 'Sem GPU',
+          gpuQty: 0,
+          bmCpu: 'intel_xeon_e2136', // Default
+          bmRam: 'ram_128gb',
+          disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }], // Always initialize disks array
+          trafficTb: 5,
+          ips: 1,
+          qtyServers: quantity,
+        };
+      }
     });
-    
-    serversSubtotal += subtotal;
-    
-    // Detect if VM or BareMetal based on name
-    const isVM = serverName.toLowerCase().includes('vm') || vcpu > 0;
-    
-    if (isVM) {
-      return {
-        type: 'vm' as const,
-        id: crypto.randomUUID(),
-        gpu: 'Sem GPU',
-        gpuQty: 0,
-        vcpu: vcpu || 16,
-        ramGb: ram || 128,
-        nvmeTb: (storage || 50) / 1024, // Convert GB to TB
-        trafficTb: 5,
-        ips: 1,
-        qtyServers: quantity,
-      };
-    } else {
-      return {
-        type: 'bm' as const,
-        id: crypto.randomUUID(),
-        gpu: 'Sem GPU',
-        gpuQty: 0,
-        bmCpu: 'intel_xeon_e2136', // Default
-        bmRam: 'ram_128gb',
-        disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }], // Always initialize disks array
-        trafficTb: 5,
-        ips: 1,
-        qtyServers: quantity,
-      };
-    }
-  });
   
   // Add addon rows if they exist
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
@@ -596,14 +624,25 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // ============================================
   // INDEPENDENT PRODUCTS (don't require servers)
+  // FIX: Removed volumeTB >= 1 restriction - use any volume > 0 (TB or GB)
+  // FIX: Removed users >= 5 restriction - allow any users > 0
   // ============================================
   
   // Storage items - add each storage configuration as an addon
+  // Accept if volumeTB > 0 OR volumeGB > 0
   if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
     for (const storage of proposal.storageItems) {
-      if (storage.volumeTB >= 1) {
+      const volumeTB = toNum(storage.volumeTB, 0);
+      const volumeGB = toNum(storage.volumeGB, 0);
+      // Calculate effective TB for display (if only GB is set, convert)
+      const effectiveTB = volumeTB > 0 ? volumeTB : (volumeGB > 0 ? volumeGB / 1024 : 0);
+      
+      if (volumeTB > 0 || volumeGB > 0) {
+        const displaySize = effectiveTB >= 1 
+          ? `${effectiveTB.toFixed(effectiveTB % 1 === 0 ? 0 : 2)}TB`
+          : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
         addonsArray.push({
-          name: `Storage ${storage.type || 'SAN'} ${storage.volumeTB}TB`,
+          name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
           price: storage.price || 0,
           quantity: 1,
         });
@@ -621,8 +660,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     });
   }
   
-  // OPEN SaaS - add as addon if enabled with sufficient users
-  if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users >= 5) {
+  // OPEN SaaS - add as addon if enabled with ANY users > 0
+  // FIX: Removed users >= 5 restriction
+  if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users > 0) {
     addonsArray.push({
       name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
       price: proposal.openSaas.price || 0,
@@ -720,17 +760,25 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // When there are no VMs/BMs but there are independent products (Storage, Kubernetes, OPEN SaaS),
   // we add them to the servers array as virtual items to satisfy the API validation.
   // The full state is preserved in dados_proposta for accurate restoration.
+  // FIX: Removed volumeTB >= 1 and users >= 5 restrictions
   // ============================================
   if (serversArray.length === 0) {
-    // Add Storage items as virtual servers
+    // Add Storage items as virtual servers (accept any volume > 0)
     if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
       for (const storage of proposal.storageItems) {
-        if (storage.volumeTB >= 1) {
+        const volumeTB = toNum(storage.volumeTB, 0);
+        const volumeGB = toNum(storage.volumeGB, 0);
+        const effectiveTB = volumeTB > 0 ? volumeTB : (volumeGB > 0 ? volumeGB / 1024 : 0);
+        
+        if (volumeTB > 0 || volumeGB > 0) {
+          const displaySize = effectiveTB >= 1 
+            ? `${effectiveTB.toFixed(effectiveTB % 1 === 0 ? 0 : 2)}TB`
+            : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
           serversArray.push({
-            name: `Storage ${storage.type || storage.storageType || 'SAN'} ${storage.volumeTB}TB`,
+            name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
             vcpu: 0,
             ram: 0,
-            storage: Math.round(storage.volumeTB * 1024), // Convert TB to GB
+            storage: Math.round((volumeTB || volumeGB / 1024) * 1024), // Convert to GB
             price: storage.price || 0,
             quantity: 1,
           });
@@ -751,8 +799,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
       });
     }
     
-    // Add OPEN SaaS as virtual server
-    if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users >= 5) {
+    // Add OPEN SaaS as virtual server (accept any users > 0)
+    // FIX: Removed users >= 5 restriction
+    if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users > 0) {
       serversArray.push({
         name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
         vcpu: 0,
@@ -760,6 +809,22 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: proposal.openSaas.price || 0,
         quantity: proposal.openSaas.users,
+      });
+    }
+    
+    // ============================================
+    // FALLBACK: If still no servers after adding independent products,
+    // add a virtual placeholder to guarantee servers is never empty
+    // ============================================
+    if (serversArray.length === 0) {
+      console.warn('[localToApi] No items found, adding VIRTUAL_PRODUCT_BUNDLE fallback');
+      serversArray.push({
+        name: 'VIRTUAL_PRODUCT_BUNDLE',
+        vcpu: 0,
+        ram: 0,
+        storage: 0,
+        price: 0,
+        quantity: 1,
       });
     }
   }
