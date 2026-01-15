@@ -67,8 +67,113 @@ import {
   CommissionCalculation,
 } from '@/services/executiveCommissionService';
 import { useExecutiveCommissions } from '@/hooks/useExecutiveCommissions';
-import { useMetasComerciais } from '@/hooks/useMetasComerciais';
-import { openApi } from '@/lib/openApi';
+import { useMetasComerciais, ExecutiveGoal } from '@/hooks/useMetasComerciais';
+import { openApi, ApiUser } from '@/lib/openApi';
+import { useQuery } from '@tanstack/react-query';
+
+// Hook to calculate MRR per executive from approved proposals
+function useMRRByExecutive(executiveIds: number[]) {
+  return useQuery({
+    queryKey: ['mrr-by-executive', executiveIds],
+    queryFn: async () => {
+      if (executiveIds.length === 0) return new Map<number, number>();
+
+      // Fetch all proposals and filter by approved status
+      const allProposals: any[] = [];
+      let page = 1;
+      const perPage = 200;
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await openApi.getProposals({
+          __page: page,
+          __perPage: perPage,
+        });
+        const proposals = response.data || [];
+        allProposals.push(...proposals);
+        hasMore = proposals.length === perPage;
+        page++;
+        if (page > 50) break;
+      }
+
+      // Filter for approved proposals only
+      const approvedProposals = allProposals.filter((p) => {
+        const status = (p.status || '').toLowerCase();
+        return status === 'aprovado' || status === 'approved' || status === 'aprovada';
+      });
+
+      // Calculate MRR by executive: MRR = total / contract_duration
+      const mrrByExec = new Map<number, number>();
+      const execIdsSet = new Set(executiveIds);
+
+      for (const p of allProposals) {
+        const createdBy = p.created_by;
+        if (!createdBy || !execIdsSet.has(createdBy)) continue;
+
+        // Normalize total
+        let total = 0;
+        if (typeof p.total === 'number') {
+          total = p.total;
+        } else if (typeof p.total === 'string') {
+          total = parseFloat(p.total.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+        }
+
+        // Normalize duration
+        let duration = p.contract_duration || p.dados_proposta?.config?.vigencia || 1;
+        if (typeof duration !== 'number' || duration <= 0) {
+          duration = 1;
+        }
+
+        const mrr = total / duration;
+        mrrByExec.set(createdBy, (mrrByExec.get(createdBy) || 0) + mrr);
+      }
+
+      return mrrByExec;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: executiveIds.length > 0,
+  });
+}
+
+// Hook to fetch user details for executives
+function useExecutiveUsers(executiveIds: number[]) {
+  return useQuery({
+    queryKey: ['executive-users', executiveIds],
+    queryFn: async () => {
+      if (executiveIds.length === 0) return new Map<number, ApiUser>();
+
+      // Fetch level 700 users
+      const allUsers: ApiUser[] = [];
+      let page = 1;
+      const perPage = 100;
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await openApi.getUsers({
+          level: 700,
+          __page: page,
+          __perPage: perPage,
+        });
+        const users = response.data || [];
+        allUsers.push(...users);
+        hasMore = users.length === perPage;
+        page++;
+        if (page > 20) break;
+      }
+
+      const userMap = new Map<number, ApiUser>();
+      for (const user of allUsers) {
+        if (executiveIds.includes(user.id)) {
+          userMap.set(user.id, user);
+        }
+      }
+
+      return userMap;
+    },
+    staleTime: 10 * 60 * 1000,
+    enabled: executiveIds.length > 0,
+  });
+}
 
 const ComissoesExecutivos = () => {
   const navigate = useNavigate();
@@ -98,6 +203,17 @@ const ComissoesExecutivos = () => {
   const executivesWithGoals = useMemo(() => {
     return getExecutivesWithGoals(currentYear);
   }, [getExecutivesWithGoals, currentYear]);
+
+  // Get executive IDs from goals for fetching user data and MRR
+  const executiveIds = useMemo(() => {
+    return executivesWithGoals.map(e => e.id);
+  }, [executivesWithGoals]);
+
+  // Fetch user details for executives with goals
+  const { data: usersByIdMap, isLoading: isLoadingUsers } = useExecutiveUsers(executiveIds);
+
+  // Calculate MRR per executive from approved proposals
+  const { data: mrrByExecMap, isLoading: isLoadingMRR } = useMRRByExecutive(executiveIds);
 
   useEffect(() => {
     openApi.getCurrentUser().then((user) => {
@@ -293,7 +409,7 @@ const ComissoesExecutivos = () => {
             </CollapsibleTrigger>
             <CollapsibleContent>
               <CardContent>
-                {isLoading || isLoadingMetas ? (
+                {isLoading || isLoadingMetas || isLoadingUsers || isLoadingMRR ? (
                   <div className="space-y-2">
                     {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
                   </div>
@@ -318,11 +434,14 @@ const ComissoesExecutivos = () => {
                     </TableHeader>
                     <TableBody>
                       {executivesWithGoals.map((exec) => {
-                        const execCommissions = allCommissions.filter((c) => parseInt(c.executivo_id, 10) === exec.id);
-                        const mrrAtual = execCommissions.reduce((sum, c) => {
-                          const months = c.contract_term_months || 1;
-                          return sum + (c.tcv / months);
-                        }, 0);
+                        // Get user details from API (name/email)
+                        const userData = usersByIdMap?.get(exec.id);
+                        const execName = userData?.name || exec.name || `Executivo #${exec.id}`;
+                        const execEmail = userData?.email || exec.email || '-';
+                        
+                        // Get MRR from calculated map (sum of total/duration for approved proposals)
+                        const mrrAtual = mrrByExecMap?.get(exec.id) || 0;
+                        
                         const metaMRR = exec.monthlyMRRTarget || 0;
                         const progress = metaMRR > 0 ? Math.min((mrrAtual / metaMRR) * 100, 100) : 0;
                         const gap = Math.max(metaMRR - mrrAtual, 0);
@@ -331,8 +450,8 @@ const ComissoesExecutivos = () => {
                           <TableRow key={exec.id}>
                             <TableCell>
                               <div>
-                                <p className="font-medium">{exec.name}</p>
-                                <p className="text-xs text-muted-foreground">{exec.email}</p>
+                                <p className="font-medium">{execName}</p>
+                                <p className="text-xs text-muted-foreground">{execEmail}</p>
                               </div>
                             </TableCell>
                             <TableCell className="text-right font-semibold text-blue-500">
@@ -346,7 +465,9 @@ const ComissoesExecutivos = () => {
                               </div>
                             </TableCell>
                             <TableCell className="text-right">
-                              {gap > 0 ? (
+                              {metaMRR === 0 ? (
+                                <span className="text-muted-foreground">Sem meta</span>
+                              ) : gap > 0 ? (
                                 <span className="text-amber-500">{formatCurrencyBRL(gap)}</span>
                               ) : (
                                 <span className="text-green-500">Meta atingida!</span>
