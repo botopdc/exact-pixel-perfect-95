@@ -25,6 +25,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -198,12 +199,27 @@ function AppSidebar() {
 
 function DashboardHeader() {
   const location = useLocation();
+  const user = authService.getCurrentUser();
+  const userLevel = user?.level ?? null;
+
+  // Check if current page is a management page where manager badge should show
+  const isManagementPage = () => {
+    const path = location.pathname;
+    return path.startsWith('/comercial/') || 
+           path.startsWith('/parceiros/') ||
+           path === '/gestao-usuarios';
+  };
 
   const getPageTitle = () => {
     const path = location.pathname;
     if (path === '/dashboard') return 'Dashboard';
     if (path === '/ceo') return 'CEO View';
     if (path === '/calculadora') return 'Calculadora de Preços';
+    if (path === '/comercial/executivos') return 'Executivos';
+    if (path === '/comercial/gestao-executivos') return 'Gestão de Executivos';
+    if (path === '/comercial/propostas') return 'Propostas Executivos';
+    if (path === '/comercial/metas') return 'Metas Comerciais';
+    if (path === '/comercial/comissoes') return 'Gestão de Comissões';
     if (path === '/parceiros/executivo') return 'Executivo Parceiros';
     if (path === '/parceiros/gestao') return 'Gestão de Parceiros';
     if (path === '/parceiros/propostas') return 'Propostas Parceiros';
@@ -235,10 +251,21 @@ function DashboardHeader() {
       </SidebarTrigger>
 
       <div className="flex flex-col flex-1">
-        {/* Page Title */}
-        <h1 className="text-xl font-semibold text-foreground">
-          {getPageTitle()}
-        </h1>
+        {/* Page Title with Manager Badge */}
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold text-foreground">
+            {getPageTitle()}
+          </h1>
+          {/* Show Manager badge on management pages for level 750 */}
+          {userLevel === USER_LEVELS.GERENTE_COMERCIAL && isManagementPage() && (
+            <Badge 
+              variant="secondary" 
+              className="bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/30"
+            >
+              Gerente
+            </Badge>
+          )}
+        </div>
         {/* Subtitle only on dashboard */}
         {location.pathname === '/dashboard' && (
           <span className="text-sm text-muted-foreground">
