@@ -1,0 +1,2408 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Api OPDC",
+        "version": "0.1"
+    },
+    "paths": {
+        "/api/auth/login": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Authenticate user and generate token",
+                "description": "Login with email and password to receive authentication token",
+                "operationId": "535ffeda4b78916efd658b2844ea897a",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "user@example.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "password123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful login",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "user": {
+                                            "$ref": "#/components/schemas/User"
+                                        },
+                                        "token": {
+                                            "type": "string",
+                                            "example": "1|abcdef123456..."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid credentials",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Credenciais inválidas"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/me": {
+            "get": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Get authenticated user information",
+                "description": "Returns the currently authenticated user's data",
+                "operationId": "1537d2a532022d0974e4cd2d83c6a38f",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/WithParameter"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/calculator/config": {
+            "get": {
+                "tags": [
+                    "Calculator Config"
+                ],
+                "summary": "Get paginated list of calculator configurations",
+                "description": "Retrieve a paginated list of all calculator configurations",
+                "operationId": "3dd2a5e2e6620e647046f5084bf227c9",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/WithParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/OrderParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/LimitParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/SearchParameter"
+                    },
+                    {
+                        "name": "category",
+                        "in": "query",
+                        "description": "Filter by category",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "VM"
+                        }
+                    },
+                    {
+                        "name": "section",
+                        "in": "query",
+                        "description": "Filter by section",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "Preços de VM"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "current_page": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/CalculatorConfig"
+                                            }
+                                        },
+                                        "from": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "last_page": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "per_page": {
+                                            "type": "integer",
+                                            "example": 15
+                                        },
+                                        "to": {
+                                            "type": "integer",
+                                            "example": 14
+                                        },
+                                        "total": {
+                                            "type": "integer",
+                                            "example": 14
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/calculator/config/{id}": {
+            "get": {
+                "tags": [
+                    "Calculator Config"
+                ],
+                "summary": "Get a specific calculator configuration",
+                "description": "Retrieve a specific calculator configuration by ID",
+                "operationId": "98b009e661c11b44823ca40e4519973f",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Configuration ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalculatorConfig"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Configuration not found"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Calculator Config"
+                ],
+                "summary": "Update a calculator configuration",
+                "description": "Update an existing calculator configuration",
+                "operationId": "d679f171a6a36091063c4de397bb7192",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Configuration ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalculatorConfigUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Configuration updated successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalculatorConfig"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Configuration not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/calculator/proposal": {
+            "get": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Get paginated list of calculator proposals",
+                "description": "Retrieve a paginated list of all calculator proposals",
+                "operationId": "4880cb1377c3e9ac611df1a0b4192a18",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/WithParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/OrderParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/LimitParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/SearchParameter"
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filter by status",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "Aprovado"
+                        }
+                    },
+                    {
+                        "name": "channel_type",
+                        "in": "query",
+                        "description": "Filter by channel type",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "PARCEIRO",
+                                "CLIENTE"
+                            ],
+                            "example": "CLIENTE"
+                        }
+                    },
+                    {
+                        "name": "email",
+                        "in": "query",
+                        "description": "Filter by email",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "joao@techcorp.com"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "current_page": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/CalculatorProposal"
+                                            }
+                                        },
+                                        "from": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "last_page": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "per_page": {
+                                            "type": "integer",
+                                            "example": 15
+                                        },
+                                        "to": {
+                                            "type": "integer",
+                                            "example": 14
+                                        },
+                                        "total": {
+                                            "type": "integer",
+                                            "example": 14
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Create a new calculator proposal",
+                "description": "Create a new calculator proposal",
+                "operationId": "8a0b303e85138d387c469e9efd40da21",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalculatorProposalStoreRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Proposal created successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalculatorProposal"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/calculator/proposal/{id}": {
+            "get": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Get a specific calculator proposal",
+                "description": "Retrieve a specific calculator proposal by ID",
+                "operationId": "c37882e392287203b2577922e835c643",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Proposal ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalculatorProposal"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Update a calculator proposal",
+                "description": "Update an existing calculator proposal",
+                "operationId": "171978613602f2dc32b6703b2ccfad07",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Proposal ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalculatorProposalUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Proposal updated successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalculatorProposal"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Delete a calculator proposal",
+                "description": "Delete a calculator proposal",
+                "operationId": "7b344b2131d1c53ee13fd71c29a67b16",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Proposal ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Proposal deleted successfully"
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    }
+                }
+            }
+        },
+        "/api/calculator/proposal/define-acceptance": {
+            "post": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Define proposal acceptance",
+                "description": "Accept or reject a calculator proposal using approval token",
+                "operationId": "2f6310bd44cb3fe0ef4cdac7b89a4228",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DefineProposalAcceptanceRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Acceptance defined successfully"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    }
+                }
+            }
+        },
+        "/api/calculator/proposal/{id}/get-approval-token": {
+            "get": {
+                "tags": [
+                    "Calculator Proposals"
+                ],
+                "summary": "Get approval token for proposal",
+                "description": "Generate or retrieve approval token for a calculator proposal",
+                "operationId": "84d28e93de5af0948f1c2539ecbc1343",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Proposal ID or UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Approval token retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "token": {
+                                            "type": "string",
+                                            "example": "abc123def456"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Proposal not found"
+                    }
+                }
+            }
+        },
+        "/api/calculator/proposal/{idOrUuid}/file": {
+            "post": {
+                "tags": [
+                    "Calculator Proposal Files"
+                ],
+                "summary": "Upload a file for a calculator proposal",
+                "description": "Upload a file (PDF, JPG, PNG) for a specific calculator proposal",
+                "operationId": "11b095bc2cf1fdd58eed5dade36876f0",
+                "parameters": [
+                    {
+                        "name": "idOrUuid",
+                        "in": "path",
+                        "description": "Proposal ID or UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "file"
+                                ],
+                                "properties": {
+                                    "file": {
+                                        "description": "File to upload (PDF, JPG, PNG, max 20MB)",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "File uploaded successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalculatorProposalFile"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Validation error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "The file field is required."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/calculator/proposal/file/{path}": {
+            "get": {
+                "tags": [
+                    "Calculator Proposal Files"
+                ],
+                "summary": "Download or view a calculator proposal file",
+                "description": "Retrieve a file associated with a calculator proposal",
+                "operationId": "d7b69e9025f69de828caaa0c69d42a4a",
+                "parameters": [
+                    {
+                        "name": "path",
+                        "in": "path",
+                        "description": "File path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "File content",
+                        "content": {
+                            "application/pdf": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid path",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Invalid path"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "404": {
+                        "description": "File not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/partner": {
+            "get": {
+                "tags": [
+                    "Partners"
+                ],
+                "summary": "Get paginated list of partners",
+                "description": "Retrieve a paginated list of partners",
+                "operationId": "55bb509540eaccbf7b0502099c5512fa",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/WithParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/OrderParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/LimitParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/SearchParameter"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "current_page": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/Partner"
+                                            }
+                                        },
+                                        "from": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "last_page": {
+                                            "type": "integer",
+                                            "example": 1
+                                        },
+                                        "per_page": {
+                                            "type": "integer",
+                                            "example": 15
+                                        },
+                                        "to": {
+                                            "type": "integer",
+                                            "example": 14
+                                        },
+                                        "total": {
+                                            "type": "integer",
+                                            "example": 14
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Partners"
+                ],
+                "summary": "Create a new partner",
+                "description": "Create a new partner",
+                "operationId": "5bbd03b3ecd770cb379e1f5e012473c6",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PartnerStoreRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Partner created successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Partner"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/partner/{id}": {
+            "get": {
+                "tags": [
+                    "Partners"
+                ],
+                "summary": "Get a specific partner",
+                "description": "Retrieve a specific partner by ID",
+                "operationId": "d8a8d493d990960333b3c94ee394bd92",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Partner ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Partner"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Partner not found"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Partners"
+                ],
+                "summary": "Update a partner",
+                "description": "Update an existing partner",
+                "operationId": "adc50b658dc7515369be6d24a37c550b",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Partner ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PartnerUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Partner updated successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Partner"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Partner not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Partners"
+                ],
+                "summary": "Delete a partner",
+                "description": "Delete a partner",
+                "operationId": "4117ba9d6234c12a3882a0751020a938",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Partner ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Partner deleted successfully"
+                    },
+                    "404": {
+                        "description": "Partner not found"
+                    }
+                }
+            }
+        },
+        "/api/user": {
+            "get": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get paginated list of users",
+                "description": "Retrieve a paginated list of all users in the system with filtering, sorting, searching and relation loading capabilities",
+                "operationId": "f0d388efe05d7f343b4a945c8cdcb612",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPageParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/WithParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/OrderParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/LimitParameter"
+                    },
+                    {
+                        "$ref": "#/components/parameters/SearchParameter"
+                    },
+                    {
+                        "name": "name",
+                        "in": "query",
+                        "description": "Filter by name (exact match)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "John Doe"
+                        }
+                    },
+                    {
+                        "name": "email",
+                        "in": "query",
+                        "description": "Filter by email (exact match)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "john@example.com"
+                        }
+                    },
+                    {
+                        "name": "level",
+                        "in": "query",
+                        "description": "Filter by user level",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 600
+                        }
+                    },
+                    {
+                        "name": "entity_id",
+                        "in": "query",
+                        "description": "Filter by entity ID",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "current_page": {
+                                            "type": "integer",
+                                            "example": 2
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/User"
+                                            }
+                                        },
+                                        "from": {
+                                            "type": "integer",
+                                            "example": 16
+                                        },
+                                        "last_page": {
+                                            "type": "integer",
+                                            "example": 4071
+                                        },
+                                        "per_page": {
+                                            "type": "integer",
+                                            "example": 15
+                                        },
+                                        "to": {
+                                            "type": "integer",
+                                            "example": 30
+                                        },
+                                        "total": {
+                                            "type": "integer",
+                                            "example": 4071
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Create a new user",
+                "description": "Create a new user in the system",
+                "operationId": "08fba882ad02248245184aadd082a30d",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserStoreRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "User created successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/user/{id}": {
+            "get": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get a specific user",
+                "description": "Retrieve a specific user by ID or UUID",
+                "operationId": "a03738cf5cbc1e18f7152f365e4564e8",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "User ID or UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "User not found"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update a user",
+                "description": "Update an existing user by ID or UUID",
+                "operationId": "ec1a3effa21ec04f5b2bd8865806a89a",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "User ID or UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "User updated successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "User not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Delete a user",
+                "description": "Delete a user by ID or UUID",
+                "operationId": "57216e5aad659af723cb0901daedf99a",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "User ID or UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "User deleted successfully"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "CalculatorConfigUpdateRequest": {
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "VM"
+                    },
+                    "section": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "Preços de VM"
+                    },
+                    "config": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "CalculatorProposalStoreRequest": {
+                "required": [
+                    "name",
+                    "company",
+                    "phone",
+                    "email",
+                    "fx",
+                    "datacenter",
+                    "contract_duration",
+                    "discount_pct",
+                    "total",
+                    "servers",
+                    "due_at"
+                ],
+                "properties": {
+                    "name": {
+                        "description": "Client name",
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "João Silva"
+                    },
+                    "company": {
+                        "description": "Client company",
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "Tech Corp"
+                    },
+                    "phone": {
+                        "description": "Client phone number",
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "+5511999999999"
+                    },
+                    "email": {
+                        "description": "Client email address",
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 255,
+                        "example": "joao@techcorp.com"
+                    },
+                    "channel_type": {
+                        "description": "Channel type (partner or direct client)",
+                        "type": "string",
+                        "enum": [
+                            "PARCEIRO",
+                            "CLIENTE"
+                        ],
+                        "example": "CLIENTE"
+                    },
+                    "reseller_name": {
+                        "description": "Reseller name (required if channel_type is PARCEIRO)",
+                        "type": "string",
+                        "maxLength": 255,
+                        "example": "Reseller ABC",
+                        "nullable": true
+                    },
+                    "commission_value": {
+                        "description": "Commission value",
+                        "type": "number",
+                        "format": "float",
+                        "minimum": 0,
+                        "example": 1500,
+                        "nullable": true
+                    },
+                    "commission_reason": {
+                        "description": "Reason for commission",
+                        "type": "string",
+                        "example": "Partnership agreement",
+                        "nullable": true
+                    },
+                    "observations": {
+                        "description": "Additional observations",
+                        "type": "string",
+                        "example": "Special customer requirements",
+                        "nullable": true
+                    },
+                    "fx": {
+                        "description": "Exchange rate",
+                        "type": "number",
+                        "format": "float",
+                        "minimum": 0,
+                        "example": 5.5
+                    },
+                    "datacenter": {
+                        "description": "Datacenter location",
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "São Paulo"
+                    },
+                    "contract_duration": {
+                        "description": "Contract duration in months",
+                        "type": "integer",
+                        "minimum": 1,
+                        "example": 12
+                    },
+                    "discount_pct": {
+                        "description": "Discount percentage (0 to 1)",
+                        "type": "number",
+                        "format": "float",
+                        "maximum": 1,
+                        "minimum": 0,
+                        "example": 0.15
+                    },
+                    "total": {
+                        "description": "Total proposal value",
+                        "type": "number",
+                        "format": "float",
+                        "minimum": 0,
+                        "example": 25000
+                    },
+                    "addons": {
+                        "description": "Additional services",
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "example": "Backup"
+                                },
+                                "price": {
+                                    "type": "number",
+                                    "example": 500
+                                },
+                                "quantity": {
+                                    "type": "integer",
+                                    "example": 1
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "nullable": true
+                    },
+                    "servers": {
+                        "description": "Server configurations",
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "example": "VM Standard"
+                                },
+                                "vcpu": {
+                                    "type": "integer",
+                                    "example": 4
+                                },
+                                "ram": {
+                                    "type": "integer",
+                                    "example": 16
+                                },
+                                "storage": {
+                                    "type": "integer",
+                                    "example": 500
+                                },
+                                "price": {
+                                    "type": "number",
+                                    "example": 2500
+                                },
+                                "quantity": {
+                                    "type": "integer",
+                                    "example": 2
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "due_at": {
+                        "description": "Proposal due date",
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2026-02-05T23:59:59Z"
+                    }
+                },
+                "type": "object"
+            },
+            "CalculatorProposalUpdateRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "João Silva"
+                    },
+                    "company": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "Tech Corp"
+                    },
+                    "phone": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "+5511999999999"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 255,
+                        "example": "joao@techcorp.com"
+                    },
+                    "channel_type": {
+                        "type": "string",
+                        "enum": [
+                            "PARCEIRO",
+                            "CLIENTE"
+                        ],
+                        "example": "CLIENTE"
+                    },
+                    "reseller_name": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "example": "Reseller ABC",
+                        "nullable": true
+                    },
+                    "commission_value": {
+                        "type": "number",
+                        "format": "float",
+                        "minimum": 0,
+                        "example": 1500,
+                        "nullable": true
+                    },
+                    "commission_reason": {
+                        "type": "string",
+                        "example": "Partnership agreement",
+                        "nullable": true
+                    },
+                    "observations": {
+                        "type": "string",
+                        "example": "Special customer requirements",
+                        "nullable": true
+                    },
+                    "fx": {
+                        "type": "number",
+                        "format": "float",
+                        "minimum": 0,
+                        "example": 5.5
+                    },
+                    "datacenter": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "example": "São Paulo"
+                    },
+                    "contract_duration": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "example": 12
+                    },
+                    "discount_pct": {
+                        "type": "number",
+                        "format": "float",
+                        "maximum": 1,
+                        "minimum": 0,
+                        "example": 0.15
+                    },
+                    "total": {
+                        "type": "number",
+                        "format": "float",
+                        "minimum": 0,
+                        "example": 25000
+                    },
+                    "addons": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "nullable": true
+                    },
+                    "servers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "due_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2026-02-05T23:59:59Z"
+                    }
+                },
+                "type": "object"
+            },
+            "DefineProposalAcceptanceRequest": {
+                "required": [
+                    "proposal_id",
+                    "approval_token",
+                    "status"
+                ],
+                "properties": {
+                    "proposal_id": {
+                        "description": "ID of the proposal to accept/reject",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "approval_token": {
+                        "description": "Unique approval token for the proposal",
+                        "type": "string",
+                        "example": "abc123def456"
+                    },
+                    "status": {
+                        "description": "Acceptance status",
+                        "type": "string",
+                        "enum": [
+                            "Aprovado",
+                            "Reprovado"
+                        ],
+                        "example": "Aprovado"
+                    }
+                },
+                "type": "object"
+            },
+            "PartnerStoreRequest": {
+                "required": [
+                    "name",
+                    "docnum",
+                    "type"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "example": "Partner Name"
+                    },
+                    "docnum": {
+                        "type": "string",
+                        "example": "00.000.000/0001-00"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "ISV",
+                            "VAR",
+                            "FINDER"
+                        ],
+                        "example": "VAR"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "Pendente",
+                            "Aprovado",
+                            "Reprovado"
+                        ],
+                        "example": "Pendente"
+                    },
+                    "responsible_name": {
+                        "type": "string",
+                        "example": "Responsible Person",
+                        "nullable": true
+                    },
+                    "responsible_email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "resp@example.com",
+                        "nullable": true
+                    },
+                    "responsible_phone": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            " +5511999999999"
+                        ],
+                        "nullable": true
+                    },
+                    "responsible_password": {
+                        "type": "string",
+                        "format": "password",
+                        "example": "password123",
+                        "nullable": true
+                    },
+                    "responsible_password_confirmation": {
+                        "type": "string",
+                        "format": "password",
+                        "example": "password123",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "PartnerUpdateRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "example": "Partner Name Updated"
+                    },
+                    "docnum": {
+                        "type": "string",
+                        "example": "00.000.000/0001-00"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "ISV",
+                            "VAR",
+                            "FINDER"
+                        ],
+                        "example": "VAR"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "Pendente",
+                            "Aprovado",
+                            "Reprovado"
+                        ],
+                        "example": "Aprovado"
+                    },
+                    "responsible_id": {
+                        "type": "integer",
+                        "example": 1,
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "UserStoreRequest": {
+                "required": [
+                    "entity_id",
+                    "name",
+                    "email",
+                    "password",
+                    "password_confirmation"
+                ],
+                "properties": {
+                    "entity_id": {
+                        "description": "Entity ID",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 2,
+                        "example": "John Doe"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 255,
+                        "example": "john@example.com"
+                    },
+                    "password": {
+                        "type": "string",
+                        "format": "password",
+                        "maxLength": 150,
+                        "minLength": 8,
+                        "example": "password123"
+                    },
+                    "password_confirmation": {
+                        "type": "string",
+                        "format": "password",
+                        "example": "password123"
+                    },
+                    "phones": {
+                        "description": "Array of phone numbers",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    },
+                    "birthday": {
+                        "type": "string",
+                        "format": "date",
+                        "example": "1990-01-01",
+                        "nullable": true
+                    },
+                    "tags": {
+                        "description": "Array of tags",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    }
+                },
+                "type": "object"
+            },
+            "UserUpdateRequest": {
+                "properties": {
+                    "entity_id": {
+                        "description": "Entity ID",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 2,
+                        "example": "John Doe Updated"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 255,
+                        "example": "john.updated@example.com"
+                    },
+                    "password": {
+                        "type": "string",
+                        "format": "password",
+                        "maxLength": 150,
+                        "minLength": 8,
+                        "example": "newpassword123"
+                    },
+                    "password_confirmation": {
+                        "type": "string",
+                        "format": "password",
+                        "example": "newpassword123"
+                    },
+                    "phones": {
+                        "description": "Array of phone numbers",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            "+5511999999999"
+                        ]
+                    },
+                    "birthday": {
+                        "type": "string",
+                        "format": "date",
+                        "example": "1990-01-01",
+                        "nullable": true
+                    },
+                    "tags": {
+                        "description": "Array of tags",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            "tag1",
+                            "tag2"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
+            "CalculatorConfig": {
+                "title": "CalculatorConfig",
+                "description": "Calculator configuration model for pricing and settings",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "category": {
+                        "description": "Configuration category (VM, BareMetal, GPU, Add-ons, SQL Server, Storage, Kubernetes, Geral)",
+                        "type": "string",
+                        "example": "VM"
+                    },
+                    "section": {
+                        "description": "Configuration section within the category",
+                        "type": "string",
+                        "example": "Preços de VM"
+                    },
+                    "config": {
+                        "description": "JSON configuration data with pricing and options, may exist other values",
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "label": {
+                                    "type": "string",
+                                    "example": "vCPU"
+                                },
+                                "by": {
+                                    "type": "string",
+                                    "example": "unit"
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "example": "BRL"
+                                },
+                                "value": {
+                                    "type": "number",
+                                    "example": 45
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2023-06-17T01:30:22.000000Z"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2025-08-22T17:01:21.000000Z"
+                    }
+                },
+                "type": "object"
+            },
+            "CalculatorProposal": {
+                "title": "Calculator Proposal",
+                "description": "Calculator proposal model",
+                "properties": {
+                    "id": {
+                        "description": "Proposal ID",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "description": "Client name",
+                        "type": "string",
+                        "example": "João Silva"
+                    },
+                    "company": {
+                        "description": "Client company",
+                        "type": "string",
+                        "example": "Tech Corp"
+                    },
+                    "phone": {
+                        "description": "Client phone",
+                        "type": "string",
+                        "example": "+5511999999999"
+                    },
+                    "email": {
+                        "description": "Client email",
+                        "type": "string",
+                        "format": "email",
+                        "example": "joao@techcorp.com"
+                    },
+                    "status": {
+                        "description": "Proposal status",
+                        "type": "string",
+                        "example": "Enviado"
+                    },
+                    "channel_type": {
+                        "description": "Channel type",
+                        "type": "string",
+                        "enum": [
+                            "PARCEIRO",
+                            "CLIENTE"
+                        ],
+                        "example": "CLIENTE"
+                    },
+                    "reseller_name": {
+                        "description": "Reseller name",
+                        "type": "string",
+                        "example": "Reseller ABC",
+                        "nullable": true
+                    },
+                    "commission_value": {
+                        "description": "Commission value",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1500,
+                        "nullable": true
+                    },
+                    "commission_reason": {
+                        "description": "Commission reason",
+                        "type": "string",
+                        "example": "Partnership agreement",
+                        "nullable": true
+                    },
+                    "observations": {
+                        "description": "Observations",
+                        "type": "string",
+                        "example": "Special customer",
+                        "nullable": true
+                    },
+                    "fx": {
+                        "description": "Exchange rate",
+                        "type": "number",
+                        "format": "float",
+                        "example": 5.5
+                    },
+                    "datacenter": {
+                        "description": "Datacenter location",
+                        "type": "string",
+                        "example": "São Paulo"
+                    },
+                    "contract_duration": {
+                        "description": "Contract duration in months",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "discount_pct": {
+                        "description": "Discount percentage",
+                        "type": "number",
+                        "format": "float",
+                        "example": 0.15
+                    },
+                    "total": {
+                        "description": "Total value",
+                        "type": "number",
+                        "format": "float",
+                        "example": 25000
+                    },
+                    "addons": {
+                        "description": "Additional services in JSON format",
+                        "type": "object",
+                        "nullable": true
+                    },
+                    "servers": {
+                        "description": "Servers configuration in JSON format",
+                        "type": "object"
+                    },
+                    "due_at": {
+                        "description": "Proposal due date",
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2026-02-05T23:59:59Z"
+                    },
+                    "created_by": {
+                        "description": "ID of the user who created the proposal",
+                        "type": "integer",
+                        "example": 1,
+                        "nullable": true
+                    },
+                    "creator": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/User"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "User who created the proposal"
+                    },
+                    "created_at": {
+                        "description": "Creation timestamp",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "description": "Last update timestamp",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "deleted_at": {
+                        "description": "Deletion timestamp",
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "files": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CalculatorProposalFile"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "Files associated with the proposal"
+                    }
+                },
+                "type": "object"
+            },
+            "CalculatorProposalFile": {
+                "title": "Calculator Proposal File",
+                "description": "Calculator proposal file model",
+                "properties": {
+                    "id": {
+                        "description": "File ID",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "original_name": {
+                        "description": "Original file name",
+                        "type": "string",
+                        "example": "proposal.pdf"
+                    },
+                    "path": {
+                        "description": "File path",
+                        "type": "string",
+                        "example": "1_1640995200_abc123.pdf"
+                    },
+                    "proposal_id": {
+                        "description": "Associated proposal ID",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "created_by": {
+                        "description": "ID of the user who uploaded the file",
+                        "type": "integer",
+                        "example": 1,
+                        "nullable": true
+                    },
+                    "creator": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/User"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "User who uploaded the file"
+                    },
+                    "created_at": {
+                        "description": "Creation timestamp",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "description": "Last update timestamp",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "type": "object"
+            },
+            "Partner": {
+                "title": "Partner",
+                "description": "Partner model",
+                "properties": {
+                    "id": {
+                        "description": "Partner ID",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "description": "Partner name",
+                        "type": "string",
+                        "example": "João Silva"
+                    },
+                    "docnum": {
+                        "description": "Partner CNPJ",
+                        "type": "string",
+                        "example": "00.000.000/0001-00"
+                    },
+                    "type": {
+                        "description": "Partner type",
+                        "type": "string",
+                        "enum": [
+                            "ISV",
+                            "VAR",
+                            "FINDER"
+                        ],
+                        "example": "VAR"
+                    },
+                    "status": {
+                        "description": "Partner status",
+                        "type": "string",
+                        "enum": [
+                            "Pendente",
+                            "Aprovado",
+                            "Reprovado"
+                        ],
+                        "example": "Pendente"
+                    },
+                    "responsible_id": {
+                        "description": "ID of the user who is responsible for the partner",
+                        "type": "integer",
+                        "example": 1,
+                        "nullable": true
+                    },
+                    "responsible": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/User"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "User responsible for the partner"
+                    },
+                    "created_at": {
+                        "description": "Creation timestamp",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "description": "Last update timestamp",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "deleted_at": {
+                        "description": "Deletion timestamp",
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "User": {
+                "title": "User",
+                "description": "User model",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "example": "710c1d2c-529d-4ba2-827d-2138b3c81f10"
+                    },
+                    "entity_id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "example": "Dev OPDC"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "email@opendatacenter.com.br"
+                    },
+                    "level": {
+                        "description": "User level: 1=Cliente, 200=Parceiro, 600=RH, 680=BDR, 690=Arquiteto de soluções, 700=Comercial, 750=Gerente Comercial, 775=Sucesso do Cliente, 900=Suporte, 950=Gerente de Suporte, 1000=Admin",
+                        "type": "integer",
+                        "example": 600
+                    },
+                    "roles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    },
+                    "preferences": {
+                        "type": "object",
+                        "example": {
+                            "theme": "dark"
+                        }
+                    },
+                    "phones": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    },
+                    "birthday": {
+                        "type": "string",
+                        "format": "date",
+                        "example": null,
+                        "nullable": true
+                    },
+                    "oauth_google": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "hr_name": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "email_verified_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2023-06-17T01:30:22.000000Z",
+                        "nullable": true
+                    },
+                    "can_receive_emails": {
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "is_login_ldap": {
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "last_login_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": null,
+                        "nullable": true
+                    },
+                    "last_ip": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "avatar": {
+                        "type": "string",
+                        "format": "uri",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "sprite": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "obs": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "demo": {
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "authcode": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "authcode_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": null,
+                        "nullable": true
+                    },
+                    "cs_contact_preference": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "example": null,
+                        "nullable": true
+                    },
+                    "updated_by": {
+                        "type": "integer",
+                        "example": null,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2023-06-17T01:30:22.000000Z"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2025-08-22T17:01:21.000000Z"
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "example": null,
+                        "nullable": true
+                    },
+                    "postponed": {
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "docnum": {
+                        "type": "string",
+                        "example": "",
+                        "nullable": true
+                    },
+                    "signer": {
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "parameters": {
+            "PageParameter": {
+                "name": "__page",
+                "in": "query",
+                "description": "Page number",
+                "required": false,
+                "schema": {
+                    "type": "integer",
+                    "default": 1,
+                    "example": 2
+                }
+            },
+            "PerPageParameter": {
+                "name": "__perPage",
+                "in": "query",
+                "description": "Items per page",
+                "required": false,
+                "schema": {
+                    "type": "integer",
+                    "default": 10,
+                    "example": 15
+                }
+            },
+            "WithParameter": {
+                "name": "__with",
+                "in": "query",
+                "description": "Load relationships (comma-separated). Example: entity,roles",
+                "required": false,
+                "schema": {
+                    "type": "string",
+                    "example": "entity"
+                }
+            },
+            "OrderParameter": {
+                "name": "__order",
+                "in": "query",
+                "description": "Order by column(s). Format: column:direction (ASC/DESC). Multiple orders separated by comma. Example: name:ASC,created_at:DESC",
+                "required": false,
+                "schema": {
+                    "type": "string",
+                    "example": "name:ASC"
+                }
+            },
+            "LimitParameter": {
+                "name": "__limit",
+                "in": "query",
+                "description": "Limit number of results",
+                "required": false,
+                "schema": {
+                    "type": "integer",
+                    "example": 100
+                }
+            },
+            "SearchParameter": {
+                "name": "__q",
+                "in": "query",
+                "description": "Search term (minimum 2 characters). Searches across configured searchable columns",
+                "required": false,
+                "schema": {
+                    "type": "string",
+                    "minLength": 2,
+                    "example": "John"
+                }
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Authentication",
+            "description": "Authentication"
+        },
+        {
+            "name": "Calculator Config",
+            "description": "Calculator Config"
+        },
+        {
+            "name": "Calculator Proposals",
+            "description": "Calculator Proposals"
+        },
+        {
+            "name": "Calculator Proposal Files",
+            "description": "Calculator Proposal Files"
+        },
+        {
+            "name": "Partners",
+            "description": "Partners"
+        },
+        {
+            "name": "Users",
+            "description": "Users"
+        }
+    ]
+}
