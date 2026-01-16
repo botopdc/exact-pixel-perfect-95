@@ -2,7 +2,7 @@
  * Metas Comerciais - Commercial Goals Management
  * 
  * RBAC Rules:
- * - Admin (1000): Read-only view, can select any manager via dropdown
+ * - Admin (1000): Can edit Global Meta, Quarters, Months for any manager (via dropdown)
  * - Gerente (750): Can only edit "Metas por Executivo" section for their own goals
  * 
  * Uses /api/annual-goal endpoint with structure:
@@ -157,14 +157,14 @@ const MetasComerciais = () => {
   const isAdmin = userLevel === 1000;
   const isManager = userLevel === 750;
   
-  // Admin: always read-only (viewing mode)
-  // Manager: can only edit "Metas por Executivo" section
-  const canEditGlobalMeta = false; // No one can edit global meta here (only via API or future admin form)
-  const canEditDistribuicoes = false; // No one can edit distributions here
+  // Admin (1000): Can edit Global Meta, Quarters, Months (after selecting a manager)
+  // Manager (750): Can only edit "Metas por Executivo" section for their own goals
+  const canEditGlobalMeta = isAdmin && !!selectedManagerId; // Admin can edit after selecting manager
+  const canEditDistribuicoes = isAdmin && !!selectedManagerId; // Admin can edit quarters/months
   const canEditMetasExecutivo = isManager; // Only managers can edit executives section
   
   // General edit permission (for save button visibility)
-  const canEdit = canEditMetasExecutivo;
+  const canEdit = canEditGlobalMeta || canEditDistribuicoes || canEditMetasExecutivo;
   
   const availableYears = getAvailableYears();
 
@@ -572,13 +572,13 @@ const MetasComerciais = () => {
         </Card>
       )}
 
-      {/* Admin read-only notice */}
-      {isAdmin && (
+      {/* Admin edit notice */}
+      {isAdmin && selectedManagerId && (
         <Card className="border-blue-500/50 bg-blue-500/10">
           <CardContent className="p-4 flex items-center gap-3">
-            <Eye className="h-5 w-5 text-blue-500" />
+            <Target className="h-5 w-5 text-blue-500" />
             <p className="text-blue-600 dark:text-blue-400">
-              Modo visualização: você está visualizando as metas do gerente selecionado. Alterações não são permitidas.
+              Modo edição Admin: você pode editar Meta Global, Trimestres e Distribuição Mensal para o gerente selecionado.
             </p>
           </CardContent>
         </Card>
