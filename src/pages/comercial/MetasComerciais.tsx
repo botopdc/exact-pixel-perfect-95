@@ -1,10 +1,9 @@
 /**
  * Metas Comerciais - Commercial Goals Management
  * 
- * Allows Admin (1000) and Manager (750) to define yearly sales goals:
- * - Global annual target with quarterly distribution
- * - Monthly distribution (editable)
- * - Executive-level goals allocation
+ * RBAC Rules:
+ * - Admin (1000): Read-only view, can select any manager via dropdown
+ * - Gerente (750): Can only edit "Metas por Executivo" section for their own goals
  * 
  * Uses /api/annual-goal endpoint with structure:
  * - manager_id, year, goal, mrr_goal, q1-q4, jan-dec
@@ -71,6 +70,7 @@ import {
   DollarSign,
   Building2,
   UserPlus,
+  Eye,
 } from 'lucide-react';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
 import {
@@ -89,6 +89,7 @@ import {
 } from '@/hooks/useMetasComerciais';
 import { openApi } from '@/lib/openApi';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useUsers } from '@/hooks/useUsers';
 
 const ROLE_OPTIONS = ['Comercial', 'BDR', 'Arquiteto de soluções', 'Gerente', 'Outro'];
 
@@ -105,7 +106,31 @@ const MetasComerciais = () => {
   const [selectedExecutiveIds, setSelectedExecutiveIds] = useState<number[]>([]);
   const [loadingExecutives, setLoadingExecutives] = useState(false);
   const [executiveToDelete, setExecutiveToDelete] = useState<number | null>(null);
+  
+  // Manager selection for Admin
+  const [selectedManagerId, setSelectedManagerId] = useState<number | undefined>(undefined);
 
+  // Fetch managers (level 750) for Admin dropdown
+  const { data: managersData, isLoading: loadingManagers } = useUsers({ level: 750, __perPage: 100 });
+  const managers = managersData?.data || [];
+
+  // Check user level first
+  useEffect(() => {
+    openApi.getCurrentUser().then((user) => {
+      setUserLevel(user.level);
+      setCurrentUserId(user.id);
+      
+      // If user is Manager (750), auto-set their ID as filter
+      if (user.level === 750) {
+        setSelectedManagerId(user.id);
+      }
+      // Admin starts without selection (will show prompt to select)
+    }).catch(() => {
+      setUserLevel(0);
+    });
+  }, []);
+
+  // Use hook with manager filter
   const {
     yearsData,
     isLoading,
@@ -117,17 +142,7 @@ const MetasComerciais = () => {
     saveYear,
     isSaving,
     currentManagerId,
-  } = useMetasComerciais();
-
-  // Check user level
-  useEffect(() => {
-    openApi.getCurrentUser().then((user) => {
-      setUserLevel(user.level);
-      setCurrentUserId(user.id);
-    }).catch(() => {
-      setUserLevel(0);
-    });
-  }, []);
+  } = useMetasComerciais(selectedManagerId);
 
   // Load year data when selected year changes
   useEffect(() => {
@@ -138,7 +153,19 @@ const MetasComerciais = () => {
     }
   }, [selectedYear, yearsData, isLoading, getYearData]);
 
-  const canEdit = userLevel === 1000 || userLevel === 750;
+  // RBAC: Permission rules per section
+  const isAdmin = userLevel === 1000;
+  const isManager = userLevel === 750;
+  
+  // Admin: always read-only (viewing mode)
+  // Manager: can only edit "Metas por Executivo" section
+  const canEditGlobalMeta = false; // No one can edit global meta here (only via API or future admin form)
+  const canEditDistribuicoes = false; // No one can edit distributions here
+  const canEditMetasExecutivo = isManager; // Only managers can edit executives section
+  
+  // General edit permission (for save button visibility)
+  const canEdit = canEditMetasExecutivo;
+  
   const availableYears = getAvailableYears();
 
   // Calculations - CRITICAL: All calculations must use Number() to prevent string concatenation
@@ -419,6 +446,58 @@ const MetasComerciais = () => {
     );
   }
 
+  // If Admin hasn't selected a manager yet, show selection prompt
+  if (isAdmin && !selectedManagerId) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground mb-2 flex items-center gap-2">
+            <Target className="h-8 w-8 text-primary" />
+            Metas Comerciais
+          </h1>
+          <p className="text-muted-foreground">
+            Visualize metas anuais por gerente comercial
+          </p>
+        </div>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Selecionar Gerente
+            </CardTitle>
+            <CardDescription>
+              Escolha um gerente comercial para visualizar suas metas
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loadingManagers ? (
+              <Skeleton className="h-10 w-full" />
+            ) : managers.length === 0 ? (
+              <p className="text-muted-foreground">Nenhum gerente comercial (nível 750) encontrado.</p>
+            ) : (
+              <Select
+                value={selectedManagerId?.toString() || ''}
+                onValueChange={(v) => setSelectedManagerId(Number(v))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione um gerente..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {managers.map((mgr: any) => (
+                    <SelectItem key={mgr.id} value={String(mgr.id)}>
+                      {mgr.name} — {mgr.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -427,29 +506,60 @@ const MetasComerciais = () => {
           <h1 className="text-3xl font-bold text-foreground mb-2 flex items-center gap-2">
             <Target className="h-8 w-8 text-primary" />
             Metas Comerciais
+            {isAdmin && (
+              <Badge variant="outline" className="ml-2">
+                <Eye className="h-3 w-3 mr-1" />
+                Visualização
+              </Badge>
+            )}
           </h1>
           <p className="text-muted-foreground">
-            Defina metas anuais globais e distribua entre executivos
+            {isAdmin 
+              ? 'Visualizando metas do gerente selecionado (somente leitura)'
+              : 'Gerencie as metas dos executivos do seu time'}
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Manager selector for Admin */}
+          {isAdmin && (
+            <Select
+              value={selectedManagerId?.toString() || ''}
+              onValueChange={(v) => setSelectedManagerId(Number(v))}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue placeholder="Selecionar Gerente" />
+              </SelectTrigger>
+              <SelectContent>
+                {managers.map((mgr: any) => (
+                  <SelectItem key={mgr.id} value={String(mgr.id)}>
+                    {mgr.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          
           <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Atualizar
           </Button>
-          <Button onClick={handleSave} disabled={!hasChanges || isSaving || !canEdit}>
-            {isSaving ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Salvando...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Salvar
-              </>
-            )}
-          </Button>
+          
+          {/* Save button only for managers */}
+          {canEdit && (
+            <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
+              {isSaving ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Salvar
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -462,12 +572,25 @@ const MetasComerciais = () => {
         </Card>
       )}
 
-      {!canEdit && (
-        <Card className="border-amber-500/50 bg-amber-500/10">
+      {/* Admin read-only notice */}
+      {isAdmin && (
+        <Card className="border-blue-500/50 bg-blue-500/10">
           <CardContent className="p-4 flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
-            <p className="text-amber-600 dark:text-amber-400">
-              Você não tem permissão para editar metas. Apenas Admin e Gerente Comercial podem alterar.
+            <Eye className="h-5 w-5 text-blue-500" />
+            <p className="text-blue-600 dark:text-blue-400">
+              Modo visualização: você está visualizando as metas do gerente selecionado. Alterações não são permitidas.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      
+      {/* Manager section edit info */}
+      {isManager && (
+        <Card className="border-green-500/50 bg-green-500/10">
+          <CardContent className="p-4 flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-green-500" />
+            <p className="text-green-600 dark:text-green-400">
+              Você pode editar a seção "Metas por Executivo". As demais seções são somente leitura.
             </p>
           </CardContent>
         </Card>
@@ -519,15 +642,21 @@ const MetasComerciais = () => {
 
         {availableYears.map((year) => (
           <TabsContent key={year} value={String(year)} className="space-y-6">
-            {/* Block A: Global Goal */}
-            <Card>
+            {/* Block A: Global Goal - READ ONLY for everyone on this page */}
+            <Card className={!canEditGlobalMeta ? 'opacity-80' : ''}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <PieChart className="h-5 w-5 text-primary" />
                   Meta Global — {year}
+                  {!canEditGlobalMeta && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      <Eye className="h-3 w-3 mr-1" />
+                      Somente leitura
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription>
-                  Defina a meta anual global e a distribuição por trimestres
+                  Meta anual global e distribuição por trimestres
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -540,7 +669,7 @@ const MetasComerciais = () => {
                       step={10000}
                       value={localData?.goal || ''}
                       onChange={(e) => updateGoalField('goal', parseFloat(e.target.value) || 0)}
-                      disabled={!canEdit}
+                      disabled={!canEditGlobalMeta}
                       className="text-lg font-semibold"
                     />
                     <p className="text-xs text-muted-foreground">
@@ -555,7 +684,7 @@ const MetasComerciais = () => {
                       step={1000}
                       value={localData?.mrrGoal || ''}
                       onChange={(e) => updateGoalField('mrrGoal', parseFloat(e.target.value) || 0)}
-                      disabled={!canEdit}
+                      disabled={!canEditGlobalMeta}
                       placeholder={`Auto: ${formatCurrencyBRL((localData?.goal || 0) / 12)}`}
                     />
                     <p className="text-xs text-muted-foreground">
@@ -572,7 +701,7 @@ const MetasComerciais = () => {
                       variant="outline"
                       size="sm"
                       onClick={recalculateQuartersFromGoal}
-                      disabled={!canEdit}
+                      disabled={!canEditGlobalMeta}
                     >
                       <Wand2 className="h-4 w-4 mr-2" />
                       Distribuir Igualmente
@@ -588,7 +717,7 @@ const MetasComerciais = () => {
                           step={10000}
                           value={Math.round(localData?.quarters[q] || 0)}
                           onChange={(e) => updateQuarterValue(q, parseFloat(e.target.value) || 0)}
-                          disabled={!canEdit}
+                          disabled={!canEditGlobalMeta}
                           className="text-center"
                         />
                         <p className="text-xs text-center text-muted-foreground">
@@ -601,7 +730,7 @@ const MetasComerciais = () => {
                     variant="outline"
                     size="sm"
                     onClick={recalculateMonthlyFromQuarters}
-                    disabled={!canEdit}
+                    disabled={!canEditGlobalMeta}
                   >
                     <Wand2 className="h-4 w-4 mr-2" />
                     Recalcular Meses pelos Trimestres
@@ -610,15 +739,21 @@ const MetasComerciais = () => {
               </CardContent>
             </Card>
 
-            {/* Block B: Monthly Distribution */}
-            <Card>
+            {/* Block B: Monthly Distribution - READ ONLY for everyone on this page */}
+            <Card className={!canEditDistribuicoes ? 'opacity-80' : ''}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-primary" />
                   Distribuição Mensal — {year}
+                  {!canEditDistribuicoes && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      <Eye className="h-3 w-3 mr-1" />
+                      Somente leitura
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription>
-                  Ajuste os valores mensais manualmente se necessário
+                  Valores mensais da meta global
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -642,7 +777,7 @@ const MetasComerciais = () => {
                             step={1000}
                             value={Math.round(localData?.months[m] || 0)}
                             onChange={(e) => updateMonthlyTarget(m, parseFloat(e.target.value) || 0)}
-                            disabled={!canEdit}
+                            disabled={!canEditDistribuicoes}
                             className="text-center text-xs h-8"
                           />
                         </TableCell>
@@ -684,100 +819,109 @@ const MetasComerciais = () => {
               </CardContent>
             </Card>
 
-            {/* Block C: Executives */}
-            <Card>
+            {/* Block C: Executives - EDITABLE only for Managers (750) */}
+            <Card className={canEditMetasExecutivo ? 'ring-2 ring-primary/20' : ''}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <Users className="h-5 w-5 text-primary" />
                       Metas por Executivo — {year}
+                      {canEditMetasExecutivo && (
+                        <Badge variant="default" className="ml-2 text-xs">
+                          Editável
+                        </Badge>
+                      )}
                     </CardTitle>
                     <CardDescription>
-                      Adicione executivos e defina metas individuais
+                      {canEditMetasExecutivo 
+                        ? 'Adicione executivos e defina metas individuais'
+                        : 'Visualização das metas por executivo'}
                     </CardDescription>
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={distributeAutomatically}
-                      disabled={!canEdit || (localData?.executives.length || 0) === 0}
-                    >
-                      <Wand2 className="h-4 w-4 mr-2" />
-                      Distribuir Automaticamente
-                    </Button>
-                    <Dialog open={showAddExecutive} onOpenChange={(open) => {
-                      setShowAddExecutive(open);
-                      if (open) loadAvailableExecutives();
-                    }}>
-                      <DialogTrigger asChild>
-                        <Button size="sm" disabled={!canEdit}>
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          Adicionar Executivo
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>Adicionar Executivos</DialogTitle>
-                          <DialogDescription>
-                            Selecione os executivos (nível 700) para adicionar às metas
-                          </DialogDescription>
-                        </DialogHeader>
-                        {loadingExecutives ? (
-                          <div className="py-8 flex justify-center">
-                            <RefreshCw className="h-6 w-6 animate-spin text-primary" />
-                          </div>
-                        ) : availableExecutives.length === 0 ? (
-                          <p className="text-center py-8 text-muted-foreground">
-                            Todos os executivos já foram adicionados
-                          </p>
-                        ) : (
-                          <div className="max-h-64 overflow-y-auto space-y-2">
-                            {availableExecutives.map((exec) => (
-                              <div
-                                key={exec.id}
-                                className="flex items-center gap-3 p-2 rounded-lg border hover:bg-muted/50 cursor-pointer"
-                                onClick={() => {
-                                  setSelectedExecutiveIds((prev) =>
-                                    prev.includes(exec.id)
-                                      ? prev.filter((id) => id !== exec.id)
-                                      : [...prev, exec.id]
-                                  );
-                                }}
-                              >
-                                <Checkbox
-                                  checked={selectedExecutiveIds.includes(exec.id)}
-                                  onCheckedChange={(checked) => {
+                  {canEditMetasExecutivo && (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={distributeAutomatically}
+                        disabled={(localData?.executives.length || 0) === 0}
+                      >
+                        <Wand2 className="h-4 w-4 mr-2" />
+                        Distribuir Automaticamente
+                      </Button>
+                      <Dialog open={showAddExecutive} onOpenChange={(open) => {
+                        setShowAddExecutive(open);
+                        if (open) loadAvailableExecutives();
+                      }}>
+                        <DialogTrigger asChild>
+                          <Button size="sm">
+                            <UserPlus className="h-4 w-4 mr-2" />
+                            Adicionar Executivo
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-lg">
+                          <DialogHeader>
+                            <DialogTitle>Adicionar Executivos</DialogTitle>
+                            <DialogDescription>
+                              Selecione os executivos (nível 700) para adicionar às metas
+                            </DialogDescription>
+                          </DialogHeader>
+                          {loadingExecutives ? (
+                            <div className="py-8 flex justify-center">
+                              <RefreshCw className="h-6 w-6 animate-spin text-primary" />
+                            </div>
+                          ) : availableExecutives.length === 0 ? (
+                            <p className="text-center py-8 text-muted-foreground">
+                              Todos os executivos já foram adicionados
+                            </p>
+                          ) : (
+                            <div className="max-h-64 overflow-y-auto space-y-2">
+                              {availableExecutives.map((exec) => (
+                                <div
+                                  key={exec.id}
+                                  className="flex items-center gap-3 p-2 rounded-lg border hover:bg-muted/50 cursor-pointer"
+                                  onClick={() => {
                                     setSelectedExecutiveIds((prev) =>
-                                      checked
-                                        ? [...prev, exec.id]
-                                        : prev.filter((id) => id !== exec.id)
+                                      prev.includes(exec.id)
+                                        ? prev.filter((id) => id !== exec.id)
+                                        : [...prev, exec.id]
                                     );
                                   }}
-                                />
-                                <div className="flex-1">
-                                  <p className="font-medium">{exec.name}</p>
-                                  <p className="text-xs text-muted-foreground">{exec.email}</p>
+                                >
+                                  <Checkbox
+                                    checked={selectedExecutiveIds.includes(exec.id)}
+                                    onCheckedChange={(checked) => {
+                                      setSelectedExecutiveIds((prev) =>
+                                        checked
+                                          ? [...prev, exec.id]
+                                          : prev.filter((id) => id !== exec.id)
+                                      );
+                                    }}
+                                  />
+                                  <div className="flex-1">
+                                    <p className="font-medium">{exec.name}</p>
+                                    <p className="text-xs text-muted-foreground">{exec.email}</p>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setShowAddExecutive(false)}>
-                            Cancelar
-                          </Button>
-                          <Button
-                            onClick={handleAddExecutives}
-                            disabled={selectedExecutiveIds.length === 0}
-                          >
-                            Adicionar {selectedExecutiveIds.length > 0 && `(${selectedExecutiveIds.length})`}
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
+                              ))}
+                            </div>
+                          )}
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowAddExecutive(false)}>
+                              Cancelar
+                            </Button>
+                            <Button
+                              onClick={handleAddExecutives}
+                              disabled={selectedExecutiveIds.length === 0}
+                            >
+                              Adicionar {selectedExecutiveIds.length > 0 && `(${selectedExecutiveIds.length})`}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -848,7 +992,7 @@ const MetasComerciais = () => {
                             <Select
                               value={exec.role}
                               onValueChange={(v) => updateExecutiveField(exec.executiveId, 'role', v)}
-                              disabled={!canEdit}
+                              disabled={!canEditMetasExecutivo}
                             >
                               <SelectTrigger className="w-40 h-8">
                                 <SelectValue />
@@ -869,7 +1013,7 @@ const MetasComerciais = () => {
                               onChange={(e) =>
                                 updateExecutiveGoal(exec.executiveId, parseFloat(e.target.value) || 0)
                               }
-                              disabled={!canEdit}
+                              disabled={!canEditMetasExecutivo}
                               className="w-32 text-right"
                             />
                           </TableCell>
@@ -889,14 +1033,15 @@ const MetasComerciais = () => {
                             {formatCurrencyBRL(exec.quarters?.q4 || 0)}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setExecutiveToDelete(exec.executiveId)}
-                              disabled={!canEdit}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canEditMetasExecutivo && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setExecutiveToDelete(exec.executiveId)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
