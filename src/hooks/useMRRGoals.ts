@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { useMetasComerciais, ExecutiveGoal } from './useMetasComerciais';
+import { useMetasComerciais, ExecutiveGoal, DEFAULT_MONTHLY_TARGETS, DEFAULT_QUARTER_TARGETS } from './useMetasComerciais';
 
 export interface ExecutiveMRRGoal {
   executiveId: number;
@@ -27,6 +27,7 @@ export function useMRRGoals() {
     getExecutivesWithGoals,
     saveYear,
     isSaving,
+    currentManagerId,
   } = useMetasComerciais();
 
   // Convert executives to simple MRR goals format
@@ -35,8 +36,8 @@ export function useMRRGoals() {
     if (!yearData) return [];
     
     return yearData.executives.map((exec) => ({
-      executiveId: exec.id,
-      metaMRR: exec.monthlyMRRTarget || 0,
+      executiveId: exec.executiveId,
+      metaMRR: exec.mrrGoal || 0,
     }));
   }, [yearsData, currentYear]);
 
@@ -68,26 +69,26 @@ export function useMRRGoals() {
     }
 
     // Update executives with new MRR goals
-    const updatedExecutives = yearData.executives.map((exec) => {
-      const goal = goals.find((g) => g.executiveId === exec.id);
+    const updatedExecutives: ExecutiveGoal[] = yearData.executives.map((exec) => {
+      const goal = goals.find((g) => g.executiveId === exec.executiveId);
       if (goal) {
-        return { ...exec, monthlyMRRTarget: goal.metaMRR };
+        return { ...exec, mrrGoal: goal.metaMRR };
       }
       return exec;
     });
 
     // Add new executives that don't exist yet
     goals.forEach((goal) => {
-      if (!updatedExecutives.some((e) => e.id === goal.executiveId)) {
+      if (!updatedExecutives.some((e) => e.executiveId === goal.executiveId)) {
         updatedExecutives.push({
-          id: goal.executiveId,
+          executiveId: goal.executiveId,
           name: '',
           email: '',
-          teamType: 'interno',
-          annualTarget: 0,
-          monthlyMRRTarget: goal.metaMRR,
-          monthlyTargets: { jan: 0, feb: 0, mar: 0, apr: 0, may: 0, jun: 0, jul: 0, aug: 0, sep: 0, oct: 0, nov: 0, dec: 0 },
-          quarterTargets: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+          role: 'Comercial',
+          goal: 0,
+          mrrGoal: goal.metaMRR,
+          months: { ...DEFAULT_MONTHLY_TARGETS },
+          quarters: { ...DEFAULT_QUARTER_TARGETS },
         });
       }
     });

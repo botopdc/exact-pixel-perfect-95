@@ -6,7 +6,9 @@
  * - Monthly distribution (editable)
  * - Executive-level goals allocation
  * 
- * Persists via /api/annual-goal endpoint
+ * Uses /api/annual-goal endpoint with structure:
+ * - manager_id, year, goal, mrr_goal, q1-q4, jan-dec
+ * - executives[] with executive_id, role, goal, mrr_goal, q1-q4, jan-dec
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -76,21 +78,23 @@ import {
   YearGoalData,
   ExecutiveGoal,
   MonthlyTargets,
-  QuarterWeights,
+  QuarterTargets,
   MONTH_LABELS,
   MONTH_KEYS,
-  DEFAULT_QUARTER_WEIGHTS,
+  DEFAULT_QUARTER_TARGETS,
   DEFAULT_MONTHLY_TARGETS,
   createEmptyYearGoal,
-  calculateMonthlyFromQuarters,
-  calculateQuarterTargets,
   sumMonthlyTargets,
+  MonthKey,
 } from '@/hooks/useMetasComerciais';
 import { openApi } from '@/lib/openApi';
 import { Checkbox } from '@/components/ui/checkbox';
 
+const ROLE_OPTIONS = ['Comercial', 'BDR', 'Arquiteto de soluções', 'Gerente', 'Outro'];
+
 const MetasComerciais = () => {
   const [userLevel, setUserLevel] = useState<number>(0);
+  const [currentUserId, setCurrentUserId] = useState<number>(1);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [localData, setLocalData] = useState<YearGoalData | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -112,12 +116,14 @@ const MetasComerciais = () => {
     getAvailableYears,
     saveYear,
     isSaving,
+    currentManagerId,
   } = useMetasComerciais();
 
   // Check user level
   useEffect(() => {
     openApi.getCurrentUser().then((user) => {
       setUserLevel(user.level);
+      setCurrentUserId(user.id);
     }).catch(() => {
       setUserLevel(0);
     });
@@ -138,71 +144,97 @@ const MetasComerciais = () => {
   // Calculations
   const globalSumMonths = useMemo(() => {
     if (!localData) return 0;
-    return sumMonthlyTargets(localData.global.monthlyTargets);
+    return sumMonthlyTargets(localData.months);
   }, [localData]);
 
   const executivesSumAnnual = useMemo(() => {
     if (!localData) return 0;
-    return localData.executives.reduce((sum, e) => sum + (e.annualTarget || 0), 0);
+    return localData.executives.reduce((sum, e) => sum + (e.goal || 0), 0);
   }, [localData]);
 
   const distributionDiff = useMemo(() => {
     if (!localData) return 0;
-    return localData.global.annualTarget - executivesSumAnnual;
+    return localData.goal - executivesSumAnnual;
   }, [localData, executivesSumAnnual]);
 
   const monthsMatchAnnual = useMemo(() => {
     if (!localData) return true;
-    return Math.abs(globalSumMonths - localData.global.annualTarget) < 1;
+    return Math.abs(globalSumMonths - localData.goal) < 1;
   }, [localData, globalSumMonths]);
 
+  // Calculate quarter weights from quarters
+  const quarterWeights = useMemo(() => {
+    if (!localData || !localData.goal) return { Q1: 25, Q2: 25, Q3: 25, Q4: 25 };
+    const total = localData.goal;
+    return {
+      Q1: total > 0 ? Math.round((localData.quarters.q1 / total) * 100) : 25,
+      Q2: total > 0 ? Math.round((localData.quarters.q2 / total) * 100) : 25,
+      Q3: total > 0 ? Math.round((localData.quarters.q3 / total) * 100) : 25,
+      Q4: total > 0 ? Math.round((localData.quarters.q4 / total) * 100) : 25,
+    };
+  }, [localData]);
+
   // Update functions
-  const updateGlobalField = (field: keyof typeof localData.global, value: number) => {
+  const updateGoalField = (field: 'goal' | 'mrrGoal', value: number) => {
     if (!localData) return;
     setLocalData({
       ...localData,
-      global: { ...localData.global, [field]: value },
+      [field]: value,
     });
     setHasChanges(true);
   };
 
-  const updateQuarterWeight = (quarter: keyof QuarterWeights, value: number) => {
+  const updateQuarterValue = (quarter: keyof QuarterTargets, value: number) => {
     if (!localData) return;
-    const newWeights = { ...localData.global.quarterWeights, [quarter]: value };
-    // Recalculate monthly from quarters
-    const newMonthly = calculateMonthlyFromQuarters(localData.global.annualTarget, newWeights);
     setLocalData({
       ...localData,
-      global: {
-        ...localData.global,
-        quarterWeights: newWeights,
-        monthlyTargets: newMonthly,
-      },
+      quarters: { ...localData.quarters, [quarter]: value },
     });
     setHasChanges(true);
   };
 
-  const updateMonthlyTarget = (month: keyof MonthlyTargets, value: number) => {
+  const updateMonthlyTarget = (month: MonthKey, value: number) => {
     if (!localData) return;
     setLocalData({
       ...localData,
-      global: {
-        ...localData.global,
-        monthlyTargets: { ...localData.global.monthlyTargets, [month]: value },
-      },
+      months: { ...localData.months, [month]: value },
     });
     setHasChanges(true);
   };
 
   const recalculateMonthlyFromQuarters = () => {
     if (!localData) return;
-    const newMonthly = calculateMonthlyFromQuarters(
-      localData.global.annualTarget,
-      localData.global.quarterWeights
-    );
+    const { q1, q2, q3, q4 } = localData.quarters;
+    const q1Monthly = q1 / 3;
+    const q2Monthly = q2 / 3;
+    const q3Monthly = q3 / 3;
+    const q4Monthly = q4 / 3;
+    
     setLocalData({
       ...localData,
-      global: { ...localData.global, monthlyTargets: newMonthly },
+      months: {
+        jan: q1Monthly, feb: q1Monthly, mar: q1Monthly,
+        apr: q2Monthly, may: q2Monthly, jun: q2Monthly,
+        jul: q3Monthly, aug: q3Monthly, sep: q3Monthly,
+        oct: q4Monthly, nov: q4Monthly, dec: q4Monthly,
+      },
+    });
+    setHasChanges(true);
+  };
+
+  const recalculateQuartersFromGoal = () => {
+    if (!localData) return;
+    const goal = localData.goal || 0;
+    // Distribute evenly
+    const quarterValue = goal / 4;
+    setLocalData({
+      ...localData,
+      quarters: {
+        q1: quarterValue,
+        q2: quarterValue,
+        q3: quarterValue,
+        q4: quarterValue,
+      },
     });
     setHasChanges(true);
   };
@@ -216,37 +248,37 @@ const MetasComerciais = () => {
     setLocalData({
       ...localData,
       executives: localData.executives.map((e) =>
-        e.id === execId ? { ...e, [field]: value } : e
+        e.executiveId === execId ? { ...e, [field]: value } : e
       ),
     });
     setHasChanges(true);
   };
 
-  const updateExecutiveAnnual = (execId: number, value: number) => {
+  const updateExecutiveGoal = (execId: number, value: number) => {
     if (!localData) return;
-    const mrr = value / 12;
+    const mrrGoal = value / 12;
     // Calculate monthly based on global distribution
-    const globalAnnual = localData.global.annualTarget || 1;
-    const monthlyTargets: MonthlyTargets = { ...DEFAULT_MONTHLY_TARGETS };
-    const quarterTargets: QuarterWeights = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+    const globalGoal = localData.goal || 1;
+    const months: MonthlyTargets = { ...DEFAULT_MONTHLY_TARGETS };
+    const quarters: QuarterTargets = { q1: 0, q2: 0, q3: 0, q4: 0 };
 
     MONTH_KEYS.forEach((m) => {
-      const globalMonthValue = localData.global.monthlyTargets[m] || 0;
-      const proportion = globalAnnual > 0 ? globalMonthValue / globalAnnual : 1 / 12;
-      monthlyTargets[m] = value * proportion;
+      const globalMonthValue = localData.months[m] || 0;
+      const proportion = globalGoal > 0 ? globalMonthValue / globalGoal : 1 / 12;
+      months[m] = value * proportion;
     });
 
     // Calculate quarters
-    quarterTargets.Q1 = monthlyTargets.jan + monthlyTargets.feb + monthlyTargets.mar;
-    quarterTargets.Q2 = monthlyTargets.apr + monthlyTargets.may + monthlyTargets.jun;
-    quarterTargets.Q3 = monthlyTargets.jul + monthlyTargets.aug + monthlyTargets.sep;
-    quarterTargets.Q4 = monthlyTargets.oct + monthlyTargets.nov + monthlyTargets.dec;
+    quarters.q1 = months.jan + months.feb + months.mar;
+    quarters.q2 = months.apr + months.may + months.jun;
+    quarters.q3 = months.jul + months.aug + months.sep;
+    quarters.q4 = months.oct + months.nov + months.dec;
 
     setLocalData({
       ...localData,
       executives: localData.executives.map((e) =>
-        e.id === execId
-          ? { ...e, annualTarget: value, monthlyMRRTarget: mrr, monthlyTargets, quarterTargets }
+        e.executiveId === execId
+          ? { ...e, goal: value, mrrGoal, months, quarters }
           : e
       ),
     });
@@ -256,25 +288,25 @@ const MetasComerciais = () => {
   const distributeAutomatically = () => {
     if (!localData || localData.executives.length === 0) return;
     const count = localData.executives.length;
-    const perExec = localData.global.annualTarget / count;
-    const mrr = perExec / 12;
+    const perExec = localData.goal / count;
+    const mrrGoal = perExec / 12;
 
-    const globalAnnual = localData.global.annualTarget || 1;
+    const globalGoal = localData.goal || 1;
     const newExecutives = localData.executives.map((e) => {
-      const monthlyTargets: MonthlyTargets = { ...DEFAULT_MONTHLY_TARGETS };
+      const months: MonthlyTargets = { ...DEFAULT_MONTHLY_TARGETS };
       MONTH_KEYS.forEach((m) => {
-        const proportion = globalAnnual > 0
-          ? (localData.global.monthlyTargets[m] || 0) / globalAnnual
+        const proportion = globalGoal > 0
+          ? (localData.months[m] || 0) / globalGoal
           : 1 / 12;
-        monthlyTargets[m] = perExec * proportion;
+        months[m] = perExec * proportion;
       });
-      const quarterTargets: QuarterWeights = {
-        Q1: monthlyTargets.jan + monthlyTargets.feb + monthlyTargets.mar,
-        Q2: monthlyTargets.apr + monthlyTargets.may + monthlyTargets.jun,
-        Q3: monthlyTargets.jul + monthlyTargets.aug + monthlyTargets.sep,
-        Q4: monthlyTargets.oct + monthlyTargets.nov + monthlyTargets.dec,
+      const quarters: QuarterTargets = {
+        q1: months.jan + months.feb + months.mar,
+        q2: months.apr + months.may + months.jun,
+        q3: months.jul + months.aug + months.sep,
+        q4: months.oct + months.nov + months.dec,
       };
-      return { ...e, annualTarget: perExec, monthlyMRRTarget: mrr, monthlyTargets, quarterTargets };
+      return { ...e, goal: perExec, mrrGoal, months, quarters };
     });
 
     setLocalData({ ...localData, executives: newExecutives });
@@ -283,7 +315,13 @@ const MetasComerciais = () => {
 
   const handleSave = () => {
     if (!localData) return;
-    saveYear({ ...localData, updatedAt: new Date().toISOString() });
+    // Ensure manager_id is set
+    const dataToSave = {
+      ...localData,
+      managerId: localData.managerId || currentManagerId || currentUserId,
+      updatedAt: new Date().toISOString(),
+    };
+    saveYear(dataToSave);
     setHasChanges(false);
   };
 
@@ -291,7 +329,7 @@ const MetasComerciais = () => {
     if (availableYears.includes(newYearValue)) {
       return;
     }
-    const newData = createEmptyYearGoal(newYearValue);
+    const newData = createEmptyYearGoal(newYearValue, currentManagerId || currentUserId);
     setLocalData(newData);
     setSelectedYear(newYearValue);
     setHasChanges(true);
@@ -304,7 +342,7 @@ const MetasComerciais = () => {
       const response = await openApi.getUsers({ level: 700, __perPage: 100 });
       const users = response.data || [];
       // Filter out already added executives
-      const existingIds = localData?.executives.map((e) => e.id) || [];
+      const existingIds = localData?.executives.map((e) => e.executiveId) || [];
       const available = users.filter((u: any) => !existingIds.includes(u.id));
       setAvailableExecutives(available);
       setSelectedExecutiveIds([]);
@@ -320,14 +358,14 @@ const MetasComerciais = () => {
     const newExecs: ExecutiveGoal[] = selectedExecutiveIds.map((id) => {
       const user = availableExecutives.find((u) => u.id === id);
       return {
-        id,
+        executiveId: id,
         name: user?.name || `Executivo ${id}`,
         email: user?.email || '',
-        teamType: 'interno',
-        annualTarget: 0,
-        monthlyMRRTarget: 0,
-        monthlyTargets: { ...DEFAULT_MONTHLY_TARGETS },
-        quarterTargets: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+        role: 'Comercial',
+        goal: 0,
+        mrrGoal: 0,
+        months: { ...DEFAULT_MONTHLY_TARGETS },
+        quarters: { ...DEFAULT_QUARTER_TARGETS },
       };
     });
     setLocalData({
@@ -343,7 +381,7 @@ const MetasComerciais = () => {
     if (!localData) return;
     setLocalData({
       ...localData,
-      executives: localData.executives.filter((e) => e.id !== execId),
+      executives: localData.executives.filter((e) => e.executiveId !== execId),
     });
     setHasChanges(true);
     setExecutiveToDelete(null);
@@ -477,8 +515,8 @@ const MetasComerciais = () => {
                       type="number"
                       min={0}
                       step={10000}
-                      value={localData?.global.annualTarget || ''}
-                      onChange={(e) => updateGlobalField('annualTarget', parseFloat(e.target.value) || 0)}
+                      value={localData?.goal || ''}
+                      onChange={(e) => updateGoalField('goal', parseFloat(e.target.value) || 0)}
                       disabled={!canEdit}
                       className="text-lg font-semibold"
                     />
@@ -492,10 +530,10 @@ const MetasComerciais = () => {
                       type="number"
                       min={0}
                       step={1000}
-                      value={localData?.global.globalMRRTarget || ''}
-                      onChange={(e) => updateGlobalField('globalMRRTarget', parseFloat(e.target.value) || 0)}
+                      value={localData?.mrrGoal || ''}
+                      onChange={(e) => updateGoalField('mrrGoal', parseFloat(e.target.value) || 0)}
                       disabled={!canEdit}
-                      placeholder={`Auto: ${formatCurrencyBRL((localData?.global.annualTarget || 0) / 12)}`}
+                      placeholder={`Auto: ${formatCurrencyBRL((localData?.goal || 0) / 12)}`}
                     />
                     <p className="text-xs text-muted-foreground">
                       Opcional. Se vazio, usa Anual/12
@@ -503,43 +541,35 @@ const MetasComerciais = () => {
                   </div>
                 </div>
 
-                {/* Quarter Distribution */}
+                {/* Quarter Values */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label className="text-base font-semibold">Distribuição por Trimestres (%)</Label>
-                    <span className="text-sm text-muted-foreground">
-                      Total:{' '}
-                      <span
-                        className={
-                          Object.values(localData?.global.quarterWeights || {}).reduce((a, b) => a + b, 0) === 100
-                            ? 'text-green-500'
-                            : 'text-amber-500'
-                        }
-                      >
-                        {Object.values(localData?.global.quarterWeights || {}).reduce((a, b) => a + b, 0)}%
-                      </span>
-                    </span>
+                    <Label className="text-base font-semibold">Valores por Trimestre (R$)</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={recalculateQuartersFromGoal}
+                      disabled={!canEdit}
+                    >
+                      <Wand2 className="h-4 w-4 mr-2" />
+                      Distribuir Igualmente
+                    </Button>
                   </div>
                   <div className="grid grid-cols-4 gap-4">
-                    {(['Q1', 'Q2', 'Q3', 'Q4'] as const).map((q) => (
+                    {(['q1', 'q2', 'q3', 'q4'] as const).map((q) => (
                       <div key={q} className="space-y-1">
-                        <Label className="text-sm">{q}</Label>
+                        <Label className="text-sm">{q.toUpperCase()}</Label>
                         <Input
                           type="number"
                           min={0}
-                          max={100}
-                          step={5}
-                          value={localData?.global.quarterWeights[q] || ''}
-                          onChange={(e) => updateQuarterWeight(q, parseFloat(e.target.value) || 0)}
+                          step={10000}
+                          value={Math.round(localData?.quarters[q] || 0)}
+                          onChange={(e) => updateQuarterValue(q, parseFloat(e.target.value) || 0)}
                           disabled={!canEdit}
                           className="text-center"
                         />
                         <p className="text-xs text-center text-muted-foreground">
-                          {formatCurrencyBRL(
-                            ((localData?.global.annualTarget || 0) *
-                              (localData?.global.quarterWeights[q] || 0)) /
-                              100
-                          )}
+                          {quarterWeights[q.toUpperCase() as keyof typeof quarterWeights]}%
                         </p>
                       </div>
                     ))}
@@ -587,7 +617,7 @@ const MetasComerciais = () => {
                             type="number"
                             min={0}
                             step={1000}
-                            value={Math.round(localData?.global.monthlyTargets[m] || 0)}
+                            value={Math.round(localData?.months[m] || 0)}
                             onChange={(e) => updateMonthlyTarget(m, parseFloat(e.target.value) || 0)}
                             disabled={!canEdit}
                             className="text-center text-xs h-8"
@@ -597,9 +627,9 @@ const MetasComerciais = () => {
                     </TableRow>
                     <TableRow>
                       {MONTH_KEYS.map((m) => {
-                        const val = localData?.global.monthlyTargets[m] || 0;
-                        const pct = localData?.global.annualTarget
-                          ? ((val / localData.global.annualTarget) * 100).toFixed(1)
+                        const val = localData?.months[m] || 0;
+                        const pct = localData?.goal
+                          ? ((val / localData.goal) * 100).toFixed(1)
                           : '0.0';
                         return (
                           <TableCell key={m} className="text-center text-xs text-muted-foreground p-1">
@@ -621,7 +651,7 @@ const MetasComerciais = () => {
                         {formatCurrencyBRL(globalSumMonths)}
                         {!monthsMatchAnnual && (
                           <span className="ml-2 text-xs font-normal">
-                            (Meta: {formatCurrencyBRL(localData?.global.annualTarget || 0)})
+                            (Meta: {formatCurrencyBRL(localData?.goal || 0)})
                           </span>
                         )}
                       </TableCell>
@@ -746,14 +776,14 @@ const MetasComerciais = () => {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Executivos: {formatCurrencyBRL(executivesSumAnnual)} / Meta Global:{' '}
-                        {formatCurrencyBRL(localData?.global.annualTarget || 0)}
+                        {formatCurrencyBRL(localData?.goal || 0)}
                       </p>
                     </div>
                   </div>
                   <Progress
                     value={
-                      localData?.global.annualTarget
-                        ? Math.min((executivesSumAnnual / localData.global.annualTarget) * 100, 100)
+                      localData?.goal
+                        ? Math.min((executivesSumAnnual / localData.goal) * 100, 100)
                         : 0
                     }
                     className="w-32"
@@ -772,7 +802,7 @@ const MetasComerciais = () => {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Executivo</TableHead>
-                        <TableHead>Equipe</TableHead>
+                        <TableHead>Função</TableHead>
                         <TableHead className="text-right">Meta Anual (R$)</TableHead>
                         <TableHead className="text-right">Meta MRR (R$)</TableHead>
                         <TableHead className="text-center">Q1</TableHead>
@@ -784,7 +814,7 @@ const MetasComerciais = () => {
                     </TableHeader>
                     <TableBody>
                       {localData?.executives.map((exec) => (
-                        <TableRow key={exec.id}>
+                        <TableRow key={exec.executiveId}>
                           <TableCell>
                             <div>
                               <p className="font-medium">{exec.name}</p>
@@ -793,16 +823,17 @@ const MetasComerciais = () => {
                           </TableCell>
                           <TableCell>
                             <Select
-                              value={exec.teamType}
-                              onValueChange={(v) => updateExecutiveField(exec.id, 'teamType', v)}
+                              value={exec.role}
+                              onValueChange={(v) => updateExecutiveField(exec.executiveId, 'role', v)}
                               disabled={!canEdit}
                             >
-                              <SelectTrigger className="w-28 h-8">
+                              <SelectTrigger className="w-40 h-8">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="interno">Interno</SelectItem>
-                                <SelectItem value="externo">Externo</SelectItem>
+                                {ROLE_OPTIONS.map((role) => (
+                                  <SelectItem key={role} value={role}>{role}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </TableCell>
@@ -811,34 +842,34 @@ const MetasComerciais = () => {
                               type="number"
                               min={0}
                               step={10000}
-                              value={Math.round(exec.annualTarget || 0)}
+                              value={Math.round(exec.goal || 0)}
                               onChange={(e) =>
-                                updateExecutiveAnnual(exec.id, parseFloat(e.target.value) || 0)
+                                updateExecutiveGoal(exec.executiveId, parseFloat(e.target.value) || 0)
                               }
                               disabled={!canEdit}
                               className="w-32 text-right"
                             />
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
-                            {formatCurrencyBRL(exec.monthlyMRRTarget || 0)}
+                            {formatCurrencyBRL(exec.mrrGoal || 0)}
                           </TableCell>
                           <TableCell className="text-center text-xs text-muted-foreground">
-                            {formatCurrencyBRL(exec.quarterTargets?.Q1 || 0)}
+                            {formatCurrencyBRL(exec.quarters?.q1 || 0)}
                           </TableCell>
                           <TableCell className="text-center text-xs text-muted-foreground">
-                            {formatCurrencyBRL(exec.quarterTargets?.Q2 || 0)}
+                            {formatCurrencyBRL(exec.quarters?.q2 || 0)}
                           </TableCell>
                           <TableCell className="text-center text-xs text-muted-foreground">
-                            {formatCurrencyBRL(exec.quarterTargets?.Q3 || 0)}
+                            {formatCurrencyBRL(exec.quarters?.q3 || 0)}
                           </TableCell>
                           <TableCell className="text-center text-xs text-muted-foreground">
-                            {formatCurrencyBRL(exec.quarterTargets?.Q4 || 0)}
+                            {formatCurrencyBRL(exec.quarters?.q4 || 0)}
                           </TableCell>
                           <TableCell>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setExecutiveToDelete(exec.id)}
+                              onClick={() => setExecutiveToDelete(exec.executiveId)}
                               disabled={!canEdit}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
@@ -870,12 +901,15 @@ const MetasComerciais = () => {
       </Tabs>
 
       {/* Delete Confirmation */}
-      <AlertDialog open={executiveToDelete !== null} onOpenChange={() => setExecutiveToDelete(null)}>
+      <AlertDialog
+        open={executiveToDelete !== null}
+        onOpenChange={() => setExecutiveToDelete(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remover Executivo</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja remover este executivo das metas? A meta individual será perdida.
+              Tem certeza que deseja remover este executivo das metas? Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
