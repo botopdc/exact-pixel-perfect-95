@@ -286,13 +286,14 @@ function localToApi(localData: YearGoalData): AnnualGoalStoreRequest {
   };
 }
 
-// Hook
-export function useMetasComerciais() {
+// Hook - now supports filtering by manager_id for RBAC
+export function useMetasComerciais(filterManagerId?: number) {
   const queryClient = useQueryClient();
   const [entryIds, setEntryIds] = useState<Map<number, number>>(new Map());
   const [currentManagerId, setCurrentManagerId] = useState<number>(1);
+  const [currentUserLevel, setCurrentUserLevel] = useState<number>(0);
 
-  // Query to fetch all years
+  // Query to fetch all years, optionally filtered by manager_id
   const {
     data: yearsData,
     isLoading,
@@ -300,17 +301,24 @@ export function useMetasComerciais() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['metas-comerciais', 'annual-goals'],
+    queryKey: ['metas-comerciais', 'annual-goals', filterManagerId],
     queryFn: async () => {
       // Get current user to use as manager_id default
       try {
         const user = await openApi.getCurrentUser();
         if (user?.id) setCurrentManagerId(user.id);
+        if (user?.level) setCurrentUserLevel(user.level);
       } catch (e) {
         console.warn('Could not fetch current user for manager_id');
       }
 
-      const response = await annualGoalService.fetchAll({ __perPage: 100 });
+      // Build query params - filter by manager_id if provided
+      const queryParams: { __perPage: number; manager_id?: number } = { __perPage: 100 };
+      if (filterManagerId) {
+        queryParams.manager_id = filterManagerId;
+      }
+
+      const response = await annualGoalService.fetchAll(queryParams);
       const idsMap = new Map<number, number>();
       const dataMap = new Map<number, YearGoalData>();
 
@@ -334,7 +342,7 @@ export function useMetasComerciais() {
       // Ensure manager_id is set
       const dataToSave = {
         ...yearData,
-        managerId: yearData.managerId || currentManagerId || 1,
+        managerId: yearData.managerId || filterManagerId || currentManagerId || 1,
       };
       
       const payload = localToApi(dataToSave);
@@ -373,9 +381,9 @@ export function useMetasComerciais() {
   // Get data for a specific year
   const getYearData = useCallback(
     (year: number): YearGoalData => {
-      return yearsData?.get(year) || createEmptyYearGoal(year, currentManagerId);
+      return yearsData?.get(year) || createEmptyYearGoal(year, filterManagerId || currentManagerId);
     },
-    [yearsData, currentManagerId]
+    [yearsData, currentManagerId, filterManagerId]
   );
 
   // Get all available years
@@ -420,5 +428,7 @@ export function useMetasComerciais() {
     isSaving: saveMutation.isPending,
     entryIds,
     currentManagerId,
+    currentUserLevel,
+    filterManagerId,
   };
 }
