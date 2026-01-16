@@ -6,7 +6,7 @@
  * - Monthly distribution (editable)
  * - Executive-level goals allocation
  * 
- * Persists via calculator/config API with category="Metas", section="Comercial"
+ * Persists via /api/annual-goal endpoint
  */
 
 import React, { useState, useEffect, useMemo } from 'react';

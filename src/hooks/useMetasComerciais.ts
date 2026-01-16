@@ -1,27 +1,23 @@
 /**
  * Metas Comerciais Hook - Manages yearly sales goals for executives
  * 
- * Stores goals in calculator/config with:
- * - category: "Metas"
- * - section: "Comercial"
- * - label: "year_<YEAR>"
+ * Now uses the dedicated /api/annual-goal endpoint instead of calculator/config
  * 
  * Each year has: global targets, monthly distribution, and executive-level goals
  */
 
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { toast } from 'sonner';
+import {
+  annualGoalService,
+  AnnualGoal,
+  AnnualGoalGlobal,
+  AnnualGoalExecutive,
+  AnnualGoalStoreRequest,
+} from '@/services/annualGoalService';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
-
-const METAS_CATEGORY = 'Metas';
-const METAS_SECTION = 'Comercial';
-
-// Types
+// Types - Re-export for backward compatibility
 export interface QuarterWeights {
   Q1: number;
   Q2: number;
@@ -67,25 +63,7 @@ export interface YearGoalData {
   global: GlobalGoal;
   executives: ExecutiveGoal[];
   updatedAt: string;
-}
-
-interface MetasConfigEntry {
-  id: number;
-  category: string;
-  section: string;
-  config: Array<{
-    label: string;
-    by: string;
-    type: string;
-    value: number | string;
-  }>;
-  created_at: string;
-  updated_at: string;
-}
-
-interface PaginatedResponse {
-  data: MetasConfigEntry[];
-  total: number;
+  apiId?: number; // ID from the API for updates
 }
 
 // Default values
@@ -163,266 +141,52 @@ export const MONTH_KEYS: (keyof MonthlyTargets)[] = [
   'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
 ];
 
-function getToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
-}
-
-// Config item type for API
-interface ConfigItem {
-  label: string;
-  value: number;
-  by: string;
-  type: string;
-}
-
-// Parse config items from API response into YearGoalData
-function parseConfigToYearData(config: ConfigItem[], year: number): YearGoalData {
-  const data = createEmptyYearGoal(year);
-  const executivesMap = new Map<number, Partial<ExecutiveGoal>>();
-
-  for (const item of config) {
-    const { label, value } = item;
-    const numValue = typeof value === 'string' ? parseFloat(value) : (value || 0);
-
-    // Global targets
-    if (label === 'global_annual_target') {
-      data.global.annualTarget = numValue;
-    } else if (label === 'global_mrr_target') {
-      data.global.globalMRRTarget = numValue;
-    }
-    // Quarter weights
-    else if (label === 'q1_weight') {
-      data.global.quarterWeights.Q1 = numValue;
-    } else if (label === 'q2_weight') {
-      data.global.quarterWeights.Q2 = numValue;
-    } else if (label === 'q3_weight') {
-      data.global.quarterWeights.Q3 = numValue;
-    } else if (label === 'q4_weight') {
-      data.global.quarterWeights.Q4 = numValue;
-    }
-    // Monthly targets
-    else if (label.startsWith('month_')) {
-      const month = label.replace('month_', '') as keyof MonthlyTargets;
-      if (MONTH_KEYS.includes(month)) {
-        data.global.monthlyTargets[month] = numValue;
-      }
-    }
-    // Executive data: exec_<ID>_<field>
-    else if (label.startsWith('exec_')) {
-      const match = label.match(/^exec_(\d+)_(.+)$/);
-      if (match) {
-        const execId = parseInt(match[1], 10);
-        const field = match[2];
-        
-        if (!executivesMap.has(execId)) {
-          executivesMap.set(execId, {
-            id: execId,
-            name: '',
-            email: '',
-            teamType: 'interno',
-            annualTarget: 0,
-            monthlyMRRTarget: 0,
-            monthlyTargets: { ...DEFAULT_MONTHLY_TARGETS },
-            quarterTargets: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
-          });
-        }
-        
-        const exec = executivesMap.get(execId)!;
-        
-        if (field === 'name' && typeof value === 'string') {
-          exec.name = value;
-        } else if (field === 'email' && typeof value === 'string') {
-          exec.email = value;
-        } else if (field === 'team') {
-          exec.teamType = numValue === 1 ? 'externo' : 'interno';
-        } else if (field === 'annual') {
-          exec.annualTarget = numValue;
-        } else if (field === 'mrr') {
-          exec.monthlyMRRTarget = numValue;
-        } else if (field.startsWith('m_')) {
-          const month = field.replace('m_', '') as keyof MonthlyTargets;
-          if (MONTH_KEYS.includes(month) && exec.monthlyTargets) {
-            exec.monthlyTargets[month] = numValue;
-          }
-        } else if (field.startsWith('q')) {
-          const q = field.toUpperCase() as keyof QuarterWeights;
-          if (['Q1', 'Q2', 'Q3', 'Q4'].includes(q) && exec.quarterTargets) {
-            exec.quarterTargets[q as keyof QuarterWeights] = numValue;
-          }
-        }
-      }
-    }
-  }
-
-  // Convert map to array
-  data.executives = Array.from(executivesMap.values()) as ExecutiveGoal[];
-  
-  return data;
-}
-
-// Convert YearGoalData to config items for API
-function yearDataToConfig(yearData: YearGoalData): ConfigItem[] {
-  const config: ConfigItem[] = [];
-  const { global, executives, year } = yearData;
-
-  // Year identifier
-  config.push({ label: 'year', value: year, by: 'year', type: 'BRL' });
-
-  // Global targets
-  config.push({ label: 'global_annual_target', value: global.annualTarget || 0, by: 'year', type: 'BRL' });
-  config.push({ label: 'global_mrr_target', value: global.globalMRRTarget || 0, by: 'month', type: 'BRL' });
-
-  // Quarter weights
-  config.push({ label: 'q1_weight', value: global.quarterWeights.Q1 || 0, by: 'percent', type: 'BRL' });
-  config.push({ label: 'q2_weight', value: global.quarterWeights.Q2 || 0, by: 'percent', type: 'BRL' });
-  config.push({ label: 'q3_weight', value: global.quarterWeights.Q3 || 0, by: 'percent', type: 'BRL' });
-  config.push({ label: 'q4_weight', value: global.quarterWeights.Q4 || 0, by: 'percent', type: 'BRL' });
-
-  // Monthly targets
-  for (const month of MONTH_KEYS) {
-    config.push({ label: `month_${month}`, value: global.monthlyTargets[month] || 0, by: 'month', type: 'BRL' });
-  }
-
-  // Executives - each field as separate item (fallback approach for API compatibility)
-  for (const exec of executives || []) {
-    const prefix = `exec_${exec.id}`;
-    
-    // Store numeric values only (API doesn't accept string in value)
-    config.push({ label: `${prefix}_annual`, value: exec.annualTarget || 0, by: 'year', type: 'BRL' });
-    config.push({ label: `${prefix}_mrr`, value: exec.monthlyMRRTarget || 0, by: 'month', type: 'BRL' });
-    config.push({ label: `${prefix}_team`, value: exec.teamType === 'externo' ? 1 : 0, by: 'meta', type: 'BRL' });
-    
-    // Monthly targets per executive
-    for (const month of MONTH_KEYS) {
-      config.push({ label: `${prefix}_m_${month}`, value: exec.monthlyTargets?.[month] || 0, by: 'month', type: 'BRL' });
-    }
-    
-    // Quarter targets per executive
-    config.push({ label: `${prefix}_q1`, value: exec.quarterTargets?.Q1 || 0, by: 'quarter', type: 'BRL' });
-    config.push({ label: `${prefix}_q2`, value: exec.quarterTargets?.Q2 || 0, by: 'quarter', type: 'BRL' });
-    config.push({ label: `${prefix}_q3`, value: exec.quarterTargets?.Q3 || 0, by: 'quarter', type: 'BRL' });
-    config.push({ label: `${prefix}_q4`, value: exec.quarterTargets?.Q4 || 0, by: 'quarter', type: 'BRL' });
-  }
-
-  return config;
-}
-
-// API Functions
-async function fetchMetasEntries(): Promise<Map<number, { entryId: number; data: YearGoalData }>> {
-  const token = getToken();
-  const response = await axios.get<PaginatedResponse>(`${API_BASE_URL}/calculator/config`, {
-    params: { __perPage: 200 },
-    headers: { Authorization: token ? `Bearer ${token}` : '' },
-  });
-
-  const entries = response.data.data || [];
-  const result = new Map<number, { entryId: number; data: YearGoalData }>();
-
-  for (const entry of entries) {
-    if (entry.category === METAS_CATEGORY && entry.section === METAS_SECTION) {
-      const configItems = (entry.config || []) as unknown as ConfigItem[];
-      
-      // Find the year from config
-      const yearItem = configItems.find(c => c.label === 'year');
-      const year = yearItem ? (typeof yearItem.value === 'number' ? yearItem.value : parseInt(String(yearItem.value), 10)) : null;
-      
-      if (year && !isNaN(year)) {
-        const data = parseConfigToYearData(configItems, year);
-        result.set(year, { entryId: entry.id, data });
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Save metas entry - ONLY updates existing configs via PUT.
- * API does NOT support POST to create new configs.
- * If no existing entry is found, we throw an error.
- */
-async function saveMetasEntry(
-  yearData: YearGoalData,
-  existingEntryId?: number
-): Promise<MetasConfigEntry> {
-  const token = getToken();
-  const headers = { 
-    Authorization: token ? `Bearer ${token}` : '',
-    'Content-Type': 'application/json',
-  };
-
-  const config = yearDataToConfig(yearData);
-
-  const payload = {
-    category: METAS_CATEGORY,
-    section: METAS_SECTION,
-    config,
-  };
-
-  console.log('[MetasComerciais] Saving payload:', JSON.stringify(payload, null, 2));
-
-  // API only supports PUT for existing entries
-  if (!existingEntryId) {
-    // Try to find an existing entry for Metas/Comercial
-    const entriesMap = await fetchMetasEntries();
-    const existingEntry = entriesMap.get(yearData.year);
-    
-    if (existingEntry) {
-      existingEntryId = existingEntry.entryId;
-    } else {
-      // Check if there's any Metas/Comercial entry we can reuse
-      const allEntries = await fetchAllMetasConfigEntries();
-      const metasEntry = allEntries.find(e => 
-        e.category === METAS_CATEGORY && e.section === METAS_SECTION
-      );
-      
-      if (metasEntry) {
-        existingEntryId = metasEntry.id;
-      } else {
-        throw new Error(
-          'API atual não permite criar novas configurações (somente leitura). ' +
-          'Entre em contato com o administrador para criar uma entrada de Metas/Comercial no banco.'
-        );
-      }
-    }
-  }
-
-  try {
-    console.log(`[MetasComerciais] PUT /calculator/config/${existingEntryId}`);
-    const response = await axios.put<MetasConfigEntry>(
-      `${API_BASE_URL}/calculator/config/${existingEntryId}`,
-      payload,
-      { headers }
-    );
-    return response.data;
-  } catch (err: any) {
-    const status = err.response?.status;
-    console.error('[MetasComerciais] API Error:', status, err.response?.data);
-    
-    if (status === 405) {
-      throw new Error(
-        'API atual não permite salvar configurações (somente leitura). ' +
-        'Verifique se o endpoint de escrita está disponível.'
-      );
-    }
-    throw err;
-  }
-}
-
-/**
- * Fetch all config entries (not just parsed metas) to find any Metas entry
- */
-async function fetchAllMetasConfigEntries(): Promise<MetasConfigEntry[]> {
-  const token = getToken();
-  const response = await axios.get<PaginatedResponse>(`${API_BASE_URL}/calculator/config`, {
-    params: { 
-      __perPage: 200,
-      category: METAS_CATEGORY,
-      section: METAS_SECTION,
+// Transform API response to local format
+function apiToLocal(apiGoal: AnnualGoal): YearGoalData {
+  return {
+    year: apiGoal.year,
+    apiId: apiGoal.id,
+    global: {
+      annualTarget: apiGoal.global?.annual_target || 0,
+      globalMRRTarget: apiGoal.global?.global_mrr_target || 0,
+      quarterWeights: apiGoal.global?.quarter_weights || { ...DEFAULT_QUARTER_WEIGHTS },
+      monthlyTargets: apiGoal.global?.monthly_targets || { ...DEFAULT_MONTHLY_TARGETS },
     },
-    headers: { Authorization: token ? `Bearer ${token}` : '' },
-  });
-  return response.data.data || [];
+    executives: (apiGoal.executives || []).map((exec) => ({
+      id: exec.id,
+      name: exec.name || '',
+      email: exec.email || '',
+      teamType: exec.team_type || 'interno',
+      annualTarget: exec.annual_target || 0,
+      monthlyMRRTarget: exec.monthly_mrr_target || 0,
+      monthlyTargets: exec.monthly_targets || { ...DEFAULT_MONTHLY_TARGETS },
+      quarterTargets: exec.quarter_targets || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+    })),
+    updatedAt: apiGoal.updated_at,
+  };
+}
+
+// Transform local format to API request
+function localToApi(localData: YearGoalData): AnnualGoalStoreRequest {
+  return {
+    year: localData.year,
+    global: {
+      annual_target: localData.global.annualTarget || 0,
+      global_mrr_target: localData.global.globalMRRTarget || 0,
+      quarter_weights: localData.global.quarterWeights || { ...DEFAULT_QUARTER_WEIGHTS },
+      monthly_targets: localData.global.monthlyTargets || { ...DEFAULT_MONTHLY_TARGETS },
+    },
+    executives: (localData.executives || []).map((exec) => ({
+      id: exec.id,
+      name: exec.name,
+      email: exec.email,
+      team_type: exec.teamType || 'interno',
+      annual_target: exec.annualTarget || 0,
+      monthly_mrr_target: exec.monthlyMRRTarget || 0,
+      monthly_targets: exec.monthlyTargets || { ...DEFAULT_MONTHLY_TARGETS },
+      quarter_targets: exec.quarterTargets || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+    })),
+  };
 }
 
 // Hook
@@ -438,16 +202,17 @@ export function useMetasComerciais() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['metas-comerciais'],
+    queryKey: ['metas-comerciais', 'annual-goals'],
     queryFn: async () => {
-      const entries = await fetchMetasEntries();
+      const response = await annualGoalService.fetchAll({ __perPage: 100 });
       const idsMap = new Map<number, number>();
       const dataMap = new Map<number, YearGoalData>();
 
-      entries.forEach((val, year) => {
-        idsMap.set(year, val.entryId);
-        dataMap.set(year, val.data);
-      });
+      for (const apiGoal of response.data || []) {
+        const localData = apiToLocal(apiGoal);
+        idsMap.set(apiGoal.year, apiGoal.id);
+        dataMap.set(apiGoal.year, localData);
+      }
 
       setEntryIds(idsMap);
       return dataMap;
@@ -458,15 +223,27 @@ export function useMetasComerciais() {
   // Mutation to save a year
   const saveMutation = useMutation({
     mutationFn: async (yearData: YearGoalData) => {
-      const existingId = entryIds.get(yearData.year);
-      return saveMetasEntry(yearData, existingId);
+      const existingId = yearData.apiId || entryIds.get(yearData.year);
+      const payload = localToApi(yearData);
+
+      console.log('[MetasComerciais] Saving to /api/annual-goal:', JSON.stringify(payload, null, 2));
+
+      if (existingId) {
+        // PUT update
+        console.log(`[MetasComerciais] PUT /api/annual-goal/${existingId}`);
+        return await annualGoalService.update(existingId, payload);
+      } else {
+        // POST create
+        console.log('[MetasComerciais] POST /api/annual-goal');
+        return await annualGoalService.create(payload);
+      }
     },
     onSuccess: (data, variables) => {
-      // Extract new ID from response
+      // Update the ID map with the new/updated entry
       if (data.id) {
         setEntryIds((prev) => {
           const next = new Map(prev);
-          next.set(variables.year, data.id);
+          next.set(data.year, data.id);
           return next;
         });
       }
@@ -490,9 +267,9 @@ export function useMetasComerciais() {
 
   // Get all available years
   const getAvailableYears = useCallback((): number[] => {
-    if (!yearsData) return [2026];
+    if (!yearsData) return [new Date().getFullYear()];
     const years = Array.from(yearsData.keys()).sort((a, b) => a - b);
-    return years.length > 0 ? years : [2026];
+    return years.length > 0 ? years : [new Date().getFullYear()];
   }, [yearsData]);
 
   // Get executive's monthly MRR goal for a specific month
