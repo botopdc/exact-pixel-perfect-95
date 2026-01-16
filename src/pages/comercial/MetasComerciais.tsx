@@ -2,7 +2,7 @@
  * Metas Comerciais - Commercial Goals Management
  * 
  * RBAC Rules:
- * - Admin (1000): Can edit Global Meta, Quarters, Months for any manager (via dropdown)
+ * - Admin (1000): Can edit ALL sections (Global Meta, Quarters, Months, Metas por Executivo) for any manager (via dropdown)
  * - Gerente (750): Can only edit "Metas por Executivo" section for their own goals
  * 
  * Uses /api/annual-goal endpoint with structure:
@@ -90,10 +90,12 @@ import {
 import { openApi } from '@/lib/openApi';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useUsers } from '@/hooks/useUsers';
+import { useToast } from '@/hooks/use-toast';
 
 const ROLE_OPTIONS = ['Comercial', 'BDR', 'Arquiteto de soluções', 'Gerente', 'Outro'];
 
 const MetasComerciais = () => {
+  const { toast } = useToast();
   const [userLevel, setUserLevel] = useState<number>(0);
   const [currentUserId, setCurrentUserId] = useState<number>(1);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
@@ -157,14 +159,17 @@ const MetasComerciais = () => {
   const isAdmin = userLevel === 1000;
   const isManager = userLevel === 750;
   
-  // Admin (1000): Can edit Global Meta, Quarters, Months (after selecting a manager)
+  // Admin (1000): Can edit Global Meta, Quarters, Months AND Metas por Executivo (after selecting a manager)
   // Manager (750): Can only edit "Metas por Executivo" section for their own goals
   const canEditGlobalMeta = isAdmin && !!selectedManagerId; // Admin can edit after selecting manager
   const canEditDistribuicoes = isAdmin && !!selectedManagerId; // Admin can edit quarters/months
-  const canEditMetasExecutivo = isManager; // Only managers can edit executives section
+  const canEditMetasExecutivo = isManager || (isAdmin && !!selectedManagerId); // Managers and Admins can edit executives section
   
   // General edit permission (for save button visibility)
   const canEdit = canEditGlobalMeta || canEditDistribuicoes || canEditMetasExecutivo;
+  
+  // Check if executives list is empty (for save validation)
+  const hasNoExecutives = !localData || localData.executives.length === 0;
   
   const availableYears = getAvailableYears();
 
@@ -365,6 +370,17 @@ const MetasComerciais = () => {
 
   const handleSave = () => {
     if (!localData) return;
+    
+    // CRITICAL: Block save if no executives (API requires executives[])
+    if (localData.executives.length === 0) {
+      toast({
+        title: 'Erro ao salvar',
+        description: 'Adicione ao menos 1 executivo para salvar. O backend exige executives.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     // Ensure manager_id is set
     const dataToSave = {
       ...localData,
@@ -544,9 +560,13 @@ const MetasComerciais = () => {
             Atualizar
           </Button>
           
-          {/* Save button only for managers */}
+          {/* Save button */}
           {canEdit && (
-            <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
+            <Button 
+              onClick={handleSave} 
+              disabled={!hasChanges || isSaving || hasNoExecutives}
+              title={hasNoExecutives ? 'Adicione ao menos 1 executivo para salvar' : undefined}
+            >
               {isSaving ? (
                 <>
                   <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -578,7 +598,7 @@ const MetasComerciais = () => {
           <CardContent className="p-4 flex items-center gap-3">
             <Target className="h-5 w-5 text-blue-500" />
             <p className="text-blue-600 dark:text-blue-400">
-              Modo edição Admin: você pode editar Meta Global, Trimestres e Distribuição Mensal para o gerente selecionado.
+              Modo edição Admin: você pode editar Meta Global, Trimestres, Distribuição Mensal e Metas por Executivo para o gerente selecionado.
             </p>
           </CardContent>
         </Card>
@@ -959,10 +979,20 @@ const MetasComerciais = () => {
 
                 {/* Executives Table */}
                 {(localData?.executives.length || 0) === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>Nenhum executivo adicionado</p>
-                    <p className="text-sm">Clique em "Adicionar Executivo" para começar</p>
+                  <div className="text-center py-12">
+                    <Users className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
+                    <p className="text-muted-foreground">Nenhum executivo adicionado</p>
+                    <p className="text-sm text-muted-foreground mb-4">Clique em "Adicionar Executivo" para começar</p>
+                    {canEditMetasExecutivo && (
+                      <div className="mt-4 p-3 rounded-lg border border-amber-500/50 bg-amber-500/10 max-w-md mx-auto">
+                        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                          <AlertTriangle className="h-4 w-4" />
+                          <p className="text-sm font-medium">
+                            Adicione ao menos 1 executivo para conseguir salvar.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <Table>
