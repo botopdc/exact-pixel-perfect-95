@@ -141,7 +141,7 @@ const MetasComerciais = () => {
   const canEdit = userLevel === 1000 || userLevel === 750;
   const availableYears = getAvailableYears();
 
-  // Calculations
+  // Calculations - CRITICAL: All calculations must use Number() to prevent string concatenation
   const globalSumMonths = useMemo(() => {
     if (!localData) return 0;
     return sumMonthlyTargets(localData.months);
@@ -149,28 +149,43 @@ const MetasComerciais = () => {
 
   const executivesSumAnnual = useMemo(() => {
     if (!localData) return 0;
-    return localData.executives.reduce((sum, e) => sum + (e.goal || 0), 0);
+    // Force Number() on every goal to prevent "010101" concatenation bug
+    return localData.executives.reduce((sum, e) => {
+      const goalNum = Number(e.goal) || 0;
+      return sum + goalNum;
+    }, 0);
   }, [localData]);
 
   const distributionDiff = useMemo(() => {
     if (!localData) return 0;
-    return localData.goal - executivesSumAnnual;
+    const goalNum = Number(localData.goal) || 0;
+    const execSum = Number(executivesSumAnnual) || 0;
+    return goalNum - execSum;
   }, [localData, executivesSumAnnual]);
 
   const monthsMatchAnnual = useMemo(() => {
     if (!localData) return true;
-    return Math.abs(globalSumMonths - localData.goal) < 1;
+    const sum = Number(globalSumMonths) || 0;
+    const goal = Number(localData.goal) || 0;
+    return Math.abs(sum - goal) < 1;
   }, [localData, globalSumMonths]);
 
-  // Calculate quarter weights from quarters
+  // Calculate quarter weights from quarters - CRITICAL: use Number() to get correct percentages
   const quarterWeights = useMemo(() => {
-    if (!localData || !localData.goal) return { Q1: 25, Q2: 25, Q3: 25, Q4: 25 };
-    const total = localData.goal;
+    if (!localData) return { Q1: 25, Q2: 25, Q3: 25, Q4: 25 };
+    const total = Number(localData.goal) || 0;
+    if (total <= 0) return { Q1: 25, Q2: 25, Q3: 25, Q4: 25 };
+    
+    const q1 = Number(localData.quarters.q1) || 0;
+    const q2 = Number(localData.quarters.q2) || 0;
+    const q3 = Number(localData.quarters.q3) || 0;
+    const q4 = Number(localData.quarters.q4) || 0;
+    
     return {
-      Q1: total > 0 ? Math.round((localData.quarters.q1 / total) * 100) : 25,
-      Q2: total > 0 ? Math.round((localData.quarters.q2 / total) * 100) : 25,
-      Q3: total > 0 ? Math.round((localData.quarters.q3 / total) * 100) : 25,
-      Q4: total > 0 ? Math.round((localData.quarters.q4 / total) * 100) : 25,
+      Q1: Math.round((q1 / total) * 100),
+      Q2: Math.round((q2 / total) * 100),
+      Q3: Math.round((q3 / total) * 100),
+      Q4: Math.round((q4 / total) * 100),
     };
   }, [localData]);
 
@@ -204,7 +219,12 @@ const MetasComerciais = () => {
 
   const recalculateMonthlyFromQuarters = () => {
     if (!localData) return;
-    const { q1, q2, q3, q4 } = localData.quarters;
+    // CRITICAL: Force Number() to prevent string division issues
+    const q1 = Number(localData.quarters.q1) || 0;
+    const q2 = Number(localData.quarters.q2) || 0;
+    const q3 = Number(localData.quarters.q3) || 0;
+    const q4 = Number(localData.quarters.q4) || 0;
+    
     const q1Monthly = q1 / 3;
     const q2Monthly = q2 / 3;
     const q3Monthly = q3 / 3;
@@ -224,7 +244,8 @@ const MetasComerciais = () => {
 
   const recalculateQuartersFromGoal = () => {
     if (!localData) return;
-    const goal = localData.goal || 0;
+    // CRITICAL: Force Number() to get correct division
+    const goal = Number(localData.goal) || 0;
     // Distribute evenly
     const quarterValue = goal / 4;
     setLocalData({
@@ -256,29 +277,30 @@ const MetasComerciais = () => {
 
   const updateExecutiveGoal = (execId: number, value: number) => {
     if (!localData) return;
-    const mrrGoal = value / 12;
-    // Calculate monthly based on global distribution
-    const globalGoal = localData.goal || 1;
+    const numValue = Number(value) || 0;
+    const mrrGoal = numValue / 12;
+    // Calculate monthly based on global distribution - CRITICAL: use Number() everywhere
+    const globalGoal = Number(localData.goal) || 1;
     const months: MonthlyTargets = { ...DEFAULT_MONTHLY_TARGETS };
     const quarters: QuarterTargets = { q1: 0, q2: 0, q3: 0, q4: 0 };
 
     MONTH_KEYS.forEach((m) => {
-      const globalMonthValue = localData.months[m] || 0;
+      const globalMonthValue = Number(localData.months[m]) || 0;
       const proportion = globalGoal > 0 ? globalMonthValue / globalGoal : 1 / 12;
-      months[m] = value * proportion;
+      months[m] = numValue * proportion;
     });
 
-    // Calculate quarters
-    quarters.q1 = months.jan + months.feb + months.mar;
-    quarters.q2 = months.apr + months.may + months.jun;
-    quarters.q3 = months.jul + months.aug + months.sep;
-    quarters.q4 = months.oct + months.nov + months.dec;
+    // Calculate quarters with explicit Number()
+    quarters.q1 = Number(months.jan) + Number(months.feb) + Number(months.mar);
+    quarters.q2 = Number(months.apr) + Number(months.may) + Number(months.jun);
+    quarters.q3 = Number(months.jul) + Number(months.aug) + Number(months.sep);
+    quarters.q4 = Number(months.oct) + Number(months.nov) + Number(months.dec);
 
     setLocalData({
       ...localData,
       executives: localData.executives.map((e) =>
         e.executiveId === execId
-          ? { ...e, goal: value, mrrGoal, months, quarters }
+          ? { ...e, goal: numValue, mrrGoal, months, quarters }
           : e
       ),
     });
@@ -288,23 +310,24 @@ const MetasComerciais = () => {
   const distributeAutomatically = () => {
     if (!localData || localData.executives.length === 0) return;
     const count = localData.executives.length;
-    const perExec = localData.goal / count;
+    const totalGoal = Number(localData.goal) || 0;
+    const perExec = totalGoal / count;
     const mrrGoal = perExec / 12;
 
-    const globalGoal = localData.goal || 1;
+    const globalGoal = totalGoal || 1;
     const newExecutives = localData.executives.map((e) => {
       const months: MonthlyTargets = { ...DEFAULT_MONTHLY_TARGETS };
       MONTH_KEYS.forEach((m) => {
-        const proportion = globalGoal > 0
-          ? (localData.months[m] || 0) / globalGoal
-          : 1 / 12;
+        const monthVal = Number(localData.months[m]) || 0;
+        const proportion = globalGoal > 0 ? monthVal / globalGoal : 1 / 12;
         months[m] = perExec * proportion;
       });
+      // CRITICAL: explicit Number() on quarter calculations
       const quarters: QuarterTargets = {
-        q1: months.jan + months.feb + months.mar,
-        q2: months.apr + months.may + months.jun,
-        q3: months.jul + months.aug + months.sep,
-        q4: months.oct + months.nov + months.dec,
+        q1: Number(months.jan) + Number(months.feb) + Number(months.mar),
+        q2: Number(months.apr) + Number(months.may) + Number(months.jun),
+        q3: Number(months.jul) + Number(months.aug) + Number(months.sep),
+        q4: Number(months.oct) + Number(months.nov) + Number(months.dec),
       };
       return { ...e, goal: perExec, mrrGoal, months, quarters };
     });

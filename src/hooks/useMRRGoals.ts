@@ -30,21 +30,21 @@ export function useMRRGoals() {
     currentManagerId,
   } = useMetasComerciais();
 
-  // Convert executives to simple MRR goals format
+  // Convert executives to simple MRR goals format - CRITICAL: use Number() to avoid NaN
   const goalsData = useMemo((): ExecutiveMRRGoal[] => {
     const yearData = yearsData.get(currentYear);
     if (!yearData) return [];
     
     return yearData.executives.map((exec) => ({
-      executiveId: exec.executiveId,
-      metaMRR: exec.mrrGoal || 0,
+      executiveId: Number(exec.executiveId) || 0,
+      metaMRR: Number(exec.mrrGoal) || 0,
     }));
   }, [yearsData, currentYear]);
 
-  // Helper to get goal for a specific executive
+  // Helper to get goal for a specific executive - CRITICAL: use Number() fallback
   const getGoalForExecutive = useCallback((executiveId: number): number => {
     const goal = goalsData.find((g) => g.executiveId === executiveId);
-    return goal?.metaMRR || 0;
+    return Number(goal?.metaMRR) || 0;
   }, [goalsData]);
 
   // Helper to update a single executive's goal (returns updated array, needs save after)

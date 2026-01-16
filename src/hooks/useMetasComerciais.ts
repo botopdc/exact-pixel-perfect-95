@@ -94,13 +94,13 @@ export function createEmptyYearGoal(year: number, managerId: number = 1): YearGo
   };
 }
 
-// Helper: calculate quarters from months
+// Helper: calculate quarters from months (CRITICAL: force Number to avoid string concatenation)
 export function calculateQuartersFromMonths(months: MonthlyTargets): QuarterTargets {
   return {
-    q1: (months.jan || 0) + (months.feb || 0) + (months.mar || 0),
-    q2: (months.apr || 0) + (months.may || 0) + (months.jun || 0),
-    q3: (months.jul || 0) + (months.aug || 0) + (months.sep || 0),
-    q4: (months.oct || 0) + (months.nov || 0) + (months.dec || 0),
+    q1: Number(months.jan || 0) + Number(months.feb || 0) + Number(months.mar || 0),
+    q2: Number(months.apr || 0) + Number(months.may || 0) + Number(months.jun || 0),
+    q3: Number(months.jul || 0) + Number(months.aug || 0) + Number(months.sep || 0),
+    q4: Number(months.oct || 0) + Number(months.nov || 0) + Number(months.dec || 0),
   };
 }
 
@@ -145,9 +145,19 @@ export const DEFAULT_QUARTER_WEIGHTS: QuarterWeights = {
   Q4: 30,
 };
 
-// Helper: sum monthly targets
+// Helper: sum monthly targets (CRITICAL: force Number to avoid string concatenation)
 export function sumMonthlyTargets(targets: MonthlyTargets): number {
-  return Object.values(targets).reduce((sum, v) => sum + (v || 0), 0);
+  return Object.values(targets).reduce((sum, v) => {
+    const numVal = Number(v) || 0;
+    return sum + numVal;
+  }, 0);
+}
+
+// Helper: safely convert to number (fallback 0)
+export function safeNumber(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
 }
 
 // Month labels
@@ -165,60 +175,61 @@ export const MONTH_KEYS: MonthKey[] = [
 export const QUARTER_KEYS: QuarterKey[] = ['q1', 'q2', 'q3', 'q4'];
 
 // Transform API response to local format
+// CRITICAL: All numeric values MUST be converted with Number() to prevent string concatenation bugs
 function apiToLocal(apiGoal: AnnualGoal): YearGoalData {
   return {
-    year: apiGoal.year,
+    year: Number(apiGoal.year) || new Date().getFullYear(),
     apiId: apiGoal.id,
-    managerId: apiGoal.manager_id,
-    goal: apiGoal.goal || 0,
-    mrrGoal: apiGoal.mrr_goal || 0,
+    managerId: Number(apiGoal.manager_id) || 1,
+    goal: Number(apiGoal.goal) || 0,
+    mrrGoal: Number(apiGoal.mrr_goal) || 0,
     quarters: {
-      q1: apiGoal.q1 || 0,
-      q2: apiGoal.q2 || 0,
-      q3: apiGoal.q3 || 0,
-      q4: apiGoal.q4 || 0,
+      q1: Number(apiGoal.q1) || 0,
+      q2: Number(apiGoal.q2) || 0,
+      q3: Number(apiGoal.q3) || 0,
+      q4: Number(apiGoal.q4) || 0,
     },
     months: {
-      jan: apiGoal.jan || 0,
-      feb: apiGoal.feb || 0,
-      mar: apiGoal.mar || 0,
-      apr: apiGoal.apr || 0,
-      may: apiGoal.may || 0,
-      jun: apiGoal.jun || 0,
-      jul: apiGoal.jul || 0,
-      aug: apiGoal.aug || 0,
-      sep: apiGoal.sep || 0,
-      oct: apiGoal.oct || 0,
-      nov: apiGoal.nov || 0,
-      dec: apiGoal.dec || 0,
+      jan: Number(apiGoal.jan) || 0,
+      feb: Number(apiGoal.feb) || 0,
+      mar: Number(apiGoal.mar) || 0,
+      apr: Number(apiGoal.apr) || 0,
+      may: Number(apiGoal.may) || 0,
+      jun: Number(apiGoal.jun) || 0,
+      jul: Number(apiGoal.jul) || 0,
+      aug: Number(apiGoal.aug) || 0,
+      sep: Number(apiGoal.sep) || 0,
+      oct: Number(apiGoal.oct) || 0,
+      nov: Number(apiGoal.nov) || 0,
+      dec: Number(apiGoal.dec) || 0,
     },
     executives: (apiGoal.executives || []).map((exec) => ({
       id: exec.id,
-      executiveId: exec.executive_id,
+      executiveId: Number(exec.executive_id) || 0,
       name: exec.executive?.name || '',
       email: exec.executive?.email || '',
       role: exec.role || '',
-      goal: exec.goal || 0,
-      mrrGoal: exec.mrr_goal || 0,
+      goal: Number(exec.goal) || 0,
+      mrrGoal: Number(exec.mrr_goal) || 0,
       quarters: {
-        q1: exec.q1 || 0,
-        q2: exec.q2 || 0,
-        q3: exec.q3 || 0,
-        q4: exec.q4 || 0,
+        q1: Number(exec.q1) || 0,
+        q2: Number(exec.q2) || 0,
+        q3: Number(exec.q3) || 0,
+        q4: Number(exec.q4) || 0,
       },
       months: {
-        jan: exec.jan || 0,
-        feb: exec.feb || 0,
-        mar: exec.mar || 0,
-        apr: exec.apr || 0,
-        may: exec.may || 0,
-        jun: exec.jun || 0,
-        jul: exec.jul || 0,
-        aug: exec.aug || 0,
-        sep: exec.sep || 0,
-        oct: exec.oct || 0,
-        nov: exec.nov || 0,
-        dec: exec.dec || 0,
+        jan: Number(exec.jan) || 0,
+        feb: Number(exec.feb) || 0,
+        mar: Number(exec.mar) || 0,
+        apr: Number(exec.apr) || 0,
+        may: Number(exec.may) || 0,
+        jun: Number(exec.jun) || 0,
+        jul: Number(exec.jul) || 0,
+        aug: Number(exec.aug) || 0,
+        sep: Number(exec.sep) || 0,
+        oct: Number(exec.oct) || 0,
+        nov: Number(exec.nov) || 0,
+        dec: Number(exec.dec) || 0,
       },
     })),
     updatedAt: apiGoal.updated_at || new Date().toISOString(),
