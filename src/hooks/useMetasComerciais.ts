@@ -1,9 +1,9 @@
 /**
  * Metas Comerciais Hook - Manages yearly sales goals for executives
  * 
- * Now uses the dedicated /api/annual-goal endpoint instead of calculator/config
- * 
- * Each year has: global targets, monthly distribution, and executive-level goals
+ * Uses the dedicated /api/annual-goal endpoint with the correct API structure:
+ * - manager_id, year, goal, mrr_goal, q1-q4, jan-dec
+ * - executives[] with executive_id, role, goal, mrr_goal, q1-q4, jan-dec
  */
 
 import { useState, useCallback } from 'react';
@@ -12,18 +12,14 @@ import { toast } from 'sonner';
 import {
   annualGoalService,
   AnnualGoal,
-  AnnualGoalGlobal,
-  AnnualGoalExecutive,
   AnnualGoalStoreRequest,
+  AnnualGoalExecutiveRequest,
 } from '@/services/annualGoalService';
+import { openApi } from '@/lib/openApi';
 
-// Types - Re-export for backward compatibility
-export interface QuarterWeights {
-  Q1: number;
-  Q2: number;
-  Q3: number;
-  Q4: number;
-}
+// Month keys as used by the API
+export type MonthKey = 'jan' | 'feb' | 'mar' | 'apr' | 'may' | 'jun' | 'jul' | 'aug' | 'sep' | 'oct' | 'nov' | 'dec';
+export type QuarterKey = 'q1' | 'q2' | 'q3' | 'q4';
 
 export interface MonthlyTargets {
   jan: number;
@@ -40,38 +36,44 @@ export interface MonthlyTargets {
   dec: number;
 }
 
-export interface ExecutiveGoal {
-  id: number;
-  name: string;
-  email: string;
-  teamType: 'interno' | 'externo';
-  annualTarget: number;
-  monthlyMRRTarget: number;
-  monthlyTargets: MonthlyTargets;
-  quarterTargets: QuarterWeights;
+export interface QuarterTargets {
+  q1: number;
+  q2: number;
+  q3: number;
+  q4: number;
 }
 
-export interface GlobalGoal {
-  annualTarget: number;
-  globalMRRTarget: number;
-  quarterWeights: QuarterWeights;
-  monthlyTargets: MonthlyTargets;
+// Local format for UI - easier to work with
+export interface ExecutiveGoal {
+  id?: number; // ID from annual_goal_executives table (for existing records)
+  executiveId: number; // User ID
+  name: string;
+  email: string;
+  role: string;
+  goal: number; // annual goal
+  mrrGoal: number; // monthly MRR goal
+  quarters: QuarterTargets;
+  months: MonthlyTargets;
 }
 
 export interface YearGoalData {
   year: number;
-  global: GlobalGoal;
+  managerId: number;
+  goal: number; // annual goal
+  mrrGoal: number; // monthly MRR goal
+  quarters: QuarterTargets;
+  months: MonthlyTargets;
   executives: ExecutiveGoal[];
   updatedAt: string;
   apiId?: number; // ID from the API for updates
 }
 
 // Default values
-export const DEFAULT_QUARTER_WEIGHTS: QuarterWeights = {
-  Q1: 20,
-  Q2: 25,
-  Q3: 25,
-  Q4: 30,
+export const DEFAULT_QUARTER_TARGETS: QuarterTargets = {
+  q1: 0,
+  q2: 0,
+  q3: 0,
+  q4: 0,
 };
 
 export const DEFAULT_MONTHLY_TARGETS: MonthlyTargets = {
@@ -79,24 +81,33 @@ export const DEFAULT_MONTHLY_TARGETS: MonthlyTargets = {
   jul: 0, aug: 0, sep: 0, oct: 0, nov: 0, dec: 0,
 };
 
-export function createEmptyYearGoal(year: number): YearGoalData {
+export function createEmptyYearGoal(year: number, managerId: number = 1): YearGoalData {
   return {
     year,
-    global: {
-      annualTarget: 0,
-      globalMRRTarget: 0,
-      quarterWeights: { ...DEFAULT_QUARTER_WEIGHTS },
-      monthlyTargets: { ...DEFAULT_MONTHLY_TARGETS },
-    },
+    managerId,
+    goal: 0,
+    mrrGoal: 0,
+    quarters: { ...DEFAULT_QUARTER_TARGETS },
+    months: { ...DEFAULT_MONTHLY_TARGETS },
     executives: [],
     updatedAt: new Date().toISOString(),
   };
 }
 
-// Helper: calculate monthly targets from quarter weights
+// Helper: calculate quarters from months
+export function calculateQuartersFromMonths(months: MonthlyTargets): QuarterTargets {
+  return {
+    q1: (months.jan || 0) + (months.feb || 0) + (months.mar || 0),
+    q2: (months.apr || 0) + (months.may || 0) + (months.jun || 0),
+    q3: (months.jul || 0) + (months.aug || 0) + (months.sep || 0),
+    q4: (months.oct || 0) + (months.nov || 0) + (months.dec || 0),
+  };
+}
+
+// Helper: calculate monthly from quarter weights
 export function calculateMonthlyFromQuarters(
   annualTarget: number,
-  quarterWeights: QuarterWeights
+  quarterWeights: { Q1: number; Q2: number; Q3: number; Q4: number }
 ): MonthlyTargets {
   const q1Monthly = (annualTarget * (quarterWeights.Q1 / 100)) / 3;
   const q2Monthly = (annualTarget * (quarterWeights.Q2 / 100)) / 3;
@@ -111,11 +122,11 @@ export function calculateMonthlyFromQuarters(
   };
 }
 
-// Helper: calculate quarter targets from annual and weights
+// Helper: calculate quarter targets from annual and weights (for backward compat)
 export function calculateQuarterTargets(
   annualTarget: number,
-  quarterWeights: QuarterWeights
-): QuarterWeights {
+  quarterWeights: { Q1: number; Q2: number; Q3: number; Q4: number }
+): { Q1: number; Q2: number; Q3: number; Q4: number } {
   return {
     Q1: annualTarget * (quarterWeights.Q1 / 100),
     Q2: annualTarget * (quarterWeights.Q2 / 100),
@@ -124,68 +135,143 @@ export function calculateQuarterTargets(
   };
 }
 
+// Backward compat type aliases
+export type QuarterWeights = { Q1: number; Q2: number; Q3: number; Q4: number };
+
+export const DEFAULT_QUARTER_WEIGHTS: QuarterWeights = {
+  Q1: 20,
+  Q2: 25,
+  Q3: 25,
+  Q4: 30,
+};
+
 // Helper: sum monthly targets
 export function sumMonthlyTargets(targets: MonthlyTargets): number {
   return Object.values(targets).reduce((sum, v) => sum + (v || 0), 0);
 }
 
 // Month labels
-export const MONTH_LABELS: Record<keyof MonthlyTargets, string> = {
+export const MONTH_LABELS: Record<MonthKey, string> = {
   jan: 'Jan', feb: 'Fev', mar: 'Mar', apr: 'Abr',
   may: 'Mai', jun: 'Jun', jul: 'Jul', aug: 'Ago',
   sep: 'Set', oct: 'Out', nov: 'Nov', dec: 'Dez',
 };
 
-export const MONTH_KEYS: (keyof MonthlyTargets)[] = [
+export const MONTH_KEYS: MonthKey[] = [
   'jan', 'feb', 'mar', 'apr', 'may', 'jun',
   'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
 ];
+
+export const QUARTER_KEYS: QuarterKey[] = ['q1', 'q2', 'q3', 'q4'];
 
 // Transform API response to local format
 function apiToLocal(apiGoal: AnnualGoal): YearGoalData {
   return {
     year: apiGoal.year,
     apiId: apiGoal.id,
-    global: {
-      annualTarget: apiGoal.global?.annual_target || 0,
-      globalMRRTarget: apiGoal.global?.global_mrr_target || 0,
-      quarterWeights: apiGoal.global?.quarter_weights || { ...DEFAULT_QUARTER_WEIGHTS },
-      monthlyTargets: apiGoal.global?.monthly_targets || { ...DEFAULT_MONTHLY_TARGETS },
+    managerId: apiGoal.manager_id,
+    goal: apiGoal.goal || 0,
+    mrrGoal: apiGoal.mrr_goal || 0,
+    quarters: {
+      q1: apiGoal.q1 || 0,
+      q2: apiGoal.q2 || 0,
+      q3: apiGoal.q3 || 0,
+      q4: apiGoal.q4 || 0,
+    },
+    months: {
+      jan: apiGoal.jan || 0,
+      feb: apiGoal.feb || 0,
+      mar: apiGoal.mar || 0,
+      apr: apiGoal.apr || 0,
+      may: apiGoal.may || 0,
+      jun: apiGoal.jun || 0,
+      jul: apiGoal.jul || 0,
+      aug: apiGoal.aug || 0,
+      sep: apiGoal.sep || 0,
+      oct: apiGoal.oct || 0,
+      nov: apiGoal.nov || 0,
+      dec: apiGoal.dec || 0,
     },
     executives: (apiGoal.executives || []).map((exec) => ({
       id: exec.id,
-      name: exec.name || '',
-      email: exec.email || '',
-      teamType: exec.team_type || 'interno',
-      annualTarget: exec.annual_target || 0,
-      monthlyMRRTarget: exec.monthly_mrr_target || 0,
-      monthlyTargets: exec.monthly_targets || { ...DEFAULT_MONTHLY_TARGETS },
-      quarterTargets: exec.quarter_targets || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+      executiveId: exec.executive_id,
+      name: exec.executive?.name || '',
+      email: exec.executive?.email || '',
+      role: exec.role || '',
+      goal: exec.goal || 0,
+      mrrGoal: exec.mrr_goal || 0,
+      quarters: {
+        q1: exec.q1 || 0,
+        q2: exec.q2 || 0,
+        q3: exec.q3 || 0,
+        q4: exec.q4 || 0,
+      },
+      months: {
+        jan: exec.jan || 0,
+        feb: exec.feb || 0,
+        mar: exec.mar || 0,
+        apr: exec.apr || 0,
+        may: exec.may || 0,
+        jun: exec.jun || 0,
+        jul: exec.jul || 0,
+        aug: exec.aug || 0,
+        sep: exec.sep || 0,
+        oct: exec.oct || 0,
+        nov: exec.nov || 0,
+        dec: exec.dec || 0,
+      },
     })),
-    updatedAt: apiGoal.updated_at,
+    updatedAt: apiGoal.updated_at || new Date().toISOString(),
   };
 }
 
 // Transform local format to API request
 function localToApi(localData: YearGoalData): AnnualGoalStoreRequest {
+  const executives: AnnualGoalExecutiveRequest[] = localData.executives.map((exec) => ({
+    executive_id: exec.executiveId,
+    role: exec.role || 'Comercial',
+    goal: exec.goal || 0,
+    mrr_goal: exec.mrrGoal || 0,
+    q1: exec.quarters.q1 || 0,
+    q2: exec.quarters.q2 || 0,
+    q3: exec.quarters.q3 || 0,
+    q4: exec.quarters.q4 || 0,
+    jan: exec.months.jan || 0,
+    feb: exec.months.feb || 0,
+    mar: exec.months.mar || 0,
+    apr: exec.months.apr || 0,
+    may: exec.months.may || 0,
+    jun: exec.months.jun || 0,
+    jul: exec.months.jul || 0,
+    aug: exec.months.aug || 0,
+    sep: exec.months.sep || 0,
+    oct: exec.months.oct || 0,
+    nov: exec.months.nov || 0,
+    dec: exec.months.dec || 0,
+  }));
+
   return {
+    manager_id: localData.managerId || 1,
     year: localData.year,
-    global: {
-      annual_target: localData.global.annualTarget || 0,
-      global_mrr_target: localData.global.globalMRRTarget || 0,
-      quarter_weights: localData.global.quarterWeights || { ...DEFAULT_QUARTER_WEIGHTS },
-      monthly_targets: localData.global.monthlyTargets || { ...DEFAULT_MONTHLY_TARGETS },
-    },
-    executives: (localData.executives || []).map((exec) => ({
-      id: exec.id,
-      name: exec.name,
-      email: exec.email,
-      team_type: exec.teamType || 'interno',
-      annual_target: exec.annualTarget || 0,
-      monthly_mrr_target: exec.monthlyMRRTarget || 0,
-      monthly_targets: exec.monthlyTargets || { ...DEFAULT_MONTHLY_TARGETS },
-      quarter_targets: exec.quarterTargets || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
-    })),
+    goal: localData.goal || 0,
+    mrr_goal: localData.mrrGoal || 0,
+    q1: localData.quarters.q1 || 0,
+    q2: localData.quarters.q2 || 0,
+    q3: localData.quarters.q3 || 0,
+    q4: localData.quarters.q4 || 0,
+    jan: localData.months.jan || 0,
+    feb: localData.months.feb || 0,
+    mar: localData.months.mar || 0,
+    apr: localData.months.apr || 0,
+    may: localData.months.may || 0,
+    jun: localData.months.jun || 0,
+    jul: localData.months.jul || 0,
+    aug: localData.months.aug || 0,
+    sep: localData.months.sep || 0,
+    oct: localData.months.oct || 0,
+    nov: localData.months.nov || 0,
+    dec: localData.months.dec || 0,
+    executives,
   };
 }
 
@@ -193,6 +279,7 @@ function localToApi(localData: YearGoalData): AnnualGoalStoreRequest {
 export function useMetasComerciais() {
   const queryClient = useQueryClient();
   const [entryIds, setEntryIds] = useState<Map<number, number>>(new Map());
+  const [currentManagerId, setCurrentManagerId] = useState<number>(1);
 
   // Query to fetch all years
   const {
@@ -204,6 +291,14 @@ export function useMetasComerciais() {
   } = useQuery({
     queryKey: ['metas-comerciais', 'annual-goals'],
     queryFn: async () => {
+      // Get current user to use as manager_id default
+      try {
+        const user = await openApi.getCurrentUser();
+        if (user?.id) setCurrentManagerId(user.id);
+      } catch (e) {
+        console.warn('Could not fetch current user for manager_id');
+      }
+
       const response = await annualGoalService.fetchAll({ __perPage: 100 });
       const idsMap = new Map<number, number>();
       const dataMap = new Map<number, YearGoalData>();
@@ -224,7 +319,14 @@ export function useMetasComerciais() {
   const saveMutation = useMutation({
     mutationFn: async (yearData: YearGoalData) => {
       const existingId = yearData.apiId || entryIds.get(yearData.year);
-      const payload = localToApi(yearData);
+      
+      // Ensure manager_id is set
+      const dataToSave = {
+        ...yearData,
+        managerId: yearData.managerId || currentManagerId || 1,
+      };
+      
+      const payload = localToApi(dataToSave);
 
       console.log('[MetasComerciais] Saving to /api/annual-goal:', JSON.stringify(payload, null, 2));
 
@@ -260,9 +362,9 @@ export function useMetasComerciais() {
   // Get data for a specific year
   const getYearData = useCallback(
     (year: number): YearGoalData => {
-      return yearsData?.get(year) || createEmptyYearGoal(year);
+      return yearsData?.get(year) || createEmptyYearGoal(year, currentManagerId);
     },
-    [yearsData]
+    [yearsData, currentManagerId]
   );
 
   // Get all available years
@@ -277,8 +379,8 @@ export function useMetasComerciais() {
     (year: number, executiveId: number): number => {
       const yearData = yearsData?.get(year);
       if (!yearData) return 0;
-      const exec = yearData.executives.find((e) => e.id === executiveId);
-      return exec?.monthlyMRRTarget || 0;
+      const exec = yearData.executives.find((e) => e.executiveId === executiveId);
+      return exec?.mrrGoal || 0;
     },
     [yearsData]
   );
@@ -306,5 +408,6 @@ export function useMetasComerciais() {
     saveYearAsync: saveMutation.mutateAsync,
     isSaving: saveMutation.isPending,
     entryIds,
+    currentManagerId,
   };
 }

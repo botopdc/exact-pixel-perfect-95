@@ -442,7 +442,7 @@ const ComissoesExecutivos = () => {
                         // Get MRR from calculated map (sum of total/duration for approved proposals)
                         const mrrAtual = mrrByExecMap?.get(exec.id) || 0;
                         
-                        const metaMRR = exec.monthlyMRRTarget || 0;
+                        const metaMRR = exec.mrrGoal || 0;
                         const progress = metaMRR > 0 ? Math.min((mrrAtual / metaMRR) * 100, 100) : 0;
                         const gap = Math.max(metaMRR - mrrAtual, 0);
 
