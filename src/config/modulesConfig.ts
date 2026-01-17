@@ -280,21 +280,28 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
   },
 
   // =========================================================================
-  // ATENDIMENTOS
+  // ATENDIMENTOS / OPERAÇÕES
   // =========================================================================
   atendimentos: {
     id: 'atendimentos',
     title: 'Atendimentos',
-    description: 'Tickets, suporte e customer success',
+    description: 'Centro de Operações Técnicas',
     icon: HeadphonesIcon,
     homeUrl: '/modulos/atendimentos',
     allowedLevels: [775, 900, 950, 1000],
     subNavigation: [
       {
-        id: 'suporte',
-        title: 'Suporte',
-        url: '/modulos/atendimentos/suporte',
+        id: 'suporte-tecnico',
+        title: 'Suporte Técnico',
+        url: '/modulos/atendimentos/suporte-tecnico',
         allowedLevels: [900, 950, 1000],
+        tabs: [
+          { id: 'home', title: 'Home (NOC)', url: '/modulos/atendimentos/suporte-tecnico', allowedLevels: [900, 950, 1000] },
+          { id: 'incidentes', title: 'Incidentes', url: '/modulos/atendimentos/suporte-tecnico/incidentes', allowedLevels: [900, 950, 1000] },
+          { id: 'clientes', title: 'Clientes', url: '/modulos/atendimentos/suporte-tecnico/clientes', allowedLevels: [900, 950, 1000] },
+          { id: 'infra', title: 'Infra (Assets)', url: '/modulos/atendimentos/suporte-tecnico/infra', allowedLevels: [900, 950, 1000] },
+          { id: 'plantao', title: 'Plantão', url: '/modulos/atendimentos/suporte-tecnico/plantao', allowedLevels: [900, 950, 1000] },
+        ],
       },
       {
         id: 'cs',
