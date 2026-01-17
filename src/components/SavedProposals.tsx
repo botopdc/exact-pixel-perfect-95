@@ -15,6 +15,8 @@ import { Badge } from '@/components/ui/badge';
 import { authService } from '@/services/authService';
 import { ROUTES, getCalculatorRoute } from '@/config/routes';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
+import { copyToClipboard } from '@/lib/clipboard';
+import { LinkCopyModal } from '@/components/LinkCopyModal';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -185,6 +187,10 @@ const SavedProposals: React.FC = () => {
     toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
   };
 
+  // State for Safari fallback modal
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkModalUrl, setLinkModalUrl] = useState('');
+
   const handleCopyAcceptanceLink = async (proposal: SavedProposal) => {
     const displayProposalId = proposal.proposal?.id || '';
     const apiId = proposal.id ? String(proposal.id) : displayProposalId;
@@ -196,8 +202,8 @@ const SavedProposals: React.FC = () => {
       console.log('[SavedProposals] Getting approval link for:', apiId);
       const approvalLink = await getApprovalLink(apiId);
       
-      // Copy to clipboard
-      await navigator.clipboard.writeText(approvalLink);
+      // Try to copy to clipboard (with Safari fallback)
+      const copySuccess = await copyToClipboard(approvalLink);
       
       // Track link copy
       if (displayProposalId) {
@@ -210,7 +216,17 @@ const SavedProposals: React.FC = () => {
         }
       }
       
-      toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado para a área de transferência' });
+      if (copySuccess) {
+        toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado para a área de transferência' });
+      } else {
+        // Safari blocked copy - show modal with selectable link
+        setLinkModalUrl(approvalLink);
+        setLinkModalOpen(true);
+        toast({ 
+          title: 'Copie o link manualmente', 
+          description: 'O Safari bloqueou a cópia automática. Use o modal para copiar o link.',
+        });
+      }
     } catch (error: any) {
       console.error('[SavedProposals] Error getting approval link:', error);
       toast({ 
@@ -681,6 +697,13 @@ const SavedProposals: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Link Copy Modal for Safari fallback */}
+      <LinkCopyModal
+        open={linkModalOpen}
+        onOpenChange={setLinkModalOpen}
+        link={linkModalUrl}
+      />
     </div>
   );
 };
