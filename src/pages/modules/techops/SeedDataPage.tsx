@@ -76,7 +76,7 @@ export default function SeedDataPage() {
   }
 
   const completedSteps = steps.filter(s => s.status === 'success').length;
-  const totalSteps = steps.length || 5;
+  const totalSteps = steps.length || 6;
   const progress = (completedSteps / totalSteps) * 100;
 
   return (
@@ -95,6 +95,16 @@ export default function SeedDataPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Admin Warning */}
+          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+              ⚠️ Apenas usuários ADMIN podem executar o seed de dados.
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              A verificação de permissão é feita automaticamente antes de iniciar a inserção.
+            </p>
+          </div>
+
           <div className="p-4 bg-accent/30 rounded-lg">
             <h4 className="font-medium mb-2">O que será inserido:</h4>
             <ul className="text-sm text-muted-foreground space-y-1">
