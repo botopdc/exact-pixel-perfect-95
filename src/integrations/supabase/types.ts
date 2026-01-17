@@ -474,7 +474,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_tech_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       asset_environment: "PROD" | "HOMOLOG" | "DEV" | "NAO_INFORMADO"

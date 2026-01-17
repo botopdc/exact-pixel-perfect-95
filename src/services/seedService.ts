@@ -71,10 +71,55 @@ const SAMPLE_CLIENTS: Array<{
   { razao_social: 'Epsilon Digital SA', nome_fantasia: 'Epsilon', status: 'ATIVO', sla_level: 'PREMIUM', segmento: 'SaaS' },
 ];
 
+// Check if current user is admin or if this is first bootstrap (no users exist)
+export async function canRunSeed(): Promise<{ allowed: boolean; reason?: string; isBootstrap?: boolean }> {
+  try {
+    // Check if there are any users at all (bootstrap scenario)
+    const { count: userCount, error: countError } = await supabase
+      .from('tech_users')
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) {
+      return { allowed: false, reason: `Erro ao verificar usuários: ${countError.message}` };
+    }
+
+    // Bootstrap: no users exist yet, allow seed
+    if (userCount === 0) {
+      return { allowed: true, isBootstrap: true };
+    }
+
+    // Check if current user is admin
+    const { data: session } = await supabase.auth.getSession();
+    if (!session.session) {
+      return { allowed: false, reason: 'Usuário não autenticado' };
+    }
+
+    const userEmail = session.session.user.email;
+    const { data: techUser, error: userError } = await supabase
+      .from('tech_users')
+      .select('role')
+      .eq('email', userEmail)
+      .single();
+
+    if (userError || !techUser) {
+      return { allowed: false, reason: 'Usuário não encontrado na tabela tech_users. Você precisa ser um ADMIN registrado.' };
+    }
+
+    if (techUser.role !== 'ADMIN') {
+      return { allowed: false, reason: `Apenas usuários ADMIN podem executar o seed. Seu papel atual: ${techUser.role}` };
+    }
+
+    return { allowed: true };
+  } catch (error) {
+    return { allowed: false, reason: error instanceof Error ? error.message : 'Erro desconhecido ao verificar permissões' };
+  }
+}
+
 export async function runSeed(
   onProgress: (steps: SeedStep[]) => void
 ): Promise<SeedResult> {
   const steps: SeedStep[] = [
+    { name: 'Verificação de Permissão', table: 'auth', status: 'pending' },
     { name: 'Usuários', table: 'tech_users', status: 'pending' },
     { name: 'Clientes', table: 'tech_clients', status: 'pending' },
     { name: 'Assets', table: 'tech_assets', status: 'pending' },
@@ -88,9 +133,24 @@ export async function runSeed(
   };
 
   try {
-    // Step 1: Users
+    // Step 0: Check permissions
     updateStep(0, { status: 'running' });
+    const permCheck = await canRunSeed();
+    
+    if (!permCheck.allowed) {
+      updateStep(0, { status: 'error', message: permCheck.reason });
+      return { steps, success: false, error: permCheck.reason };
+    }
+    
+    updateStep(0, { 
+      status: 'success', 
+      message: permCheck.isBootstrap ? 'Bootstrap: primeira execução permitida' : 'Permissão ADMIN verificada' 
+    });
+
+    // Step 1: Users
+    updateStep(1, { status: 'running' });
     const userIds: Record<string, string> = {};
+    
     
     for (const user of SAMPLE_USERS) {
       const { data: existingUser } = await supabase
@@ -112,10 +172,10 @@ export async function runSeed(
         if (newUser) userIds[user.role] = newUser.id;
       }
     }
-    updateStep(0, { status: 'success', count: Object.keys(userIds).length, message: 'Usuários criados/verificados' });
+    updateStep(1, { status: 'success', count: Object.keys(userIds).length, message: 'Usuários criados/verificados' });
 
     // Step 2: Clients
-    updateStep(1, { status: 'running' });
+    updateStep(2, { status: 'running' });
     const clientIds: string[] = [];
     const clientData: Array<{ id: string; sla_level: string }> = [];
 
@@ -146,10 +206,10 @@ export async function runSeed(
         }
       }
     }
-    updateStep(1, { status: 'success', count: clientIds.length, message: 'Clientes criados/verificados' });
+    updateStep(2, { status: 'success', count: clientIds.length, message: 'Clientes criados/verificados' });
 
     // Step 3: Assets
-    updateStep(2, { status: 'running' });
+    updateStep(3, { status: 'running' });
     let assetCount = 0;
     const assetIds: string[] = [];
 
@@ -215,10 +275,10 @@ export async function runSeed(
         }
       }
     }
-    updateStep(2, { status: 'success', count: assetCount, message: 'Assets criados/verificados' });
+    updateStep(3, { status: 'success', count: assetCount, message: 'Assets criados/verificados' });
 
     // Step 4: Incidents
-    updateStep(3, { status: 'running' });
+    updateStep(4, { status: 'running' });
     let incidentCount = 0;
 
     if (clientIds.length > 0 && assetIds.length > 0) {
@@ -316,10 +376,10 @@ export async function runSeed(
         }
       }
     }
-    updateStep(3, { status: 'success', count: incidentCount, message: 'Incidentes criados/verificados' });
+    updateStep(4, { status: 'success', count: incidentCount, message: 'Incidentes criados/verificados' });
 
     // Step 5: On-Call Shifts
-    updateStep(4, { status: 'running' });
+    updateStep(5, { status: 'running' });
     let shiftCount = 0;
 
     const now = new Date();
@@ -358,7 +418,7 @@ export async function runSeed(
         shiftCount++;
       }
     }
-    updateStep(4, { status: 'success', count: shiftCount, message: 'Plantões criados/verificados' });
+    updateStep(5, { status: 'success', count: shiftCount, message: 'Plantões criados/verificados' });
 
     return { steps, success: true };
   } catch (error) {
