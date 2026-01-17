@@ -14,6 +14,7 @@ import {
   Search,
   Phone,
   ArrowUpRight,
+  Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -247,6 +248,12 @@ export default function NOCHomePage() {
                 <Button variant="outline" className="w-full justify-start">
                   <Server className="h-4 w-4 mr-2" />
                   Infraestrutura
+                </Button>
+              </Link>
+              <Link to="/modulos/atendimentos/suporte-tecnico/seed" className="block">
+                <Button variant="outline" className="w-full justify-start text-muted-foreground">
+                  <Database className="h-4 w-4 mr-2" />
+                  Dados de Exemplo (Admin)
                 </Button>
               </Link>
             </CardContent>
