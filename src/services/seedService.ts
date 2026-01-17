@@ -163,30 +163,44 @@ export async function runSeed(
                            'Admin';
     
     // First, ensure current user exists as ADMIN (bootstrap)
-    const { data: existingAdmin } = await supabase
+    // Check by id (auth.uid) first, then by email
+    const { data: existingAdminById } = await supabase
       .from('tech_users')
       .select('id, role')
-      .eq('email', currentUserEmail)
+      .eq('id', currentUserId)
       .single();
     
-    if (existingAdmin) {
-      userIds['ADMIN'] = existingAdmin.id;
+    if (existingAdminById) {
+      userIds['ADMIN'] = existingAdminById.id;
     } else {
-      // Bootstrap: create the logged-in user as ADMIN with owner_id = their auth id
-      const { data: newAdmin, error: adminError } = await supabase
+      // Also check by email in case user exists with different id
+      const { data: existingAdminByEmail } = await supabase
         .from('tech_users')
-        .insert({
-          name: currentUserName,
-          email: currentUserEmail,
-          role: 'ADMIN' as DbTechRole,
-          is_active: true,
-          owner_id: currentUserId, // Bootstrap owner_id
-        })
-        .select()
+        .select('id, role')
+        .eq('email', currentUserEmail)
         .single();
       
-      if (adminError) throw new Error(`Erro ao criar ADMIN bootstrap: ${adminError.message}`);
-      if (newAdmin) userIds['ADMIN'] = newAdmin.id;
+      if (existingAdminByEmail) {
+        userIds['ADMIN'] = existingAdminByEmail.id;
+      } else {
+        // Bootstrap: create the logged-in user as ADMIN with id = auth.uid()
+        // CRITICAL: id MUST be auth.uid() for RLS policy to work
+        const { data: newAdmin, error: adminError } = await supabase
+          .from('tech_users')
+          .insert({
+            id: currentUserId, // MUST be auth.uid() for RLS bootstrap!
+            name: currentUserName,
+            email: currentUserEmail,
+            role: 'ADMIN' as DbTechRole,
+            is_active: true,
+            owner_id: currentUserId,
+          })
+          .select()
+          .single();
+        
+        if (adminError) throw new Error(`Erro ao criar ADMIN bootstrap: ${adminError.message}`);
+        if (newAdmin) userIds['ADMIN'] = newAdmin.id;
+      }
     }
     
     // Now create the rest of the team (ADMIN can now insert due to is_tech_admin())
