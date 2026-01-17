@@ -65,12 +65,28 @@ import GestaoUsuarios from '@/pages/GestaoUsuarios';
 
 // Module Home Pages
 import DashboardModuleHome from '@/pages/modules/DashboardModuleHome';
+import DashboardAlertas from '@/pages/modules/DashboardAlertas';
+import DashboardIndicadores from '@/pages/modules/DashboardIndicadores';
 import ComercialModuleHome from '@/pages/modules/ComercialModuleHome';
 import ParceirosModuleHome from '@/pages/modules/ParceirosModuleHome';
 import AtendimentosModuleHome from '@/pages/modules/AtendimentosModuleHome';
 import ConteudoModuleHome from '@/pages/modules/ConteudoModuleHome';
 import GenteModuleHome from '@/pages/modules/GenteModuleHome';
 import AdminModuleHome from '@/pages/modules/AdminModuleHome';
+
+// Module Placeholder Pages
+import ProcedimentosPage from '@/pages/modules/conteudo/ProcedimentosPage';
+import MateriaisPage from '@/pages/modules/conteudo/MateriaisPage';
+import BaseConhecimentoPage from '@/pages/modules/conteudo/BaseConhecimentoPage';
+import EstruturaPage from '@/pages/modules/gente/EstruturaPage';
+import MetasInternasPage from '@/pages/modules/gente/MetasInternasPage';
+import AvaliacoesPage from '@/pages/modules/gente/AvaliacoesPage';
+import AcademyPage from '@/pages/modules/gente/AcademyPage';
+import PermissoesPage from '@/pages/modules/admin/PermissoesPage';
+import ParametrosPage from '@/pages/modules/admin/ParametrosPage';
+import LogsPage from '@/pages/modules/admin/LogsPage';
+import PropostasTemplatesPage from '@/pages/modules/comercial/PropostasTemplatesPage';
+import PropostasAprovacoesPage from '@/pages/modules/comercial/PropostasAprovacoesPage';
 
 const queryClient = new QueryClient();
 
@@ -122,14 +138,16 @@ const App = () => (
           <Route element={<ModuleLayout />}>
             {/* Dashboard Module */}
             <Route path="/modulos/dashboard" element={<DashboardModuleHome />} />
-            <Route path="/modulos/dashboard/alertas" element={<DashboardHome />} />
-            <Route path="/modulos/dashboard/indicadores" element={<DashboardExecutivo />} />
+            <Route path="/modulos/dashboard/alertas" element={<DashboardAlertas />} />
+            <Route path="/modulos/dashboard/indicadores" element={<DashboardIndicadores />} />
             
             {/* Comercial Module */}
             <Route path="/modulos/comercial" element={<ComercialModuleHome />} />
             <Route path="/modulos/comercial/executivos" element={<Executivos />} />
             <Route path="/modulos/comercial/propostas" element={<PropostasExecutivos />} />
             <Route path="/modulos/comercial/propostas/criar" element={<Calculadora />} />
+            <Route path="/modulos/comercial/propostas/templates" element={<PropostasTemplatesPage />} />
+            <Route path="/modulos/comercial/propostas/aprovacoes" element={<PropostasAprovacoesPage />} />
             <Route path="/modulos/comercial/metas" element={<MetasComerciais />} />
             <Route path="/modulos/comercial/comissoes" element={<ComissoesExecutivos />} />
             <Route path="/modulos/comercial/potencial" element={<MeuPotencialGerente />} />
@@ -157,6 +175,9 @@ const App = () => (
             <Route path="/modulos/conteudo/artigos/novo" element={<ArtigoForm />} />
             <Route path="/modulos/conteudo/artigos/:id" element={<ArtigoView />} />
             <Route path="/modulos/conteudo/artigos/:id/editar" element={<ArtigoForm isEdit />} />
+            <Route path="/modulos/conteudo/procedimentos" element={<ProcedimentosPage />} />
+            <Route path="/modulos/conteudo/materiais" element={<MateriaisPage />} />
+            <Route path="/modulos/conteudo/base" element={<BaseConhecimentoPage />} />
             
             {/* Gente & Gestão Module */}
             <Route path="/modulos/gente" element={<GenteModuleHome />} />
@@ -164,11 +185,18 @@ const App = () => (
             <Route path="/modulos/gente/vagas/nova" element={<JobForm />} />
             <Route path="/modulos/gente/vagas/:id" element={<VagaDetalhe />} />
             <Route path="/modulos/gente/vagas/:id/editar" element={<JobForm isEdit />} />
+            <Route path="/modulos/gente/estrutura" element={<EstruturaPage />} />
+            <Route path="/modulos/gente/metas" element={<MetasInternasPage />} />
+            <Route path="/modulos/gente/avaliacoes" element={<AvaliacoesPage />} />
+            <Route path="/modulos/gente/academy" element={<AcademyPage />} />
             
             {/* Admin Module */}
             <Route path="/modulos/admin" element={<AdminModuleHome />} />
             <Route path="/modulos/admin/usuarios" element={<GestaoUsuarios />} />
+            <Route path="/modulos/admin/permissoes" element={<PermissoesPage />} />
             <Route path="/modulos/admin/precos" element={<Precos />} />
+            <Route path="/modulos/admin/parametros" element={<ParametrosPage />} />
+            <Route path="/modulos/admin/logs" element={<LogsPage />} />
           </Route>
           
           {/* Legacy Admin/internal dashboard routes */}
