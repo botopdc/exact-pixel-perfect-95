@@ -446,6 +446,7 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          owner_id: string | null
           role: Database["public"]["Enums"]["tech_role"]
           updated_at: string
         }
@@ -455,6 +456,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          owner_id?: string | null
           role?: Database["public"]["Enums"]["tech_role"]
           updated_at?: string
         }
@@ -464,6 +466,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          owner_id?: string | null
           role?: Database["public"]["Enums"]["tech_role"]
           updated_at?: string
         }
@@ -475,6 +478,7 @@ export type Database = {
     }
     Functions: {
       is_tech_admin: { Args: never; Returns: boolean }
+      is_tech_team_member: { Args: never; Returns: boolean }
     }
     Enums: {
       asset_environment: "PROD" | "HOMOLOG" | "DEV" | "NAO_INFORMADO"
