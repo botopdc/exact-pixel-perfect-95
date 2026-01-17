@@ -43,14 +43,13 @@ type DbIncidentSeverity = 'S1' | 'S2' | 'S3' | 'S4';
 type DbIncidentStatus = 'ABERTO' | 'CLASSIFICADO' | 'EM_ATENDIMENTO' | 'ESCALADO' | 'RESOLVIDO' | 'ENCERRADO';
 type DbOnCallLevel = 'N1' | 'N2' | 'N3';
 
-// Sample data for seeding
-const SAMPLE_USERS: Array<{
+// Sample data for seeding (excluding the bootstrap admin which is the logged-in user)
+const SAMPLE_TEAM_USERS: Array<{
   name: string;
   email: string;
   role: DbTechRole;
   is_active: boolean;
 }> = [
-  { name: 'Admin Silva', email: 'admin@open.com', role: 'ADMIN', is_active: true },
   { name: 'Carlos N3 Senior', email: 'carlos.n3@open.com', role: 'N3', is_active: true },
   { name: 'Ana N2 Pleno', email: 'ana.n2@open.com', role: 'N2', is_active: true },
   { name: 'Pedro N1 Junior', email: 'pedro.n1@open.com', role: 'N1', is_active: true },
@@ -147,12 +146,51 @@ export async function runSeed(
       message: permCheck.isBootstrap ? 'Bootstrap: primeira execução permitida' : 'Permissão ADMIN verificada' 
     });
 
-    // Step 1: Users
+    // Step 1: Users - Bootstrap: first create the logged-in user as ADMIN with owner_id
     updateStep(1, { status: 'running' });
     const userIds: Record<string, string> = {};
     
+    // Get current logged-in user info for bootstrap
+    const { data: session } = await supabase.auth.getSession();
+    if (!session.session) {
+      throw new Error('Sessão não encontrada. Faça login novamente.');
+    }
     
-    for (const user of SAMPLE_USERS) {
+    const currentUserEmail = session.session.user.email;
+    const currentUserId = session.session.user.id;
+    const currentUserName = session.session.user.user_metadata?.name || 
+                           session.session.user.user_metadata?.full_name || 
+                           'Admin';
+    
+    // First, ensure current user exists as ADMIN (bootstrap)
+    const { data: existingAdmin } = await supabase
+      .from('tech_users')
+      .select('id, role')
+      .eq('email', currentUserEmail)
+      .single();
+    
+    if (existingAdmin) {
+      userIds['ADMIN'] = existingAdmin.id;
+    } else {
+      // Bootstrap: create the logged-in user as ADMIN with owner_id = their auth id
+      const { data: newAdmin, error: adminError } = await supabase
+        .from('tech_users')
+        .insert({
+          name: currentUserName,
+          email: currentUserEmail,
+          role: 'ADMIN' as DbTechRole,
+          is_active: true,
+          owner_id: currentUserId, // Bootstrap owner_id
+        })
+        .select()
+        .single();
+      
+      if (adminError) throw new Error(`Erro ao criar ADMIN bootstrap: ${adminError.message}`);
+      if (newAdmin) userIds['ADMIN'] = newAdmin.id;
+    }
+    
+    // Now create the rest of the team (ADMIN can now insert due to is_tech_admin())
+    for (const user of SAMPLE_TEAM_USERS) {
       const { data: existingUser } = await supabase
         .from('tech_users')
         .select('id')
@@ -164,7 +202,10 @@ export async function runSeed(
       } else {
         const { data: newUser, error } = await supabase
           .from('tech_users')
-          .insert(user)
+          .insert({
+            ...user,
+            owner_id: currentUserId, // Track who created this user
+          })
           .select()
           .single();
 
@@ -172,7 +213,7 @@ export async function runSeed(
         if (newUser) userIds[user.role] = newUser.id;
       }
     }
-    updateStep(1, { status: 'success', count: Object.keys(userIds).length, message: 'Usuários criados/verificados' });
+    updateStep(1, { status: 'success', count: Object.keys(userIds).length, message: 'Usuários criados/verificados (incluindo ADMIN bootstrap)' });
 
     // Step 2: Clients
     updateStep(2, { status: 'running' });
