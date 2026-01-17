@@ -14,6 +14,8 @@ import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
 import { ROUTES, getDashboardRoute } from '@/config/routes';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
+import { copyToClipboard } from '@/lib/clipboard';
+import { LinkCopyModal } from '@/components/LinkCopyModal';
 
 // ============================================================================
 // RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS (BASED ON API FIELDS)
@@ -95,6 +97,8 @@ const PropostaView: React.FC = () => {
   const { toast } = useToast();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isCopyingLink, setIsCopyingLink] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkModalUrl, setLinkModalUrl] = useState('');
   const { getApprovalLink } = useApprovalLink();
   
   // Get current user info for RBAC
@@ -194,7 +198,9 @@ const PropostaView: React.FC = () => {
     try {
       // Fetch approval token and generate link with it
       const approvalLink = await getApprovalLink(id);
-      await navigator.clipboard.writeText(approvalLink);
+      
+      // Try to copy to clipboard (with Safari fallback)
+      const copySuccess = await copyToClipboard(approvalLink);
       
       // Track link copy
       trackEvent.mutate({ proposalId: id, type: 'link_copy', channel: 'ui' });
@@ -204,7 +210,17 @@ const PropostaView: React.FC = () => {
         await updateStatusMutation.mutateAsync({ id, status: 'SENT' });
       }
       
-      toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado' });
+      if (copySuccess) {
+        toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado' });
+      } else {
+        // Safari blocked copy - show modal with selectable link
+        setLinkModalUrl(approvalLink);
+        setLinkModalOpen(true);
+        toast({ 
+          title: 'Copie o link manualmente', 
+          description: 'O Safari bloqueou a cópia automática. Use o modal para copiar o link.',
+        });
+      }
     } catch (error: any) {
       toast({ title: 'Erro', description: error.message || 'Erro ao gerar link', variant: 'destructive' });
     } finally {
@@ -551,6 +567,13 @@ const PropostaView: React.FC = () => {
           </Button>
         </div>
       </main>
+
+      {/* Link Copy Modal for Safari fallback */}
+      <LinkCopyModal
+        open={linkModalOpen}
+        onOpenChange={setLinkModalOpen}
+        link={linkModalUrl}
+      />
     </div>
   );
 };
