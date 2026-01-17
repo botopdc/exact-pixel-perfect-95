@@ -88,6 +88,17 @@ import LogsPage from '@/pages/modules/admin/LogsPage';
 import PropostasTemplatesPage from '@/pages/modules/comercial/PropostasTemplatesPage';
 import PropostasAprovacoesPage from '@/pages/modules/comercial/PropostasAprovacoesPage';
 
+// TechOps (Centro de Operações Técnicas) Pages
+import NOCHomePage from '@/pages/modules/techops/NOCHomePage';
+import IncidentsListPage from '@/pages/modules/techops/IncidentsListPage';
+import IncidentDetailPage from '@/pages/modules/techops/IncidentDetailPage';
+import CreateIncidentPage from '@/pages/modules/techops/CreateIncidentPage';
+import ClientsListPage from '@/pages/modules/techops/ClientsListPage';
+import ClientDetailPage from '@/pages/modules/techops/ClientDetailPage';
+import AssetsListPage from '@/pages/modules/techops/AssetsListPage';
+import AssetDetailPage from '@/pages/modules/techops/AssetDetailPage';
+import OnCallPage from '@/pages/modules/techops/OnCallPage';
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -160,6 +171,19 @@ const App = () => (
             
             {/* Atendimentos Module */}
             <Route path="/modulos/atendimentos" element={<AtendimentosModuleHome />} />
+            
+            {/* Suporte Técnico (Centro de Operações) */}
+            <Route path="/modulos/atendimentos/suporte-tecnico" element={<NOCHomePage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes" element={<IncidentsListPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/criar" element={<CreateIncidentPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/:id" element={<IncidentDetailPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/clientes" element={<ClientsListPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/clientes/:id" element={<ClientDetailPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/infra" element={<AssetsListPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/infra/:id" element={<AssetDetailPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/plantao" element={<OnCallPage />} />
+            
+            {/* Legacy Atendimentos routes */}
             <Route path="/modulos/atendimentos/suporte" element={<FilaSuporte />} />
             <Route path="/modulos/atendimentos/cs" element={<CustomerSuccess />} />
             <Route path="/modulos/atendimentos/novo" element={<TicketForm />} />
