@@ -45,9 +45,9 @@ export default function CreateIncidentPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
-  // Form state
-  const [clientId, setClientId] = useState('');
-  const [assetId, setAssetId] = useState('');
+  // Form state - use undefined instead of '' for Select components
+  const [clientId, setClientId] = useState<string | undefined>(undefined);
+  const [assetId, setAssetId] = useState<string | undefined>(undefined);
   const [originChannel, setOriginChannel] = useState<IncidentOrigin>('PORTAL_INTERNO');
   const [tipo, setTipo] = useState<IncidentType>('QUEDA');
   const [severidade, setSeveridade] = useState<IncidentSeverity>('S4');
@@ -63,7 +63,7 @@ export default function CreateIncidentPage() {
       loadAssets(clientId);
     } else {
       setAssets([]);
-      setAssetId('');
+      setAssetId(undefined);
     }
   }, [clientId]);
 
@@ -152,7 +152,7 @@ export default function CreateIncidentPage() {
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="client">Cliente *</Label>
-              <Select value={clientId} onValueChange={setClientId}>
+              <Select value={clientId ?? ''} onValueChange={(v) => setClientId(v || undefined)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o cliente" />
                 </SelectTrigger>
@@ -176,12 +176,16 @@ export default function CreateIncidentPage() {
 
             <div>
               <Label htmlFor="asset">Asset (opcional)</Label>
-              <Select value={assetId} onValueChange={setAssetId} disabled={!clientId}>
+              <Select 
+                value={assetId ?? '__none__'} 
+                onValueChange={(v) => setAssetId(v === '__none__' ? undefined : v)} 
+                disabled={!clientId}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder={clientId ? "Selecione o asset (opcional)" : "Selecione um cliente primeiro"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum asset específico</SelectItem>
+                  <SelectItem value="__none__">Nenhum asset específico</SelectItem>
                   {assets.map(asset => (
                     <SelectItem key={asset.id} value={asset.id}>
                       {asset.identificador} ({asset.tipo})

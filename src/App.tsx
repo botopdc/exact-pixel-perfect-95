@@ -98,6 +98,10 @@ import ClientDetailPage from '@/pages/modules/techops/ClientDetailPage';
 import AssetsListPage from '@/pages/modules/techops/AssetsListPage';
 import AssetDetailPage from '@/pages/modules/techops/AssetDetailPage';
 import OnCallPage from '@/pages/modules/techops/OnCallPage';
+import SeedDataPage from '@/pages/modules/techops/SeedDataPage';
+
+// Error Boundary
+import { TechOpsErrorBoundary } from '@/components/techops/TechOpsErrorBoundary';
 
 const queryClient = new QueryClient();
 
@@ -172,16 +176,17 @@ const App = () => (
             {/* Atendimentos Module */}
             <Route path="/modulos/atendimentos" element={<AtendimentosModuleHome />} />
             
-            {/* Suporte Técnico (Centro de Operações) */}
-            <Route path="/modulos/atendimentos/suporte-tecnico" element={<NOCHomePage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes" element={<IncidentsListPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/criar" element={<CreateIncidentPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/:id" element={<IncidentDetailPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/clientes" element={<ClientsListPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/clientes/:id" element={<ClientDetailPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/infra" element={<AssetsListPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/infra/:id" element={<AssetDetailPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/plantao" element={<OnCallPage />} />
+            {/* Suporte Técnico (Centro de Operações) - Wrapped with Error Boundary */}
+            <Route path="/modulos/atendimentos/suporte-tecnico" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes" element={<TechOpsErrorBoundary><IncidentsListPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/criar" element={<TechOpsErrorBoundary><CreateIncidentPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/:id" element={<TechOpsErrorBoundary><IncidentDetailPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/clientes" element={<TechOpsErrorBoundary><ClientsListPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/clientes/:id" element={<TechOpsErrorBoundary><ClientDetailPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/infra" element={<TechOpsErrorBoundary><AssetsListPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/infra/:id" element={<TechOpsErrorBoundary><AssetDetailPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/plantao" element={<TechOpsErrorBoundary><OnCallPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/seed" element={<TechOpsErrorBoundary><SeedDataPage /></TechOpsErrorBoundary>} />
             
             {/* Legacy Atendimentos routes */}
             <Route path="/modulos/atendimentos/suporte" element={<FilaSuporte />} />

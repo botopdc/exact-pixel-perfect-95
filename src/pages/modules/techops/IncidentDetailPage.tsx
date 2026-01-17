@@ -501,14 +501,15 @@ export default function IncidentDetailPage() {
             </CardHeader>
             <CardContent>
               <Select
-                value={incident.owner_user_id || ''}
-                onValueChange={handleAssignOwner}
+                value={incident.owner_user_id ?? '__none__'}
+                onValueChange={(v) => v !== '__none__' && handleAssignOwner(v)}
                 disabled={submitting}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecionar responsável" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__none__">Sem responsável</SelectItem>
                   {users.filter(u => ['N1', 'N2', 'N3', 'ADMIN'].includes(u.role)).map(user => (
                     <SelectItem key={user.id} value={user.id}>
                       {user.name} ({user.role})
