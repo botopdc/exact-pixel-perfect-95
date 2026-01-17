@@ -59,10 +59,15 @@ export default function OnCallPage() {
   const [users, setUsers] = useState<TechUser[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Create dialog
+  // Create dialog - use undefined for user_id to avoid empty string issues
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newShift, setNewShift] = useState({
-    user_id: '',
+  const [newShift, setNewShift] = useState<{
+    user_id: string | undefined;
+    level: OnCallLevel;
+    start_at: string;
+    end_at: string;
+  }>({
+    user_id: undefined,
     level: 'N1' as OnCallLevel,
     start_at: '',
     end_at: '',
@@ -108,7 +113,7 @@ export default function OnCallPage() {
       });
       toast({ title: 'Sucesso', description: 'Plantão criado' });
       setDialogOpen(false);
-      setNewShift({ user_id: '', level: 'N1', start_at: '', end_at: '' });
+      setNewShift({ user_id: undefined, level: 'N1', start_at: '', end_at: '' });
       await loadData();
     } catch (error) {
       toast({ title: 'Erro', description: 'Não foi possível criar o plantão', variant: 'destructive' });
@@ -260,8 +265,8 @@ export default function OnCallPage() {
             <div>
               <Label>Plantonista</Label>
               <Select 
-                value={newShift.user_id} 
-                onValueChange={(v) => setNewShift(prev => ({ ...prev, user_id: v }))}
+                value={newShift.user_id ?? ''} 
+                onValueChange={(v) => setNewShift(prev => ({ ...prev, user_id: v || undefined }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o plantonista" />
