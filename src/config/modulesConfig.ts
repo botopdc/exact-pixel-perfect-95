@@ -312,6 +312,12 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         ],
       },
       {
+        id: 'certidoes',
+        title: 'Certidão de Nascimento',
+        url: '/modulos/atendimentos/certidoes',
+        allowedLevels: [900, 950, 1000],
+      },
+      {
         id: 'cs',
         title: 'Customer Success',
         url: '/modulos/atendimentos/cs',
