@@ -2,13 +2,14 @@
 // CREATE INCIDENT PAGE
 // ============================================================================
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
   Building2,
-  Server,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,73 +25,68 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import {
-  getTechClients,
   getTechAssets,
   createIncident,
 } from '@/services/techOpsService';
-import type { TechClient, TechAsset, IncidentOrigin, IncidentType, IncidentSeverity, SLALevel } from '@/types/techOps';
+import type { TechAsset, IncidentOrigin, IncidentType, IncidentSeverity, SLALevel } from '@/types/techOps';
 import {
   INCIDENT_ORIGIN_LABELS,
   INCIDENT_TYPE_LABELS,
   INCIDENT_SEVERITY_LABELS,
-  SLA_LEVEL_LABELS,
 } from '@/types/techOps';
+import { useOpenApiClients } from '@/hooks/useOpenApiClients';
+import type { ApiUser } from '@/lib/openApi';
 
 export default function CreateIncidentPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  const [clients, setClients] = useState<TechClient[]>([]);
+  // Fetch clients from OPEN API (level=1)
+  const { clients, loading: clientsLoading, error: clientsError, refresh: refreshClients } = useOpenApiClients();
+  
   const [assets, setAssets] = useState<TechAsset[]>([]);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
   // Form state - use undefined instead of '' for Select components
-  const [clientId, setClientId] = useState<string | undefined>(undefined);
+  const [clientUserId, setClientUserId] = useState<string | undefined>(undefined);
   const [assetId, setAssetId] = useState<string | undefined>(undefined);
   const [originChannel, setOriginChannel] = useState<IncidentOrigin>('PORTAL_INTERNO');
   const [tipo, setTipo] = useState<IncidentType>('QUEDA');
   const [severidade, setSeveridade] = useState<IncidentSeverity>('S4');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  
+  // Client search filter
+  const [clientSearch, setClientSearch] = useState('');
 
+  // Selected client from OPEN API
+  const selectedClient = useMemo(() => {
+    if (!clientUserId) return null;
+    return clients.find(c => String(c.id) === clientUserId) || null;
+  }, [clientUserId, clients]);
+
+  // Filtered clients for search
+  const filteredClients = useMemo(() => {
+    if (!clientSearch.trim()) return clients;
+    const search = clientSearch.toLowerCase();
+    return clients.filter(c => 
+      c.name.toLowerCase().includes(search) ||
+      c.email.toLowerCase().includes(search)
+    );
+  }, [clients, clientSearch]);
+
+  // Load assets when client changes (still from Supabase for infra)
   useEffect(() => {
-    loadClients();
-  }, []);
-
-  useEffect(() => {
-    if (clientId) {
-      loadAssets(clientId);
-    } else {
-      setAssets([]);
-      setAssetId(undefined);
-    }
-  }, [clientId]);
-
-  async function loadClients() {
-    try {
-      const data = await getTechClients({ status: 'ATIVO' });
-      setClients(data);
-    } catch (error) {
-      console.error('Erro ao carregar clientes:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadAssets(clientId: string) {
-    try {
-      const data = await getTechAssets({ client_id: clientId });
-      setAssets(data);
-    } catch (error) {
-      console.error('Erro ao carregar assets:', error);
-    }
-  }
+    // Assets are tied to tech_clients in Supabase, not OPEN API users
+    // For now, clear assets when client changes - in future, link via client_user_id
+    setAssets([]);
+    setAssetId(undefined);
+  }, [clientUserId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     
-    if (!clientId || !title.trim()) {
+    if (!clientUserId || !title.trim()) {
       toast({ title: 'Erro', description: 'Cliente e título são obrigatórios', variant: 'destructive' });
       return;
     }
@@ -98,23 +94,40 @@ export default function CreateIncidentPage() {
     try {
       setSubmitting(true);
       
-      // Get client SLA for the incident
-      const client = clients.find(c => c.id === clientId);
-      const slaLevel = client?.sla_level || 'PADRAO';
+      // Default SLA level (no tech_client linked yet)
+      const slaLevel: SLALevel = 'PADRAO';
       
-      const incident = await createIncident({
-        client_id: clientId,
-        asset_id: assetId || null,
-        origin_channel: originChannel,
-        tipo,
-        severidade,
-        sla_level_aplicado: slaLevel,
-        title: title.trim(),
-        description: description.trim() || null,
+      // Create incident with client_user_id as reference to OPEN API user
+      // Note: client_id field in tech_incidents expects UUID from tech_clients table
+      // For now, we need to create/link a tech_client or use a placeholder approach
+      // TODO: Implement proper tech_client creation/linking from OPEN API user
+      
+      // For MVP, we'll need to handle this - storing client info differently
+      // Since createIncident expects client_id as UUID referencing tech_clients,
+      // we need to either:
+      // 1. Create a tech_client entry for this OPEN API user
+      // 2. Modify the incident schema to accept external client references
+      
+      // For now, show error that this needs backend adjustment
+      toast({ 
+        title: 'Funcionalidade em desenvolvimento', 
+        description: 'Integração com clientes OPEN API requer ajustes no backend de incidentes.', 
+        variant: 'destructive' 
       });
       
-      toast({ title: 'Sucesso', description: 'Incidente criado com sucesso' });
-      navigate(`/modulos/atendimentos/suporte-tecnico/incidentes/${incident.id}`);
+      // Uncomment when backend is ready:
+      // const incident = await createIncident({
+      //   client_id: clientUserId, // Would need schema change
+      //   asset_id: assetId || null,
+      //   origin_channel: originChannel,
+      //   tipo,
+      //   severidade,
+      //   sla_level_aplicado: slaLevel,
+      //   title: title.trim(),
+      //   description: description.trim() || null,
+      // });
+      // navigate(`/modulos/atendimentos/suporte-tecnico/incidentes/${incident.id}`);
+      
     } catch (error) {
       console.error('Erro ao criar incidente:', error);
       toast({ title: 'Erro', description: 'Não foi possível criar o incidente', variant: 'destructive' });
@@ -122,8 +135,6 @@ export default function CreateIncidentPage() {
       setSubmitting(false);
     }
   }
-
-  const selectedClient = clients.find(c => c.id === clientId);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -151,17 +162,56 @@ export default function CreateIncidentPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="client">Cliente *</Label>
-              <Select value={clientId ?? ''} onValueChange={(v) => setClientId(v || undefined)}>
+              <div className="flex items-center justify-between mb-1">
+                <Label htmlFor="client">Cliente *</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2"
+                  onClick={() => refreshClients()}
+                  disabled={clientsLoading}
+                >
+                  <RefreshCw className={`h-3 w-3 ${clientsLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+              
+              {/* Client search input */}
+              <Input
+                placeholder="Buscar cliente por nome ou email..."
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                className="mb-2"
+              />
+              
+              <Select 
+                value={clientUserId ?? ''} 
+                onValueChange={(v) => setClientUserId(v || undefined)}
+                disabled={clientsLoading || !!clientsError}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione o cliente" />
+                  {clientsLoading ? (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando clientes...
+                    </div>
+                  ) : clientsError ? (
+                    <span className="text-destructive">Erro ao carregar clientes</span>
+                  ) : (
+                    <SelectValue placeholder="Selecione o cliente" />
+                  )}
                 </SelectTrigger>
-                <SelectContent>
-                  {clients.map(client => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.nome_fantasia || client.razao_social} ({SLA_LEVEL_LABELS[client.sla_level]})
+                <SelectContent className="max-h-[300px]">
+                  {filteredClients.map(client => (
+                    <SelectItem key={client.id} value={String(client.id)}>
+                      {client.name}{client.email ? ` — ${client.email}` : ''}
                     </SelectItem>
                   ))}
+                  {filteredClients.length === 0 && !clientsLoading && (
+                    <div className="px-2 py-4 text-center text-muted-foreground text-sm">
+                      {clientSearch ? 'Nenhum cliente encontrado' : 'Nenhum cliente disponível'}
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -169,8 +219,13 @@ export default function CreateIncidentPage() {
             {selectedClient && (
               <div className="p-3 rounded-lg bg-accent/30">
                 <p className="text-sm">
-                  <strong>SLA:</strong> {SLA_LEVEL_LABELS[selectedClient.sla_level]}
+                  <strong>Cliente:</strong> {selectedClient.name}
                 </p>
+                {selectedClient.email && (
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Email:</strong> {selectedClient.email}
+                  </p>
+                )}
               </div>
             )}
 
@@ -179,10 +234,10 @@ export default function CreateIncidentPage() {
               <Select 
                 value={assetId ?? '__none__'} 
                 onValueChange={(v) => setAssetId(v === '__none__' ? undefined : v)} 
-                disabled={!clientId}
+                disabled={!clientUserId || assets.length === 0}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={clientId ? "Selecione o asset (opcional)" : "Selecione um cliente primeiro"} />
+                  <SelectValue placeholder={clientUserId ? "Nenhum asset disponível" : "Selecione um cliente primeiro"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Nenhum asset específico</SelectItem>
@@ -282,7 +337,7 @@ export default function CreateIncidentPage() {
               Cancelar
             </Button>
           </Link>
-          <Button type="submit" disabled={submitting || !clientId || !title.trim()}>
+          <Button type="submit" disabled={submitting || !clientUserId || !title.trim()}>
             {submitting ? 'Criando...' : 'Criar Incidente'}
           </Button>
         </div>
