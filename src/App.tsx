@@ -100,6 +100,11 @@ import AssetDetailPage from '@/pages/modules/techops/AssetDetailPage';
 import OnCallPage from '@/pages/modules/techops/OnCallPage';
 import SeedDataPage from '@/pages/modules/techops/SeedDataPage';
 
+// Internal Support Pages
+import InternalSupportPage from '@/pages/modules/atendimento-interno/InternalSupportPage';
+import CreateInternalTicketPage from '@/pages/modules/atendimento-interno/CreateInternalTicketPage';
+import InternalTicketDetailPage from '@/pages/modules/atendimento-interno/InternalTicketDetailPage';
+
 // Error Boundary
 import { TechOpsErrorBoundary } from '@/components/techops/TechOpsErrorBoundary';
 
@@ -174,7 +179,12 @@ const App = () => (
             <Route path="/modulos/parceiros/comissoes" element={<GestaoComissoes />} />
             
             {/* Atendimentos Module */}
-            <Route path="/modulos/atendimentos" element={<AtendimentosModuleHome />} />
+            <Route path="/modulos/atendimentos" element={<InternalSupportPage />} />
+            
+            {/* Internal Support (Atendimento Interno) */}
+            <Route path="/modulos/atendimentos/interno" element={<InternalSupportPage />} />
+            <Route path="/modulos/atendimentos/interno/novo" element={<CreateInternalTicketPage />} />
+            <Route path="/modulos/atendimentos/interno/:id" element={<InternalTicketDetailPage />} />
             
             {/* Suporte Técnico (Centro de Operações) - Wrapped with Error Boundary */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />
