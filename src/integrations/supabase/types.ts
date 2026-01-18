@@ -447,27 +447,64 @@ export type Database = {
       }
       cert_proposal_links: {
         Row: {
+          asset_id: string | null
           created_at: string
           customer_id: string
           descricao: string | null
           id: string
+          imported_at: string | null
+          is_active: boolean | null
+          proposal_company: string | null
           proposal_id: string
+          proposal_status: string | null
+          proposal_term_months: number | null
+          proposal_total: number | null
+          proposal_uuid: string | null
+          snapshot_json: Json | null
+          updated_at: string | null
         }
         Insert: {
+          asset_id?: string | null
           created_at?: string
           customer_id: string
           descricao?: string | null
           id?: string
+          imported_at?: string | null
+          is_active?: boolean | null
+          proposal_company?: string | null
           proposal_id: string
+          proposal_status?: string | null
+          proposal_term_months?: number | null
+          proposal_total?: number | null
+          proposal_uuid?: string | null
+          snapshot_json?: Json | null
+          updated_at?: string | null
         }
         Update: {
+          asset_id?: string | null
           created_at?: string
           customer_id?: string
           descricao?: string | null
           id?: string
+          imported_at?: string | null
+          is_active?: boolean | null
+          proposal_company?: string | null
           proposal_id?: string
+          proposal_status?: string | null
+          proposal_term_months?: number | null
+          proposal_total?: number | null
+          proposal_uuid?: string | null
+          snapshot_json?: Json | null
+          updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "cert_proposal_links_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "cert_assets"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cert_proposal_links_customer_id_fkey"
             columns: ["customer_id"]
