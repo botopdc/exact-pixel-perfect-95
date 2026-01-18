@@ -27,9 +27,9 @@ import {
   InternalTicketPriority,
   TICKET_TYPE_LABELS,
   TICKET_PRIORITY_LABELS,
-  SLA_HOURS,
   AREA_SUGGESTIONS,
   CRITICAL_PRIORITY_LEVELS,
+  calculateSLA,
 } from '@/types/internalTicket';
 
 export default function CreateInternalTicketPage() {
@@ -52,6 +52,11 @@ export default function CreateInternalTicketPage() {
 
   // Sugestões baseadas na área do usuário
   const suggestions = AREA_SUGGESTIONS[userArea] || [];
+
+  // Calcular SLA em tempo real
+  const calculatedSLA = formData.type && formData.priority 
+    ? calculateSLA(formData.type, formData.priority)
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,7 +229,6 @@ export default function CreateInternalTicketPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(TICKET_PRIORITY_LABELS).map(([value, label]) => {
-                    // Restringir "crítica" para níveis específicos
                     if (value === 'critica' && !canUseCritical) {
                       return null;
                     }
@@ -234,9 +238,9 @@ export default function CreateInternalTicketPage() {
                   })}
                 </SelectContent>
               </Select>
-              {formData.priority && (
+              {calculatedSLA && (
                 <p className="text-sm text-muted-foreground">
-                  SLA: Resolução em até {SLA_HOURS[formData.priority]} horas
+                  SLA estimado: Resolução em até <strong>{calculatedSLA} horas</strong>
                 </p>
               )}
             </div>

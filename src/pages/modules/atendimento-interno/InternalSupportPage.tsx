@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { format, formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, differenceInMilliseconds } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   HeadphonesIcon,
@@ -17,6 +17,9 @@ import {
   Timer,
   Phone,
   Search,
+  Users,
+  Pause,
+  ArrowUpCircle,
 } from 'lucide-react';
 
 import { ModuleHeader, KPICard, SectionTitle } from '@/components/navigation/ModuleCard';
@@ -57,7 +60,8 @@ import {
 } from '@/types/internalTicket';
 
 export default function InternalSupportPage() {
-  const { tickets, stats, loading, refresh } = useInternalTickets(true); // Apenas meus chamados
+  // Usuários veem apenas seus chamados
+  const { tickets, stats, loading, refresh } = useInternalTickets({ filterByCurrentUser: true });
   
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<InternalTicketStatus | 'all'>('all');
@@ -85,7 +89,6 @@ export default function InternalSupportPage() {
   // Filtrar tickets
   const filteredTickets = useMemo(() => {
     return tickets.filter((ticket) => {
-      // Busca por texto
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
@@ -95,20 +98,9 @@ export default function InternalSupportPage() {
         if (!matchesSearch) return false;
       }
 
-      // Filtro por status
-      if (statusFilter !== 'all' && ticket.status !== statusFilter) {
-        return false;
-      }
-
-      // Filtro por tipo
-      if (typeFilter !== 'all' && ticket.type !== typeFilter) {
-        return false;
-      }
-
-      // Filtro por prioridade
-      if (priorityFilter !== 'all' && ticket.priority !== priorityFilter) {
-        return false;
-      }
+      if (statusFilter !== 'all' && ticket.status !== statusFilter) return false;
+      if (typeFilter !== 'all' && ticket.type !== typeFilter) return false;
+      if (priorityFilter !== 'all' && ticket.priority !== priorityFilter) return false;
 
       return true;
     });
@@ -138,21 +130,21 @@ export default function InternalSupportPage() {
       {/* KPIs Section */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <KPICard
-          title="Chamados Abertos"
+          title="Abertos"
           value={loading ? '...' : stats.abertos.toString()}
           description="Aguardando atendimento"
           icon={AlertTriangle}
           className={stats.abertos > 0 ? 'border-blue-500/30' : ''}
         />
         <KPICard
-          title="Em Andamento"
+          title="Em Atendimento"
           value={loading ? '...' : stats.em_andamento.toString()}
           description="Sendo tratados"
           icon={Clock}
           className={stats.em_andamento > 0 ? 'border-yellow-500/30' : ''}
         />
         <KPICard
-          title="Resolvidos (30 dias)"
+          title="Resolvidos (30d)"
           value={loading ? '...' : stats.resolvidos_30d.toString()}
           description="Últimos 30 dias"
           icon={CheckCircle}
@@ -173,7 +165,7 @@ export default function InternalSupportPage() {
         />
       </div>
 
-      {/* Plantão Ativo (apenas visualização) */}
+      {/* Plantão Ativo */}
       <div>
         <SectionTitle 
           title="Plantão Ativo" 
@@ -218,7 +210,7 @@ export default function InternalSupportPage() {
         </div>
         
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-          <SelectTrigger className="w-[160px]">
+          <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -262,7 +254,7 @@ export default function InternalSupportPage() {
               <TableHead className="w-[120px]">ID</TableHead>
               <TableHead className="w-[140px]">Tipo</TableHead>
               <TableHead>Título</TableHead>
-              <TableHead className="w-[120px]">Status</TableHead>
+              <TableHead className="w-[140px]">Status</TableHead>
               <TableHead className="w-[120px]">SLA</TableHead>
               <TableHead className="w-[150px]">Responsável</TableHead>
               <TableHead className="w-[150px]">Atualização</TableHead>
@@ -306,8 +298,6 @@ export default function InternalSupportPage() {
 // ============================================================================
 
 function TicketRow({ ticket }: { ticket: InternalTicket }) {
-  const slaStatus = ticket.sla_breached ? 'breached' : 'ok';
-  
   return (
     <TableRow className="hover:bg-muted/50">
       <TableCell>
@@ -337,23 +327,13 @@ function TicketRow({ ticket }: { ticket: InternalTicket }) {
         </Badge>
       </TableCell>
       <TableCell>
-        {slaStatus === 'breached' ? (
-          <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
-            <AlertTriangle className="h-3 w-3 mr-1" />
-            Atrasado
-          </Badge>
-        ) : (
-          <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-            <Timer className="h-3 w-3 mr-1" />
-            OK
-          </Badge>
-        )}
+        <SLAIndicator ticket={ticket} />
       </TableCell>
       <TableCell>
         {ticket.assignee_name ? (
           <span className="text-sm">{ticket.assignee_name}</span>
         ) : (
-          <span className="text-sm text-muted-foreground">Não atribuído</span>
+          <span className="text-sm text-muted-foreground">Fila {ticket.queue}</span>
         )}
       </TableCell>
       <TableCell>
@@ -365,5 +345,60 @@ function TicketRow({ ticket }: { ticket: InternalTicket }) {
         </span>
       </TableCell>
     </TableRow>
+  );
+}
+
+// ============================================================================
+// SLA INDICATOR COMPONENT
+// ============================================================================
+
+function SLAIndicator({ ticket }: { ticket: InternalTicket }) {
+  if (ticket.status === 'resolvido' || ticket.status === 'encerrado') {
+    return (
+      <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">
+        <CheckCircle className="h-3 w-3 mr-1" />
+        Concluído
+      </Badge>
+    );
+  }
+
+  if (ticket.sla_paused) {
+    return (
+      <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+        <Pause className="h-3 w-3 mr-1" />
+        Pausado
+      </Badge>
+    );
+  }
+
+  if (ticket.sla_breached) {
+    return (
+      <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        Atrasado
+      </Badge>
+    );
+  }
+
+  // Calcular tempo restante
+  const effectiveDeadline = new Date(
+    new Date(ticket.sla_deadline).getTime() + ticket.sla_accumulated_pause_ms
+  );
+  const now = new Date();
+  const remainingMs = effectiveDeadline.getTime() - now.getTime();
+  const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
+  const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+  // Cor baseada no tempo restante
+  const isUrgent = remainingHours < 2;
+  const colorClass = isUrgent 
+    ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+    : 'bg-green-500/20 text-green-400 border-green-500/30';
+
+  return (
+    <Badge className={colorClass}>
+      <Timer className="h-3 w-3 mr-1" />
+      {remainingHours > 0 ? `${remainingHours}h ${remainingMinutes}m` : `${remainingMinutes}m`}
+    </Badge>
   );
 }
