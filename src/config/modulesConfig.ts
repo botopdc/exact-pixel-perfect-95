@@ -115,7 +115,8 @@ export const SIDEBAR_MODULES: Module[] = [
     title: 'Atendimentos',
     icon: HeadphonesIcon,
     url: '/modulos/atendimentos',
-    allowedLevels: [775, 900, 950, 1000],
+    // Todos os internos (exceto level 1 - cliente)
+    allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
   },
   {
     id: 'conteudo',
@@ -285,11 +286,18 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
   atendimentos: {
     id: 'atendimentos',
     title: 'Atendimentos',
-    description: 'Centro de Operações Técnicas',
+    description: 'Chamados internos e operações técnicas',
     icon: HeadphonesIcon,
     homeUrl: '/modulos/atendimentos',
-    allowedLevels: [775, 900, 950, 1000],
+    allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
     subNavigation: [
+      {
+        id: 'interno',
+        title: 'Meus Chamados',
+        url: '/modulos/atendimentos/interno',
+        // Todos os usuários internos
+        allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
+      },
       {
         id: 'suporte-tecnico',
         title: 'Suporte Técnico',
