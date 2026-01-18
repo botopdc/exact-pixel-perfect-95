@@ -65,6 +65,418 @@ export type Database = {
         }
         Relationships: []
       }
+      cert_asset_access: {
+        Row: {
+          asset_id: string
+          created_at: string
+          host: string | null
+          id: string
+          instrucoes: string | null
+          porta: number | null
+          senha_ref: string | null
+          tipo: string
+          updated_at: string
+          usuario: string | null
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          host?: string | null
+          id?: string
+          instrucoes?: string | null
+          porta?: number | null
+          senha_ref?: string | null
+          tipo: string
+          updated_at?: string
+          usuario?: string | null
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          host?: string | null
+          id?: string
+          instrucoes?: string | null
+          porta?: number | null
+          senha_ref?: string | null
+          tipo?: string
+          updated_at?: string
+          usuario?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_asset_access_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "cert_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_asset_disks: {
+        Row: {
+          asset_id: string
+          created_at: string
+          id: string
+          label: string | null
+          mount_point: string | null
+          tamanho_gb: number
+          tipo: string | null
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          id?: string
+          label?: string | null
+          mount_point?: string | null
+          tamanho_gb: number
+          tipo?: string | null
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          id?: string
+          label?: string | null
+          mount_point?: string | null
+          tamanho_gb?: number
+          tipo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_asset_disks_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "cert_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_asset_licenses: {
+        Row: {
+          asset_id: string
+          created_at: string
+          descricao: string
+          id: string
+          quantidade: number | null
+          validade: string | null
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          descricao: string
+          id?: string
+          quantidade?: number | null
+          validade?: string | null
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          descricao?: string
+          id?: string
+          quantidade?: number | null
+          validade?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_asset_licenses_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "cert_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_asset_network: {
+        Row: {
+          asset_id: string
+          created_at: string
+          descricao: string | null
+          id: string
+          ip_address: string
+          is_primary: boolean | null
+          tipo: string | null
+          vlan: string | null
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          ip_address: string
+          is_primary?: boolean | null
+          tipo?: string | null
+          vlan?: string | null
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          ip_address?: string
+          is_primary?: boolean | null
+          tipo?: string | null
+          vlan?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_asset_network_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "cert_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_asset_resources: {
+        Row: {
+          asset_id: string
+          backup_ativo: boolean | null
+          backup_janela: string | null
+          backup_retencao_dias: number | null
+          created_at: string
+          firewall_ativo: boolean | null
+          id: string
+          ram_gb: number | null
+          servicos_adicionais: string[] | null
+          updated_at: string
+          vcpu: number | null
+        }
+        Insert: {
+          asset_id: string
+          backup_ativo?: boolean | null
+          backup_janela?: string | null
+          backup_retencao_dias?: number | null
+          created_at?: string
+          firewall_ativo?: boolean | null
+          id?: string
+          ram_gb?: number | null
+          servicos_adicionais?: string[] | null
+          updated_at?: string
+          vcpu?: number | null
+        }
+        Update: {
+          asset_id?: string
+          backup_ativo?: boolean | null
+          backup_janela?: string | null
+          backup_retencao_dias?: number | null
+          created_at?: string
+          firewall_ativo?: boolean | null
+          id?: string
+          ram_gb?: number | null
+          servicos_adicionais?: string[] | null
+          updated_at?: string
+          vcpu?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_asset_resources_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: true
+            referencedRelation: "cert_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_assets: {
+        Row: {
+          asset_code: string
+          created_at: string
+          customer_id: string
+          datacenter: Database["public"]["Enums"]["cert_datacenter"]
+          hostname: string | null
+          id: string
+          observacoes: string | null
+          sistema_operacional: string | null
+          status: Database["public"]["Enums"]["cert_asset_status"] | null
+          tipo: Database["public"]["Enums"]["cert_asset_type"]
+          updated_at: string
+        }
+        Insert: {
+          asset_code: string
+          created_at?: string
+          customer_id: string
+          datacenter: Database["public"]["Enums"]["cert_datacenter"]
+          hostname?: string | null
+          id?: string
+          observacoes?: string | null
+          sistema_operacional?: string | null
+          status?: Database["public"]["Enums"]["cert_asset_status"] | null
+          tipo: Database["public"]["Enums"]["cert_asset_type"]
+          updated_at?: string
+        }
+        Update: {
+          asset_code?: string
+          created_at?: string
+          customer_id?: string
+          datacenter?: Database["public"]["Enums"]["cert_datacenter"]
+          hostname?: string | null
+          id?: string
+          observacoes?: string | null
+          sistema_operacional?: string | null
+          status?: Database["public"]["Enums"]["cert_asset_status"] | null
+          tipo?: Database["public"]["Enums"]["cert_asset_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_assets_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "cert_customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_audit_logs: {
+        Row: {
+          action: string
+          changes: Json | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          user_id: string | null
+          user_level: number | null
+          user_name: string | null
+        }
+        Insert: {
+          action: string
+          changes?: Json | null
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          user_id?: string | null
+          user_level?: number | null
+          user_name?: string | null
+        }
+        Update: {
+          action?: string
+          changes?: Json | null
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          user_id?: string | null
+          user_level?: number | null
+          user_name?: string | null
+        }
+        Relationships: []
+      }
+      cert_customer_contacts: {
+        Row: {
+          cargo: string | null
+          created_at: string
+          customer_id: string
+          email: string | null
+          id: string
+          is_primary: boolean | null
+          nome: string
+          telefone: string | null
+        }
+        Insert: {
+          cargo?: string | null
+          created_at?: string
+          customer_id: string
+          email?: string | null
+          id?: string
+          is_primary?: boolean | null
+          nome: string
+          telefone?: string | null
+        }
+        Update: {
+          cargo?: string | null
+          created_at?: string
+          customer_id?: string
+          email?: string | null
+          id?: string
+          is_primary?: boolean | null
+          nome?: string
+          telefone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_customer_contacts_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "cert_customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cert_customers: {
+        Row: {
+          cidade: string | null
+          cnpj: string | null
+          created_at: string
+          id: string
+          nome_fantasia: string | null
+          observacoes: string | null
+          razao_social: string
+          segmento: string | null
+          tem_suporte: boolean | null
+          uf: string | null
+          updated_at: string
+        }
+        Insert: {
+          cidade?: string | null
+          cnpj?: string | null
+          created_at?: string
+          id?: string
+          nome_fantasia?: string | null
+          observacoes?: string | null
+          razao_social: string
+          segmento?: string | null
+          tem_suporte?: boolean | null
+          uf?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cidade?: string | null
+          cnpj?: string | null
+          created_at?: string
+          id?: string
+          nome_fantasia?: string | null
+          observacoes?: string | null
+          razao_social?: string
+          segmento?: string | null
+          tem_suporte?: boolean | null
+          uf?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      cert_proposal_links: {
+        Row: {
+          created_at: string
+          customer_id: string
+          descricao: string | null
+          id: string
+          proposal_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          descricao?: string | null
+          id?: string
+          proposal_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          descricao?: string | null
+          id?: string
+          proposal_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cert_proposal_links_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "cert_customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       proposal_views: {
         Row: {
           client_email: string | null
@@ -484,6 +896,22 @@ export type Database = {
       asset_environment: "PROD" | "HOMOLOG" | "DEV" | "NAO_INFORMADO"
       asset_status: "ATIVO" | "MANUTENCAO" | "DESLIGADO"
       asset_type: "VM" | "BAREMETAL" | "GPU" | "KUBERNETES" | "STORAGE"
+      cert_asset_status: "ATIVO" | "MANUTENCAO" | "DESLIGADO" | "PROVISIONANDO"
+      cert_asset_type:
+        | "VM"
+        | "BAREMETAL"
+        | "GPU"
+        | "KUBERNETES"
+        | "STORAGE"
+        | "FIREWALL"
+        | "LOAD_BALANCER"
+      cert_datacenter:
+        | "DC1_SP"
+        | "DC2_SP"
+        | "DC3_RJ"
+        | "CLOUD_AWS"
+        | "CLOUD_GCP"
+        | "CLOUD_AZURE"
       client_status: "ATIVO" | "SUSPENSO" | "ENCERRADO"
       credential_type: "ROOT" | "ADMIN" | "APP" | "OUTRO"
       credential_visibility: "N2_PLUS" | "N3_PLUS" | "ADMIN_ONLY"
@@ -647,6 +1075,24 @@ export const Constants = {
       asset_environment: ["PROD", "HOMOLOG", "DEV", "NAO_INFORMADO"],
       asset_status: ["ATIVO", "MANUTENCAO", "DESLIGADO"],
       asset_type: ["VM", "BAREMETAL", "GPU", "KUBERNETES", "STORAGE"],
+      cert_asset_status: ["ATIVO", "MANUTENCAO", "DESLIGADO", "PROVISIONANDO"],
+      cert_asset_type: [
+        "VM",
+        "BAREMETAL",
+        "GPU",
+        "KUBERNETES",
+        "STORAGE",
+        "FIREWALL",
+        "LOAD_BALANCER",
+      ],
+      cert_datacenter: [
+        "DC1_SP",
+        "DC2_SP",
+        "DC3_RJ",
+        "CLOUD_AWS",
+        "CLOUD_GCP",
+        "CLOUD_AZURE",
+      ],
       client_status: ["ATIVO", "SUSPENSO", "ENCERRADO"],
       credential_type: ["ROOT", "ADMIN", "APP", "OUTRO"],
       credential_visibility: ["N2_PLUS", "N3_PLUS", "ADMIN_ONLY"],
