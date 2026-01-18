@@ -16,6 +16,7 @@ import {
   getAllowedQueues,
   isAdmin,
 } from '@/types/internalTicket';
+import { logDataSource } from '@/lib/logDataSource';
 
 const STORAGE_KEY = 'open_internal_tickets_v3';
 
@@ -35,6 +36,7 @@ function generateCode(): string {
 function loadTickets(): InternalTicket[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
+    logDataSource({ module: 'InternalTicketService', source: 'LocalStorage', operation: 'READ', key: STORAGE_KEY, details: 'MOCK - Migrar para API' });
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
@@ -43,6 +45,7 @@ function loadTickets(): InternalTicket[] {
 
 function saveTickets(tickets: InternalTicket[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tickets));
+  logDataSource({ module: 'InternalTicketService', source: 'LocalStorage', operation: 'WRITE', key: STORAGE_KEY, details: 'MOCK - Migrar para API' });
 }
 
 function calculateSLADeadline(slaHours: number): string {

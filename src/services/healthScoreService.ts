@@ -7,17 +7,20 @@ import {
   getHealthStatus 
 } from '@/types/healthScore';
 import { listarTickets } from './ticketsService';
+import { logDataSource } from '@/lib/logDataSource';
 
 const STORAGE_KEY = 'open_health_scores_v1';
 
 // Helper functions
 function getStoredScores(): ClientHealthScore[] {
   const data = localStorage.getItem(STORAGE_KEY);
+  logDataSource({ module: 'HealthScoreService', source: 'LocalStorage', operation: 'READ', key: STORAGE_KEY, details: 'MOCK - Depende de Tickets' });
   return data ? JSON.parse(data) : [];
 }
 
 function saveScores(scores: ClientHealthScore[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
+  logDataSource({ module: 'HealthScoreService', source: 'LocalStorage', operation: 'WRITE', key: STORAGE_KEY, details: 'MOCK - Depende de Tickets' });
 }
 
 function getTicketsForClient(cliente: string, dias: number = 90): Ticket[] {

@@ -8,6 +8,7 @@ import {
   TicketCategoria,
   TicketPrioridade
 } from '@/types/ticket';
+import { logDataSource } from '@/lib/logDataSource';
 
 const STORAGE_KEY = 'open_tickets_v1';
 
@@ -20,6 +21,7 @@ const generateId = (): string => {
 const loadTickets = (): Ticket[] => {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
+    logDataSource({ module: 'TicketsService', source: 'LocalStorage', operation: 'READ', key: STORAGE_KEY, details: 'MOCK - Migrar para API' });
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
@@ -29,6 +31,7 @@ const loadTickets = (): Ticket[] => {
 // Save tickets to localStorage
 const saveTickets = (tickets: Ticket[]): void => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tickets));
+  logDataSource({ module: 'TicketsService', source: 'LocalStorage', operation: 'WRITE', key: STORAGE_KEY, details: 'MOCK - Migrar para API' });
 };
 
 // Calculate priority based on category and other factors
