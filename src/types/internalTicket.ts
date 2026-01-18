@@ -8,7 +8,10 @@ export type InternalTicketType =
   | 'suporte_tecnico'
   | 'infraestrutura'
   | 'sistemas_internos'
-  | 'administrativo_rh';
+  | 'administrativo_rh'
+  | 'customer_success'
+  | 'financeiro'
+  | 'comercial';
 
 // Prioridade do chamado (define SLA)
 export type InternalTicketPriority = 'baixa' | 'media' | 'alta' | 'critica';
@@ -22,12 +25,26 @@ export type InternalTicketStatus =
   | 'resolvido'
   | 'encerrado';
 
-// SLA padrão por tipo de chamado (em horas)
+// Filas disponíveis
+export type TicketQueue = 'N1' | 'N2' | 'CS' | 'INFRA' | 'FIN' | 'COM';
+
+// SLA padrão por prioridade (em horas)
+export const SLA_BY_PRIORITY: Record<InternalTicketPriority, number> = {
+  baixa: 24,
+  media: 12,
+  alta: 8,
+  critica: 4,
+};
+
+// SLA padrão por tipo de chamado (em horas) - backup
 export const SLA_BY_TYPE: Record<InternalTicketType, number> = {
   suporte_tecnico: 8,
   infraestrutura: 4,
   sistemas_internos: 24,
   administrativo_rh: 48,
+  customer_success: 12,
+  financeiro: 24,
+  comercial: 12,
 };
 
 // SLA multiplicador por prioridade
@@ -38,11 +55,26 @@ export const SLA_PRIORITY_MULTIPLIER: Record<InternalTicketPriority, number> = {
   critica: 0.25, // 1/4 do SLA
 };
 
+// Fila padrão por tipo de chamado
+export const DEFAULT_QUEUE_BY_TYPE: Record<InternalTicketType, TicketQueue> = {
+  suporte_tecnico: 'N1',
+  infraestrutura: 'INFRA',
+  sistemas_internos: 'N1',
+  administrativo_rh: 'N1',
+  customer_success: 'CS',
+  financeiro: 'FIN',
+  comercial: 'COM',
+};
+
 // Calcula SLA final em horas
 export function calculateSLA(type: InternalTicketType, priority: InternalTicketPriority): number {
-  const baseSLA = SLA_BY_TYPE[type];
-  const multiplier = SLA_PRIORITY_MULTIPLIER[priority];
-  return Math.max(1, Math.round(baseSLA * multiplier)); // Mínimo 1 hora
+  // Usar SLA por prioridade diretamente (mais simples e previsível)
+  return SLA_BY_PRIORITY[priority];
+}
+
+// Retorna a fila padrão para um tipo
+export function getDefaultQueue(type: InternalTicketType): TicketQueue {
+  return DEFAULT_QUEUE_BY_TYPE[type] || 'N1';
 }
 
 export interface InternalTicketHistoryItem {
@@ -50,19 +82,23 @@ export interface InternalTicketHistoryItem {
   date: string;
   author: string;
   authorId: number;
-  type: 'comentario' | 'mudanca_status' | 'atribuicao' | 'escalacao';
+  type: 'comentario' | 'mudanca_status' | 'atribuicao' | 'escalacao' | 'transferencia';
   content: string;
+  is_internal_note?: boolean;
   metadata?: {
     old_status?: InternalTicketStatus;
     new_status?: InternalTicketStatus;
     old_assignee?: string;
     new_assignee?: string;
+    old_queue?: TicketQueue;
+    new_queue?: TicketQueue;
     sla_paused?: boolean;
   };
 }
 
 export interface InternalTicket {
   id: string;
+  code?: string; // INT-XXXX
   title: string;
   description: string;
   type: InternalTicketType;
@@ -78,9 +114,10 @@ export interface InternalTicket {
   // Responsável (quem está atendendo)
   assignee_id?: number;
   assignee_name?: string;
+  assignee_email?: string;
   
-  // Fila inicial (N1 = Suporte ID 900)
-  queue: 'N1' | 'N2';
+  // Fila
+  queue: TicketQueue;
   
   // SLA
   sla_hours: number;
@@ -106,6 +143,9 @@ export const TICKET_TYPE_LABELS: Record<InternalTicketType, string> = {
   infraestrutura: 'Infraestrutura',
   sistemas_internos: 'Sistemas Internos',
   administrativo_rh: 'Administrativo / RH',
+  customer_success: 'Customer Success',
+  financeiro: 'Financeiro',
+  comercial: 'Comercial',
 };
 
 export const TICKET_PRIORITY_LABELS: Record<InternalTicketPriority, string> = {
@@ -122,6 +162,15 @@ export const TICKET_STATUS_LABELS: Record<InternalTicketStatus, string> = {
   escalado_n2: 'Escalado N2',
   resolvido: 'Resolvido',
   encerrado: 'Encerrado',
+};
+
+export const QUEUE_LABELS: Record<TicketQueue, string> = {
+  N1: 'Suporte N1',
+  N2: 'Suporte N2',
+  CS: 'Customer Success',
+  INFRA: 'Infraestrutura',
+  FIN: 'Financeiro',
+  COM: 'Comercial',
 };
 
 // Cores para status (usando tokens semânticos)
@@ -142,20 +191,85 @@ export const TICKET_PRIORITY_COLORS: Record<InternalTicketPriority, string> = {
   critica: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
+// Cores para filas
+export const QUEUE_COLORS: Record<TicketQueue, string> = {
+  N1: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  N2: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  CS: 'bg-green-500/20 text-green-400 border-green-500/30',
+  INFRA: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  FIN: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+  COM: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+};
+
 // Níveis que podem criar chamados de prioridade crítica
 export const CRITICAL_PRIORITY_LEVELS = [750, 950, 1000];
+
+// ============================================================================
+// PERMISSÕES POR PAPEL
+// ============================================================================
 
 // Níveis de suporte (podem gerenciar chamados)
 export const SUPPORT_LEVELS = [900, 950, 1000];
 
-// Sugestões por área do usuário
+// Níveis de CS
+export const CS_LEVELS = [775, 1000];
+
+// Níveis de Admin (vê tudo)
+export const ADMIN_LEVELS = [1000];
+
+// Permissões de filas por nível
+export const QUEUE_PERMISSIONS: Record<number, TicketQueue[]> = {
+  // Suporte vê N1, N2, INFRA
+  900: ['N1', 'N2', 'INFRA'],
+  950: ['N1', 'N2', 'INFRA'],
+  // CS vê CS
+  775: ['CS'],
+  // Admin vê tudo
+  1000: ['N1', 'N2', 'CS', 'INFRA', 'FIN', 'COM'],
+};
+
+// Verifica se um nível é suporte
+export function isSupport(level: number): boolean {
+  return SUPPORT_LEVELS.includes(level);
+}
+
+// Verifica se um nível é CS
+export function isCS(level: number): boolean {
+  return CS_LEVELS.includes(level);
+}
+
+// Verifica se um nível é admin
+export function isAdmin(level: number): boolean {
+  return ADMIN_LEVELS.includes(level);
+}
+
+// Retorna as filas permitidas para um nível
+export function getAllowedQueues(level: number): TicketQueue[] {
+  return QUEUE_PERMISSIONS[level] || [];
+}
+
+// Verifica se usuário pode ver uma fila específica
+export function canAccessQueue(level: number, queue: TicketQueue): boolean {
+  const allowed = getAllowedQueues(level);
+  return allowed.includes(queue);
+}
+
+// Verifica se usuário pode gerenciar chamados (atribuir, transferir, etc)
+export function canManageTickets(level: number): boolean {
+  return isSupport(level) || isCS(level) || isAdmin(level);
+}
+
+// ============================================================================
+// SUGESTÕES POR ÁREA DO USUÁRIO
+// ============================================================================
+
 export const AREA_SUGGESTIONS: Record<string, { type: InternalTicketType; hint: string }[]> = {
   comercial: [
     { type: 'sistemas_internos', hint: 'Problema no CRM' },
     { type: 'suporte_tecnico', hint: 'Erro em relatório' },
   ],
   cs: [
-    { type: 'suporte_tecnico', hint: 'Problema técnico de cliente' },
+    { type: 'customer_success', hint: 'Suporte a cliente' },
     { type: 'sistemas_internos', hint: 'Acesso a sistema' },
   ],
   suporte: [
@@ -163,7 +277,7 @@ export const AREA_SUGGESTIONS: Record<string, { type: InternalTicketType; hint: 
     { type: 'sistemas_internos', hint: 'Acesso a ferramenta' },
   ],
   financeiro: [
-    { type: 'administrativo_rh', hint: 'Solicitação financeira' },
+    { type: 'financeiro', hint: 'Solicitação financeira' },
     { type: 'sistemas_internos', hint: 'Problema em sistema financeiro' },
   ],
   lideranca: [
