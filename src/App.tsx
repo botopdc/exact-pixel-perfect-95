@@ -105,6 +105,7 @@ import InternalSupportPage from '@/pages/modules/atendimento-interno/InternalSup
 import CreateInternalTicketPage from '@/pages/modules/atendimento-interno/CreateInternalTicketPage';
 import InternalTicketDetailPage from '@/pages/modules/atendimento-interno/InternalTicketDetailPage';
 import SupportQueuePage from '@/pages/modules/atendimento-interno/SupportQueuePage';
+import AnalistasPage from '@/pages/modules/atendimento-interno/AnalistasPage';
 
 // Birth Certificate (Certidão de Nascimento) Pages
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
@@ -192,6 +193,9 @@ const App = () => (
             <Route path="/modulos/atendimentos/interno" element={<InternalSupportPage />} />
             <Route path="/modulos/atendimentos/interno/novo" element={<CreateInternalTicketPage />} />
             <Route path="/modulos/atendimentos/interno/:id" element={<InternalTicketDetailPage />} />
+            
+            {/* Analistas (Gestão do time de suporte - 950+) */}
+            <Route path="/modulos/atendimentos/analistas" element={<AnalistasPage />} />
             
             {/* Support Queue (Fila de Suporte - para técnicos 900+) */}
             <Route path="/modulos/atendimentos/suporte" element={<SupportQueuePage />} />

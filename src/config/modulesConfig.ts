@@ -292,11 +292,18 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
     allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
     subNavigation: [
       {
-        id: 'interno',
-        title: 'Meus Chamados',
+        id: 'visao-geral',
+        title: 'Visão Geral',
         url: '/modulos/atendimentos/interno',
         // Todos os usuários internos
         allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
+      },
+      {
+        id: 'analistas',
+        title: 'Analistas',
+        url: '/modulos/atendimentos/analistas',
+        // Apenas gestores de suporte e admin
+        allowedLevels: [950, 1000],
       },
       {
         id: 'suporte-tecnico',
