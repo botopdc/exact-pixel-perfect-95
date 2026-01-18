@@ -38,20 +38,27 @@ function ModuleLayoutHeader() {
   const currentModule = getCurrentModule();
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
-      <SidebarTrigger className="md:hidden">
-        <Menu className="h-5 w-5" />
-      </SidebarTrigger>
+    <header className="sticky top-0 z-10 flex flex-col border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+      <div className="flex h-14 items-center gap-4">
+        <SidebarTrigger className="md:hidden">
+          <Menu className="h-5 w-5" />
+        </SidebarTrigger>
 
-      <div className="flex-1">
-        {currentModule && (
-          <h1 className="text-lg font-semibold text-foreground">
-            {currentModule.title}
-          </h1>
-        )}
+        <div className="flex-1 min-w-0">
+          {currentModule && (
+            <h1 className="text-lg font-semibold text-foreground">
+              {currentModule.title}
+            </h1>
+          )}
+        </div>
+
+        <ThemeToggle />
       </div>
-
-      <ThemeToggle />
+      
+      {/* Culture tagline - caption institucional */}
+      <div className="pb-2.5 -mt-1">
+        <CultureTagline />
+      </div>
     </header>
   );
 }
@@ -140,15 +147,10 @@ export default function ModuleLayout() {
             <SubNavigation items={currentModuleConfig.subNavigation} />
           )}
           
-          <div className="flex-1 overflow-auto">
-            {/* Culture tagline - sticky below header */}
-            <CultureTagline showSubtext={false} />
-            
-            <div className="p-6">
-              <ModuleRouteGuard>
-                <Outlet />
-              </ModuleRouteGuard>
-            </div>
+          <div className="flex-1 overflow-auto p-6">
+            <ModuleRouteGuard>
+              <Outlet />
+            </ModuleRouteGuard>
           </div>
         </main>
       </div>
