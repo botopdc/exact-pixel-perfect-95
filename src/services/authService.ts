@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { openApi, ApiUser, USER_LEVELS } from '@/lib/openApi';
+import { logDataSource } from '@/lib/logDataSource';
 
 const AUTH_SESSION_KEY = 'open_auth_session_v1';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 horas
@@ -57,6 +58,7 @@ export const authService = {
       const normalizedEmail = email.toLowerCase().trim();
 
       // Chamar API de login
+      logDataSource({ module: 'AuthService', source: 'API', operation: 'READ', endpoint: 'POST /api/auth/login' });
       const response = await openApi.login(normalizedEmail, password);
 
       // IMPORTANT: Partners (level 200) must use the partner portal login
@@ -78,6 +80,7 @@ export const authService = {
 
       // Salvar sessão
       localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+      logDataSource({ module: 'AuthService', source: 'LocalStorage', operation: 'WRITE', key: AUTH_SESSION_KEY });
 
       return { success: true, session };
     } catch (error: unknown) {
@@ -101,6 +104,7 @@ export const authService = {
   // Logout - limpa a sessão
   logout(): void {
     localStorage.removeItem(AUTH_SESSION_KEY);
+    logDataSource({ module: 'AuthService', source: 'LocalStorage', operation: 'DELETE', key: AUTH_SESSION_KEY });
     openApi.clearToken();
   },
 
@@ -108,6 +112,7 @@ export const authService = {
   getSession(): AuthSession | null {
     try {
       const sessionStr = localStorage.getItem(AUTH_SESSION_KEY);
+      logDataSource({ module: 'AuthService', source: 'LocalStorage', operation: 'READ', key: AUTH_SESSION_KEY });
       if (!sessionStr) return null;
 
       const session: AuthSession = JSON.parse(sessionStr);
