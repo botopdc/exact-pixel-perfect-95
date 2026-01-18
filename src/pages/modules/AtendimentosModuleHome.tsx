@@ -195,10 +195,28 @@ export default function AtendimentosModuleHome() {
           description="Acesse rapidamente as funcionalidades"
         />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* Atendimento Interno */}
+          <ShortcutCard
+            title="Meus Chamados"
+            description="Chamados internos"
+            icon={HeadphonesIcon}
+            href="/modulos/atendimentos/interno"
+          />
+          
+          {/* Fila de Suporte (apenas para suporte 900+) */}
+          {(isSupport || isAdmin) && (
+            <ShortcutCard
+              title="Fila de Suporte"
+              description="Gerenciar todos chamados"
+              icon={Users}
+              href="/modulos/atendimentos/suporte"
+            />
+          )}
+          
           {/* Main TechOps shortcuts */}
           <ShortcutCard
-            title="NOC / Home"
-            description="Dashboard de operações"
+            title="NOC / TechOps"
+            description="Centro de operações"
             icon={Activity}
             href="/modulos/atendimentos/suporte-tecnico"
           />

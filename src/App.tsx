@@ -104,6 +104,7 @@ import SeedDataPage from '@/pages/modules/techops/SeedDataPage';
 import InternalSupportPage from '@/pages/modules/atendimento-interno/InternalSupportPage';
 import CreateInternalTicketPage from '@/pages/modules/atendimento-interno/CreateInternalTicketPage';
 import InternalTicketDetailPage from '@/pages/modules/atendimento-interno/InternalTicketDetailPage';
+import SupportQueuePage from '@/pages/modules/atendimento-interno/SupportQueuePage';
 
 // Error Boundary
 import { TechOpsErrorBoundary } from '@/components/techops/TechOpsErrorBoundary';
@@ -186,6 +187,9 @@ const App = () => (
             <Route path="/modulos/atendimentos/interno/novo" element={<CreateInternalTicketPage />} />
             <Route path="/modulos/atendimentos/interno/:id" element={<InternalTicketDetailPage />} />
             
+            {/* Support Queue (Fila de Suporte - para técnicos 900+) */}
+            <Route path="/modulos/atendimentos/suporte" element={<SupportQueuePage />} />
+
             {/* Suporte Técnico (Centro de Operações) - Wrapped with Error Boundary */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />
             <Route path="/modulos/atendimentos/suporte-tecnico/incidentes" element={<TechOpsErrorBoundary><IncidentsListPage /></TechOpsErrorBoundary>} />
