@@ -100,16 +100,16 @@ export default function SupportQueuePage() {
   }
 
   // Ver todos os chamados (não filtrar por usuário)
-  const { 
-    tickets, 
-    stats, 
-    loading, 
-    refresh, 
-    assumeTicket, 
+  const {
+    tickets,
+    stats,
+    loading,
+    refresh,
+    assumeTicket,
     updateStatus, 
     escalateToN2,
     userId 
-  } = useInternalTickets({ showAllForSupport: true });
+  } = useInternalTickets({ viewMode: 'queue_support' });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<InternalTicketStatus | 'all'>('all');

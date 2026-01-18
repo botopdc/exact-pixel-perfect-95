@@ -11,18 +11,24 @@ import {
 import {
   InternalTicket,
   InternalTicketStatus,
+  TicketQueue,
   SUPPORT_LEVELS,
+  CS_LEVELS,
+  ADMIN_LEVELS,
+  getAllowedQueues,
+  canManageTickets,
 } from '@/types/internalTicket';
 import { authService } from '@/services/authService';
 
+export type ViewMode = 'my_tickets' | 'queue_support' | 'queue_cs' | 'all';
+
 interface UseInternalTicketsOptions {
-  filterByCurrentUser?: boolean;
-  filterQueue?: 'N1' | 'N2';
-  showAllForSupport?: boolean;
+  viewMode?: ViewMode;
+  queues?: TicketQueue[];
 }
 
 export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
-  const { filterByCurrentUser = false, filterQueue, showAllForSupport = false } = options;
+  const { viewMode = 'my_tickets', queues } = options;
   
   const [tickets, setTickets] = useState<InternalTicket[]>([]);
   const [stats, setStats] = useState<InternalTicketStats>({
@@ -33,25 +39,54 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
     resolvidos_30d: 0,
     dentro_sla: 0,
     fora_sla: 0,
+    nao_atribuidos: 0,
   });
   const [loading, setLoading] = useState(true);
 
   const session = authService.getSession();
   const userId = session?.userId ? parseInt(session.userId, 10) : undefined;
   const userLevel = session?.level ?? 0;
+  
+  // Determinar permissões
   const isSupport = SUPPORT_LEVELS.includes(userLevel);
+  const isCS = CS_LEVELS.includes(userLevel);
+  const isAdmin = ADMIN_LEVELS.includes(userLevel);
+  const canManage = canManageTickets(userLevel);
+  const allowedQueues = getAllowedQueues(userLevel);
 
   const refresh = useCallback(() => {
     setLoading(true);
     try {
       let allTickets: InternalTicket[];
+      let statsQueues: TicketQueue[] | undefined;
+      let statsUserId: number | undefined;
       
-      if (filterQueue) {
-        allTickets = internalTicketService.listByQueue(filterQueue);
-      } else if (filterByCurrentUser && userId && !showAllForSupport) {
-        allTickets = internalTicketService.listByUser(userId);
-      } else {
+      if (queues && queues.length > 0) {
+        // Filtro por filas específicas
+        allTickets = internalTicketService.listByQueues(queues);
+        statsQueues = queues;
+      } else if (viewMode === 'my_tickets' && userId) {
+        // Meus Chamados - apenas chamados do usuário
+        allTickets = internalTicketService.listMy(userId);
+        statsUserId = userId;
+      } else if (viewMode === 'queue_support' && (isSupport || isAdmin)) {
+        // Fila do Suporte - N1, N2, INFRA
+        const supportQueues: TicketQueue[] = ['N1', 'N2', 'INFRA'];
+        allTickets = internalTicketService.listByQueues(supportQueues);
+        statsQueues = supportQueues;
+      } else if (viewMode === 'queue_cs' && (isCS || isAdmin)) {
+        // Fila do CS
+        const csQueues: TicketQueue[] = ['CS'];
+        allTickets = internalTicketService.listByQueues(csQueues);
+        statsQueues = csQueues;
+      } else if (viewMode === 'all' && isAdmin) {
+        // Admin vê tudo
         allTickets = internalTicketService.list();
+      } else if (userId) {
+        // Fallback: visibilidade baseada no nível
+        allTickets = internalTicketService.listVisible(userId, userLevel);
+      } else {
+        allTickets = [];
       }
       
       // Ordenar por data de criação (mais recentes primeiro)
@@ -61,15 +96,14 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
       
       setTickets(allTickets);
       
-      // Stats considerando filtro do usuário
-      const statsUserId = filterByCurrentUser && !showAllForSupport ? userId : undefined;
-      setStats(internalTicketService.getStats(statsUserId));
+      // Stats
+      setStats(internalTicketService.getStats(statsUserId, statsQueues));
     } catch (error) {
       console.error('Erro ao carregar chamados internos:', error);
     } finally {
       setLoading(false);
     }
-  }, [filterByCurrentUser, filterQueue, showAllForSupport, userId]);
+  }, [viewMode, queues, userId, userLevel, isSupport, isCS, isAdmin]);
 
   useEffect(() => {
     refresh();
@@ -113,13 +147,14 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
   );
 
   const assignTicket = useCallback(
-    (ticketId: string, assigneeId: number, assigneeName: string) => {
+    (ticketId: string, assigneeId: number, assigneeName: string, assigneeEmail: string) => {
       if (!session || !userId) return undefined;
 
       const ticket = internalTicketService.assign(
         ticketId,
         assigneeId,
         assigneeName,
+        assigneeEmail,
         session.name,
         userId
       );
@@ -138,6 +173,24 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
         ticketId,
         userId,
         session.name,
+        session.email,
+        session.name,
+        userId
+      );
+
+      refresh();
+      return ticket;
+    },
+    [session, userId, refresh]
+  );
+
+  const transferQueue = useCallback(
+    (ticketId: string, newQueue: TicketQueue) => {
+      if (!session || !userId) return undefined;
+
+      const ticket = internalTicketService.transferQueue(
+        ticketId,
+        newQueue,
         session.name,
         userId
       );
@@ -165,14 +218,15 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
   );
 
   const addComment = useCallback(
-    (ticketId: string, content: string) => {
+    (ticketId: string, content: string, isInternalNote: boolean = false) => {
       if (!session || !userId) return undefined;
 
       const ticket = internalTicketService.addComment(
         ticketId,
         content,
         session.name,
-        userId
+        userId,
+        isInternalNote
       );
 
       refresh();
@@ -185,6 +239,11 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
     return internalTicketService.getById(id);
   }, []);
 
+  const canViewTicket = useCallback((ticket: InternalTicket) => {
+    if (!userId) return false;
+    return internalTicketService.canView(ticket, userId, userLevel);
+  }, [userId, userLevel]);
+
   return {
     tickets,
     stats,
@@ -194,10 +253,17 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
     updateStatus,
     assignTicket,
     assumeTicket,
+    transferQueue,
     escalateToN2,
     addComment,
     getTicket,
+    canViewTicket,
+    // Permissões
     isSupport,
+    isCS,
+    isAdmin,
+    canManage,
+    allowedQueues,
     userLevel,
     userId,
   };
