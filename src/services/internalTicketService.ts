@@ -156,25 +156,16 @@ export function listTicketsByQueue(queue: TicketQueue): InternalTicket[] {
 }
 
 // Lista chamados visíveis para um usuário baseado no nível
+// Regra: level >= 750 vê todos, abaixo de 750 vê apenas seus próprios
 export function listVisibleTickets(userId: number, userLevel: number): InternalTicket[] {
   const allTickets = listInternalTickets();
   
-  // Admin vê tudo
-  if (isAdmin(userLevel)) {
+  // Level >= 750 (Gerente Comercial, CS, Suporte, Admin) vê todos os chamados
+  if (userLevel >= 750) {
     return allTickets;
   }
   
-  // Para suporte/CS, ver chamados das filas permitidas OU atribuídos a si
-  const allowedQueues = getAllowedQueues(userLevel);
-  
-  if (allowedQueues.length > 0) {
-    return allTickets.filter((t) => 
-      allowedQueues.includes(t.queue) || 
-      t.assignee_id === userId
-    );
-  }
-  
-  // Usuários comuns veem apenas seus próprios chamados
+  // Usuários abaixo de 750 veem apenas seus próprios chamados
   return allTickets.filter((t) => t.created_by_id === userId);
 }
 
@@ -195,9 +186,10 @@ export function getTicketById(id: string): InternalTicket | undefined {
 }
 
 // Verifica se usuário pode ver um chamado específico
+// Regra: level >= 750 vê todos, abaixo vê apenas os próprios
 export function canViewTicket(ticket: InternalTicket, userId: number, userLevel: number): boolean {
-  // Admin pode ver tudo
-  if (isAdmin(userLevel)) return true;
+  // Level >= 750 pode ver tudo
+  if (userLevel >= 750) return true;
   
   // Criador pode ver
   if (ticket.created_by_id === userId) return true;
@@ -205,9 +197,7 @@ export function canViewTicket(ticket: InternalTicket, userId: number, userLevel:
   // Atribuído pode ver
   if (ticket.assignee_id === userId) return true;
   
-  // Usuário com permissão na fila pode ver
-  const allowedQueues = getAllowedQueues(userLevel);
-  return allowedQueues.includes(ticket.queue);
+  return false;
 }
 
 export function updateTicketStatus(

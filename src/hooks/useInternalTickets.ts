@@ -54,6 +54,9 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
   const canManage = canManageTickets(userLevel);
   const allowedQueues = getAllowedQueues(userLevel);
 
+  // Verifica se pode ver todos os chamados (level >= 750)
+  const canViewAll = userLevel >= 750;
+
   const refresh = useCallback(() => {
     setLoading(true);
     try {
@@ -69,18 +72,18 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
         // Meus Chamados - apenas chamados do usuário
         allTickets = internalTicketService.listMy(userId);
         statsUserId = userId;
-      } else if (viewMode === 'queue_support' && (isSupport || isAdmin)) {
-        // Fila do Suporte - N1, N2, INFRA
+      } else if (viewMode === 'queue_support' && canViewAll) {
+        // Fila do Suporte - N1, N2, INFRA (level >= 750 pode ver)
         const supportQueues: TicketQueue[] = ['N1', 'N2', 'INFRA'];
         allTickets = internalTicketService.listByQueues(supportQueues);
         statsQueues = supportQueues;
-      } else if (viewMode === 'queue_cs' && (isCS || isAdmin)) {
-        // Fila do CS
+      } else if (viewMode === 'queue_cs' && canViewAll) {
+        // Fila do CS (level >= 750 pode ver)
         const csQueues: TicketQueue[] = ['CS'];
         allTickets = internalTicketService.listByQueues(csQueues);
         statsQueues = csQueues;
-      } else if (viewMode === 'all' && isAdmin) {
-        // Admin vê tudo
+      } else if (viewMode === 'all' && canViewAll) {
+        // Level >= 750 vê tudo
         allTickets = internalTicketService.list();
       } else if (userId) {
         // Fallback: visibilidade baseada no nível
@@ -103,7 +106,7 @@ export function useInternalTickets(options: UseInternalTicketsOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [viewMode, queues, userId, userLevel, isSupport, isCS, isAdmin]);
+  }, [viewMode, queues, userId, userLevel, canViewAll]);
 
   useEffect(() => {
     refresh();

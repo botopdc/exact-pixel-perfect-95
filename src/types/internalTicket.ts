@@ -211,22 +211,31 @@ export const CRITICAL_PRIORITY_LEVELS = [750, 950, 1000];
 // Níveis de suporte (podem gerenciar chamados)
 export const SUPPORT_LEVELS = [900, 950, 1000];
 
-// Níveis de CS
-export const CS_LEVELS = [775, 1000];
+// Níveis de CS (CS e Gerente Comercial veem todos os chamados)
+export const CS_LEVELS = [750, 775, 1000];
 
 // Níveis de Admin (vê tudo)
 export const ADMIN_LEVELS = [1000];
 
+// Níveis que podem ver todos os chamados (não apenas os próprios)
+export const VIEW_ALL_LEVELS = [750, 775, 900, 950, 1000];
+
 // Permissões de filas por nível
 export const QUEUE_PERMISSIONS: Record<number, TicketQueue[]> = {
+  // Gerente Comercial e CS vêem todos (para visualização completa)
+  750: ['N1', 'N2', 'CS', 'INFRA', 'FIN', 'COM'],
+  775: ['N1', 'N2', 'CS', 'INFRA', 'FIN', 'COM'],
   // Suporte vê N1, N2, INFRA
   900: ['N1', 'N2', 'INFRA'],
   950: ['N1', 'N2', 'INFRA'],
-  // CS vê CS
-  775: ['CS'],
   // Admin vê tudo
   1000: ['N1', 'N2', 'CS', 'INFRA', 'FIN', 'COM'],
 };
+
+// Verifica se usuário pode ver todos os chamados
+export function canViewAllTickets(level: number): boolean {
+  return level >= 750;
+}
 
 // Verifica se um nível é suporte
 export function isSupport(level: number): boolean {
