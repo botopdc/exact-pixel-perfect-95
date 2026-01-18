@@ -1,26 +1,22 @@
 // ============================================================================
-// CLIENTS LIST PAGE
+// CLIENTS LIST PAGE - Using OPEN API (level=1 clients)
 // ============================================================================
 
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Building2,
   Plus,
   Search,
-  Server,
-  AlertTriangle,
+  RefreshCw,
+  Mail,
+  Hash,
+  Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -30,83 +26,48 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ModuleHeader } from '@/components/navigation/ModuleCard';
-import { getTechClients, getTechAssets, getIncidents } from '@/services/techOpsService';
-import type { TechClient, ClientStatus, SLALevel } from '@/types/techOps';
-import {
-  CLIENT_STATUS_LABELS,
-  CLIENT_STATUS_COLORS,
-  SLA_LEVEL_LABELS,
-  SLA_LEVEL_COLORS,
-} from '@/types/techOps';
+import { useOpenApiClients } from '@/hooks/useOpenApiClients';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 export default function ClientsListPage() {
-  const [clients, setClients] = useState<TechClient[]>([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const { clients, loading, error, refresh } = useOpenApiClients();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ClientStatus | 'all'>('all');
-  const [slaFilter, setSlaFilter] = useState<SLALevel | 'all'>('all');
-  const [assetCounts, setAssetCounts] = useState<Record<string, number>>({});
-  const [incidentCounts, setIncidentCounts] = useState<Record<string, number>>({});
 
-  useEffect(() => {
-    loadData();
-  }, [statusFilter, slaFilter]);
-
-  async function loadData() {
-    try {
-      setLoading(true);
-      const filters: { status?: ClientStatus; sla_level?: SLALevel } = {};
-      if (statusFilter !== 'all') filters.status = statusFilter;
-      if (slaFilter !== 'all') filters.sla_level = slaFilter;
-      
-      const [clientsData, assetsData, incidentsData] = await Promise.all([
-        getTechClients(filters),
-        getTechAssets(),
-        getIncidents(),
-      ]);
-      
-      setClients(clientsData);
-      
-      // Count assets per client
-      const assetCountMap: Record<string, number> = {};
-      assetsData.forEach(asset => {
-        assetCountMap[asset.client_id] = (assetCountMap[asset.client_id] || 0) + 1;
-      });
-      setAssetCounts(assetCountMap);
-      
-      // Count active incidents per client
-      const incidentCountMap: Record<string, number> = {};
-      incidentsData
-        .filter(i => !['RESOLVIDO', 'ENCERRADO'].includes(i.status))
-        .forEach(incident => {
-          incidentCountMap[incident.client_id] = (incidentCountMap[incident.client_id] || 0) + 1;
-        });
-      setIncidentCounts(incidentCountMap);
-    } catch (error) {
-      console.error('Erro ao carregar clientes:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // Client-side filtering by name and email
   const filteredClients = clients.filter((client) => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
-      client.razao_social.toLowerCase().includes(query) ||
-      client.nome_fantasia?.toLowerCase().includes(query) ||
-      client.segmento?.toLowerCase().includes(query)
+      client.name?.toLowerCase().includes(query) ||
+      client.email?.toLowerCase().includes(query) ||
+      client.id?.toString().includes(query)
     );
   });
+
+  // Format date helper
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '-';
+    try {
+      return format(new Date(dateString), "dd/MM/yyyy HH:mm", { locale: ptBR });
+    } catch {
+      return '-';
+    }
+  };
 
   return (
     <div className="space-y-6">
       <ModuleHeader
         title="Clientes"
-        description="Gestão de clientes e suas infraestruturas"
+        description="Diretório de clientes do sistema OPEN (level=1)"
         icon={Building2}
         actions={
-          <Button disabled>
+          <Button 
+            variant="outline" 
+            disabled
+            title="Cadastro de clientes é feito via Admin > Gestão de Usuários"
+          >
             <Plus className="h-4 w-4 mr-2" />
             Novo Cliente
           </Button>
@@ -118,110 +79,126 @@ export default function ClientsListPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar por nome, razão social..."
+            placeholder="Buscar por nome, e-mail ou ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
         </div>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as ClientStatus | 'all')}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os status</SelectItem>
-            <SelectItem value="ATIVO">Ativo</SelectItem>
-            <SelectItem value="SUSPENSO">Suspenso</SelectItem>
-            <SelectItem value="ENCERRADO">Encerrado</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={slaFilter} onValueChange={(v) => setSlaFilter(v as SLALevel | 'all')}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="SLA" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os SLAs</SelectItem>
-            <SelectItem value="PADRAO">Padrão</SelectItem>
-            <SelectItem value="PREMIUM">Premium</SelectItem>
-            <SelectItem value="CRITICO">Crítico</SelectItem>
-          </SelectContent>
-        </Select>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={refresh}
+          disabled={loading}
+          title="Recarregar lista de clientes"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
+
+      {/* Error state */}
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-destructive">{error}</p>
+          <Button variant="outline" size="sm" onClick={refresh}>
+            Tentar novamente
+          </Button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Cliente</TableHead>
+              <TableHead className="w-[80px]">
+                <div className="flex items-center gap-1">
+                  <Hash className="h-3 w-3" />
+                  ID
+                </div>
+              </TableHead>
+              <TableHead>Nome</TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <Mail className="h-3 w-3" />
+                  E-mail
+                </div>
+              </TableHead>
+              <TableHead>Entity ID</TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Criado em
+                </div>
+              </TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>SLA</TableHead>
-              <TableHead>Segmento</TableHead>
-              <TableHead>Assets</TableHead>
-              <TableHead>Incidentes Ativos</TableHead>
-              <TableHead>CS Manager</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
-                  </div>
-                </TableCell>
-              </TableRow>
+              // Loading skeleton
+              Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                </TableRow>
+              ))
             ) : filteredClients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                  Nenhum cliente encontrado
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  {searchQuery 
+                    ? 'Nenhum cliente encontrado para a busca' 
+                    : 'Nenhum cliente cadastrado'
+                  }
                 </TableCell>
               </TableRow>
             ) : (
               filteredClients.map((client) => (
-                <TableRow key={client.id} className="cursor-pointer hover:bg-accent/50">
-                  <TableCell>
-                    <Link
-                      to={`/modulos/atendimentos/suporte-tecnico/clientes/${client.id}`}
-                      className="font-medium hover:underline"
-                    >
-                      {client.nome_fantasia || client.razao_social}
-                    </Link>
-                    {client.nome_fantasia && (
-                      <p className="text-xs text-muted-foreground">{client.razao_social}</p>
-                    )}
+                <TableRow 
+                  key={client.id} 
+                  className="cursor-pointer hover:bg-accent/50"
+                  onClick={() => {
+                    // For now, just show client info - no detail page yet for OPEN clients
+                    console.log('Cliente selecionado:', client);
+                  }}
+                >
+                  <TableCell className="font-mono text-xs">
+                    {client.id}
                   </TableCell>
                   <TableCell>
-                    <Badge className={CLIENT_STATUS_COLORS[client.status]}>
-                      {CLIENT_STATUS_LABELS[client.status]}
-                    </Badge>
+                    <span className="font-medium">{client.name || '-'}</span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={SLA_LEVEL_COLORS[client.sla_level]}>
-                      {SLA_LEVEL_LABELS[client.sla_level]}
-                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {client.email || '-'}
+                    </span>
                   </TableCell>
                   <TableCell>
-                    {client.segmento || <span className="text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Server className="h-3 w-3 text-muted-foreground" />
-                      <span>{assetCounts[client.id] || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {incidentCounts[client.id] ? (
-                      <div className="flex items-center gap-1 text-orange-500">
-                        <AlertTriangle className="h-3 w-3" />
-                        <span>{incidentCounts[client.id]}</span>
-                      </div>
+                    {client.entity_id ? (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {client.entity_id}
+                      </Badge>
                     ) : (
-                      <span className="text-muted-foreground">0</span>
+                      <span className="text-muted-foreground">-</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    {client.cs_manager?.name || <span className="text-muted-foreground">-</span>}
+                  <TableCell className="text-sm text-muted-foreground">
+                    {formatDate(client.created_at)}
+                  </TableCell>
+                <TableCell>
+                    {!client.deleted_at ? (
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                        Ativo
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">
+                        Inativo
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -229,6 +206,15 @@ export default function ClientsListPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Footer info */}
+      {!loading && !error && (
+        <div className="text-xs text-muted-foreground text-right">
+          {filteredClients.length} cliente{filteredClients.length !== 1 ? 's' : ''} 
+          {searchQuery && ` (filtrado de ${clients.length})`}
+          {' '}• Dados da OPEN API
+        </div>
+      )}
     </div>
   );
 }
