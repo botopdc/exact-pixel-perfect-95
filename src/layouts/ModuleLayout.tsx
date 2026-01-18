@@ -108,12 +108,8 @@ export default function ModuleLayout() {
         return;
       }
       
-      // Executivos (700) usam ExecutiveLayout
-      const user = authService.getCurrentUser();
-      if (user?.level === USER_LEVELS.COMERCIAL) {
-        // Executivos podem acessar módulo comercial, mas com visão limitada
-        // Redirecionamos apenas se tentarem acessar módulos não permitidos
-      }
+      // All internal users (including 700) now use ModuleLayout
+      // No special redirect needed - they see area-based dashboard
     };
 
     checkAuth();
