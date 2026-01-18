@@ -713,6 +713,176 @@ export async function searchCertificates(query: string): Promise<CertSearchResul
 
   return results;
 }
+// ============================================================================
+// PROPOSAL LINKS
+// ============================================================================
+
+export interface CertProposalLink {
+  id: string;
+  customer_id: string;
+  asset_id: string | null;
+  proposal_id: string;
+  proposal_uuid: string | null;
+  proposal_status: string | null;
+  proposal_total: number | null;
+  proposal_term_months: number | null;
+  proposal_company: string | null;
+  snapshot_json: unknown | null;
+  descricao: string | null;
+  imported_at: string;
+  updated_at: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export async function getActiveProposalLink(assetId: string): Promise<CertProposalLink | null> {
+  const { data, error } = await supabase
+    .from('cert_proposal_links')
+    .select('*')
+    .eq('asset_id', assetId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as CertProposalLink | null;
+}
+
+export async function getProposalLinksByCustomer(customerId: string): Promise<CertProposalLink[]> {
+  const { data, error } = await supabase
+    .from('cert_proposal_links')
+    .select('*')
+    .eq('customer_id', customerId)
+    .eq('is_active', true)
+    .order('updated_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as CertProposalLink[];
+}
+
+export async function getProposalLinkHistory(assetId: string): Promise<CertProposalLink[]> {
+  const { data, error } = await supabase
+    .from('cert_proposal_links')
+    .select('*')
+    .eq('asset_id', assetId)
+    .order('updated_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as CertProposalLink[];
+}
+
+export async function linkProposal(
+  params: {
+    customer_id: string;
+    asset_id: string;
+    proposal_id: string;
+    proposal_uuid?: string;
+    proposal_status?: string;
+    proposal_total?: number;
+    proposal_term_months?: number;
+    proposal_company?: string;
+    snapshot_json: unknown;
+    descricao?: string;
+  },
+  auditUser?: { id: string; name: string; level: number }
+): Promise<CertProposalLink> {
+  // Desativar link anterior se existir
+  await supabase
+    .from('cert_proposal_links')
+    .update({ is_active: false })
+    .eq('asset_id', params.asset_id)
+    .eq('is_active', true);
+
+  // Criar novo link
+  const { data, error } = await supabase
+    .from('cert_proposal_links')
+    .insert([{
+      customer_id: params.customer_id,
+      asset_id: params.asset_id,
+      proposal_id: params.proposal_id,
+      proposal_uuid: params.proposal_uuid || null,
+      proposal_status: params.proposal_status || null,
+      proposal_total: params.proposal_total || null,
+      proposal_term_months: params.proposal_term_months || null,
+      proposal_company: params.proposal_company || null,
+      snapshot_json: params.snapshot_json as any,
+      descricao: params.descricao || null,
+      is_active: true,
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  await logAudit(
+    'proposal_link',
+    data.id,
+    'LINK_PROPOSAL',
+    { proposal_id: params.proposal_id, asset_id: params.asset_id },
+    auditUser?.id,
+    auditUser?.name,
+    auditUser?.level
+  );
+
+  return data as CertProposalLink;
+}
+
+export async function updateProposalSnapshot(
+  linkId: string,
+  snapshot_json: unknown,
+  additionalData?: {
+    proposal_status?: string;
+    proposal_total?: number;
+    proposal_term_months?: number;
+    proposal_company?: string;
+  },
+  auditUser?: { id: string; name: string; level: number }
+): Promise<CertProposalLink> {
+  const { data, error } = await supabase
+    .from('cert_proposal_links')
+    .update({
+      snapshot_json: snapshot_json as any,
+      ...additionalData,
+    })
+    .eq('id', linkId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  await logAudit(
+    'proposal_link',
+    linkId,
+    'UPDATE_PROPOSAL_SNAPSHOT',
+    { updated: true },
+    auditUser?.id,
+    auditUser?.name,
+    auditUser?.level
+  );
+
+  return data as CertProposalLink;
+}
+
+export async function unlinkProposal(
+  linkId: string,
+  auditUser?: { id: string; name: string; level: number }
+): Promise<void> {
+  const { error } = await supabase
+    .from('cert_proposal_links')
+    .update({ is_active: false })
+    .eq('id', linkId);
+
+  if (error) throw error;
+
+  await logAudit(
+    'proposal_link',
+    linkId,
+    'UNLINK_PROPOSAL',
+    { is_active: false },
+    auditUser?.id,
+    auditUser?.name,
+    auditUser?.level
+  );
+}
 
 // Export service object
 export const birthCertificateService = {
@@ -753,4 +923,11 @@ export const birthCertificateService = {
   getAuditLogs,
   // Search
   searchCertificates,
+  // Proposal Links
+  getActiveProposalLink,
+  getProposalLinksByCustomer,
+  getProposalLinkHistory,
+  linkProposal,
+  updateProposalSnapshot,
+  unlinkProposal,
 };

@@ -64,7 +64,10 @@ import {
   useUpdateCertAccess,
   useDeleteCertAccess,
   useCertAuditLogs,
+  useActiveProposalLink,
 } from '@/hooks/useBirthCertificate';
+import { LinkProposalModal } from '@/components/certidao/LinkProposalModal';
+import { ProposalLinkCard } from '@/components/certidao/ProposalLinkCard';
 import {
   CERT_ASSET_TYPE_LABELS,
   CERT_ASSET_STATUS_LABELS,
@@ -91,6 +94,10 @@ export default function CertidaoAssetPage() {
   
   const { data: asset, isLoading, refetch } = useCertAsset(assetId);
   const { data: auditLogs } = useCertAuditLogs('asset', assetId);
+  const { data: proposalLink, refetch: refetchProposalLink } = useActiveProposalLink(assetId);
+  
+  // Modal states
+  const [showLinkProposalModal, setShowLinkProposalModal] = useState(false);
   
   // Mutations
   const updateAsset = useUpdateCertAsset();
@@ -294,10 +301,14 @@ export default function CertidaoAssetPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-6 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-7 w-full max-w-3xl">
           <TabsTrigger value="visao-geral" className="flex items-center gap-1">
             <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Visão Geral</span>
+            <span className="hidden sm:inline">Geral</span>
+          </TabsTrigger>
+          <TabsTrigger value="proposta" className="flex items-center gap-1">
+            <FileText className="h-4 w-4" />
+            <span className="hidden sm:inline">Proposta</span>
           </TabsTrigger>
           <TabsTrigger value="rede" className="flex items-center gap-1">
             <Network className="h-4 w-4" />
@@ -935,7 +946,42 @@ export default function CertidaoAssetPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Proposta Tab */}
+        <TabsContent value="proposta" className="space-y-4">
+          {proposalLink ? (
+            <ProposalLinkCard
+              link={proposalLink}
+              assetId={assetId!}
+              customerId={asset?.customer_id}
+              onRefresh={() => refetchProposalLink()}
+            />
+          ) : (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                <p className="text-muted-foreground mb-4">
+                  Nenhuma proposta vinculada a este ativo
+                </p>
+                <Button onClick={() => setShowLinkProposalModal(true)}>
+                  Vincular Proposta
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
       </Tabs>
+
+      {/* Link Proposal Modal */}
+      {asset && (
+        <LinkProposalModal
+          open={showLinkProposalModal}
+          onOpenChange={setShowLinkProposalModal}
+          customerId={asset.customer_id}
+          assetId={assetId!}
+          onSuccess={() => refetchProposalLink()}
+        />
+      )}
     </div>
   );
 }

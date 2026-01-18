@@ -417,3 +417,106 @@ export function useCertSearch(query: string) {
     enabled: query.length >= 2,
   });
 }
+
+// ============================================================================
+// PROPOSAL LINKS
+// ============================================================================
+
+export function useActiveProposalLink(assetId: string | undefined) {
+  return useQuery({
+    queryKey: ['cert-proposal-link', assetId],
+    queryFn: () => birthCertificateService.getActiveProposalLink(assetId!),
+    enabled: !!assetId,
+  });
+}
+
+export function useProposalLinksByCustomer(customerId: string | undefined) {
+  return useQuery({
+    queryKey: ['cert-proposal-links-customer', customerId],
+    queryFn: () => birthCertificateService.getProposalLinksByCustomer(customerId!),
+    enabled: !!customerId,
+  });
+}
+
+export function useProposalLinkHistory(assetId: string | undefined) {
+  return useQuery({
+    queryKey: ['cert-proposal-link-history', assetId],
+    queryFn: () => birthCertificateService.getProposalLinkHistory(assetId!),
+    enabled: !!assetId,
+  });
+}
+
+export function useLinkProposal() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (params: {
+      customer_id: string;
+      asset_id: string;
+      proposal_id: string;
+      proposal_uuid?: string;
+      proposal_status?: string;
+      proposal_total?: number;
+      proposal_term_months?: number;
+      proposal_company?: string;
+      snapshot_json: unknown;
+      descricao?: string;
+    }) => birthCertificateService.linkProposal(params, getAuditUser()),
+    onSuccess: (_, { asset_id, customer_id }) => {
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-link', asset_id] });
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-links-customer', customer_id] });
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-link-history', asset_id] });
+      queryClient.invalidateQueries({ queryKey: ['cert-asset', asset_id] });
+      toast.success('Proposta vinculada com sucesso');
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao vincular proposta: ${error.message}`);
+    },
+  });
+}
+
+export function useUpdateProposalSnapshot() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ linkId, snapshot_json, additionalData }: {
+      linkId: string;
+      snapshot_json: unknown;
+      assetId: string;
+      additionalData?: {
+        proposal_status?: string;
+        proposal_total?: number;
+        proposal_term_months?: number;
+        proposal_company?: string;
+      };
+    }) => birthCertificateService.updateProposalSnapshot(linkId, snapshot_json, additionalData, getAuditUser()),
+    onSuccess: (_, { assetId }) => {
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-link', assetId] });
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-link-history', assetId] });
+      toast.success('Snapshot atualizado com sucesso');
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao atualizar snapshot: ${error.message}`);
+    },
+  });
+}
+
+export function useUnlinkProposal() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ linkId, assetId }: { linkId: string; assetId: string; customerId?: string }) =>
+      birthCertificateService.unlinkProposal(linkId, getAuditUser()).then(() => ({ assetId })),
+    onSuccess: (_, { assetId, customerId }) => {
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-link', assetId] });
+      queryClient.invalidateQueries({ queryKey: ['cert-proposal-link-history', assetId] });
+      if (customerId) {
+        queryClient.invalidateQueries({ queryKey: ['cert-proposal-links-customer', customerId] });
+      }
+      toast.success('Proposta desvinculada');
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao desvincular proposta: ${error.message}`);
+    },
+  });
+}
