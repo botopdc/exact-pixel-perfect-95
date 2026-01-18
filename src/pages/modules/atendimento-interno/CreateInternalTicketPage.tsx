@@ -39,6 +39,8 @@ export default function CreateInternalTicketPage() {
   
   const session = authService.getSession();
   const userLevel = session?.level ?? 0;
+  const userName = session?.name ?? 'Usuário';
+  const userEmail = session?.email ?? '';
   const userArea = session ? getUserArea({ level: userLevel } as any) : 'comercial';
   const canUseCritical = CRITICAL_PRIORITY_LEVELS.includes(userLevel);
   
@@ -187,6 +189,25 @@ export default function CreateInternalTicketPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Solicitante (read-only) */}
+            <div className="space-y-2">
+              <Label>Solicitante</Label>
+              <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-md border">
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <span className="text-sm font-medium text-primary">
+                    {userName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{userName}</span>
+                  <span className="text-xs text-muted-foreground">{userEmail}</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                O chamado será aberto em seu nome
+              </p>
+            </div>
+
             {/* Tipo de Solicitação */}
             <div className="space-y-2">
               <Label htmlFor="type">Tipo de Solicitação *</Label>

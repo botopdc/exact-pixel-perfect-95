@@ -142,11 +142,10 @@ export default function InternalSupportPage() {
 
       return true;
     });
-  }, [tickets, searchQuery, statusFilter, typeFilter, priorityFilter, queueFilter, assigneeFilter, myTicketsHook.userId]);
+    }, [tickets, searchQuery, statusFilter, typeFilter, priorityFilter, queueFilter, assigneeFilter, myTicketsHook.userId]);
 
-  // Verificar se pode ver abas de fila
-  const canSeeSupport = isSupport || isAdmin;
-  const canSeeCS = isCS || isAdmin;
+  // Verificar se pode ver abas de fila (level >= 750 vê tudo)
+  const canSeeQueues = myTicketsHook.userLevel >= 750;
 
   return (
     <div className="space-y-8">
@@ -203,18 +202,18 @@ export default function InternalSupportPage() {
 
       {/* Tabs para diferentes visões */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ViewMode)}>
-        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+        <TabsList className={`grid w-full lg:w-auto lg:inline-grid ${canSeeQueues ? 'grid-cols-3' : 'grid-cols-1'}`}>
           <TabsTrigger value="my_tickets" className="gap-2">
             <Inbox className="h-4 w-4" />
             Meus Chamados
           </TabsTrigger>
-          {canSeeSupport && (
+          {canSeeQueues && (
             <TabsTrigger value="queue_support" className="gap-2">
               <Users className="h-4 w-4" />
               Fila do Suporte
             </TabsTrigger>
           )}
-          {canSeeCS && (
+          {canSeeQueues && (
             <TabsTrigger value="queue_cs" className="gap-2">
               <UserCheck className="h-4 w-4" />
               Fila do CS
@@ -350,7 +349,7 @@ export default function InternalSupportPage() {
           />
         </TabsContent>
 
-        {canSeeSupport && (
+        {canSeeQueues && (
           <TabsContent value="queue_support" className="mt-4">
             <TicketsTable 
               tickets={filteredTickets} 
@@ -362,7 +361,7 @@ export default function InternalSupportPage() {
           </TabsContent>
         )}
 
-        {canSeeCS && (
+        {canSeeQueues && (
           <TabsContent value="queue_cs" className="mt-4">
             <TicketsTable 
               tickets={filteredTickets} 
