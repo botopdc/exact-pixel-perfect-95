@@ -3,15 +3,16 @@
 // ============================================================================
 
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Building2,
-  Plus,
   Search,
   RefreshCw,
   Mail,
   Hash,
   Calendar,
+  AlertTriangle,
+  Eye,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,8 +26,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ModuleHeader } from '@/components/navigation/ModuleCard';
 import { useOpenApiClients } from '@/hooks/useOpenApiClients';
+import { ApiUser } from '@/lib/openApi';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -34,6 +42,7 @@ export default function ClientsListPage() {
   const navigate = useNavigate();
   const { clients, loading, error, refresh } = useOpenApiClients();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClient, setSelectedClient] = useState<ApiUser | null>(null);
 
   // Client-side filtering by name and email
   const filteredClients = clients.filter((client) => {
@@ -56,20 +65,25 @@ export default function ClientsListPage() {
     }
   };
 
+  // Handle opening incident with pre-selected client
+  const handleOpenIncident = (client: ApiUser) => {
+    navigate(`/modulos/atendimentos/suporte-tecnico/incidentes/novo?client_user_id=${client.id}`);
+  };
+
   return (
     <div className="space-y-6">
       <ModuleHeader
         title="Clientes"
-        description="Diretório de clientes do sistema OPEN (level=1)"
+        description="Lista de clientes (usuários Nível 1) disponíveis para abertura de incidentes"
         icon={Building2}
         actions={
           <Button 
             variant="outline" 
-            disabled
-            title="Cadastro de clientes é feito via Admin > Gestão de Usuários"
+            onClick={refresh}
+            disabled={loading}
           >
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Cliente
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Atualizar
           </Button>
         }
       />
@@ -85,15 +99,10 @@ export default function ClientsListPage() {
             className="pl-10"
           />
         </div>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={refresh}
-          disabled={loading}
-          title="Recarregar lista de clientes"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-        </Button>
+        <Badge variant="secondary" className="h-10 px-4 flex items-center gap-2 text-sm">
+          <Building2 className="h-4 w-4" />
+          Somente Clientes (Nível 1)
+        </Badge>
       </div>
 
       {/* Error state */}
@@ -132,6 +141,7 @@ export default function ClientsListPage() {
                 </div>
               </TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="w-[140px] text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -145,11 +155,12 @@ export default function ClientsListPage() {
                   <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                 </TableRow>
               ))
             ) : filteredClients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   {searchQuery 
                     ? 'Nenhum cliente encontrado para a busca' 
                     : 'Nenhum cliente cadastrado'
@@ -160,11 +171,7 @@ export default function ClientsListPage() {
               filteredClients.map((client) => (
                 <TableRow 
                   key={client.id} 
-                  className="cursor-pointer hover:bg-accent/50"
-                  onClick={() => {
-                    // For now, just show client info - no detail page yet for OPEN clients
-                    console.log('Cliente selecionado:', client);
-                  }}
+                  className="hover:bg-accent/50"
                 >
                   <TableCell className="font-mono text-xs">
                     {client.id}
@@ -189,7 +196,7 @@ export default function ClientsListPage() {
                   <TableCell className="text-sm text-muted-foreground">
                     {formatDate(client.created_at)}
                   </TableCell>
-                <TableCell>
+                  <TableCell>
                     {!client.deleted_at ? (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
                         Ativo
@@ -200,12 +207,95 @@ export default function ClientsListPage() {
                       </Badge>
                     )}
                   </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedClient(client)}
+                        title="Ver detalhes"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleOpenIncident(client)}
+                        title="Abrir incidente para este cliente"
+                      >
+                        <AlertTriangle className="h-4 w-4 mr-1" />
+                        Incidente
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
       </div>
+
+      {/* Client Details Dialog */}
+      <Dialog open={!!selectedClient} onOpenChange={() => setSelectedClient(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Detalhes do Cliente</DialogTitle>
+          </DialogHeader>
+          {selectedClient && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">ID</p>
+                  <p className="font-mono">{selectedClient.id}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Nível</p>
+                  <Badge variant="outline">1 — Cliente</Badge>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-sm text-muted-foreground">Nome</p>
+                  <p className="font-medium">{selectedClient.name || '-'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-sm text-muted-foreground">E-mail</p>
+                  <p>{selectedClient.email || '-'}</p>
+                </div>
+                {selectedClient.entity_id && (
+                  <div className="col-span-2">
+                    <p className="text-sm text-muted-foreground">Entity ID</p>
+                    <Badge variant="outline" className="font-mono">
+                      {selectedClient.entity_id}
+                    </Badge>
+                  </div>
+                )}
+                <div className="col-span-2">
+                  <p className="text-sm text-muted-foreground">Criado em</p>
+                  <p>{formatDate(selectedClient.created_at)}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  {!selectedClient.deleted_at ? (
+                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                      Ativo
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">Inativo</Badge>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-end pt-4 border-t">
+                <Button onClick={() => {
+                  setSelectedClient(null);
+                  handleOpenIncident(selectedClient);
+                }}>
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Abrir Incidente
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Footer info */}
       {!loading && !error && (

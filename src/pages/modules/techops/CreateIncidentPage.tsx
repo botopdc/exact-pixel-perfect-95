@@ -3,7 +3,7 @@
 // ============================================================================
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -39,7 +39,11 @@ import type { ApiUser } from '@/lib/openApi';
 
 export default function CreateIncidentPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  
+  // Get pre-selected client from URL params (from Clients list page)
+  const preSelectedClientId = searchParams.get('client_user_id');
   
   // Fetch clients from OPEN API (level=1)
   const { clients, loading: clientsLoading, error: clientsError, refresh: refreshClients } = useOpenApiClients();
@@ -74,6 +78,16 @@ export default function CreateIncidentPage() {
       c.email.toLowerCase().includes(search)
     );
   }, [clients, clientSearch]);
+
+  // Pre-select client from URL param when clients are loaded
+  useEffect(() => {
+    if (preSelectedClientId && clients.length > 0 && !clientUserId) {
+      const clientExists = clients.find(c => String(c.id) === preSelectedClientId);
+      if (clientExists) {
+        setClientUserId(preSelectedClientId);
+      }
+    }
+  }, [preSelectedClientId, clients, clientUserId]);
 
   // Load assets when client changes (still from Supabase for infra)
   useEffect(() => {
