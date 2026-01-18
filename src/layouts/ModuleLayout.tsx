@@ -3,6 +3,7 @@ import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { authService } from '@/services/authService';
 import { ModuleSidebar } from '@/components/navigation/ModuleSidebar';
 import { SubNavigation } from '@/components/navigation/SubNavigation';
+import { CultureTagline } from '@/components/navigation/CultureTagline';
 import {
   SidebarProvider,
   SidebarTrigger,
@@ -139,10 +140,15 @@ export default function ModuleLayout() {
             <SubNavigation items={currentModuleConfig.subNavigation} />
           )}
           
-          <div className="flex-1 overflow-auto p-6">
-            <ModuleRouteGuard>
-              <Outlet />
-            </ModuleRouteGuard>
+          <div className="flex-1 overflow-auto">
+            {/* Culture tagline - sticky below header */}
+            <CultureTagline showSubtext={false} />
+            
+            <div className="p-6">
+              <ModuleRouteGuard>
+                <Outlet />
+              </ModuleRouteGuard>
+            </div>
           </div>
         </main>
       </div>
