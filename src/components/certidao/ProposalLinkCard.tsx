@@ -32,9 +32,6 @@ interface ProposalLinkCardProps {
   customerId?: string;
   onRefresh?: () => void;
 }
-  customerId?: string;
-  onRefresh?: () => void;
-}
 
 export function ProposalLinkCard({ link, assetId, customerId, onRefresh }: ProposalLinkCardProps) {
   const [showJson, setShowJson] = useState(false);
