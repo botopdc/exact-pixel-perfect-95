@@ -23,9 +23,9 @@ function getAuditUser() {
   const session = authService.getSession();
   if (!session) return undefined;
   return {
-    id: String(session.user.id),
-    name: session.user.name,
-    level: session.user.level,
+    id: session.userId,
+    name: session.name,
+    level: session.level,
   };
 }
 

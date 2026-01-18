@@ -106,6 +106,12 @@ import CreateInternalTicketPage from '@/pages/modules/atendimento-interno/Create
 import InternalTicketDetailPage from '@/pages/modules/atendimento-interno/InternalTicketDetailPage';
 import SupportQueuePage from '@/pages/modules/atendimento-interno/SupportQueuePage';
 
+// Birth Certificate (Certidão de Nascimento) Pages
+import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
+import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
+import CertidaoAssetPage from '@/pages/modules/certidao/CertidaoAssetPage';
+import CertidaoNewCustomerPage from '@/pages/modules/certidao/CertidaoNewCustomerPage';
+
 // Error Boundary
 import { TechOpsErrorBoundary } from '@/components/techops/TechOpsErrorBoundary';
 
@@ -201,6 +207,12 @@ const App = () => (
             <Route path="/modulos/atendimentos/suporte-tecnico/infra/:id" element={<TechOpsErrorBoundary><AssetDetailPage /></TechOpsErrorBoundary>} />
             <Route path="/modulos/atendimentos/suporte-tecnico/plantao" element={<TechOpsErrorBoundary><OnCallPage /></TechOpsErrorBoundary>} />
             <Route path="/modulos/atendimentos/suporte-tecnico/seed" element={<TechOpsErrorBoundary><SeedDataPage /></TechOpsErrorBoundary>} />
+            
+            {/* Certidão de Nascimento (Birth Certificate) */}
+            <Route path="/modulos/atendimentos/certidoes" element={<CertidaoListPage />} />
+            <Route path="/modulos/atendimentos/certidoes/novo-cliente" element={<CertidaoNewCustomerPage />} />
+            <Route path="/modulos/atendimentos/certidoes/:customerId" element={<CertidaoCustomerPage />} />
+            <Route path="/modulos/atendimentos/certidoes/asset/:assetId" element={<CertidaoAssetPage />} />
             
             {/* Legacy Atendimentos routes */}
             <Route path="/modulos/atendimentos/suporte" element={<FilaSuporte />} />

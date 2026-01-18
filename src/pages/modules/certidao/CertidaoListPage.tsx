@@ -33,7 +33,7 @@ export default function CertidaoListPage() {
   
   // Access control
   const session = authService.getSession();
-  const userLevel = session?.user?.level || 0;
+  const userLevel = session?.level || 0;
   
   if (userLevel < 900) {
     return (

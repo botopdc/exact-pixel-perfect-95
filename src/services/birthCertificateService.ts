@@ -31,15 +31,15 @@ async function logAudit(
   userLevel?: number
 ): Promise<void> {
   try {
-    await supabase.from('cert_audit_logs').insert({
+    await supabase.from('cert_audit_logs').insert([{
       entity_type: entityType,
       entity_id: entityId,
       action,
-      changes: changes || null,
+      changes: changes ? JSON.parse(JSON.stringify(changes)) : null,
       user_id: userId || null,
       user_name: userName || null,
       user_level: userLevel || null,
-    });
+    }]);
   } catch (error) {
     console.error('Failed to log audit:', error);
   }
@@ -225,7 +225,7 @@ export async function getAsset(id: string): Promise<CertAsset | null> {
     .from('cert_assets')
     .select(`
       *,
-      cert_customers(id, razao_social, nome_fantasia, cnpj, segmento, cidade, uf, tem_suporte),
+      cert_customers(id, razao_social, nome_fantasia, cnpj, segmento, cidade, uf, tem_suporte, observacoes, created_at, updated_at),
       cert_asset_resources(*),
       cert_asset_network(*),
       cert_asset_disks(*),
@@ -233,12 +233,13 @@ export async function getAsset(id: string): Promise<CertAsset | null> {
       cert_asset_access(*)
     `)
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (error.code === 'PGRST116') return null;
     throw error;
   }
+
+  if (!data) return null;
 
   return {
     ...data,
