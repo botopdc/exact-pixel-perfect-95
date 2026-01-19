@@ -286,6 +286,19 @@ class OpenApiClient {
     return response.data;
   }
 
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message?: string }> {
+    // POST to password reset endpoint - always returns success for security
+    try {
+      const response = await this.client.post<{ success: boolean; message?: string }>('/auth/forgot-password', {
+        email: email.toLowerCase().trim(),
+      });
+      return response.data;
+    } catch {
+      // Return success even on error to not expose if email exists
+      return { success: true };
+    }
+  }
+
   // ============================================================================
   // CALCULATOR CONFIG ENDPOINTS
   // ============================================================================
