@@ -19,15 +19,6 @@ import {
 // TYPES
 // ============================================================================
 
-interface ConfigPersistenceState {
-  config: CalculatorConfig;
-  apiEntries: CalculatorConfigEntry[];
-  isLoading: boolean;
-  isSaving: boolean;
-  isDirty: boolean;
-  error: string | null;
-}
-
 // Keys that identify each config type (category/section combined)
 type ConfigKey = string;
 
