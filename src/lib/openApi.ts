@@ -390,8 +390,9 @@ class OpenApiClient {
           }
           break;
           
-        case 'BareMetal':
-          if (item.section === 'Modelos de CPU') {
+        case 'baremetal':
+          // Match case-insensitive section names
+          if (section === 'modelos de cpu') {
             config.baremetal.cpu_models = (configData || []).map((e: any) => ({
               id: e.label || '',
               label: e.label || '',
@@ -399,7 +400,7 @@ class OpenApiClient {
             }));
           }
           // Match exact section name from API: "Opções de RAM"
-          if (item.section === 'Opções de RAM') {
+          if (section === 'opções de ram') {
             config.baremetal.ram_tiers = (configData || []).map((e: any) => {
               // Extract GB from label if not provided (e.g., "128GB" -> 128)
               let gb = e.gb || 0;
@@ -416,7 +417,7 @@ class OpenApiClient {
             });
           }
           // Match exact section name from API: "Opções de Disco"
-          if (item.section === 'Opções de Disco') {
+          if (section === 'opções de disco') {
             config.baremetal.disks = (configData || []).map((e: any) => {
               // Extract TB from label if not provided (e.g., "1TB NVMe" -> 1)
               let tb = e.tb || 0;
@@ -434,7 +435,7 @@ class OpenApiClient {
           }
           break;
           
-        case 'Add-ons':
+        case 'add-ons':
           // Use technical keys, not visual labels
           // NOTE: Preserve the sql object when adding other addons
           for (const entry of configData || []) {
@@ -448,16 +449,16 @@ class OpenApiClient {
           }
           break;
           
-        case 'Storage':
+        case 'storage':
           // Handle legacy "Preços de Storage"
-          if (item.section === 'Preços de Storage') {
+          if (section === 'preços de storage') {
             if (!config.storage_prices) config.storage_prices = {};
             for (const entry of configData || []) {
               if (entry.label) config.storage_prices[entry.label] = getValue(entry);
             }
           }
-          // Handle new "Storage Avançado"
-          if (item.section === 'Storage Avançado') {
+          // Handle new "Storage Avançado" or "Storage SAS" or "SSD NVMe"
+          if (section === 'storage avançado' || section === 'storage sas' || section === 'ssd nvme') {
             // Ensure storage_pricing is initialized
             if (!config.storage_pricing) {
               config.storage_pricing = {
@@ -483,17 +484,17 @@ class OpenApiClient {
           }
           break;
           
-        case 'Kubernetes':
+        case 'kubernetes':
           if (!config.kubernetes_pricing) config.kubernetes_pricing = {};
           if (!config.kubernetes_addons_pricing) config.kubernetes_addons_pricing = {};
           
-          if (item.section === 'Planos Kubernetes') {
+          if (section === 'planos kubernetes') {
             for (const entry of configData || []) {
               const v = getValue(entry);
               config.kubernetes_pricing[entry.label] = { basePriceMonthly: v };
             }
           }
-          if (item.section === 'Add-ons Kubernetes') {
+          if (section === 'add-ons kubernetes') {
             for (const entry of configData || []) {
               const v = getValue(entry);
               config.kubernetes_addons_pricing[entry.label] = v;
@@ -501,7 +502,7 @@ class OpenApiClient {
           }
           break;
           
-        case 'SQL Server':
+        case 'sql server':
           // SQL prices go into addons_brl.sql
           // Ensure sql is always an object (already initialized above, but defensive check)
           if (!config.addons_brl.sql || typeof config.addons_brl.sql !== 'object') {
