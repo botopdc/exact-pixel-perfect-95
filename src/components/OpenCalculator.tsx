@@ -275,7 +275,7 @@ const OpenCalculator: React.FC = () => {
 
   // Add BareMetal
   const addBM = useCallback(() => {
-    if (!config.baremetal.cpu_models.length || !config.baremetal.ram_tiers.length || !config.baremetal.disks.length) {
+    if (!config?.baremetal?.cpu_models?.length || !config?.baremetal?.ram_tiers?.length || !config?.baremetal?.disks?.length) {
       toast({ title: 'Erro', description: 'Configuração de BareMetal não carregada', variant: 'destructive' });
       return;
     }
@@ -333,7 +333,7 @@ const OpenCalculator: React.FC = () => {
 
   // Add disk to BM
   const addDisk = useCallback((itemId: string) => {
-    if (!config.baremetal.disks.length) return;
+    if (!config?.baremetal?.disks?.length) return;
     setItems(prev => prev.map(item => {
       if (item.id === itemId && item.type === 'bm') {
         return {
@@ -776,11 +776,11 @@ const OpenCalculator: React.FC = () => {
           id,
           gpu: item.gpu || 'Sem GPU',
           gpuQty: item.gpuQty || 0,
-          bmCpu: item.bmCpu || config.baremetal.cpu_models[0]?.id || 'intel_xeon_e2136',
-          bmRam: item.bmRam || config.baremetal.ram_tiers[0]?.id || 'ram_128gb',
+          bmCpu: item.bmCpu || config?.baremetal?.cpu_models?.[0]?.id || 'intel_xeon_e2136',
+          bmRam: item.bmRam || config?.baremetal?.ram_tiers?.[0]?.id || 'ram_128gb',
           disks: Array.isArray(item.disks) && item.disks.length > 0 
             ? item.disks 
-            : [{ type: config.baremetal.disks[0]?.id || 'nvme_1tb', qty: 1, desc: '' }],
+            : [{ type: config?.baremetal?.disks?.[0]?.id || 'nvme_1tb', qty: 1, desc: '' }],
           trafficTb: item.trafficTb ?? 5,
           ips: item.ips ?? 1,
           qtyServers: item.qtyServers ?? 1,
@@ -801,7 +801,7 @@ const OpenCalculator: React.FC = () => {
         };
       }
     });
-  }, [config.baremetal.cpu_models, config.baremetal.ram_tiers, config.baremetal.disks]);
+  }, [config?.baremetal?.cpu_models, config?.baremetal?.ram_tiers, config?.baremetal?.disks]);
 
   // Add initial VM after config loads OR load proposal for editing
   useEffect(() => {
@@ -876,7 +876,7 @@ const OpenCalculator: React.FC = () => {
       addVM();
       setInitialized(true);
     }
-  }, [configLoading, initialized, items.length, addVM, location.state, config.fx_default, toast]);
+  }, [configLoading, initialized, items.length, addVM, location.state, toast]);
 
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
@@ -1202,8 +1202,9 @@ const OpenCalculator: React.FC = () => {
 
   const validityDate = getValidityDate(proposal.createdAt, proposal.validityDays);
 
-  // Loading state
-  if (configLoading) {
+  // Loading state - check both configLoading AND config existence
+  // This ensures we don't render the calculator UI until config is fully loaded
+  if (configLoading || !config) {
     return (
       <div className="min-h-screen bg-background">
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
