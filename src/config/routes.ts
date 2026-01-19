@@ -25,7 +25,8 @@ export const ROUTES = {
       executivos: '/modulos/comercial/executivos',
       metas: '/modulos/comercial/metas',
       comissoes: '/modulos/comercial/comissoes',
-      potencial: '/modulos/comercial/potencial',
+      meuPotencial: '/modulos/comercial/meu-potencial',
+      potencialGerente: '/modulos/comercial/potencial-gerente',
     },
     parceiros: {
       home: '/modulos/parceiros',
