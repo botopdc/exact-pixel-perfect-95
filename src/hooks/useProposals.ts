@@ -1236,66 +1236,35 @@ export function useSaveProposal() {
         }
       }
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const token = openApi.getToken();
-      if (!token) throw new Error('Sem token de autenticação');
-
-      const scope = 'CLIENTE';
-      const url = numericId
-        ? `${supabaseUrl}/functions/v1/proposal-gateway/proposal/${numericId}?scope=${scope}`
-        : `${supabaseUrl}/functions/v1/proposal-gateway/proposal?scope=${scope}`;
-
-      // CRITICAL: Log full payload details for debugging persistence issues
+      // CRITICAL: Log payload details for debugging
       const dadosProposta = (apiData as any).dados_proposta;
-      console.log('[SaveProposal] Sending to gateway:', {
+      console.log('[SaveProposal] Sending to API:', {
         mode: numericId ? 'UPDATE' : 'CREATE',
         numericId,
-        intended_channel_type: 'CLIENTE',
-        payload_channel_type: (apiData as any).channel_type,
-        // Validate dados_proposta contains all required data
+        channel_type: (apiData as any).channel_type,
         dados_proposta_summary: {
           hasProposalId: Boolean(dadosProposta?.proposalId),
           hasOwnerUserId: Boolean(dadosProposta?.created_by_user_id),
           hasOwnerEmail: Boolean(dadosProposta?.created_by_email),
           hasItems: Boolean(dadosProposta?.items?.length),
           itemsCount: dadosProposta?.items?.length || 0,
-          itemsTypes: (dadosProposta?.items || []).map((i: any) => i.type),
-          hasAddons: Boolean(dadosProposta?.addons),
-          hasKubernetes: Boolean(dadosProposta?.kubernetes?.enabled),
-          hasStorageItems: Boolean(dadosProposta?.storageItems?.length),
-          hasOpenSaas: Boolean(dadosProposta?.openSaas?.enabled),
-          hasResult: Boolean(dadosProposta?.result),
-          savedTotal: dadosProposta?.result?.grandTotal,
         },
       });
+
+      let result: any;
       
-      // VALIDATION: Check if there's at least one item (servers, storage, kubernetes, or openSaas)
-      const hasItems = dadosProposta?.items?.length > 0;
-      const hasStorage = dadosProposta?.storageItems?.some((s: any) => s.volumeTB >= 1);
-      const hasKubernetes = dadosProposta?.kubernetes?.enabled;
-      const hasOpenSaas = dadosProposta?.openSaas?.enabled && dadosProposta?.openSaas?.users >= 5;
-      
-      if (!hasItems && !hasStorage && !hasKubernetes && !hasOpenSaas) {
-        console.warn('[SaveProposal] Warning: No items in dados_proposta. Proposal may have issues on edit.');
+      if (numericId) {
+        // Update existing proposal via API: PUT /api/calculator/proposal/{id}
+        console.log('[SaveProposal] Updating proposal:', numericId);
+        result = await openApi.updateProposal(numericId, apiData);
+      } else {
+        // Create new proposal via API: POST /api/calculator/proposal
+        console.log('[SaveProposal] Creating new proposal');
+        result = await openApi.createProposal(apiData);
       }
 
-      const resp = await fetch(url, {
-        method: numericId ? 'PUT' : 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'x-open-module': 'internal',
-        },
-        body: JSON.stringify(apiData),
-      });
-
-      const payload = await resp.json();
-      if (!resp.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Falha ao salvar proposta');
-      }
-
-      console.log('[SaveProposal] Gateway response ownership:', payload.ownership);
-      return { success: true, data: payload.data, isUpdate: Boolean(numericId) };
+      console.log('[SaveProposal] API response:', result);
+      return { success: true, data: result, isUpdate: Boolean(numericId) };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['proposals'] });
