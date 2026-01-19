@@ -105,20 +105,24 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   });
 
   // 4. GPU Prices (ID 5) - type is USD as per CSV
-  const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {}).map(([name, price]) => {
-    return {
-      label: name,
-      type: 'USD',
-      value: Number(price) || 0,
-    };
+  const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {})
+    .map(([name, price]) => {
+      const v = Number(price);
+      return {
+        label: String(name).trim(),
+        type: 'USD',
+        value: v,
+      };
+    })
+    .filter((i) => i.label && Number.isFinite(i.value ?? NaN));
+
+  // Always include GPU payload (even if empty) so the API can persist clears
+  // (UI must explicitly confirm empty saves)
+  payloads.push({
+    category: CONFIG_MAPPINGS.GPU_PRICES.category,
+    section: CONFIG_MAPPINGS.GPU_PRICES.section,
+    config: gpuItems,
   });
-  if (gpuItems.length > 0) {
-    payloads.push({
-      category: CONFIG_MAPPINGS.GPU_PRICES.category,
-      section: CONFIG_MAPPINGS.GPU_PRICES.section,
-      config: gpuItems,
-    });
-  }
 
   // 5. BareMetal - CPU Models (ID 2) - no 'by' field in CSV
   const cpuItems: ConfigItem[] = config.baremetal.cpu_models.map((cpu) => {
@@ -373,14 +377,22 @@ export function useConfigPersistence() {
     });
   }, [config]);
 
-  // Find existing entry ID by category/section
+  // Find existing entry ID by category/section (case-insensitive)
   const findEntryId = useCallback((category: string, section: string): number | undefined => {
-    const entry = apiEntries.find(e => e.category === category && e.section === section);
+    const c = String(category).trim().toLowerCase();
+    const s = String(section).trim().toLowerCase();
+    const entry = apiEntries.find(
+      (e) => String(e.category).trim().toLowerCase() === c && String(e.section).trim().toLowerCase() === s
+    );
     return entry?.id;
   }, [apiEntries]);
 
+  type SaveOptions = {
+    allowEmptyGpuSave?: boolean;
+  };
+
   // Save all changes to API
-  const saveToApi = useCallback(async (): Promise<boolean> => {
+  const saveToApi = useCallback(async (options: SaveOptions = {}): Promise<boolean> => {
     if (!localConfig) {
       toast({
         title: 'Erro',
@@ -393,22 +405,74 @@ export function useConfigPersistence() {
     setIsSaving(true);
     setError(null);
 
+    const gpuKey = `${CONFIG_MAPPINGS.GPU_PRICES.category}/${CONFIG_MAPPINGS.GPU_PRICES.section}`.toLowerCase();
+
     try {
       // Convert local config to API payloads
       const payloads = configToApiPayloads(localConfig);
-      
+
       console.log('[ConfigPersistence] Saving payloads:', payloads.map(p => `${p.category}/${p.section}`));
-      
+
+      // Safety: block empty GPU save unless explicitly allowed
+      const gpuPayload = payloads.find((p) => `${p.category}/${p.section}`.toLowerCase() === gpuKey);
+      if (gpuPayload && Array.isArray(gpuPayload.config) && gpuPayload.config.length === 0 && !options.allowEmptyGpuSave) {
+        toast({
+          title: 'Configuração vazia de GPU',
+          description: 'Você está prestes a salvar uma configuração vazia de GPU. Confirme para continuar.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      const validateArrayItems = (items: ConfigItem[], ctx: string) => {
+        for (const it of items) {
+          if (!it || typeof it !== 'object') {
+            throw new Error(`Item inválido em ${ctx}`);
+          }
+          if (!it.label || String(it.label).trim().length === 0) {
+            throw new Error(`Item sem label em ${ctx}`);
+          }
+          if (typeof it.value !== 'number' || !Number.isFinite(it.value)) {
+            throw new Error(`Valor inválido (NaN/undefined) em ${ctx}: ${it.label}`);
+          }
+        }
+      };
+
+      const expectedGpuCount = Object.keys(localConfig.gpu_usd || {}).length;
+
       // Process each payload - ONLY UPDATE existing entries (no POST/create)
       for (const payload of payloads) {
+        const ctx = `${payload.category}/${payload.section}`;
+        const isGpu = ctx.toLowerCase() === gpuKey;
+
+        // GPU config MUST be an array
+        if (isGpu && !Array.isArray(payload.config)) {
+          throw new Error('Configuração de GPU inválida (config não é array).');
+        }
+
+        // Validate array payloads to avoid persisting NaN/undefined
+        if (Array.isArray(payload.config)) {
+          validateArrayItems(payload.config, ctx);
+        }
+
         const existingId = findEntryId(payload.category, payload.section);
-        
+
+        // For GPU, missing ID is a hard error (otherwise it silently fails and clears UI after refetch)
+        if (isGpu && !existingId) {
+          throw new Error('Configuração de GPU não encontrada na API (sem ID para atualizar).');
+        }
+
         if (existingId) {
-          // Update existing entry via PUT
-          await updateCalculatorConfig(existingId, {
+          const entry = apiEntries.find((e) => e.id === existingId);
+          const requestBody = {
+            category: entry?.category ?? payload.category,
+            section: entry?.section ?? payload.section,
             config: payload.config,
-          });
-          console.log(`[ConfigPersistence] Updated: ${payload.category}/${payload.section} (ID: ${existingId})`);
+          };
+
+          console.log('[ConfigPersistence] PUT payload:', { id: existingId, ...requestBody });
+          const updated = await updateCalculatorConfig(existingId, requestBody);
+          console.log('[ConfigPersistence] PUT response:', updated);
         } else {
           // Config not found in database - skip with warning
           console.warn(`[ConfigPersistence] Skipped: ${payload.category}/${payload.section} - not found in database (no POST available)`);
@@ -419,26 +483,50 @@ export function useConfigPersistence() {
       await fetchApiEntries();
       await queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
       const result = await refetch();
-      
-      // Update local config with fresh API data
+
+      // Update local config with fresh API data (but never silently clear GPU)
       if (result.data) {
+        const apiGpuCount = Object.keys(result.data.gpu_usd || {}).length;
+
+        if (expectedGpuCount > 0 && apiGpuCount === 0) {
+          console.error('[ConfigPersistence] GPU config came back empty after save', {
+            expectedGpuCount,
+            apiGpuCount,
+          });
+
+          toast({
+            title: 'Erro ao salvar preços de GPU',
+            description: 'Nenhuma alteração foi persistida.',
+            variant: 'destructive',
+          });
+
+          return false;
+        }
+
         setLocalConfig(result.data);
       }
 
       setIsDirty(false);
-      
-      toast({
-        title: 'Salvo na API com sucesso',
-        description: 'As configurações de preços foram persistidas no banco de dados.',
-      });
-      
+
+      if (gpuPayload) {
+        toast({
+          title: 'Preços de GPU salvos com sucesso',
+          description: 'Valores persistidos no banco e recarregados da API.',
+        });
+      } else {
+        toast({
+          title: 'Preços salvos com sucesso',
+          description: 'As configurações de preços foram persistidas no banco de dados.',
+        });
+      }
+
       return true;
     } catch (err: any) {
       console.error('[ConfigPersistence] Save failed:', err);
-      
+
       const errorMessage = err?.response?.data?.message || err?.message || 'Erro ao salvar';
       setError(errorMessage);
-      
+
       // Handle 401
       if (err?.response?.status === 401) {
         toast({
@@ -448,14 +536,14 @@ export function useConfigPersistence() {
         });
         return false;
       }
-      
+
       // Handle 422 validation
       if (err?.response?.status === 422) {
         const validationErrors = err?.response?.data?.errors;
-        const errorDetails = validationErrors 
+        const errorDetails = validationErrors
           ? Object.values(validationErrors).flat().join(', ')
           : errorMessage;
-        
+
         toast({
           title: 'Erro de validação',
           description: errorDetails,
@@ -463,17 +551,17 @@ export function useConfigPersistence() {
         });
         return false;
       }
-      
+
       toast({
-        title: 'Erro ao salvar',
-        description: errorMessage,
+        title: 'Erro ao salvar preços de GPU',
+        description: 'Nenhuma alteração foi persistida.',
         variant: 'destructive',
       });
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [localConfig, findEntryId, fetchApiEntries, queryClient, refetch]);
+  }, [localConfig, findEntryId, fetchApiEntries, queryClient, refetch, apiEntries]);
 
   // Reset to API values (discard local changes)
   const resetToApi = useCallback(async () => {
