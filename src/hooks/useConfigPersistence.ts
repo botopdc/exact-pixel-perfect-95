@@ -2,7 +2,7 @@
 // HOOK: useConfigPersistence - Manage pricing config with API persistence
 // ============================================================================
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { CalculatorConfig, DEFAULT_CONFIG } from '@/lib/calculatorConfig';
@@ -28,6 +28,14 @@ interface ConfigPersistenceState {
   error: string | null;
 }
 
+// Keys that identify each config type (category/section combined)
+type ConfigKey = string;
+
+// Track which sections have been modified
+interface ModifiedSections {
+  [key: ConfigKey]: boolean;
+}
+
 // ============================================================================
 // STORAGE MAPPINGS (aligned with CSV IDs 8 and 9)
 // Storage SAS (ID 8) uses a special nested object format for Brasil/Estados Unidos
@@ -45,6 +53,14 @@ const STORAGE_NVME_MAPPING = {
 };
 
 // ============================================================================
+// HELPER: Create config key from category/section
+// ============================================================================
+
+function makeConfigKey(category: string, section: string): ConfigKey {
+  return `${category.toLowerCase().trim()}/${section.toLowerCase().trim()}`;
+}
+
+// ============================================================================
 // TRANSFORM: CalculatorConfig → API Entries
 // ============================================================================
 
@@ -56,13 +72,13 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   category: string;
   section: string;
   config: ConfigItem[];
-  existingId?: number;
+  configKey: ConfigKey;
 }> {
   const payloads: Array<{
     category: string;
     section: string;
     config: ConfigItem[];
-    existingId?: number;
+    configKey: ConfigKey;
   }> = [];
 
   // 1. Geral - Taxa de Câmbio (ID 12)
@@ -70,6 +86,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   payloads.push({
     category: CONFIG_MAPPINGS.GERAL_FX.category,
     section: CONFIG_MAPPINGS.GERAL_FX.section,
+    configKey: makeConfigKey(CONFIG_MAPPINGS.GERAL_FX.category, CONFIG_MAPPINGS.GERAL_FX.section),
     config: [
       { label: 'Cotação Padrão', type: 'BRL', value: fxValue },
     ],
@@ -88,6 +105,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     payloads.push({
       category: CONFIG_MAPPINGS.GERAL_DESCONTO.category,
       section: CONFIG_MAPPINGS.GERAL_DESCONTO.section,
+      configKey: makeConfigKey(CONFIG_MAPPINGS.GERAL_DESCONTO.category, CONFIG_MAPPINGS.GERAL_DESCONTO.section),
       config: discountItems,
     });
   }
@@ -96,6 +114,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   payloads.push({
     category: CONFIG_MAPPINGS.VM_PRICES.category,
     section: CONFIG_MAPPINGS.VM_PRICES.section,
+    configKey: makeConfigKey(CONFIG_MAPPINGS.VM_PRICES.category, CONFIG_MAPPINGS.VM_PRICES.section),
     config: [
       { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0 },
       { label: 'RAM', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0 },
@@ -117,10 +136,10 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     .filter((i) => i.label && Number.isFinite(i.value ?? NaN));
 
   // Always include GPU payload (even if empty) so the API can persist clears
-  // (UI must explicitly confirm empty saves)
   payloads.push({
     category: CONFIG_MAPPINGS.GPU_PRICES.category,
     section: CONFIG_MAPPINGS.GPU_PRICES.section,
+    configKey: makeConfigKey(CONFIG_MAPPINGS.GPU_PRICES.category, CONFIG_MAPPINGS.GPU_PRICES.section),
     config: gpuItems,
   });
 
@@ -136,6 +155,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     payloads.push({
       category: CONFIG_MAPPINGS.BAREMETAL_CPU.category,
       section: CONFIG_MAPPINGS.BAREMETAL_CPU.section,
+      configKey: makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_CPU.category, CONFIG_MAPPINGS.BAREMETAL_CPU.section),
       config: cpuItems,
     });
   }
@@ -152,6 +172,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     payloads.push({
       category: CONFIG_MAPPINGS.BAREMETAL_RAM.category,
       section: CONFIG_MAPPINGS.BAREMETAL_RAM.section,
+      configKey: makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_RAM.category, CONFIG_MAPPINGS.BAREMETAL_RAM.section),
       config: ramItems,
     });
   }
@@ -169,6 +190,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     payloads.push({
       category: CONFIG_MAPPINGS.BAREMETAL_DISK.category,
       section: CONFIG_MAPPINGS.BAREMETAL_DISK.section,
+      configKey: makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_DISK.category, CONFIG_MAPPINGS.BAREMETAL_DISK.section),
       config: diskItems,
     });
   }
@@ -200,6 +222,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     payloads.push({
       category: CONFIG_MAPPINGS.ADDONS.category,
       section: CONFIG_MAPPINGS.ADDONS.section,
+      configKey: makeConfigKey(CONFIG_MAPPINGS.ADDONS.category, CONFIG_MAPPINGS.ADDONS.section),
       config: addonItems,
     });
   }
@@ -225,6 +248,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       payloads.push({
         category: CONFIG_MAPPINGS.SQL_SERVER.category,
         section: CONFIG_MAPPINGS.SQL_SERVER.section,
+        configKey: makeConfigKey(CONFIG_MAPPINGS.SQL_SERVER.category, CONFIG_MAPPINGS.SQL_SERVER.section),
         config: sqlItems,
       });
     }
@@ -260,10 +284,10 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       }
       
       // Note: Storage SAS uses a special object format, not an array
-      // The API should accept this nested structure
       payloads.push({
         category: STORAGE_SAS_MAPPING.category,
         section: STORAGE_SAS_MAPPING.section,
+        configKey: makeConfigKey(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section),
         config: sasConfig as any, // Special nested format
       });
     }
@@ -273,6 +297,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       payloads.push({
         category: STORAGE_NVME_MAPPING.category,
         section: STORAGE_NVME_MAPPING.section,
+        configKey: makeConfigKey(STORAGE_NVME_MAPPING.category, STORAGE_NVME_MAPPING.section),
         config: [
           { label: 'Preço por GB', by: 'GB', type: 'BRL', value: Number(sp.nvme.pricePerGB) || 0 },
         ],
@@ -296,6 +321,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       payloads.push({
         category: CONFIG_MAPPINGS.KUBERNETES_PLANS.category,
         section: CONFIG_MAPPINGS.KUBERNETES_PLANS.section,
+        configKey: makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section),
         config: k8sItems,
       });
     }
@@ -320,6 +346,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       payloads.push({
         category: CONFIG_MAPPINGS.KUBERNETES_ADDONS.category,
         section: CONFIG_MAPPINGS.KUBERNETES_ADDONS.section,
+        configKey: makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section),
         config: k8sAddonItems,
       });
     }
@@ -342,11 +369,16 @@ export function useConfigPersistence() {
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Track which sections have been modified
+  const modifiedSectionsRef = useRef<ModifiedSections>({});
 
   // Initialize local config from API
   useEffect(() => {
     if (apiConfig && !localConfig) {
       setLocalConfig(apiConfig);
+      // Reset modified sections when API config is loaded initially
+      modifiedSectionsRef.current = {};
     }
   }, [apiConfig, localConfig]);
 
@@ -368,14 +400,93 @@ export function useConfigPersistence() {
   // The config to display/edit
   const config = localConfig || apiConfig || DEFAULT_CONFIG;
 
+  // Helper to mark a section as modified
+  const markSectionModified = useCallback((sectionKeys: ConfigKey[]) => {
+    sectionKeys.forEach(key => {
+      modifiedSectionsRef.current[key] = true;
+    });
+  }, []);
+
   // Update local config (marks as dirty)
-  const updateConfig = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
+  const updateConfig = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, modifiedKeys?: ConfigKey[]) => {
     setLocalConfig(prev => {
       const newConfig = updater(prev || config);
       setIsDirty(true);
+      
+      // If specific keys provided, mark them as modified
+      if (modifiedKeys && modifiedKeys.length > 0) {
+        markSectionModified(modifiedKeys);
+      }
+      
       return newConfig;
     });
-  }, [config]);
+  }, [config, markSectionModified]);
+
+  // Wrapper to update VM prices and mark section modified
+  const updateVmPrices = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
+    const key = makeConfigKey(CONFIG_MAPPINGS.VM_PRICES.category, CONFIG_MAPPINGS.VM_PRICES.section);
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
+
+  // Wrapper to update GPU prices and mark section modified
+  const updateGpuPrices = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
+    const key = makeConfigKey(CONFIG_MAPPINGS.GPU_PRICES.category, CONFIG_MAPPINGS.GPU_PRICES.section);
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
+
+  // Wrapper to update BareMetal and mark sections modified
+  const updateBaremetal = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, section: 'cpu' | 'ram' | 'disk') => {
+    let key: ConfigKey;
+    if (section === 'cpu') {
+      key = makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_CPU.category, CONFIG_MAPPINGS.BAREMETAL_CPU.section);
+    } else if (section === 'ram') {
+      key = makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_RAM.category, CONFIG_MAPPINGS.BAREMETAL_RAM.section);
+    } else {
+      key = makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_DISK.category, CONFIG_MAPPINGS.BAREMETAL_DISK.section);
+    }
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
+
+  // Wrapper to update Add-ons and mark section modified
+  const updateAddons = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, includeSql?: boolean) => {
+    const keys = [makeConfigKey(CONFIG_MAPPINGS.ADDONS.category, CONFIG_MAPPINGS.ADDONS.section)];
+    if (includeSql) {
+      keys.push(makeConfigKey(CONFIG_MAPPINGS.SQL_SERVER.category, CONFIG_MAPPINGS.SQL_SERVER.section));
+    }
+    updateConfig(updater, keys);
+  }, [updateConfig]);
+
+  // Wrapper to update Storage and mark sections modified
+  const updateStorage = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, type: 'sas' | 'nvme' | 'both') => {
+    const keys: ConfigKey[] = [];
+    if (type === 'sas' || type === 'both') {
+      keys.push(makeConfigKey(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section));
+    }
+    if (type === 'nvme' || type === 'both') {
+      keys.push(makeConfigKey(STORAGE_NVME_MAPPING.category, STORAGE_NVME_MAPPING.section));
+    }
+    updateConfig(updater, keys);
+  }, [updateConfig]);
+
+  // Wrapper to update Kubernetes and mark sections modified
+  const updateKubernetes = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, type: 'plans' | 'addons' | 'both') => {
+    const keys: ConfigKey[] = [];
+    if (type === 'plans' || type === 'both') {
+      keys.push(makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section));
+    }
+    if (type === 'addons' || type === 'both') {
+      keys.push(makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section));
+    }
+    updateConfig(updater, keys);
+  }, [updateConfig]);
+
+  // Wrapper to update general settings (FX, discounts)
+  const updateGeneral = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, type: 'fx' | 'discount') => {
+    const key = type === 'fx' 
+      ? makeConfigKey(CONFIG_MAPPINGS.GERAL_FX.category, CONFIG_MAPPINGS.GERAL_FX.section)
+      : makeConfigKey(CONFIG_MAPPINGS.GERAL_DESCONTO.category, CONFIG_MAPPINGS.GERAL_DESCONTO.section);
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
 
   // Find existing entry ID by category/section (case-insensitive)
   const findEntryId = useCallback((category: string, section: string): number | undefined => {
@@ -391,7 +502,7 @@ export function useConfigPersistence() {
     allowEmptyGpuSave?: boolean;
   };
 
-  // Save all changes to API
+  // Save only MODIFIED changes to API
   const saveToApi = useCallback(async (options: SaveOptions = {}): Promise<boolean> => {
     if (!localConfig) {
       toast({
@@ -405,22 +516,38 @@ export function useConfigPersistence() {
     setIsSaving(true);
     setError(null);
 
-    const gpuKey = `${CONFIG_MAPPINGS.GPU_PRICES.category}/${CONFIG_MAPPINGS.GPU_PRICES.section}`.toLowerCase();
+    const gpuKey = makeConfigKey(CONFIG_MAPPINGS.GPU_PRICES.category, CONFIG_MAPPINGS.GPU_PRICES.section);
+    const modifiedKeys = Object.keys(modifiedSectionsRef.current).filter(k => modifiedSectionsRef.current[k]);
+
+    if (modifiedKeys.length === 0) {
+      toast({
+        title: 'Nenhuma alteração',
+        description: 'Não há mudanças para salvar.',
+      });
+      setIsSaving(false);
+      return true;
+    }
+
+    console.log('[ConfigPersistence] Sections modified:', modifiedKeys);
 
     try {
       // Convert local config to API payloads
-      const payloads = configToApiPayloads(localConfig);
+      const allPayloads = configToApiPayloads(localConfig);
+      
+      // Filter only modified payloads
+      const payloadsToSave = allPayloads.filter(p => modifiedKeys.includes(p.configKey));
 
-      console.log('[ConfigPersistence] Saving payloads:', payloads.map(p => `${p.category}/${p.section}`));
+      console.log('[ConfigPersistence] Saving ONLY modified payloads:', payloadsToSave.map(p => p.configKey));
 
       // Safety: block empty GPU save unless explicitly allowed
-      const gpuPayload = payloads.find((p) => `${p.category}/${p.section}`.toLowerCase() === gpuKey);
+      const gpuPayload = payloadsToSave.find((p) => p.configKey === gpuKey);
       if (gpuPayload && Array.isArray(gpuPayload.config) && gpuPayload.config.length === 0 && !options.allowEmptyGpuSave) {
         toast({
           title: 'Configuração vazia de GPU',
           description: 'Você está prestes a salvar uma configuração vazia de GPU. Confirme para continuar.',
           variant: 'destructive',
         });
+        setIsSaving(false);
         return false;
       }
 
@@ -439,11 +566,12 @@ export function useConfigPersistence() {
       };
 
       const expectedGpuCount = Object.keys(localConfig.gpu_usd || {}).length;
+      let savedCount = 0;
 
-      // Process each payload - ONLY UPDATE existing entries (no POST/create)
-      for (const payload of payloads) {
+      // Process each modified payload - ONLY UPDATE existing entries (no POST/create)
+      for (const payload of payloadsToSave) {
         const ctx = `${payload.category}/${payload.section}`;
-        const isGpu = ctx.toLowerCase() === gpuKey;
+        const isGpu = payload.configKey === gpuKey;
 
         // GPU config MUST be an array
         if (isGpu && !Array.isArray(payload.config)) {
@@ -457,7 +585,7 @@ export function useConfigPersistence() {
 
         const existingId = findEntryId(payload.category, payload.section);
 
-        // For GPU, missing ID is a hard error (otherwise it silently fails and clears UI after refetch)
+        // For GPU, missing ID is a hard error
         if (isGpu && !existingId) {
           throw new Error('Configuração de GPU não encontrada na API (sem ID para atualizar).');
         }
@@ -473,9 +601,10 @@ export function useConfigPersistence() {
           console.log('[ConfigPersistence] PUT payload:', { id: existingId, ...requestBody });
           const updated = await updateCalculatorConfig(existingId, requestBody);
           console.log('[ConfigPersistence] PUT response:', updated);
+          savedCount++;
         } else {
           // Config not found in database - skip with warning
-          console.warn(`[ConfigPersistence] Skipped: ${payload.category}/${payload.section} - not found in database (no POST available)`);
+          console.warn(`[ConfigPersistence] Skipped: ${ctx} - not found in database (no POST available)`);
         }
       }
 
@@ -484,11 +613,11 @@ export function useConfigPersistence() {
       await queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
       const result = await refetch();
 
-      // Update local config with fresh API data (but never silently clear GPU)
+      // Update local config with fresh API data
       if (result.data) {
         const apiGpuCount = Object.keys(result.data.gpu_usd || {}).length;
 
-        if (expectedGpuCount > 0 && apiGpuCount === 0) {
+        if (expectedGpuCount > 0 && apiGpuCount === 0 && modifiedKeys.includes(gpuKey)) {
           console.error('[ConfigPersistence] GPU config came back empty after save', {
             expectedGpuCount,
             apiGpuCount,
@@ -506,19 +635,14 @@ export function useConfigPersistence() {
         setLocalConfig(result.data);
       }
 
+      // Clear modified sections and dirty flag
+      modifiedSectionsRef.current = {};
       setIsDirty(false);
 
-      if (gpuPayload) {
-        toast({
-          title: 'Preços de GPU salvos com sucesso',
-          description: 'Valores persistidos no banco e recarregados da API.',
-        });
-      } else {
-        toast({
-          title: 'Preços salvos com sucesso',
-          description: 'As configurações de preços foram persistidas no banco de dados.',
-        });
-      }
+      toast({
+        title: 'Preços salvos com sucesso',
+        description: `${savedCount} configuração(ões) atualizada(s) no banco de dados.`,
+      });
 
       return true;
     } catch (err: any) {
@@ -553,7 +677,7 @@ export function useConfigPersistence() {
       }
 
       toast({
-        title: 'Erro ao salvar preços de GPU',
+        title: 'Erro ao salvar preços',
         description: 'Nenhuma alteração foi persistida.',
         variant: 'destructive',
       });
@@ -574,6 +698,8 @@ export function useConfigPersistence() {
         setLocalConfig(result.data);
       }
       
+      // Clear modified sections
+      modifiedSectionsRef.current = {};
       setIsDirty(false);
       setError(null);
       
@@ -597,7 +723,6 @@ export function useConfigPersistence() {
   // Refresh from API
   const refreshFromApi = useCallback(async () => {
     if (isDirty) {
-      // Show confirmation would be handled by the component
       console.warn('[ConfigPersistence] Refresh requested with unsaved changes');
     }
     
@@ -609,6 +734,7 @@ export function useConfigPersistence() {
         setLocalConfig(result.data);
       }
       
+      modifiedSectionsRef.current = {};
       setIsDirty(false);
       await fetchApiEntries();
       
@@ -628,8 +754,19 @@ export function useConfigPersistence() {
     isDirty,
     error,
     updateConfig,
+    // Section-specific update helpers
+    updateVmPrices,
+    updateGpuPrices,
+    updateBaremetal,
+    updateAddons,
+    updateStorage,
+    updateKubernetes,
+    updateGeneral,
+    // API operations
     saveToApi,
     resetToApi,
     refreshFromApi,
+    // Utility to mark sections as modified externally
+    markSectionModified: (keys: string[]) => markSectionModified(keys as ConfigKey[]),
   };
 }
