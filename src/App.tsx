@@ -171,7 +171,10 @@ const App = () => (
           <Route path="/executivo/dashboard" element={<Navigate to="/modulos/dashboard" replace />} />
           <Route path="/executivo/calculadora" element={<Navigate to="/modulos/comercial/propostas/criar" replace />} />
           <Route path="/executivo/propostas" element={<Navigate to="/modulos/comercial/propostas" replace />} />
-          <Route path="/executivo/potencial" element={<Navigate to="/modulos/comercial/potencial" replace />} />
+          <Route path="/executivo/potencial" element={<Navigate to="/modulos/comercial/meu-potencial" replace />} />
+          <Route path="/comercial/potencial-gerente" element={<Navigate to="/modulos/comercial/potencial-gerente" replace />} />
+          {/* Redirect old potencial route to new gerente route */}
+          <Route path="/modulos/comercial/potencial" element={<Navigate to="/modulos/comercial/potencial-gerente" replace />} />
           <Route path="/dashboard" element={<Navigate to="/modulos/dashboard" replace />} />
           <Route path="/calculadora" element={<Navigate to="/modulos/comercial/propostas/criar" replace />} />
           <Route path="/propostas" element={<Navigate to="/modulos/comercial/propostas" replace />} />
@@ -194,7 +197,8 @@ const App = () => (
             <Route path="/modulos/comercial/propostas/aprovacoes" element={<PropostasAprovacoesPage />} />
             <Route path="/modulos/comercial/metas" element={<MetasComerciais />} />
             <Route path="/modulos/comercial/comissoes" element={<ComissoesExecutivos />} />
-            <Route path="/modulos/comercial/potencial" element={<MeuPotencialGerente />} />
+            <Route path="/modulos/comercial/meu-potencial" element={<MeuPotencial />} />
+            <Route path="/modulos/comercial/potencial-gerente" element={<MeuPotencialGerente />} />
             
             {/* Parceiros Module */}
             <Route path="/modulos/parceiros" element={<ParceirosModuleHome />} />

@@ -242,10 +242,16 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         allowedLevels: [750, 1000],
       },
       {
-        id: 'potencial',
+        id: 'meu-potencial',
+        title: 'Meu Potencial',
+        url: '/modulos/comercial/meu-potencial',
+        allowedLevels: [700], // Apenas Executivos
+      },
+      {
+        id: 'potencial-gerente',
         title: 'Potencial do Gerente',
-        url: '/modulos/comercial/potencial',
-        allowedLevels: [750, 1000],
+        url: '/modulos/comercial/potencial-gerente',
+        allowedLevels: [750, 1000], // Gerente e Admin
       },
     ],
   },
