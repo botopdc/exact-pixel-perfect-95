@@ -1057,15 +1057,88 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
 // Other levels (600, 900, 950): No access
 // ============================================================================
 
-function canSeeAllProposals(level: number): boolean {
+// Check if a user level can see ALL proposals (Admin or Gerente Comercial)
+export function canSeeAllProposals(level: number): boolean {
   return level === 1000 || level === 750;
+}
+
+// Helper to extract owner ID from proposal (for RBAC filtering)
+export function getProposalOwnerId(proposal: any): number | null {
+  // Primary: created_by field from API (integer, nullable)
+  if (proposal?.created_by !== undefined && proposal?.created_by !== null) {
+    return Number(proposal.created_by);
+  }
+  
+  // Fallback: creator object from __with=creator expansion
+  if (proposal?.creator?.id !== undefined && proposal?.creator?.id !== null) {
+    return Number(proposal.creator.id);
+  }
+  
+  // Also check dados_proposta for saved ownership info
+  if (proposal?.dados_proposta?.created_by_user_id !== undefined && 
+      proposal?.dados_proposta?.created_by_user_id !== null) {
+    return Number(proposal.dados_proposta.created_by_user_id);
+  }
+  
+  // No owner info available
+  return null;
+}
+
+// Filter proposals by ownership based on user level
+export function filterProposalsByOwnership(
+  proposals: SavedProposal[], 
+  userLevel: number, 
+  userId: string | number | null
+): SavedProposal[] {
+  // Admins and Managers see all
+  if (canSeeAllProposals(userLevel)) {
+    console.log('[filterProposalsByOwnership] Level', userLevel, 'can see all proposals');
+    return proposals;
+  }
+  
+  // Convert userId to number for comparison
+  const numericUserId = userId !== null ? Number(userId) : null;
+  
+  // Executives (700), CS (775): filter by owner
+  if (userLevel === 700 || userLevel === 775) {
+    if (numericUserId === null) {
+      console.warn('[filterProposalsByOwnership] No userId available, returning empty');
+      return [];
+    }
+    
+    const filtered = proposals.filter((p) => {
+      const ownerId = getProposalOwnerId(p);
+      
+      // Security: proposals without owner info are hidden from non-managers
+      if (ownerId === null) {
+        console.warn('[filterProposalsByOwnership] Proposal without owner hidden:', p.id);
+        return false;
+      }
+      
+      return ownerId === numericUserId;
+    });
+    
+    console.log('[filterProposalsByOwnership] Level', userLevel, 'userId', numericUserId, ':', filtered.length, 'of', proposals.length, 'proposals');
+    return filtered;
+  }
+  
+  // Other internal levels (600, 900, 950): no access to commercial proposals
+  console.warn('[filterProposalsByOwnership] Level', userLevel, 'has no access to proposals');
+  return [];
 }
 
 // Hook to fetch executive proposals from API (excludes partner proposals)
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
+// RBAC: Filters proposals based on user level and ownership
 export function useProposals(page = 1, perPage = 100) {
+  // Import authService dynamically to avoid circular deps
+  const { authService } = require('@/services/authService');
+  const session = authService.getSession();
+  const userLevel = session?.level || 0;
+  const userId = session?.userId || null;
+  
   return useQuery({
-    queryKey: ['proposals', 'api', 'executive', page, perPage],
+    queryKey: ['proposals', 'api', 'executive', page, perPage, userLevel, userId],
     queryFn: async () => {
       try {
         // Call API directly: GET /api/calculator/proposal
@@ -1079,13 +1152,22 @@ export function useProposals(page = 1, perPage = 100) {
         
         // Client-side safety filter: ensure only CLIENTE proposals
         const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE');
+        
+        // Transform to local format
+        const localProposals = safe.map(apiToLocal);
+        
+        // RBAC: Filter by ownership for non-managers
+        const filtered = filterProposalsByOwnership(localProposals, userLevel, userId);
 
         console.log('[useProposals] Fetched executive proposals:', {
           received: apiProposals.length,
           kept: safe.length,
+          afterRBAC: filtered.length,
+          userLevel,
+          userId,
         });
 
-        return safe.map(apiToLocal);
+        return filtered;
       } catch (error) {
         console.warn('[Proposals] API fetch failed, returning empty:', error);
         return [];
@@ -1101,9 +1183,16 @@ export function useProposals(page = 1, perPage = 100) {
 
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
+// RBAC: Filters proposals based on user level and ownership
 export function useProposalsPaginated(page = 1, perPage = 20) {
+  // Import authService dynamically to avoid circular deps
+  const { authService } = require('@/services/authService');
+  const session = authService.getSession();
+  const userLevel = session?.level || 0;
+  const userId = session?.userId || null;
+
   return useQuery({
-    queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage],
+    queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage, userLevel, userId],
     queryFn: async () => {
       try {
         // Call API directly: GET /api/calculator/proposal
@@ -1117,17 +1206,27 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
         
         // Client-side safety filter
         const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE');
+        
+        // Transform to local format
+        const proposals = safe.map(apiToLocal);
+        
+        // RBAC: Filter by ownership for non-managers
+        const filtered = filterProposalsByOwnership(proposals, userLevel, userId);
 
         console.log('[useProposalsPaginated] Fetched executive proposals:', {
           received: apiProposals.length,
           kept: safe.length,
+          afterRBAC: filtered.length,
+          userLevel,
+          userId,
         });
 
-        const proposals = safe.map(apiToLocal);
         return {
-          proposals,
+          proposals: filtered,
           pagination: {
             currentPage: page,
+            // Note: pagination total might be incorrect after client-side filter
+            // but this is acceptable as security measure
             lastPage: Math.ceil((response.total || 0) / perPage) || 1,
             total: response.total || 0,
           },
