@@ -104,13 +104,13 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     ],
   });
 
-  // 4. GPU Prices (ID 5) - type is USD as per CSV
+  // 4. GPU Prices (ID 5) - NOW BRL (removed USD)
   const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {})
     .map(([name, price]) => {
       const v = Number(price);
       return {
         label: String(name).trim(),
-        type: 'USD',
+        type: 'BRL',
         value: v,
       };
     })

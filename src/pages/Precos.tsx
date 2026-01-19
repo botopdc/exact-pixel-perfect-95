@@ -1050,7 +1050,7 @@ const Precos = () => {
           <TabsContent value="gpu">
             <Card className="open-card">
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Preços de GPU (USD)</CardTitle>
+                <CardTitle>Preços de GPU (R$)</CardTitle>
                 {isAdmin && (
                   <Button 
                     variant="outline" 
@@ -1517,20 +1517,14 @@ const Precos = () => {
             <div className="space-y-6">
               <Card className="open-card">
                 <CardHeader>
-                  <CardTitle>Taxa de Câmbio (USD → BRL)</CardTitle>
+                  <CardTitle>Informações Gerais</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="max-w-xs space-y-2">
-                    <Label>Cotação Padrão (R$)</Label>
-                    <Input 
-                      type="number" 
-                      step="0.01"
-                      value={config.fx_default} 
-                      readOnly={!isAdmin}
-                      disabled={!isAdmin}
-                      className={!isAdmin ? "bg-muted/30" : ""}
-                      onChange={(e) => handleUpdateFx(config.fx_default, Number(e.target.value))}
-                    />
+                  <div className="p-4 bg-muted/30 rounded-lg border border-border">
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Todos os preços são em R$ (BRL).</strong><br />
+                      O sistema não utiliza mais conversão de câmbio. GPUs e todos os demais itens são precificados diretamente em Reais.
+                    </p>
                   </div>
                 </CardContent>
               </Card>

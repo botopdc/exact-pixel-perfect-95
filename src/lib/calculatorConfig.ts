@@ -177,7 +177,7 @@ export const DEFAULT_CONFIG: CalculatorConfig = {
     name: "OPEN Calculator Config",
     version: "1.0"
   },
-  fx_default: 5.0,
+  fx_default: 1.0, // Fixed at 1 - all prices are now in BRL
   discount: {
     "1": 0,
     "12": 0.05,
@@ -185,12 +185,13 @@ export const DEFAULT_CONFIG: CalculatorConfig = {
     "36": 0.12,
     "48": 0.15
   },
+  // GPU prices are now in BRL (field name kept for backwards compatibility)
   gpu_usd: {
     "Sem GPU": 0,
-    "NVIDIA T4": 1090,
-    "NVIDIA A100 40GB": 2400,
-    "NVIDIA A100 80GB": 3200,
-    "NVIDIA H100 80GB": 7600
+    "NVIDIA T4": 5450,
+    "NVIDIA A100 40GB": 12000,
+    "NVIDIA A100 80GB": 16000,
+    "NVIDIA H100 80GB": 38000
   },
   vm_prices_brl: {
     vcpu: 45.0,
