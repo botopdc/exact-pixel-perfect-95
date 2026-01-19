@@ -226,13 +226,22 @@ export function AcademyEnrollmentsTable({
                             </DropdownMenuItem>
                           </>
                         )}
-                        {(enrollment.status === 'expired' || enrollment.status === 'suspended') && (
+                        {enrollment.status === 'expired' && (
                           <DropdownMenuItem
                             onClick={() => onAction(enrollment, 'renew')}
                             className="text-primary"
                           >
                             <RefreshCw className="h-4 w-4 mr-2" />
-                            Reativar/Renovar
+                            Renovar
+                          </DropdownMenuItem>
+                        )}
+                        {enrollment.status === 'suspended' && (
+                          <DropdownMenuItem
+                            onClick={() => onAction(enrollment, 'renew')}
+                            className="text-green-600"
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Reativar
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>

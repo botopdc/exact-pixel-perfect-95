@@ -307,8 +307,8 @@ export async function renewEnrollment(
     notes,
   };
 
-  // If was expired, reactivate
-  if (current?.status === 'expired') {
+  // If was expired or suspended, reactivate
+  if (current?.status === 'expired' || current?.status === 'suspended') {
     updateData.status = 'active';
   }
 
