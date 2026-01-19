@@ -5,29 +5,41 @@ import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, AlertCircle, GraduationCap, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Loader2, AlertCircle, GraduationCap, CheckCircle2, ArrowLeft, Mail } from 'lucide-react';
 
 export default function AcademyResetPassword() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [lastSubmitTime, setLastSubmitTime] = useState(0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Rate limiting: prevent multiple submissions within 30 seconds
+    const now = Date.now();
+    if (now - lastSubmitTime < 30000) {
+      setError('Aguarde alguns segundos antes de tentar novamente.');
+      return;
+    }
+
+    if (!email.trim()) {
+      setError('Por favor, informe seu e-mail.');
+      return;
+    }
+
     setIsLoading(true);
+    setLastSubmitTime(now);
 
     try {
-      const result = await academyAuthService.requestPasswordReset(email);
-
-      if (result.success) {
-        setSuccess(true);
-      } else {
-        setError(result.error || 'Erro ao solicitar redefinição de senha.');
-      }
-    } catch (err) {
-      setError('Erro inesperado. Tente novamente.');
+      // Always show success to not expose if email exists
+      await academyAuthService.requestPasswordReset(email.toLowerCase().trim());
+      setSuccess(true);
+    } catch {
+      // Even on error, show success message for security
+      setSuccess(true);
     } finally {
       setIsLoading(false);
     }
@@ -58,13 +70,13 @@ export default function AcademyResetPassword() {
               </div>
             </div>
             <h2 className="text-2xl font-semibold text-foreground mb-2">
-              E-mail Enviado!
+              Instruções Enviadas!
             </h2>
             <p className="text-muted-foreground mb-6">
-              Se o e-mail <strong>{email}</strong> estiver cadastrado na OPEN Academy, você receberá instruções para redefinir sua senha.
+              Se este e-mail estiver cadastrado, você receberá as instruções em instantes.
             </p>
             <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20 mb-6">
-              <p className="text-sm text-yellow-600">
+              <p className="text-sm text-yellow-600 dark:text-yellow-500">
                 <strong>Nota:</strong> A redefinição de senha não libera acesso se seu cadastro ainda estiver pendente de aprovação.
               </p>
             </div>
@@ -127,16 +139,22 @@ export default function AcademyResetPassword() {
               <Label htmlFor="email" className="text-sm text-foreground">
                 E-mail
               </Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="seu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={isLoading}
-                className="bg-input border-border focus:border-primary"
-              />
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="seu@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  className="bg-input border-border focus:border-primary pl-10"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Digite o e-mail cadastrado na OPEN Academy.
+              </p>
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
@@ -151,14 +169,14 @@ export default function AcademyResetPassword() {
             </Button>
           </form>
 
-          <div className="mt-4 text-center space-y-2">
-            <p className="text-sm text-muted-foreground">
+          <div className="mt-6 pt-4 border-t border-border space-y-2">
+            <p className="text-sm text-muted-foreground text-center">
               Lembrou a senha?{' '}
               <Link to="/academy/login" className="text-primary hover:underline">
                 Fazer login
               </Link>
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground text-center">
               Não tem conta?{' '}
               <Link to="/academy/signup" className="text-primary hover:underline">
                 Inscreva-se
