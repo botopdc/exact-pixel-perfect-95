@@ -636,11 +636,12 @@ class OpenApiClient {
   }
 
   async createUser(data: {
-    entity_id: number;
+    entity_id?: number;
     name: string;
     email: string;
     password: string;
     password_confirmation: string;
+    level?: number;
     phones?: string[];
     birthday?: string | null;
     tags?: string[];
