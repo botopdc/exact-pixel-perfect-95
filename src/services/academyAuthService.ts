@@ -288,23 +288,20 @@ export const academyAuthService = {
 
       const normalizedEmail = email.toLowerCase().trim();
 
-      // Check if email belongs to an academy user
-      const { data: enrollment } = await supabase
-        .from('academy_enrollments')
-        .select('id, status')
-        .eq('email', normalizedEmail)
-        .single();
-
-      if (!enrollment) {
-        return { success: false, error: 'Email não encontrado na OPEN Academy.' };
+      // Call API password reset - always return success for security
+      // This prevents exposing whether an email exists in the system
+      try {
+        await openApi.requestPasswordReset(normalizedEmail);
+      } catch {
+        // Silently ignore - we don't want to expose if email exists
       }
 
-      // TODO: Implement actual password reset via API or email service
-      // For now, return success message
+      // Always return success for security reasons
       return { success: true };
     } catch (error) {
       console.error('[AcademyAuth] Password reset error:', error);
-      return { success: false, error: 'Erro ao solicitar redefinição de senha.' };
+      // Still return success for security
+      return { success: true };
     }
   },
 };
