@@ -1062,43 +1062,27 @@ function canSeeAllProposals(level: number): boolean {
 }
 
 // Hook to fetch executive proposals from API (excludes partner proposals)
+// Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 export function useProposals(page = 1, perPage = 100) {
   return useQuery({
     queryKey: ['proposals', 'api', 'executive', page, perPage],
     queryFn: async () => {
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const token = openApi.getToken();
-        if (!token) throw new Error('Sem token de autenticação');
-
-        const params = new URLSearchParams({
-          scope: 'CLIENTE',
-          __page: String(page),
-          __perPage: String(perPage),
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals({
+          channel_type: 'CLIENTE',
+          __page: page,
+          __perPage: perPage,
         });
 
-        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        const payload = await resp.json();
-        if (!resp.ok || payload?.success === false) {
-          throw new Error(payload?.error || 'Falha ao listar propostas');
-        }
-
-        // The gateway already applies RBAC filtering based on user level
-        // We just receive the filtered list
-        const apiProposals = (payload.data || []) as ApiProposal[];
-        const ownership = payload.ownership || {};
+        const apiProposals = (response.data || []) as ApiProposal[];
         
-        // Additional client-side safety filter: ensure only CLIENTE proposals
+        // Client-side safety filter: ensure only CLIENTE proposals
         const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE');
 
         console.log('[useProposals] Fetched executive proposals:', {
           received: apiProposals.length,
           kept: safe.length,
-          ownership,
-          canSeeAll: ownership.can_see_all,
         });
 
         return safe.map(apiToLocal);
@@ -1116,42 +1100,27 @@ export function useProposals(page = 1, perPage = 100) {
 }
 
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
-// RBAC filtering is done server-side in the gateway
+// Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 export function useProposalsPaginated(page = 1, perPage = 20) {
   return useQuery({
     queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage],
     queryFn: async () => {
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const token = openApi.getToken();
-        if (!token) throw new Error('Sem token de autenticação');
-
-        const params = new URLSearchParams({
-          scope: 'CLIENTE',
-          __page: String(page),
-          __perPage: String(perPage),
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals({
+          channel_type: 'CLIENTE',
+          __page: page,
+          __perPage: perPage,
         });
 
-        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        const payload = await resp.json();
-        if (!resp.ok || payload?.success === false) {
-          throw new Error(payload?.error || 'Falha ao listar propostas');
-        }
-
-        // The gateway already applies RBAC filtering
-        const apiProposals = (payload.data || []) as ApiProposal[];
-        const ownership = payload.ownership || {};
+        const apiProposals = (response.data || []) as ApiProposal[];
         
-        // Additional client-side safety filter
+        // Client-side safety filter
         const safe = apiProposals.filter((p) => p?.channel_type === 'CLIENTE');
 
         console.log('[useProposalsPaginated] Fetched executive proposals:', {
           received: apiProposals.length,
           kept: safe.length,
-          ownership,
         });
 
         const proposals = safe.map(apiToLocal);
@@ -1159,8 +1128,8 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
           proposals,
           pagination: {
             currentPage: page,
-            lastPage: Math.ceil((payload.total || 0) / perPage) || 1,
-            total: payload.total || 0,
+            lastPage: Math.ceil((response.total || 0) / perPage) || 1,
+            total: response.total || 0,
           },
         };
       } catch (error) {
