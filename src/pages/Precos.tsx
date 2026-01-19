@@ -10,6 +10,16 @@ import { useConfigPersistence } from '@/hooks/useConfigPersistence';
 import { formatCurrency, CalculatorConfig, CpuModel, RamTier, DiskOption, StorageType, STORAGE_TYPE_LABELS, StorageRegionPricing, K8S_PLANS, K8sPlan, KubernetesPricingConfig, K8S_ADDONS_PRICES, K8S_ADDONS_LABELS, K8sAddonsPricingConfig, getK8sAddonPrice } from '@/lib/calculatorConfig';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -142,7 +152,8 @@ const Precos = () => {
   const [newSql, setNewSql] = useState({ name: '', price: 0 });
   const [newAddon, setNewAddon] = useState({ key: '', label: '', price: 0 });
 
-  // Persist admin state changes
+  // Confirmations
+  const [showConfirmEmptyGpuSave, setShowConfirmEmptyGpuSave] = useState(false);
   useEffect(() => {
     saveAdminState(isAdmin);
   }, [isAdmin]);
@@ -584,7 +595,20 @@ const Precos = () => {
   // ============ SAVE CONFIG TO API ============
   const handleSaveConfig = async () => {
     if (!isAdmin) return;
+
+    const gpuCount = Object.keys(config?.gpu_usd ?? {}).length;
+    if (gpuCount === 0) {
+      setShowConfirmEmptyGpuSave(true);
+      return;
+    }
+
     await saveToApi();
+  };
+
+  const confirmSaveEmptyGpuConfig = async () => {
+    if (!isAdmin) return;
+    setShowConfirmEmptyGpuSave(false);
+    await saveToApi({ allowEmptyGpuSave: true });
   };
 
   // ============ VM PRICES ============
@@ -1930,6 +1954,21 @@ const Precos = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={showConfirmEmptyGpuSave} onOpenChange={setShowConfirmEmptyGpuSave}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Salvar configuração vazia de GPU?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a salvar uma configuração vazia. Isso removerá todas as GPUs. Confirma?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSaveEmptyGpuConfig}>Confirmar e salvar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

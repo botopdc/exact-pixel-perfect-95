@@ -347,30 +347,32 @@ class OpenApiClient {
     };
 
     for (const item of items) {
-      const configData = item.config as any[];
-      
+      const category = String(item.category ?? '').trim().toLowerCase();
+      const section = String(item.section ?? '').trim().toLowerCase();
+      const configData = Array.isArray(item.config) ? (item.config as any[]) : [];
+
       // Helper: get value from entry (API uses `value`, but accept `price` for backward compat)
       const getValue = (entry: any, defaultValue: number = 0): number => {
         return entry.value ?? entry.price ?? defaultValue;
       };
-      
-      switch (item.category) {
-        case 'Geral':
-          if (item.section === 'Configurações Gerais') {
+
+      switch (category) {
+        case 'geral':
+          if (section === 'configurações gerais') {
             for (const entry of configData || []) {
               if (entry.label === 'FX Padrão') config.fx_default = getValue(entry, 5.5);
             }
           }
-          if (item.section === 'Descontos por Prazo') {
+          if (section === 'descontos por prazo') {
             for (const entry of configData || []) {
               const months = entry.label?.replace(' meses', '').replace(' mês', '');
               if (months) config.discount[months] = getValue(entry) / 100;
             }
           }
           break;
-          
-        case 'VM':
-          if (item.section === 'Preços de VM') {
+
+        case 'vm':
+          if (section === 'preços de vm') {
             for (const entry of configData || []) {
               const v = getValue(entry);
               if (entry.label === 'vCPU') config.vm_prices_brl.vcpu = v;
@@ -382,10 +384,10 @@ class OpenApiClient {
             }
           }
           break;
-          
-        case 'GPU':
+
+        case 'gpu':
           for (const entry of configData || []) {
-            if (entry.label) config.gpu_usd[entry.label] = getValue(entry);
+            if (entry?.label) config.gpu_usd[entry.label] = getValue(entry);
           }
           break;
           
