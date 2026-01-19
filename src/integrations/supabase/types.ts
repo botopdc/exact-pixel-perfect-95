@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      academy_enrollments: {
+        Row: {
+          academy_level: number
+          approved_at: string | null
+          approved_by: string | null
+          course_area: string | null
+          created_at: string
+          discount_pct: number
+          email: string
+          full_name: string
+          id: string
+          institution_name: string | null
+          institution_type: string | null
+          last_renewed_at: string | null
+          notes: string | null
+          proof_file_id: string | null
+          proof_url: string | null
+          status: Database["public"]["Enums"]["academy_enrollment_status"]
+          updated_at: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+        }
+        Insert: {
+          academy_level: number
+          approved_at?: string | null
+          approved_by?: string | null
+          course_area?: string | null
+          created_at?: string
+          discount_pct?: number
+          email: string
+          full_name: string
+          id?: string
+          institution_name?: string | null
+          institution_type?: string | null
+          last_renewed_at?: string | null
+          notes?: string | null
+          proof_file_id?: string | null
+          proof_url?: string | null
+          status?: Database["public"]["Enums"]["academy_enrollment_status"]
+          updated_at?: string
+          user_id: string
+          valid_from?: string
+          valid_until?: string
+        }
+        Update: {
+          academy_level?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          course_area?: string | null
+          created_at?: string
+          discount_pct?: number
+          email?: string
+          full_name?: string
+          id?: string
+          institution_name?: string | null
+          institution_type?: string | null
+          last_renewed_at?: string | null
+          notes?: string | null
+          proof_file_id?: string | null
+          proof_url?: string | null
+          status?: Database["public"]["Enums"]["academy_enrollment_status"]
+          updated_at?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string
+        }
+        Relationships: []
+      }
       articles: {
         Row: {
           author: string
@@ -930,6 +999,17 @@ export type Database = {
       is_tech_team_member: { Args: never; Returns: boolean }
     }
     Enums: {
+      academy_enrollment_status:
+        | "pending"
+        | "active"
+        | "suspended"
+        | "expired"
+        | "rejected"
+      academy_institution_type:
+        | "Universidade"
+        | "Escola"
+        | "Instituto"
+        | "Empresa"
       asset_environment: "PROD" | "HOMOLOG" | "DEV" | "NAO_INFORMADO"
       asset_status: "ATIVO" | "MANUTENCAO" | "DESLIGADO"
       asset_type: "VM" | "BAREMETAL" | "GPU" | "KUBERNETES" | "STORAGE"
@@ -1109,6 +1189,19 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      academy_enrollment_status: [
+        "pending",
+        "active",
+        "suspended",
+        "expired",
+        "rejected",
+      ],
+      academy_institution_type: [
+        "Universidade",
+        "Escola",
+        "Instituto",
+        "Empresa",
+      ],
       asset_environment: ["PROD", "HOMOLOG", "DEV", "NAO_INFORMADO"],
       asset_status: ["ATIVO", "MANUTENCAO", "DESLIGADO"],
       asset_type: ["VM", "BAREMETAL", "GPU", "KUBERNETES", "STORAGE"],

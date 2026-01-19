@@ -20,6 +20,11 @@ import {
 // ============================================================================
 
 export const USER_LEVELS = {
+  // Academy levels (external)
+  ACADEMY_ALUNO: 50,
+  ACADEMY_PROFESSOR: 55,
+  ACADEMY_INSTITUICAO: 60,
+  // Standard levels
   CLIENTE: 1,
   PARCEIRO: 200,
   RH: 600,
@@ -32,6 +37,9 @@ export const USER_LEVELS = {
   GERENTE_SUPORTE: 950,
   ADMIN: 1000,
 } as const;
+
+// Levels that can manage Academy
+export const ACADEMY_MANAGER_LEVELS = [775, 900, 950, 1000];
 
 export type UserLevel = typeof USER_LEVELS[keyof typeof USER_LEVELS];
 
@@ -421,7 +429,7 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         id: 'academy',
         title: 'OPEN Academy',
         url: '/modulos/gente/academy',
-        allowedLevels: [600, 1000],
+        allowedLevels: [600, 775, 900, 950, 1000],
       },
     ],
   },
