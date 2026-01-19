@@ -470,7 +470,7 @@ function apiToPartnerProposal(apiProposal: any, session: any): PartnerProposal {
 // ============================================================================
 
 // Hook to fetch partner proposals from API (filtered by channel_type PARCEIRO)
-// RBAC filtering is now done server-side in the gateway using created_by_user_id
+// Uses GET /api/calculator/proposal with channel_type=PARCEIRO filter
 export function usePartnerProposals(isAdmin = false) {
   const session = partnerAuthService.getSession();
   const userId = session?.partnerId || null;
@@ -479,36 +479,20 @@ export function usePartnerProposals(isAdmin = false) {
     queryKey: ['partner-proposals', userId, isAdmin],
     queryFn: async () => {
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const token = openApi.getToken();
-        if (!token) throw new Error('Sem token de autenticação');
-
-        const params = new URLSearchParams({
-          scope: 'PARCEIRO',
-          __perPage: String(isAdmin ? 500 : 100),
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals({
+          channel_type: 'PARCEIRO',
+          __perPage: isAdmin ? 500 : 100,
         });
 
-        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}`, 'x-open-module': 'partner_portal' },
-        });
-
-        const payload = await resp.json();
-        if (!resp.ok || payload?.success === false) {
-          throw new Error(payload?.error || 'Falha ao listar propostas de parceiros');
-        }
-
-        // The gateway already applies RBAC filtering based on created_by_user_id
-        const apiProposals = (payload.data || []) as any[];
-        const ownership = payload.ownership || {};
+        const apiProposals = (response.data || []) as any[];
         
-        // Additional client-side safety filter: ensure only PARCEIRO proposals
+        // Client-side safety filter: ensure only PARCEIRO proposals
         const safe = apiProposals.filter((p) => p?.channel_type === 'PARCEIRO');
 
         console.log('[usePartnerProposals] Fetched partner proposals:', {
           received: apiProposals.length,
           kept: safe.length,
-          ownership,
-          canSeeAll: ownership.can_see_all,
         });
 
         const proposals = safe.map((p) => apiToPartnerProposal(p, session));
@@ -518,36 +502,29 @@ export function usePartnerProposals(isAdmin = false) {
         return [];
       }
     },
-    staleTime: 1000 * 60 * 2,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
 // Hook to fetch all proposals (for admin view)
+// Uses GET /api/calculator/proposal with channel_type=PARCEIRO filter
 export function useAllPartnerProposals() {
   return useQuery({
     queryKey: ['partner-proposals', 'all'],
     queryFn: async () => {
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const token = openApi.getToken();
-        if (!token) throw new Error('Sem token de autenticação');
-
-        const params = new URLSearchParams({
-          scope: 'PARCEIRO',
-          __perPage: '500',
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals({
+          channel_type: 'PARCEIRO',
+          __perPage: 500,
         });
-
-        const resp = await fetch(`${supabaseUrl}/functions/v1/proposal-gateway/proposals?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}`, 'x-open-module': 'partner_portal' },
-        });
-
-        const payload = await resp.json();
-        if (!resp.ok || payload?.success === false) {
-          throw new Error(payload?.error || 'Falha ao listar propostas de parceiros');
-        }
 
         const session = partnerAuthService.getSession();
-        const apiProposals = (payload.data || []) as any[];
+        const apiProposals = (response.data || []) as any[];
         const safe = apiProposals.filter((p) => p?.channel_type === 'PARCEIRO');
         return safe.map((p) => apiToPartnerProposal(p, session));
       } catch (error) {
@@ -555,7 +532,11 @@ export function useAllPartnerProposals() {
         return [];
       }
     },
-    staleTime: 1000 * 60 * 2,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -107,7 +107,11 @@ export function useProposalSearch(options: UseProposalSearchOptions = {}) {
       }
     },
     enabled: shouldSearch,
-    staleTime: 1000 * 30, // 30 segundos
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   return {
@@ -139,6 +143,10 @@ export function useProposalById(proposalId: number | string | null) {
       }
     },
     enabled: !!proposalId,
-    staleTime: 1000 * 60 * 5, // 5 minutos
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }

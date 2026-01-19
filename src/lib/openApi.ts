@@ -309,7 +309,7 @@ class OpenApiClient {
   async getCalculatorConfig(): Promise<CalculatorConfigApiResponse> {
     // API returns paginated response with 'data' array
     const response = await this.client.get<{ data: Array<{ category: string; section: string; config: unknown }> }>('/calculator/config', {
-      params: { __limit: 100 }
+      params: { __perPage: 100 }
     });
     
     // Transform paginated config items into flat config object
@@ -320,12 +320,21 @@ class OpenApiClient {
   // Parse config items from API into CalculatorConfigApiResponse
   private parseConfigItems(items: Array<{ category: string; section: string; config: unknown }>): CalculatorConfigApiResponse {
     const config: CalculatorConfigApiResponse = {
-      fx_default: 5.5,
-      discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.15 },
-      gpu_usd: {},
+      fx_default: 1.0, // Fixed at 1 - all prices are now in BRL
+      discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.12, '48': 0.15 },
+      gpu_usd: {}, // Field name kept for compatibility, but values are now in BRL
       vm_prices_brl: { vcpu: 0, ram_per_gb: 0, nvme_per_gb: 0, ip_public: 0 },
       baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
-      addons_brl: {},
+      // CRITICAL: Initialize addons_brl with sql as empty object to prevent null-safety crashes
+      addons_brl: {
+        antivirus_unit: 0,
+        firewall_pfsense: 0,
+        tsplus_unit: 0,
+        cal_unit: 0,
+        sql: {}, // Always initialize sql to prevent Object.keys() crash
+        veeam_vm_unit: 0,
+        veeam_agent_unit: 0,
+      },
       backup_tables_brl_per_gb: {},
       // Initialize storage_pricing structure
       storage_pricing: {
@@ -338,30 +347,31 @@ class OpenApiClient {
     };
 
     for (const item of items) {
-      const configData = item.config as any[];
-      
+      const category = String(item.category ?? '').trim().toLowerCase();
+      const section = String(item.section ?? '').trim().toLowerCase();
+      const configData = Array.isArray(item.config) ? (item.config as any[]) : [];
+
       // Helper: get value from entry (API uses `value`, but accept `price` for backward compat)
       const getValue = (entry: any, defaultValue: number = 0): number => {
         return entry.value ?? entry.price ?? defaultValue;
       };
-      
-      switch (item.category) {
-        case 'Geral':
-          if (item.section === 'Configurações Gerais') {
-            for (const entry of configData || []) {
-              if (entry.label === 'FX Padrão') config.fx_default = getValue(entry, 5.5);
-            }
+
+      switch (category) {
+        case 'geral':
+          if (section === 'configurações gerais') {
+            // FX is now fixed at 1, ignore API value
+            config.fx_default = 1.0;
           }
-          if (item.section === 'Descontos por Prazo') {
+          if (section === 'descontos por prazo') {
             for (const entry of configData || []) {
               const months = entry.label?.replace(' meses', '').replace(' mês', '');
               if (months) config.discount[months] = getValue(entry) / 100;
             }
           }
           break;
-          
-        case 'VM':
-          if (item.section === 'Preços de VM') {
+
+        case 'vm':
+          if (section === 'preços de vm') {
             for (const entry of configData || []) {
               const v = getValue(entry);
               if (entry.label === 'vCPU') config.vm_prices_brl.vcpu = v;
@@ -373,15 +383,16 @@ class OpenApiClient {
             }
           }
           break;
-          
-        case 'GPU':
+
+        case 'gpu':
           for (const entry of configData || []) {
-            if (entry.label) config.gpu_usd[entry.label] = getValue(entry);
+            if (entry?.label) config.gpu_usd[entry.label] = getValue(entry);
           }
           break;
           
-        case 'BareMetal':
-          if (item.section === 'Modelos de CPU') {
+        case 'baremetal':
+          // Match case-insensitive section names
+          if (section === 'modelos de cpu') {
             config.baremetal.cpu_models = (configData || []).map((e: any) => ({
               id: e.label || '',
               label: e.label || '',
@@ -389,7 +400,7 @@ class OpenApiClient {
             }));
           }
           // Match exact section name from API: "Opções de RAM"
-          if (item.section === 'Opções de RAM') {
+          if (section === 'opções de ram') {
             config.baremetal.ram_tiers = (configData || []).map((e: any) => {
               // Extract GB from label if not provided (e.g., "128GB" -> 128)
               let gb = e.gb || 0;
@@ -406,7 +417,7 @@ class OpenApiClient {
             });
           }
           // Match exact section name from API: "Opções de Disco"
-          if (item.section === 'Opções de Disco') {
+          if (section === 'opções de disco') {
             config.baremetal.disks = (configData || []).map((e: any) => {
               // Extract TB from label if not provided (e.g., "1TB NVMe" -> 1)
               let tb = e.tb || 0;
@@ -424,26 +435,30 @@ class OpenApiClient {
           }
           break;
           
-        case 'Add-ons':
+        case 'add-ons':
           // Use technical keys, not visual labels
+          // NOTE: Preserve the sql object when adding other addons
           for (const entry of configData || []) {
             if (entry.label) {
               const technicalKey = ADDON_LABEL_TO_KEY[entry.label] || entry.label;
-              config.addons_brl[technicalKey] = getValue(entry);
+              // Don't overwrite sql object with a scalar
+              if (technicalKey !== 'sql') {
+                config.addons_brl[technicalKey] = getValue(entry);
+              }
             }
           }
           break;
           
-        case 'Storage':
+        case 'storage':
           // Handle legacy "Preços de Storage"
-          if (item.section === 'Preços de Storage') {
+          if (section === 'preços de storage') {
             if (!config.storage_prices) config.storage_prices = {};
             for (const entry of configData || []) {
               if (entry.label) config.storage_prices[entry.label] = getValue(entry);
             }
           }
-          // Handle new "Storage Avançado"
-          if (item.section === 'Storage Avançado') {
+          // Handle new "Storage Avançado" or "Storage SAS" or "SSD NVMe"
+          if (section === 'storage avançado' || section === 'storage sas' || section === 'ssd nvme') {
             // Ensure storage_pricing is initialized
             if (!config.storage_pricing) {
               config.storage_pricing = {
@@ -469,17 +484,17 @@ class OpenApiClient {
           }
           break;
           
-        case 'Kubernetes':
+        case 'kubernetes':
           if (!config.kubernetes_pricing) config.kubernetes_pricing = {};
           if (!config.kubernetes_addons_pricing) config.kubernetes_addons_pricing = {};
           
-          if (item.section === 'Planos Kubernetes') {
+          if (section === 'planos kubernetes') {
             for (const entry of configData || []) {
               const v = getValue(entry);
               config.kubernetes_pricing[entry.label] = { basePriceMonthly: v };
             }
           }
-          if (item.section === 'Add-ons Kubernetes') {
+          if (section === 'add-ons kubernetes') {
             for (const entry of configData || []) {
               const v = getValue(entry);
               config.kubernetes_addons_pricing[entry.label] = v;
@@ -487,9 +502,10 @@ class OpenApiClient {
           }
           break;
           
-        case 'SQL Server':
+        case 'sql server':
           // SQL prices go into addons_brl.sql
-          if (!config.addons_brl.sql) {
+          // Ensure sql is always an object (already initialized above, but defensive check)
+          if (!config.addons_brl.sql || typeof config.addons_brl.sql !== 'object') {
             config.addons_brl.sql = {};
           }
           for (const entry of configData || []) {

@@ -158,7 +158,8 @@ const OpenCalculator: React.FC = () => {
   const savePartnerProposalMutation = useSavePartnerProposal();
 
   // State
-  const [fx, setFx] = useState(config.fx_default);
+  // FX is now fixed at 1 (all prices are in BRL)
+  const fx = 1;
   const [selectedTerm, setSelectedTerm] = useState("1");
   const [datacenter, setDatacenter] = useState<'SP1' | 'SP2' | 'FL1' | 'CE1'>('SP1');
   const [client, setClient] = useState<ClientInfo>({ name: '', company: '', phone: '', email: '' });
@@ -252,12 +253,7 @@ const OpenCalculator: React.FC = () => {
   // Check if user can edit prices (markup)
   const canEditMarkup = canEditPriceMarkup(userContext.userLevel);
 
-  // Update FX when config loads
-  useEffect(() => {
-    if (!configLoading && config) {
-      setFx(config.fx_default);
-    }
-  }, [config, configLoading]);
+  // FX is now fixed at 1 (removed - all prices are BRL)
 
   // Add VM
   const addVM = useCallback(() => {
@@ -279,7 +275,7 @@ const OpenCalculator: React.FC = () => {
 
   // Add BareMetal
   const addBM = useCallback(() => {
-    if (!config.baremetal.cpu_models.length || !config.baremetal.ram_tiers.length || !config.baremetal.disks.length) {
+    if (!config?.baremetal?.cpu_models?.length || !config?.baremetal?.ram_tiers?.length || !config?.baremetal?.disks?.length) {
       toast({ title: 'Erro', description: 'Configuração de BareMetal não carregada', variant: 'destructive' });
       return;
     }
@@ -337,7 +333,7 @@ const OpenCalculator: React.FC = () => {
 
   // Add disk to BM
   const addDisk = useCallback((itemId: string) => {
-    if (!config.baremetal.disks.length) return;
+    if (!config?.baremetal?.disks?.length) return;
     setItems(prev => prev.map(item => {
       if (item.id === itemId && item.type === 'bm') {
         return {
@@ -518,15 +514,13 @@ const OpenCalculator: React.FC = () => {
         subIps += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — IPs públicos (${ips} por srv)`, qtyServers, ipUnit, ipSub, `${itemPrefix}_ips`);
       }
 
-      // GPU
+      // GPU - NOW DIRECT BRL (no FX conversion)
       const gpuQty = item.gpu === 'Sem GPU' ? 0 : Math.max(1, Math.min(8, toNum(item.gpuQty, 0)));
-      const gpuUsdUnit = toNum(config.gpu_usd[item.gpu], 0);
-      if (gpuQty > 0 && gpuUsdUnit > 0) {
-        const gpuUsdPerServer = gpuUsdUnit * gpuQty;
-        const gpuUsd = gpuUsdPerServer * qtyServers;
-        const gpuBrl = gpuUsd * fx;
-        subRec += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qtyServers, gpuUsdPerServer * fx, gpuBrl, `${itemPrefix}_gpu`);
-        gpuUsdTotal += gpuUsd;
+      const gpuBrlUnit = toNum(config.gpu_usd[item.gpu], 0); // Now directly BRL (despite the field name)
+      if (gpuQty > 0 && gpuBrlUnit > 0) {
+        const gpuBrlPerServer = gpuBrlUnit * gpuQty;
+        const gpuBrl = gpuBrlPerServer * qtyServers;
+        subRec += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qtyServers, gpuBrlPerServer, gpuBrl, `${itemPrefix}_gpu`);
         gpuBrlTotal += gpuBrl;
       }
     });
@@ -760,7 +754,7 @@ const OpenCalculator: React.FC = () => {
       partnerDiscountPct: Number.isFinite(partnerDiscountPct) ? partnerDiscountPct : 0,
       partnerDiscountValue: Number.isFinite(partnerDiscountValue) ? partnerDiscountValue : 0,
     });
-  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext, priceOverrides]);
+  }, [items, addons, kubernetes, storageItems, openSaas, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext, priceOverrides]);
 
   // Recalculate on changes
   useEffect(() => {
@@ -782,11 +776,11 @@ const OpenCalculator: React.FC = () => {
           id,
           gpu: item.gpu || 'Sem GPU',
           gpuQty: item.gpuQty || 0,
-          bmCpu: item.bmCpu || config.baremetal.cpu_models[0]?.id || 'intel_xeon_e2136',
-          bmRam: item.bmRam || config.baremetal.ram_tiers[0]?.id || 'ram_128gb',
+          bmCpu: item.bmCpu || config?.baremetal?.cpu_models?.[0]?.id || 'intel_xeon_e2136',
+          bmRam: item.bmRam || config?.baremetal?.ram_tiers?.[0]?.id || 'ram_128gb',
           disks: Array.isArray(item.disks) && item.disks.length > 0 
             ? item.disks 
-            : [{ type: config.baremetal.disks[0]?.id || 'nvme_1tb', qty: 1, desc: '' }],
+            : [{ type: config?.baremetal?.disks?.[0]?.id || 'nvme_1tb', qty: 1, desc: '' }],
           trafficTb: item.trafficTb ?? 5,
           ips: item.ips ?? 1,
           qtyServers: item.qtyServers ?? 1,
@@ -807,7 +801,7 @@ const OpenCalculator: React.FC = () => {
         };
       }
     });
-  }, [config.baremetal.cpu_models, config.baremetal.ram_tiers, config.baremetal.disks]);
+  }, [config?.baremetal?.cpu_models, config?.baremetal?.ram_tiers, config?.baremetal?.disks]);
 
   // Add initial VM after config loads OR load proposal for editing
   useEffect(() => {
@@ -833,7 +827,7 @@ const OpenCalculator: React.FC = () => {
       });
       
       // Apply normalized state to calculator
-      setFx(normalized.fx);
+      // FX is now fixed at 1, no need to restore it
       setSelectedTerm(normalized.selectedTerm);
       setDatacenter(normalized.datacenter);
       setClient(normalized.client);
@@ -882,7 +876,7 @@ const OpenCalculator: React.FC = () => {
       addVM();
       setInitialized(true);
     }
-  }, [configLoading, initialized, items.length, addVM, location.state, config.fx_default, toast]);
+  }, [configLoading, initialized, items.length, addVM, location.state, toast]);
 
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
@@ -1168,7 +1162,7 @@ const OpenCalculator: React.FC = () => {
     setReseller(DEFAULT_RESELLER_STATE);
     setOpenSaas(DEFAULT_OPEN_SAAS_STATE);
     setPriceOverrides({}); // Clear price overrides
-    setFx(config.fx_default);
+    // FX is now fixed at 1, no need to reset
     setSelectedTerm("1");
     setDatacenter('SP1');
     // Antivirus starts at 0 (no auto-sync with VMs)
@@ -1208,8 +1202,9 @@ const OpenCalculator: React.FC = () => {
 
   const validityDate = getValidityDate(proposal.createdAt, proposal.validityDays);
 
-  // Loading state
-  if (configLoading) {
+  // Loading state - check both configLoading AND config existence
+  // This ensures we don't render the calculator UI until config is fully loaded
+  if (configLoading || !config) {
     return (
       <div className="min-h-screen bg-background">
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
@@ -1299,7 +1294,7 @@ const OpenCalculator: React.FC = () => {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div>
             <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
-            <p className="text-muted-foreground text-sm">Preços em BRL. Câmbio aplica só para GPU.</p>
+            <p className="text-muted-foreground text-sm">Preços em R$ (BRL).</p>
           </div>
           <div className="flex items-center gap-3">
             {/* Profile badge */}
@@ -1331,20 +1326,8 @@ const OpenCalculator: React.FC = () => {
             <div className="open-card">
               <h2 className="text-lg font-semibold text-foreground mb-4">Configuração</h2>
               
-              {/* FX */}
-              <div className="grid md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Câmbio (USD→BRL) — aplica só para GPU</label>
-                  <Input
-                    type="number"
-                    value={fx}
-                    onChange={(e) => setFx(parseFloat(e.target.value) || 5)}
-                    min={0}
-                    step={0.01}
-                    className="bg-input border-border"
-                  />
-                  <span className="text-xs text-muted-foreground">CPU/RAM/Discos/IPs/Add-ons continuam em R$.</span>
-                </div>
+              {/* Preços VM info */}
+              <div className="grid md:grid-cols-1 gap-4 mb-4">
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">Preços VM</label>
                   <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
@@ -2299,11 +2282,12 @@ const OpenCalculator: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(config.addons_brl.sql)
+                      {/* Safe access to config.addons_brl.sql with fallback */}
+                      {Object.entries(config?.addons_brl?.sql ?? {})
                         .filter(([key]) => key && key.trim() !== '')
                         .map(([key, price]) => (
                           <SelectItem key={key} value={key}>
-                            {key === 'none' ? 'Nenhum' : key.toUpperCase()} {price > 0 && `- R$ ${formatCurrency(price)}`}
+                            {key === 'none' ? 'Nenhum' : key.toUpperCase()} {Number(price) > 0 && `- R$ ${formatCurrency(Number(price))}`}
                           </SelectItem>
                         ))}
                     </SelectContent>
