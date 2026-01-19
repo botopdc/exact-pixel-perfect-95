@@ -82,6 +82,12 @@ import EstruturaPage from '@/pages/modules/gente/EstruturaPage';
 import MetasInternasPage from '@/pages/modules/gente/MetasInternasPage';
 import AvaliacoesPage from '@/pages/modules/gente/AvaliacoesPage';
 import AcademyPage from '@/pages/modules/gente/AcademyPage';
+
+// Academy Pages (external users)
+import AcademyLogin from '@/pages/academy/AcademyLogin';
+import AcademySignup from '@/pages/academy/AcademySignup';
+import AcademyResetPassword from '@/pages/academy/AcademyResetPassword';
+import AcademyHome from '@/pages/academy/AcademyHome';
 import PermissoesPage from '@/pages/modules/admin/PermissoesPage';
 import ParametrosPage from '@/pages/modules/admin/ParametrosPage';
 import LogsPage from '@/pages/modules/admin/LogsPage';
@@ -142,6 +148,12 @@ const App = () => (
           {/* Partner public routes */}
           <Route path="/parceiro/cadastro" element={<CadastroParceiro />} />
           <Route path="/parceiro/login" element={<LoginParceiro />} />
+          
+          {/* Academy public routes */}
+          <Route path="/academy/login" element={<AcademyLogin />} />
+          <Route path="/academy/signup" element={<AcademySignup />} />
+          <Route path="/academy/reset-password" element={<AcademyResetPassword />} />
+          <Route path="/academy" element={<AcademyHome />} />
           
           {/* Partner protected routes */}
           <Route element={<PartnerLayout />}>
