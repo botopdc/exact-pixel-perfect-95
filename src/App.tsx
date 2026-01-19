@@ -42,6 +42,7 @@ import NotFound from '@/pages/NotFound';
 // Partner Pages
 import CadastroParceiro from '@/pages/parceiros/CadastroParceiro';
 import LoginParceiro from '@/pages/parceiros/LoginParceiro';
+import ResetPasswordParceiro from '@/pages/parceiros/ResetPasswordParceiro';
 import AceiteContrato from '@/pages/parceiros/AceiteContrato';
 import DashboardParceiro from '@/pages/parceiros/DashboardParceiro';
 import CalculadoraParceiro from '@/pages/parceiros/CalculadoraParceiro';
@@ -148,6 +149,7 @@ const App = () => (
           {/* Partner public routes */}
           <Route path="/parceiro/cadastro" element={<CadastroParceiro />} />
           <Route path="/parceiro/login" element={<LoginParceiro />} />
+          <Route path="/parceiro/reset-password" element={<ResetPasswordParceiro />} />
           
           {/* Academy public routes */}
           <Route path="/academy/login" element={<AcademyLogin />} />
