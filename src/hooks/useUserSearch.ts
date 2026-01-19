@@ -67,7 +67,11 @@ export function useUserSearch(options: UseUserSearchOptions = {}) {
       }
     },
     enabled: shouldSearch,
-    staleTime: 1000 * 30, // 30 segundos
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   return {
@@ -110,6 +114,10 @@ export function useUserById(userId: number | null) {
       }
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 5, // 5 minutos
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }

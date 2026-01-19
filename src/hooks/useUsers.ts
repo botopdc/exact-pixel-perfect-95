@@ -83,7 +83,11 @@ export function useUsers(filters?: UserFilters) {
   return useQuery({
     queryKey: [USERS_QUERY_KEY, filters],
     queryFn: () => openApi.getUsers(filters),
-    staleTime: 1000 * 60, // 1 minute
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

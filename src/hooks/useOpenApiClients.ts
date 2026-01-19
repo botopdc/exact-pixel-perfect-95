@@ -6,14 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { openApi, ApiUser, USER_LEVELS } from '@/lib/openApi';
 import { useToast } from '@/hooks/use-toast';
 
-const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-
-interface ClientsCache {
-  data: ApiUser[];
-  timestamp: number;
-}
-
-let clientsCache: ClientsCache | null = null;
+// NO CACHE - Always fetch fresh data from API
 
 export function useOpenApiClients() {
   const [clients, setClients] = useState<ApiUser[]>([]);
@@ -22,12 +15,7 @@ export function useOpenApiClients() {
   const { toast } = useToast();
   const mountedRef = useRef(true);
 
-  const fetchAllClients = useCallback(async (forceRefresh = false): Promise<ApiUser[]> => {
-    // Check cache first (unless forcing refresh)
-    if (!forceRefresh && clientsCache && Date.now() - clientsCache.timestamp < CACHE_DURATION_MS) {
-      return clientsCache.data;
-    }
-
+  const fetchAllClients = useCallback(async (): Promise<ApiUser[]> => {
     const allClients: ApiUser[] = [];
     let currentPage = 1;
     let lastPage = 1;
@@ -53,12 +41,6 @@ export function useOpenApiClients() {
         currentPage++;
       } while (currentPage <= lastPage);
 
-      // Update cache
-      clientsCache = {
-        data: allClients,
-        timestamp: Date.now(),
-      };
-
       return allClients;
     } catch (err) {
       console.error('Erro ao carregar clientes da OPEN API:', err);
@@ -66,14 +48,14 @@ export function useOpenApiClients() {
     }
   }, []);
 
-  const loadClients = useCallback(async (forceRefresh = false) => {
+  const loadClients = useCallback(async () => {
     if (!mountedRef.current) return;
     
     setLoading(true);
     setError(null);
 
     try {
-      const data = await fetchAllClients(forceRefresh);
+      const data = await fetchAllClients();
       if (mountedRef.current) {
         setClients(data);
       }
@@ -95,7 +77,7 @@ export function useOpenApiClients() {
   }, [fetchAllClients, toast]);
 
   const refresh = useCallback(() => {
-    loadClients(true);
+    loadClients();
   }, [loadClients]);
 
   useEffect(() => {

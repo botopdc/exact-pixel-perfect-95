@@ -43,7 +43,11 @@ export function useAcademyEnrollments(filters?: EnrollmentFilters) {
   return useQuery({
     queryKey: [ACADEMY_QUERY_KEY, filters],
     queryFn: () => fetchEnrollments(filters),
-    staleTime: 1000 * 30, // 30 seconds
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -65,7 +69,11 @@ export function useAcademyKPIs() {
   return useQuery({
     queryKey: [ACADEMY_KPIS_KEY],
     queryFn: fetchAcademyKPIs,
-    staleTime: 1000 * 30,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -76,7 +84,11 @@ export function useAcademyInstitutions() {
   return useQuery({
     queryKey: [ACADEMY_INSTITUTIONS_KEY],
     queryFn: fetchUniqueInstitutions,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

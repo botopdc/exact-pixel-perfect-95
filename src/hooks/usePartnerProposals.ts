@@ -518,7 +518,11 @@ export function usePartnerProposals(isAdmin = false) {
         return [];
       }
     },
-    staleTime: 1000 * 60 * 2,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -555,7 +559,11 @@ export function useAllPartnerProposals() {
         return [];
       }
     },
-    staleTime: 1000 * 60 * 2,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

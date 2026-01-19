@@ -48,7 +48,11 @@ export function useExternalArticles(filters?: {
       const response = await openApi.getArticles(params);
       return response.data || [];
     },
-    staleTime: 30000, // 30 seconds
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -76,7 +80,11 @@ export function useExternalTopArticles() {
         .sort((a, b) => (b.views_count || 0) - (a.views_count || 0))
         .slice(0, 5);
     },
-    staleTime: 60000, // 1 minute
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -93,7 +101,11 @@ export function useExternalBestRatedArticles() {
         .sort((a, b) => (b.helpful_yes || 0) - (a.helpful_yes || 0))
         .slice(0, 5);
     },
-    staleTime: 60000,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -110,7 +122,11 @@ export function useExternalRecentArticles() {
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, 5);
     },
-    staleTime: 60000,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -122,7 +138,11 @@ export function useExternalUniqueAuthors() {
       const unique = [...new Set((response.data || []).map(d => d.author))];
       return unique.filter(Boolean);
     },
-    staleTime: 300000, // 5 minutes
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

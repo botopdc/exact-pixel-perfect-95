@@ -26,8 +26,11 @@ export function useExecutiveCommissions(): UseExecutiveCommissionsResult {
   } = useQuery({
     queryKey: ['executive-commissions'],
     queryFn: fetchAndCalculateCommissions,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnWindowFocus: false,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   return {
