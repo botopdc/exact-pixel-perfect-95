@@ -557,9 +557,9 @@ const PropostaView: React.FC = () => {
 
         {/* Action buttons below document */}
         <div className="flex justify-center gap-4 mt-8 print:hidden">
-          <Button variant="open-outline" onClick={() => navigate(dashboardRoute)}>
+          <Button variant="open-outline" onClick={() => navigate('/modulos/comercial/propostas')}>
             <ArrowLeft className="w-4 h-4" />
-            Voltar para dashboard
+            Voltar para Propostas
           </Button>
           <Button variant="open" onClick={handleDownloadPDF}>
             <FileDown className="w-4 h-4" />
