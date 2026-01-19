@@ -100,7 +100,7 @@ export interface CalculatorConfigUpdateRequest {
  */
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
   const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
-    params: { __limit: 200 }
+    params: { __perPage: 200 }
   });
   return response.data.data || [];
 }
