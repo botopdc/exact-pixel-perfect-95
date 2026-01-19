@@ -122,8 +122,8 @@ export function showDataSourceReport(): void {
 ╠──────────────────────────────────────────────────────────────────────────────────────────────────────────────╣
 ║ Gestão de Parceiros         │ partnersService.ts, openApi.ts          │ API      │ GET/POST/PUT/DEL /api/partner     │ mount/action │ API          │ ─                            ║
 ╠──────────────────────────────────────────────────────────────────────────────────────────────────────────────╣
-║ Propostas (Interno)         │ calculatorProposalService.ts            │ API      │ /api/calculator/proposal          │ mount/action │ API          │ ─                            ║
-║ Propostas (Parceiro)        │ usePartnerProposals.ts                  │ EdgeFunc │ proposal-gateway/proposals        │ mount        │ API          │ ─                            ║
+║ Propostas (Interno)         │ useProposals.ts, openApi.ts             │ API      │ /api/calculator/proposal          │ mount/action │ API          │ ─                            ║
+║ Propostas (Parceiro)        │ usePartnerProposals.ts, openApi.ts      │ API      │ /api/calculator/proposal          │ mount/action │ API          │ ─                            ║
 ║ Busca Propostas             │ useProposalSearch.ts                    │ API      │ GET /api/calculator/proposal      │ debounce     │ ─            │ ─                            ║
 ╠──────────────────────────────────────────────────────────────────────────────────────────────────────────────╣
 ║ Calculadora Config          │ calculatorConfigService.ts              │ API      │ GET /api/calculator/config        │ mount        │ API          │ ─                            ║
