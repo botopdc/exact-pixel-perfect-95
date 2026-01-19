@@ -364,14 +364,27 @@ export function useConfigPersistence() {
   // Track which sections have been modified
   const modifiedSectionsRef = useRef<ModifiedSections>({});
 
-  // Initialize local config from API
+  // Track if we've initialized from API data (to distinguish first load from subsequent updates)
+  const hasInitializedRef = useRef(false);
+
+  // Initialize local config from API - ALWAYS sync when apiConfig changes
   useEffect(() => {
-    if (apiConfig && !localConfig) {
-      setLocalConfig(apiConfig);
-      // Reset modified sections when API config is loaded initially
-      modifiedSectionsRef.current = {};
+    if (apiConfig) {
+      // If not dirty (user hasn't made changes), always sync from API
+      if (!isDirty) {
+        console.log('[ConfigPersistence] Syncing local config from API');
+        setLocalConfig(apiConfig);
+        modifiedSectionsRef.current = {};
+        hasInitializedRef.current = true;
+      } else if (!hasInitializedRef.current) {
+        // First initialization even if somehow dirty
+        console.log('[ConfigPersistence] Initial sync from API');
+        setLocalConfig(apiConfig);
+        modifiedSectionsRef.current = {};
+        hasInitializedRef.current = true;
+      }
     }
-  }, [apiConfig, localConfig]);
+  }, [apiConfig, isDirty]);
 
   // Fetch raw API entries for mapping IDs
   const fetchApiEntries = useCallback(async () => {
@@ -388,8 +401,8 @@ export function useConfigPersistence() {
     fetchApiEntries();
   }, [fetchApiEntries]);
 
-  // The config to display/edit
-  const config = localConfig || apiConfig || DEFAULT_CONFIG;
+  // The config to display/edit - NO DEFAULTS, only real API data
+  const config = localConfig || apiConfig;
 
   // All possible config keys for fallback when no specific keys provided
   const ALL_CONFIG_KEYS: ConfigKey[] = [
@@ -769,7 +782,8 @@ export function useConfigPersistence() {
 
   return {
     config,
-    isLoading: isApiLoading,
+    // isLoading is true when API is loading OR config is not yet available
+    isLoading: isApiLoading || !config,
     isSaving,
     isDirty,
     error,
