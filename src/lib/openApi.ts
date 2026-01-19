@@ -320,9 +320,9 @@ class OpenApiClient {
   // Parse config items from API into CalculatorConfigApiResponse
   private parseConfigItems(items: Array<{ category: string; section: string; config: unknown }>): CalculatorConfigApiResponse {
     const config: CalculatorConfigApiResponse = {
-      fx_default: 5.5,
+      fx_default: 1.0, // Fixed at 1 - all prices are now in BRL
       discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.12, '48': 0.15 },
-      gpu_usd: {},
+      gpu_usd: {}, // Field name kept for compatibility, but values are now in BRL
       vm_prices_brl: { vcpu: 0, ram_per_gb: 0, nvme_per_gb: 0, ip_public: 0 },
       baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
       // CRITICAL: Initialize addons_brl with sql as empty object to prevent null-safety crashes
@@ -359,9 +359,8 @@ class OpenApiClient {
       switch (category) {
         case 'geral':
           if (section === 'configurações gerais') {
-            for (const entry of configData || []) {
-              if (entry.label === 'FX Padrão') config.fx_default = getValue(entry, 5.5);
-            }
+            // FX is now fixed at 1, ignore API value
+            config.fx_default = 1.0;
           }
           if (section === 'descontos por prazo') {
             for (const entry of configData || []) {

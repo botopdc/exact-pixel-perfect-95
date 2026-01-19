@@ -158,7 +158,8 @@ const OpenCalculator: React.FC = () => {
   const savePartnerProposalMutation = useSavePartnerProposal();
 
   // State
-  const [fx, setFx] = useState(config.fx_default);
+  // FX is now fixed at 1 (all prices are in BRL)
+  const fx = 1;
   const [selectedTerm, setSelectedTerm] = useState("1");
   const [datacenter, setDatacenter] = useState<'SP1' | 'SP2' | 'FL1' | 'CE1'>('SP1');
   const [client, setClient] = useState<ClientInfo>({ name: '', company: '', phone: '', email: '' });
@@ -252,12 +253,7 @@ const OpenCalculator: React.FC = () => {
   // Check if user can edit prices (markup)
   const canEditMarkup = canEditPriceMarkup(userContext.userLevel);
 
-  // Update FX when config loads
-  useEffect(() => {
-    if (!configLoading && config) {
-      setFx(config.fx_default);
-    }
-  }, [config, configLoading]);
+  // FX is now fixed at 1 (removed - all prices are BRL)
 
   // Add VM
   const addVM = useCallback(() => {
@@ -518,15 +514,13 @@ const OpenCalculator: React.FC = () => {
         subIps += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — IPs públicos (${ips} por srv)`, qtyServers, ipUnit, ipSub, `${itemPrefix}_ips`);
       }
 
-      // GPU
+      // GPU - NOW DIRECT BRL (no FX conversion)
       const gpuQty = item.gpu === 'Sem GPU' ? 0 : Math.max(1, Math.min(8, toNum(item.gpuQty, 0)));
-      const gpuUsdUnit = toNum(config.gpu_usd[item.gpu], 0);
-      if (gpuQty > 0 && gpuUsdUnit > 0) {
-        const gpuUsdPerServer = gpuUsdUnit * gpuQty;
-        const gpuUsd = gpuUsdPerServer * qtyServers;
-        const gpuBrl = gpuUsd * fx;
-        subRec += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qtyServers, gpuUsdPerServer * fx, gpuBrl, `${itemPrefix}_gpu`);
-        gpuUsdTotal += gpuUsd;
+      const gpuBrlUnit = toNum(config.gpu_usd[item.gpu], 0); // Now directly BRL (despite the field name)
+      if (gpuQty > 0 && gpuBrlUnit > 0) {
+        const gpuBrlPerServer = gpuBrlUnit * gpuQty;
+        const gpuBrl = gpuBrlPerServer * qtyServers;
+        subRec += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qtyServers, gpuBrlPerServer, gpuBrl, `${itemPrefix}_gpu`);
         gpuBrlTotal += gpuBrl;
       }
     });
@@ -760,7 +754,7 @@ const OpenCalculator: React.FC = () => {
       partnerDiscountPct: Number.isFinite(partnerDiscountPct) ? partnerDiscountPct : 0,
       partnerDiscountValue: Number.isFinite(partnerDiscountValue) ? partnerDiscountValue : 0,
     });
-  }, [items, addons, kubernetes, storageItems, openSaas, fx, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext, priceOverrides]);
+  }, [items, addons, kubernetes, storageItems, openSaas, selectedTerm, config, reseller.overValue, reseller.approvalRequired, userContext, priceOverrides]);
 
   // Recalculate on changes
   useEffect(() => {
@@ -833,7 +827,7 @@ const OpenCalculator: React.FC = () => {
       });
       
       // Apply normalized state to calculator
-      setFx(normalized.fx);
+      // FX is now fixed at 1, no need to restore it
       setSelectedTerm(normalized.selectedTerm);
       setDatacenter(normalized.datacenter);
       setClient(normalized.client);
@@ -1168,7 +1162,7 @@ const OpenCalculator: React.FC = () => {
     setReseller(DEFAULT_RESELLER_STATE);
     setOpenSaas(DEFAULT_OPEN_SAAS_STATE);
     setPriceOverrides({}); // Clear price overrides
-    setFx(config.fx_default);
+    // FX is now fixed at 1, no need to reset
     setSelectedTerm("1");
     setDatacenter('SP1');
     // Antivirus starts at 0 (no auto-sync with VMs)
@@ -1299,7 +1293,7 @@ const OpenCalculator: React.FC = () => {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div>
             <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
-            <p className="text-muted-foreground text-sm">Preços em BRL. Câmbio aplica só para GPU.</p>
+            <p className="text-muted-foreground text-sm">Preços em R$ (BRL).</p>
           </div>
           <div className="flex items-center gap-3">
             {/* Profile badge */}
@@ -1331,20 +1325,8 @@ const OpenCalculator: React.FC = () => {
             <div className="open-card">
               <h2 className="text-lg font-semibold text-foreground mb-4">Configuração</h2>
               
-              {/* FX */}
-              <div className="grid md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Câmbio (USD→BRL) — aplica só para GPU</label>
-                  <Input
-                    type="number"
-                    value={fx}
-                    onChange={(e) => setFx(parseFloat(e.target.value) || 5)}
-                    min={0}
-                    step={0.01}
-                    className="bg-input border-border"
-                  />
-                  <span className="text-xs text-muted-foreground">CPU/RAM/Discos/IPs/Add-ons continuam em R$.</span>
-                </div>
+              {/* Preços VM info */}
+              <div className="grid md:grid-cols-1 gap-4 mb-4">
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">Preços VM</label>
                   <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
