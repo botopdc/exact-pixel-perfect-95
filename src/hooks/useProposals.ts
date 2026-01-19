@@ -9,6 +9,7 @@ import {
 } from '@/lib/calculatorConfig';
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
+import { authService } from '@/services/authService';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -1131,8 +1132,7 @@ export function filterProposalsByOwnership(
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
 export function useProposals(page = 1, perPage = 100) {
-  // Import authService dynamically to avoid circular deps
-  const { authService } = require('@/services/authService');
+  // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
@@ -1185,8 +1185,7 @@ export function useProposals(page = 1, perPage = 100) {
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
 export function useProposalsPaginated(page = 1, perPage = 20) {
-  // Import authService dynamically to avoid circular deps
-  const { authService } = require('@/services/authService');
+  // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
