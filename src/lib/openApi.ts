@@ -5,7 +5,7 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { toast } from 'sonner';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://control-center-api.opendata.center/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://control-center-api-dev.opendata.center/api';
 const AUTH_TOKEN_KEY = 'open_access_token';
 const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 const INTERNAL_SESSION_KEY = 'open_auth_session_v1';
