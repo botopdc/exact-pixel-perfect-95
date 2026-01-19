@@ -453,18 +453,25 @@ const Precos = () => {
   const handleAddSql = () => {
     if (!isAdmin || !newSql.name || newSql.price === undefined) return;
     
+    const price = Number(newSql.price) || 0;
+    // Validate price is a number
+    if (isNaN(price)) {
+      toast({ title: 'Preço inválido', description: 'O preço deve ser um número válido.', variant: 'destructive' });
+      return;
+    }
+    
     updateConfig(prev => ({
       ...prev,
       addons_brl: {
         ...prev.addons_brl,
         sql: {
-          ...prev.addons_brl.sql,
-          [newSql.name]: Number(newSql.price),
+          ...(prev?.addons_brl?.sql ?? {}),
+          [newSql.name]: price,
         },
       },
     }));
     
-    addLogEntry('ADD_ITEM', 'addons_sql', newSql.name, undefined, newSql.price);
+    addLogEntry('ADD_ITEM', 'addons_sql', newSql.name, undefined, price);
     setNewSql({ name: '', price: 0 });
     setShowAddSqlModal(false);
     toast({ title: 'SQL adicionado', description: newSql.name });
@@ -474,7 +481,8 @@ const Precos = () => {
     if (!isAdmin || sqlType === 'none') return;
     
     updateConfig(prev => {
-      const newSqlPrices = { ...prev.addons_brl.sql };
+      const currentSql = prev?.addons_brl?.sql ?? {};
+      const newSqlPrices = { ...currentSql };
       delete newSqlPrices[sqlType];
       return {
         ...prev,
@@ -492,18 +500,22 @@ const Precos = () => {
   const handleUpdateSqlPrice = (sqlType: string, oldPrice: number, newPrice: number) => {
     if (!isAdmin) return;
     
+    // Validate newPrice is a number
+    const price = Number(newPrice);
+    if (isNaN(price)) return;
+    
     updateConfig(prev => ({
       ...prev,
       addons_brl: {
         ...prev.addons_brl,
         sql: {
-          ...prev.addons_brl.sql,
-          [sqlType]: newPrice,
+          ...(prev?.addons_brl?.sql ?? {}),
+          [sqlType]: price,
         },
       },
     }));
     
-    addLogEntry('UPDATE_ITEM', 'addons_sql', sqlType, oldPrice, newPrice);
+    addLogEntry('UPDATE_ITEM', 'addons_sql', sqlType, oldPrice, price);
   };
 
   // ============ ADDONS PRICES ============
@@ -687,10 +699,15 @@ const Precos = () => {
                 variant="outline" 
                 size="sm"
                 onClick={handleSaveConfig}
-                className="gap-2 border-green-500/50 text-green-500 hover:bg-green-500/10"
+                disabled={isSaving}
+                className="gap-2 border-green-500/50 text-green-500 hover:bg-green-500/10 disabled:opacity-50"
               >
-                <Save className="h-4 w-4" />
-                Salvar Preços
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {isSaving ? 'Salvando...' : 'Salvar Preços'}
               </Button>
             )}
             
@@ -1213,10 +1230,11 @@ const Precos = () => {
                   )}
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Object.keys(config.addons_brl.sql).length === 0 ? (
+                  {/* Safe access to config.addons_brl.sql - always use fallback to empty object */}
+                  {Object.keys(config?.addons_brl?.sql ?? {}).length === 0 ? (
                     <p className="text-muted-foreground text-sm col-span-4">Nenhuma opção de SQL configurada.</p>
                   ) : (
-                    Object.entries(config.addons_brl.sql).map(([sqlType, price]) => (
+                    Object.entries(config?.addons_brl?.sql ?? {}).map(([sqlType, price]) => (
                       <div key={sqlType} className="space-y-2">
                         <Label className="flex items-center justify-between">
                           {sqlType === 'none' ? 'Nenhum' : sqlType.toUpperCase()}
@@ -1224,7 +1242,7 @@ const Precos = () => {
                             <Button 
                               variant="ghost" 
                               size="icon"
-                              onClick={() => handleRemoveSql(sqlType, price)}
+                              onClick={() => handleRemoveSql(sqlType, Number(price) || 0)}
                               className="h-6 w-6 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                             >
                               <Trash2 className="h-3 w-3" />
@@ -1234,11 +1252,11 @@ const Precos = () => {
                         <Input 
                           type="number" 
                           step="0.01"
-                          value={price} 
+                          value={Number(price) || 0} 
                           readOnly={!isAdmin}
                           disabled={!isAdmin}
                           className={!isAdmin ? "bg-muted/30" : ""}
-                          onChange={(e) => handleUpdateSqlPrice(sqlType, price, Number(e.target.value))}
+                          onChange={(e) => handleUpdateSqlPrice(sqlType, Number(price) || 0, Number(e.target.value))}
                         />
                       </div>
                     ))
