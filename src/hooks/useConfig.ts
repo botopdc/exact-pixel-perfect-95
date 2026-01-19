@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect } from 'react';
-import { CalculatorConfig, DEFAULT_CONFIG } from '@/lib/calculatorConfig';
+import { useCallback } from 'react';
+import { CalculatorConfig } from '@/lib/calculatorConfig';
 import { openApi, CalculatorConfigApiResponse } from '@/lib/openApi';
 
 export const CONFIG_QUERY_KEY = ['calculator-config'];
@@ -43,36 +43,32 @@ const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorC
   };
 };
 
-// Fetch config from API
+// Fetch config from API - NO FALLBACKS, throw on error
 const fetchConfig = async (): Promise<CalculatorConfig> => {
-  try {
-    console.log('[Config] Fetching config from API...');
-    const apiConfig = await openApi.getCalculatorConfig();
-    console.log('[Config] API config loaded successfully');
-    return transformApiConfig(apiConfig);
-  } catch (error) {
-    console.warn('[Config] Failed to fetch from API, using defaults:', error);
-    return DEFAULT_CONFIG;
-  }
+  console.log('[Config] Fetching config from API...');
+  const apiConfig = await openApi.getCalculatorConfig();
+  console.log('[Config] API config loaded successfully');
+  return transformApiConfig(apiConfig);
 };
 
 export const useConfig = () => {
   return useQuery<CalculatorConfig>({
     queryKey: CONFIG_QUERY_KEY,
     queryFn: fetchConfig,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
-    refetchOnWindowFocus: false,
-    refetchOnMount: true,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
     retry: 2,
-    placeholderData: DEFAULT_CONFIG,
+    // NO placeholder - wait for real API data
   });
 };
 
 // Hook to get config with loading state
 export const useConfigWithFallback = () => {
   const queryClient = useQueryClient();
-  const { data, isLoading, error, refetch } = useConfig();
+  const { data, isLoading, error, refetch, isFetching } = useConfig();
   
   // Force refetch that invalidates cache first
   const forceRefetch = useCallback(async () => {
@@ -81,8 +77,9 @@ export const useConfigWithFallback = () => {
   }, [queryClient, refetch]);
   
   return {
-    config: data || DEFAULT_CONFIG,
-    isLoading,
+    // Only return data when it's actually loaded from API, otherwise undefined
+    config: data,
+    isLoading: isLoading || isFetching,
     error,
     refetch: forceRefetch,
   };
