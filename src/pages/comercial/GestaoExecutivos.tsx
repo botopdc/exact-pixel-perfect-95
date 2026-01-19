@@ -95,7 +95,7 @@ export default function GestaoExecutivos() {
         description: 'Você não tem permissão para acessar esta página.',
         variant: 'destructive',
       });
-      navigate('/dashboard');
+      navigate('/modulos/dashboard');
     }
   }, [canManage, navigate, toast]);
 

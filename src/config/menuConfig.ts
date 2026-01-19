@@ -81,7 +81,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'dashboard',
         title: 'Dashboard',
-        url: '/dashboard',
+        url: '/modulos/dashboard',
         icon: LayoutDashboard,
         allowedLevels: [600, 750, 775, 900, 950, 1000], // Gerente Comercial (750) usa DashboardLayout
       },
@@ -430,10 +430,11 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
     return userLevel === USER_LEVELS.GERENTE_COMERCIAL || userLevel >= USER_LEVELS.ADMIN;
   }
   
-  // Rotas do portal executivo - APENAS level 700 (Executivo)
-  // Level 750 (Gerente Comercial) usa DashboardLayout com menu completo
+  // LEGACY: Rotas do portal executivo - agora redirecionadas para /modulos/*
+  // Mantido apenas para compatibilidade durante a transição
   if (pathname.match(/^\/executivo\//)) {
-    return userLevel === 700;
+    // Allow access so the redirect can happen
+    return userLevel >= 600;
   }
 
   // Verifica mapeamento estático

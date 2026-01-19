@@ -129,7 +129,7 @@ function AppSidebar() {
     <Sidebar className="border-r border-sidebar-border">
       {/* Logo Header */}
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link to="/dashboard" className="flex items-center gap-3">
+        <Link to="/modulos/dashboard" className="flex items-center gap-3">
           <img src={logoWhite} alt="OPEN Datacenter" className="h-8 w-auto" />
           {!collapsed && (
             <div className="flex flex-col">
@@ -297,7 +297,7 @@ function RouteGuard({ children }: { children: React.ReactNode }) {
       toast.error('Acesso não permitido', {
         description: 'Você não tem permissão para acessar esta página.',
       });
-      navigate('/dashboard', { replace: true });
+      navigate('/modulos/dashboard', { replace: true });
     }
   }, [location.pathname, userLevel, navigate]);
 
@@ -320,11 +320,11 @@ export default function DashboardLayout() {
         return;
       }
       
-      // Apenas Executivos (700) usam ExecutiveLayout
-      // Gerente Comercial (750) usa DashboardLayout com menu completo
+      // ALL internal users (including 700) now use ModuleLayout
+      // Redirect to modular dashboard
       const user = authService.getCurrentUser();
-      if (user?.level === 700) {
-        navigate('/executivo/dashboard', { replace: true });
+      if (user?.level && user.level >= 600) {
+        navigate('/modulos/dashboard', { replace: true });
         return;
       }
     };
