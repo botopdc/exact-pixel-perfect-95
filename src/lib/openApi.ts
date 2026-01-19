@@ -321,11 +321,20 @@ class OpenApiClient {
   private parseConfigItems(items: Array<{ category: string; section: string; config: unknown }>): CalculatorConfigApiResponse {
     const config: CalculatorConfigApiResponse = {
       fx_default: 5.5,
-      discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.15 },
+      discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.12, '48': 0.15 },
       gpu_usd: {},
       vm_prices_brl: { vcpu: 0, ram_per_gb: 0, nvme_per_gb: 0, ip_public: 0 },
       baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
-      addons_brl: {},
+      // CRITICAL: Initialize addons_brl with sql as empty object to prevent null-safety crashes
+      addons_brl: {
+        antivirus_unit: 0,
+        firewall_pfsense: 0,
+        tsplus_unit: 0,
+        cal_unit: 0,
+        sql: {}, // Always initialize sql to prevent Object.keys() crash
+        veeam_vm_unit: 0,
+        veeam_agent_unit: 0,
+      },
       backup_tables_brl_per_gb: {},
       // Initialize storage_pricing structure
       storage_pricing: {
@@ -426,10 +435,14 @@ class OpenApiClient {
           
         case 'Add-ons':
           // Use technical keys, not visual labels
+          // NOTE: Preserve the sql object when adding other addons
           for (const entry of configData || []) {
             if (entry.label) {
               const technicalKey = ADDON_LABEL_TO_KEY[entry.label] || entry.label;
-              config.addons_brl[technicalKey] = getValue(entry);
+              // Don't overwrite sql object with a scalar
+              if (technicalKey !== 'sql') {
+                config.addons_brl[technicalKey] = getValue(entry);
+              }
             }
           }
           break;
@@ -489,7 +502,8 @@ class OpenApiClient {
           
         case 'SQL Server':
           // SQL prices go into addons_brl.sql
-          if (!config.addons_brl.sql) {
+          // Ensure sql is always an object (already initialized above, but defensive check)
+          if (!config.addons_brl.sql || typeof config.addons_brl.sql !== 'object') {
             config.addons_brl.sql = {};
           }
           for (const entry of configData || []) {

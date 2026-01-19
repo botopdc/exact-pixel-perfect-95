@@ -6,7 +6,23 @@ import { openApi, CalculatorConfigApiResponse } from '@/lib/openApi';
 export const CONFIG_QUERY_KEY = ['calculator-config'];
 
 // Transform API response to CalculatorConfig format
+// CRITICAL: Ensure all nested objects are always initialized to prevent null-safety crashes
 const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorConfig => {
+  // Ensure addons_brl.sql is always an object
+  const addons_brl = apiConfig.addons_brl || {};
+  const normalizedAddonsBrl = {
+    antivirus_unit: typeof addons_brl.antivirus_unit === 'number' ? addons_brl.antivirus_unit : 0,
+    firewall_pfsense: typeof addons_brl.firewall_pfsense === 'number' ? addons_brl.firewall_pfsense : 0,
+    tsplus_unit: typeof addons_brl.tsplus_unit === 'number' ? addons_brl.tsplus_unit : 0,
+    cal_unit: typeof addons_brl.cal_unit === 'number' ? addons_brl.cal_unit : 0,
+    veeam_vm_unit: typeof addons_brl.veeam_vm_unit === 'number' ? addons_brl.veeam_vm_unit : 0,
+    veeam_agent_unit: typeof addons_brl.veeam_agent_unit === 'number' ? addons_brl.veeam_agent_unit : 0,
+    // sql MUST always be an object, never undefined/null
+    sql: (typeof addons_brl.sql === 'object' && addons_brl.sql !== null) 
+      ? addons_brl.sql as Record<string, number>
+      : {},
+  };
+
   return {
     meta: {
       name: "OPEN Calculator Config",
@@ -17,7 +33,7 @@ const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorC
     gpu_usd: apiConfig.gpu_usd,
     vm_prices_brl: apiConfig.vm_prices_brl,
     baremetal: apiConfig.baremetal,
-    addons_brl: apiConfig.addons_brl as CalculatorConfig['addons_brl'],
+    addons_brl: normalizedAddonsBrl,
     backup_tables_brl_per_gb: apiConfig.backup_tables_brl_per_gb,
     open_saas_price_per_user: apiConfig.open_saas_price_per_user,
     storage_prices: apiConfig.storage_prices as unknown as CalculatorConfig['storage_prices'],
