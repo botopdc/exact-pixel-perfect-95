@@ -1107,7 +1107,11 @@ export function useProposals(page = 1, perPage = 100) {
         return [];
       }
     },
-    staleTime: 1000 * 60 * 2, // 2 minutes
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -1167,7 +1171,11 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
         };
       }
     },
-    staleTime: 1000 * 60 * 2,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -1196,7 +1204,11 @@ export function useProposal(proposalId: string | undefined) {
       }
     },
     enabled: !!proposalId,
-    staleTime: 1000 * 60 * 2,
+    // NO CACHE - Always fetch fresh data from API
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
