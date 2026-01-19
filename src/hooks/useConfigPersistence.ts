@@ -400,6 +400,23 @@ export function useConfigPersistence() {
   // The config to display/edit
   const config = localConfig || apiConfig || DEFAULT_CONFIG;
 
+  // All possible config keys for fallback when no specific keys provided
+  const ALL_CONFIG_KEYS: ConfigKey[] = [
+    makeConfigKey(CONFIG_MAPPINGS.GERAL_FX.category, CONFIG_MAPPINGS.GERAL_FX.section),
+    makeConfigKey(CONFIG_MAPPINGS.GERAL_DESCONTO.category, CONFIG_MAPPINGS.GERAL_DESCONTO.section),
+    makeConfigKey(CONFIG_MAPPINGS.VM_PRICES.category, CONFIG_MAPPINGS.VM_PRICES.section),
+    makeConfigKey(CONFIG_MAPPINGS.GPU_PRICES.category, CONFIG_MAPPINGS.GPU_PRICES.section),
+    makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_CPU.category, CONFIG_MAPPINGS.BAREMETAL_CPU.section),
+    makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_RAM.category, CONFIG_MAPPINGS.BAREMETAL_RAM.section),
+    makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_DISK.category, CONFIG_MAPPINGS.BAREMETAL_DISK.section),
+    makeConfigKey(CONFIG_MAPPINGS.ADDONS.category, CONFIG_MAPPINGS.ADDONS.section),
+    makeConfigKey(CONFIG_MAPPINGS.SQL_SERVER.category, CONFIG_MAPPINGS.SQL_SERVER.section),
+    makeConfigKey(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section),
+    makeConfigKey(STORAGE_NVME_MAPPING.category, STORAGE_NVME_MAPPING.section),
+    makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section),
+    makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section),
+  ];
+
   // Helper to mark a section as modified
   const markSectionModified = useCallback((sectionKeys: ConfigKey[]) => {
     sectionKeys.forEach(key => {
@@ -407,20 +424,32 @@ export function useConfigPersistence() {
     });
   }, []);
 
+  // Mark all sections as modified (fallback for backwards compatibility)
+  const markAllSectionsModified = useCallback(() => {
+    ALL_CONFIG_KEYS.forEach(key => {
+      modifiedSectionsRef.current[key] = true;
+    });
+  }, []);
+
   // Update local config (marks as dirty)
+  // If no specific keys are provided, marks ALL sections as modified for backwards compatibility
   const updateConfig = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig, modifiedKeys?: ConfigKey[]) => {
     setLocalConfig(prev => {
       const newConfig = updater(prev || config);
       setIsDirty(true);
       
       // If specific keys provided, mark them as modified
+      // Otherwise, mark ALL sections as modified (backwards compatible behavior)
       if (modifiedKeys && modifiedKeys.length > 0) {
         markSectionModified(modifiedKeys);
+      } else {
+        // No specific keys = assume any section could have changed
+        markAllSectionsModified();
       }
       
       return newConfig;
     });
-  }, [config, markSectionModified]);
+  }, [config, markSectionModified, markAllSectionsModified]);
 
   // Wrapper to update VM prices and mark section modified
   const updateVmPrices = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
