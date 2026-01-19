@@ -13,7 +13,7 @@ import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
 import { authService } from '@/services/authService';
-import { ROUTES, getCalculatorRoute } from '@/config/routes';
+import { ROUTES, getCalculatorRoute, getProposalEditRoute } from '@/config/routes';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
 import { copyToClipboard } from '@/lib/clipboard';
 import { LinkCopyModal } from '@/components/LinkCopyModal';
@@ -273,10 +273,7 @@ const SavedProposals: React.FC = () => {
       trackEvent.mutate({ proposalId: displayProposalId, type: 'edit_open', channel: 'ui' });
     }
     
-    // Navigate to calculator with edit mode - use centralized route config
-    const userLevel = session?.level || 0;
-    const calculatorPath = getCalculatorRoute(userLevel, false); // false = not a partner context
-    
+    // Navigate to modular calculator with edit mode
     console.log('[SavedProposals] Edit clicked - fetching complete proposal from API', { 
       apiId,
       displayId: displayProposalId,
@@ -316,7 +313,9 @@ const SavedProposals: React.FC = () => {
         openSaasEnabled: localProposal.openSaas?.enabled,
       });
       
-      navigate(calculatorPath, { state: { editProposal: localProposal } });
+      // Always navigate to the modular calculator route with proposal data
+      const editPath = getProposalEditRoute(apiId, false);
+      navigate(editPath, { state: { editProposal: localProposal } });
     } catch (error: any) {
       console.error('[SavedProposals] Error fetching complete proposal:', error);
       toast({
@@ -459,8 +458,8 @@ const SavedProposals: React.FC = () => {
             <Button 
               variant="open" 
               onClick={() => {
-                const calculatorPath = getCalculatorRoute(userLevel, false);
-                navigate(calculatorPath);
+                // Always use modular route for new proposals
+                navigate(ROUTES.modulos.comercial.proposalNew);
               }}
             >
               <Plus className="w-4 h-4" />
@@ -564,7 +563,7 @@ const SavedProposals: React.FC = () => {
                     : 'Nenhuma proposta encontrada com os filtros selecionados.'}
                 </p>
                 {proposals.length === 0 ? (
-                  <Button variant="open" onClick={() => navigate('/')}>Criar Nova Proposta</Button>
+                  <Button variant="open" onClick={() => navigate(ROUTES.modulos.comercial.proposalNew)}>Criar Nova Proposta</Button>
                 ) : (
                   <Button variant="outline" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
                     Limpar Filtros

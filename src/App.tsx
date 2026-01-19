@@ -166,13 +166,15 @@ const App = () => (
             <Route path="/parceiro/contrato" element={<AceiteContrato />} />
           </Route>
           
-          {/* Executive protected routes (user_level 700 ONLY) */}
-          <Route element={<ExecutiveLayout />}>
-            <Route path="/executivo/dashboard" element={<DashboardHome />} />
-            <Route path="/executivo/calculadora" element={<Calculadora />} />
-            <Route path="/executivo/propostas" element={<PropostasExecutivos />} />
-            <Route path="/executivo/potencial" element={<MeuPotencial />} />
-          </Route>
+          {/* LEGACY ROUTES - Redirect to modular routes */}
+          {/* These redirects ensure old bookmarks/links still work */}
+          <Route path="/executivo/dashboard" element={<Navigate to="/modulos/dashboard" replace />} />
+          <Route path="/executivo/calculadora" element={<Navigate to="/modulos/comercial/propostas/criar" replace />} />
+          <Route path="/executivo/propostas" element={<Navigate to="/modulos/comercial/propostas" replace />} />
+          <Route path="/executivo/potencial" element={<Navigate to="/modulos/comercial/potencial" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/modulos/dashboard" replace />} />
+          <Route path="/calculadora" element={<Navigate to="/modulos/comercial/propostas/criar" replace />} />
+          <Route path="/propostas" element={<Navigate to="/modulos/comercial/propostas" replace />} />
 
           {/* ============================================================ */}
           {/* NEW MODULE ARCHITECTURE - /modulos/* */}

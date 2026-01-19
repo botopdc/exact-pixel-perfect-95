@@ -194,20 +194,10 @@ export default function ExecutiveLayout() {
         return;
       }
       
-      // This layout is ONLY for level 700 (Executivo)
-      // Level 750 (Gerente Comercial) and 1000 (Admin) use DashboardLayout with full menu
-      if (user.level !== 700) {
-        // Redirect managers and admins to full dashboard
-        if (user.level === 750 || user.level === 1000) {
-          navigate('/dashboard', { replace: true });
-          return;
-        }
-        // Others are not allowed
-        toast.error('Acesso restrito a Executivos');
-        authService.logout();
-        navigate('/login', { replace: true });
-        return;
-      }
+      // DEPRECATED: This layout is being phased out
+      // ALL internal users now use ModuleLayout - redirect to modular routes
+      navigate('/modulos/dashboard', { replace: true });
+      return;
 
       // Validate API session
       try {

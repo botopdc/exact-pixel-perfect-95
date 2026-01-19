@@ -10,7 +10,7 @@ interface AccessDeniedProps {
 
 export function AccessDenied({ 
   message = 'Você não tem permissão para acessar esta página.',
-  redirectTo = '/dashboard',
+  redirectTo = '/modulos/dashboard',
   redirectLabel = 'Voltar ao Dashboard'
 }: AccessDeniedProps) {
   return (

@@ -1,8 +1,8 @@
 import { Navigate } from 'react-router-dom';
 
-// Index now redirects to dashboard
+// Index now redirects to modular dashboard
 const Index = () => {
-  return <Navigate to="/dashboard" replace />;
+  return <Navigate to="/modulos/dashboard" replace />;
 };
 
 export default Index;
