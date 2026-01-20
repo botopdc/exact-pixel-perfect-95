@@ -170,11 +170,19 @@ function detectItemType(item: ProposalItem): ItemType | null {
 
 // Normalize a VM item
 function normalizeVMItem(item: ProposalItem): VMItem {
+  const gpu = item.gpu || 'Sem GPU';
+  const gpuQty = toNum(item.gpuQty, 0);
+  
+  // Log GPU restoration for debugging
+  if (gpu !== 'Sem GPU' && gpuQty > 0) {
+    console.log('[normalizeProposalForEdit] [EDIT] GPU restored on server ID=', item.id, ':', { gpu, gpuQty });
+  }
+  
   return {
     type: 'vm',
     id: item.id || crypto.randomUUID(),
-    gpu: item.gpu || 'Sem GPU',
-    gpuQty: toNum(item.gpuQty, 0),
+    gpu,
+    gpuQty,
     vcpu: toNum(item.vcpu, 16),
     ramGb: toNum(item.ramGb, 128),
     nvmeTb: toNum(item.nvmeTb, 0.05),
@@ -186,11 +194,19 @@ function normalizeVMItem(item: ProposalItem): VMItem {
 
 // Normalize a BM item
 function normalizeBMItem(item: ProposalItem): BMItem {
+  const gpu = item.gpu || 'Sem GPU';
+  const gpuQty = toNum(item.gpuQty, 0);
+  
+  // Log GPU restoration for debugging
+  if (gpu !== 'Sem GPU' && gpuQty > 0) {
+    console.log('[normalizeProposalForEdit] [EDIT] GPU restored on server ID=', item.id, ':', { gpu, gpuQty });
+  }
+  
   return {
     type: 'bm',
     id: item.id || crypto.randomUUID(),
-    gpu: item.gpu || 'Sem GPU',
-    gpuQty: toNum(item.gpuQty, 0),
+    gpu,
+    gpuQty,
     bmCpu: item.bmCpu || 'intel_xeon_e2136',
     bmRam: item.bmRam || 'ram_128gb',
     disks: Array.isArray(item.disks) && item.disks.length > 0 
@@ -408,6 +424,19 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
         customAddons: parseCustomAddons(rawAddons.customAddons),
       }
     : { ...DEFAULT_ADDONS };
+  
+  // Log restored addons for debugging
+  if (rawAddons) {
+    const hasBackup = (rawAddons.backupPlan as string) && (rawAddons.backupPlan as string) !== 'none';
+    const hasWinserver = toNum(rawAddons.winserver, 0) > 0;
+    
+    if (hasBackup) {
+      console.log('[normalizeProposalForEdit] [EDIT] Backup restored: plan=', rawAddons.backupPlan, ', gb=', toNum(rawAddons.backupGb, 0));
+    }
+    if (hasWinserver) {
+      console.log('[normalizeProposalForEdit] [EDIT] WindowsServer units restored:', toNum(rawAddons.winserver, 0));
+    }
+  }
   
   // ============================================
   // STEP 6: Extract reseller from dedicated field

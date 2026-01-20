@@ -186,29 +186,52 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     console.log('[apiToLocal] Using complete dados_proposta for proposal', apiProposal.id);
     
     // Normalize items to ensure all required fields exist (especially disks for BM)
-    const normalizedItems = (dadosProposta.items || []).map((item: any) => {
+    const normalizedItems = (dadosProposta.items || []).map((item: any, idx: number) => {
+      // ============================================
+      // GPU PRESERVATION: Log and preserve GPU data from dados_proposta
+      // ============================================
+      const itemGpu = item.gpu || 'Sem GPU';
+      const itemGpuQty = toNum(item.gpuQty, 0);
+      
+      if (itemGpu !== 'Sem GPU' && itemGpuQty > 0) {
+        console.log('[EDIT] GPU restored on server ID=', item.id || idx, ':', { gpu: itemGpu, gpuQty: itemGpuQty });
+      }
+      
       if (item.type === 'bm') {
         return {
           ...item,
+          gpu: itemGpu,
+          gpuQty: itemGpuQty,
           disks: Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
           qtyServers: toNum(item.qtyServers, 1),
           ips: toNum(item.ips, 0),
-          gpuQty: toNum(item.gpuQty, 0),
         };
       }
       return {
         ...item,
+        gpu: itemGpu,
+        gpuQty: itemGpuQty,
         vcpu: toNum(item.vcpu, 16),
         ramGb: toNum(item.ramGb, 128),
         nvmeTb: toNum(item.nvmeTb, 0.05),
         qtyServers: toNum(item.qtyServers, 1),
         ips: toNum(item.ips, 0),
-        gpuQty: toNum(item.gpuQty, 0),
       };
     });
     
-    // Normalize addons
+    // ============================================
+    // ADDONS RESTORATION: Log addons being restored from dados_proposta
+    // ============================================
     const rawAddons = dadosProposta.addons || {};
+    
+    // Log specific addons for debugging
+    if (toNum(rawAddons.winserver, 0) > 0) {
+      console.log('[EDIT] WindowsServer units restored:', toNum(rawAddons.winserver, 0));
+    }
+    if (rawAddons.backupPlan && rawAddons.backupPlan !== 'none') {
+      console.log('[EDIT] Backup restored: plan=', rawAddons.backupPlan, ', gb=', toNum(rawAddons.backupGb, 0));
+    }
+    
     const normalizedAddons: AddonsState = {
       backupPlan: rawAddons.backupPlan || 'none',
       backupGb: toNum(rawAddons.backupGb, 0),
@@ -518,16 +541,28 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       // ============================================
       if (addonNameLower.includes('antivirus') || addonNameLower.includes('antivírus')) {
         reconstructedAddonsState.antivirus = addonQty;
+        console.log('[EDIT] Antivirus restored:', addonQty);
       } else if (addonNameLower.includes('firewall')) {
         reconstructedAddonsState.firewall = true;
+        console.log('[EDIT] Firewall restored: true');
       } else if (addonNameLower.includes('tsplus') || addonNameLower.includes('ts plus')) {
         reconstructedAddonsState.tsplus = addonQty;
+        console.log('[EDIT] TSPlus restored:', addonQty);
       } else if (addonNameLower.includes('cal') || addonNameLower.includes('ts-cal')) {
         reconstructedAddonsState.cal = addonQty;
+        console.log('[EDIT] CAL restored:', addonQty);
       } else if (addonNameLower.includes('veeam') && addonNameLower.includes('vm')) {
         reconstructedAddonsState.veeamVm = addonQty;
+        console.log('[EDIT] Veeam VM restored:', addonQty);
       } else if (addonNameLower.includes('veeam') && (addonNameLower.includes('agent') || addonNameLower.includes('workstation'))) {
         reconstructedAddonsState.veeamAg = addonQty;
+        console.log('[EDIT] Veeam Agent restored:', addonQty);
+      } else if (addonNameLower.includes('winserver') || addonNameLower.includes('windows server') || addonNameLower.includes('win server')) {
+        // ============================================
+        // PARSE WINSERVER: "WinServer(2vCPU/unid.)" or "Windows Server"
+        // ============================================
+        reconstructedAddonsState.winserver = addonQty;
+        console.log('[EDIT] WindowsServer units restored:', addonQty);
       } else if (addonNameLower.includes('sql')) {
         // Detect SQL type from name
         if (addonNameLower.includes('enterprise')) {
@@ -540,6 +575,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
           reconstructedAddonsState.sql = 'standard'; // Default
         }
         reconstructedAddonsState.sqlQty = addonQty;
+        console.log('[EDIT] SQL restored:', { type: reconstructedAddonsState.sql, qty: addonQty });
       } else if (addonNameLower.includes('backup')) {
         // Parse backup size from name if available
         const backupGbMatch = addonName.match(/(\d+)\s*GB/i);
@@ -562,6 +598,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         } else {
           reconstructedAddonsState.backupPlan = 'bronze'; // Default
         }
+        console.log('[EDIT] Backup restored: plan=', reconstructedAddonsState.backupPlan, ', gb=', reconstructedAddonsState.backupGb);
       }
     }
   }
@@ -580,6 +617,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       sqlQty: reconstructedAddonsState.sqlQty,
       veeamVm: reconstructedAddonsState.veeamVm,
       veeamAg: reconstructedAddonsState.veeamAg,
+      winserver: reconstructedAddonsState.winserver,
     },
   });
   
@@ -731,30 +769,43 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       // Detect if VM or BareMetal based on name and specs
       const isVM = serverName.toLowerCase().includes('vm') || vcpu > 0;
       
+      // ============================================
+      // GPU RECONSTRUCTION: Extract GPU from server object
+      // API may store GPU in: server.gpu, server.extras?.gpu, server.gpu_model, server.extras?.gpu_model
+      // ============================================
+      const serverGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model || 'Sem GPU';
+      const serverGpuQty = toNum(server.gpuQty || server.gpu_qty || server.extras?.gpuQty || server.extras?.gpu_qty, 0);
+      
+      if (serverGpu !== 'Sem GPU' && serverGpuQty > 0) {
+        console.log('[EDIT] GPU restored on server ID=', server.id || idx, ':', { gpu: serverGpu, gpuQty: serverGpuQty });
+      }
+      
       if (isVM) {
         return {
           type: 'vm' as const,
           id: crypto.randomUUID(),
-          gpu: 'Sem GPU',
-          gpuQty: 0,
+          gpu: serverGpu,
+          gpuQty: serverGpuQty,
           vcpu: vcpu || 16,
           ramGb: ram || 128,
           nvmeTb: (storage || 50) / 1024, // Convert GB to TB
           trafficTb: 5,
-          ips: 1,
+          ips: toNum(server.ips, 1),
           qtyServers: quantity,
         };
       } else {
         return {
           type: 'bm' as const,
           id: crypto.randomUUID(),
-          gpu: 'Sem GPU',
-          gpuQty: 0,
-          bmCpu: 'intel_xeon_e2136',
-          bmRam: 'ram_128gb',
-          disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }],
+          gpu: serverGpu,
+          gpuQty: serverGpuQty,
+          bmCpu: server.bmCpu || server.cpu_model || 'intel_xeon_e2136',
+          bmRam: server.bmRam || server.ram_tier || 'ram_128gb',
+          disks: Array.isArray(server.disks) && server.disks.length > 0 
+            ? server.disks 
+            : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
           trafficTb: 5,
-          ips: 1,
+          ips: toNum(server.ips, 1),
           qtyServers: quantity,
         };
       }
@@ -840,7 +891,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     reconstructedAddonsState.backupPlan !== 'none' ||
     reconstructedAddonsState.sql !== 'none' ||
     reconstructedAddonsState.veeamVm > 0 ||
-    reconstructedAddonsState.veeamAg > 0;
+    reconstructedAddonsState.veeamAg > 0 ||
+    reconstructedAddonsState.winserver > 0;
   
   // Log final reconstruction results
   console.log('[apiToLocal] LEGACY final reconstruction results:', {
