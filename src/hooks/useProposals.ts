@@ -220,6 +220,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       sqlQty: toNum(rawAddons.sqlQty, 0),
       veeamVm: toNum(rawAddons.veeamVm, 0),
       veeamAg: toNum(rawAddons.veeamAg, 0),
+      winserver: toNum(rawAddons.winserver, 0),
       customAddons: rawAddons.customAddons || {},
     };
     
@@ -410,6 +411,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     sqlQty: 0,
     veeamVm: 0,
     veeamAg: 0,
+    winserver: 0,
     customAddons: {},
   };
   

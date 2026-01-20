@@ -17,6 +17,7 @@ const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorC
     cal_unit: typeof addons_brl.cal_unit === 'number' ? addons_brl.cal_unit : 0,
     veeam_vm_unit: typeof addons_brl.veeam_vm_unit === 'number' ? addons_brl.veeam_vm_unit : 0,
     veeam_agent_unit: typeof addons_brl.veeam_agent_unit === 'number' ? addons_brl.veeam_agent_unit : 0,
+    winserver_2vcpu_unit: typeof addons_brl.winserver_2vcpu_unit === 'number' ? addons_brl.winserver_2vcpu_unit : 45.0,
     // sql MUST always be an object, never undefined/null
     sql: (typeof addons_brl.sql === 'object' && addons_brl.sql !== null) 
       ? addons_brl.sql as Record<string, number>

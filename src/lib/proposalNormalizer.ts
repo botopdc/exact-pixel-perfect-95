@@ -229,6 +229,7 @@ const DEFAULT_ADDONS: AddonsState = {
   sqlQty: 0,
   veeamVm: 0,
   veeamAg: 0,
+  winserver: 0,
   customAddons: {},
 };
 
@@ -403,6 +404,7 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
         sqlQty: toNum(rawAddons.sqlQty, 0),
         veeamVm: toNum(rawAddons.veeamVm, 0),
         veeamAg: toNum(rawAddons.veeamAg, 0),
+        winserver: toNum(rawAddons.winserver, 0),
         customAddons: parseCustomAddons(rawAddons.customAddons),
       }
     : { ...DEFAULT_ADDONS };

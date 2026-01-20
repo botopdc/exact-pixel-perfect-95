@@ -26,6 +26,7 @@ const ADDON_LABEL_TO_KEY: Record<string, string> = {
   'CAL': 'cal_unit',
   'Veeam VM': 'veeam_vm_unit',
   'Veeam Agent': 'veeam_agent_unit',
+  'WinServer(2vCPU/unid.)': 'winserver_2vcpu_unit',
 };
 
 // Storage Advanced labels to keys
@@ -334,6 +335,7 @@ class OpenApiClient {
         sql: {}, // Always initialize sql to prevent Object.keys() crash
         veeam_vm_unit: 0,
         veeam_agent_unit: 0,
+        winserver_2vcpu_unit: 45.0,
       },
       backup_tables_brl_per_gb: {},
       // Initialize storage_pricing structure
