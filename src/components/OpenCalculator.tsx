@@ -1212,7 +1212,7 @@ const OpenCalculator: React.FC = () => {
     toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
   };
 
-  // Send by email via edge function
+  // Send by email via edge function - uses canonical approval link with token
   const handleSendEmail = async () => {
     if (!client.email?.trim()) {
       toast({ title: 'Erro', description: 'Informe o e-mail do cliente para enviar a proposta', variant: 'destructive' });
@@ -1223,13 +1223,40 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
+    // First save to ensure we have a valid proposal ID
     await handleSave();
     setSendingEmail(true);
 
-    const proposalLink = `${window.location.origin}/proposta/${proposal.id}`;
     const validityDateStr = getValidityDate(proposal.createdAt, proposal.validityDays).toLocaleDateString('pt-BR');
 
     try {
+      // CRITICAL: Get canonical approval link with token
+      console.log('[OpenCalculator] Fetching approval link for email send...');
+      const { buildApprovalLinkFromId } = await import('@/services/approvalLinkService');
+      
+      // Get the saved proposal ID - editingProposalId is set after handleSave() completes
+      const proposalApiId = editingProposalId || proposal.id;
+      
+      if (!proposalApiId) {
+        throw new Error('Proposta precisa ser salva antes de enviar por email');
+      }
+      
+      let proposalLink: string;
+      try {
+        const result = await buildApprovalLinkFromId(proposalApiId);
+        proposalLink = result.link;
+        console.log('[OpenCalculator] Got canonical approval link for email');
+      } catch (linkError: any) {
+        console.error('[OpenCalculator] Failed to get approval link:', linkError);
+        toast({ 
+          title: 'Erro ao gerar link', 
+          description: linkError.message || 'Não foi possível gerar link de aprovação',
+          variant: 'destructive' 
+        });
+        setSendingEmail(false);
+        return;
+      }
+      
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const response = await fetch(
         `${supabaseUrl}/functions/v1/send-proposal-email`,
@@ -1240,7 +1267,7 @@ const OpenCalculator: React.FC = () => {
             clientName: client.name || client.company || 'Cliente',
             clientEmail: client.email,
             proposalId: proposal.id,
-            proposalLink,
+            proposalLink, // Now uses canonical link with token
             totalValue: `R$ ${formatCurrency(result?.grandTotal || 0)}`,
             validityDate: validityDateStr,
           }),
