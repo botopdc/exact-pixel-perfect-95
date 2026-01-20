@@ -48,6 +48,22 @@ const STORAGE_LABEL_TO_KEY: Record<string, { region: 'br' | 'usa'; tier: string 
 // TYPES
 // ============================================================================
 
+// Company entity from API
+export interface ApiCompany {
+  id: number;
+  uuid?: string;
+  name: string;
+  legal_name: string | null;
+  docnum: string | null;
+  work_area: string | null;
+  city: string | null;
+  uf: string | null;
+  has_support: boolean | null;
+  obs: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Forward declare for circular reference
 export interface ApiPartner {
   id: number;
@@ -777,6 +793,77 @@ class OpenApiClient {
 
   async deleteProposalFile(proposalId: number | string, fileId: number): Promise<void> {
     await this.client.delete(`/calculator/proposal/${proposalId}/file/${fileId}`);
+  }
+
+  // ============================================================================
+  // COMPANY ENDPOINTS
+  // ============================================================================
+
+  async getCompanies(params?: {
+    __q?: string;
+    name?: string;
+    docnum?: string;
+    city?: string;
+    uf?: string;
+    __page?: number;
+    __perPage?: number;
+    __order?: string;
+  }): Promise<{ 
+    data: ApiCompany[]; 
+    total: number; 
+    current_page: number; 
+    last_page: number;
+    per_page: number;
+    from: number;
+    to: number;
+  }> {
+    const response = await this.client.get('/company', { params });
+    return response.data;
+  }
+
+  async getCompany(id: number | string): Promise<ApiCompany> {
+    const response = await this.client.get(`/company/${id}`);
+    return response.data;
+  }
+
+  async createCompany(data: {
+    name: string;
+    legal_name?: string | null;
+    docnum?: string | null;
+    work_area?: string | null;
+    city?: string | null;
+    uf?: string | null;
+    has_support?: boolean | null;
+    obs?: string | null;
+  }): Promise<ApiCompany> {
+    const response = await this.client.post<ApiCompany>('/company', data);
+    return response.data;
+  }
+
+  async updateCompany(id: number | string, data: {
+    name?: string;
+    legal_name?: string | null;
+    docnum?: string | null;
+    work_area?: string | null;
+    city?: string | null;
+    uf?: string | null;
+    has_support?: boolean | null;
+    obs?: string | null;
+  }): Promise<ApiCompany> {
+    const response = await this.client.put<ApiCompany>(`/company/${id}`, data);
+    return response.data;
+  }
+
+  async deleteCompany(id: number | string): Promise<void> {
+    await this.client.delete(`/company/${id}`);
+  }
+
+  async searchCompanies(query: string): Promise<ApiCompany[]> {
+    if (query.length < 2) return [];
+    const response = await this.client.get('/company', {
+      params: { __q: query, __perPage: 20 }
+    });
+    return response.data.data || [];
   }
 }
 
