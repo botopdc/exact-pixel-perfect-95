@@ -266,7 +266,7 @@ function hydrateServerItems(items: any[]): ServerItemV2[] {
       gpuQty,
       vcpu: toNum(item.vcpu, 16),
       ramGb: toNum(item.ramGb, 128),
-      nvmeTb: toNum(item.nvmeTb, 0.05),
+      nvmeTb: toNum(item.nvmeTb, 0.09765625), // 100GB default
       trafficTb: toNum(item.trafficTb, 5),
       ips: toNum(item.ips, 0),
       qtyServers: toNum(item.qtyServers, 1),

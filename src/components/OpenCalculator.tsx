@@ -277,7 +277,7 @@ const OpenCalculator: React.FC = () => {
       gpuQty: 0,
       vcpu: 16,
       ramGb: 128,
-      nvmeTb: 0.05, // 50GB = 0.05TB (stored in TB for calculation compatibility)
+      nvmeTb: 0.09765625, // 100GB = 100/1024 TB (stored in TB for calculation compatibility)
       trafficTb: 5,
       ips: 1,
       qtyServers: 1,
@@ -821,7 +821,7 @@ const OpenCalculator: React.FC = () => {
           gpuQty: vmGpuQty,
           vcpu: item.vcpu ?? 16,
           ramGb: item.ramGb ?? 128,
-          nvmeTb: item.nvmeTb ?? 0.05,
+          nvmeTb: item.nvmeTb ?? 0.09765625,
           trafficTb: item.trafficTb ?? 5,
           ips: item.ips ?? 1,
           qtyServers: item.qtyServers ?? 1,

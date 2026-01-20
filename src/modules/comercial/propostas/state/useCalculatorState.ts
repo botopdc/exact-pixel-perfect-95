@@ -248,7 +248,7 @@ export function useCalculatorState(): UseCalculatorStateReturn {
       gpuQty: 0,
       vcpu: 16,
       ramGb: 128,
-      nvmeTb: 0.05,
+      nvmeTb: 0.09765625, // 100GB = 100/1024 TB
       trafficTb: 5,
       ips: 1,
       qtyServers: 1,
