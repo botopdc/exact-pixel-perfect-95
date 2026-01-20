@@ -347,6 +347,30 @@ function hydrateDisks(disks: any): DiskItemV2[] {
 }
 
 function hydrateAddons(raw: any): AddonsStateV2 {
+  const support = {
+    level: raw.support?.level || 'none',
+    price: toNum(raw.support?.price, 0),
+  };
+  const consulting = {
+    quantity: toNum(raw.consulting?.quantity, 0),
+    unitPrice: toNum(raw.consulting?.unitPrice, 200),
+  };
+  const dba = {
+    quantity: toNum(raw.dba?.quantity, 0),
+    unitPrice: toNum(raw.dba?.unitPrice, 250),
+  };
+  
+  // Log specialized services restoration from snapshot
+  if (support.level !== 'none') {
+    console.log('[EDIT] support restored (snapshot): level=' + support.level + ' price=' + support.price);
+  }
+  if (consulting.quantity > 0) {
+    console.log('[EDIT] consulting restored (snapshot): qty=' + consulting.quantity + ' unitPrice=' + consulting.unitPrice);
+  }
+  if (dba.quantity > 0) {
+    console.log('[EDIT] dba restored (snapshot): qty=' + dba.quantity + ' unitPrice=' + dba.unitPrice);
+  }
+  
   return {
     backupPlan: raw.backupPlan || 'none',
     backupGb: toNum(raw.backupGb, 0),
@@ -359,29 +383,92 @@ function hydrateAddons(raw: any): AddonsStateV2 {
     veeamVm: toNum(raw.veeamVm, 0),
     veeamAg: toNum(raw.veeamAg, 0),
     winserver: toNum(raw.winserver, 0),
+    support,
+    consulting,
+    dba,
     customAddons: raw.customAddons || {},
   };
 }
 
+/**
+ * Hydrate addons from legacy API response (addons[] array).
+ * Matches by code OR name (case-insensitive, accent-insensitive).
+ */
 function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   const result: AddonsStateV2 = { ...DEFAULT_ADDONS };
   
+  // Helper to normalize strings for matching (lowercase, remove accents, trim)
+  const normalize = (str: string): string => {
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+  
   for (const addon of addons) {
-    if (!addon.name) continue;
-    
-    const name = toStr(addon.name, '').toLowerCase();
+    // Get both code and name for matching
+    const code = toStr(addon.code, '').toLowerCase().trim();
+    const name = toStr(addon.name, '').toLowerCase().trim();
+    const nameNormalized = normalize(addon.name || '');
     const qty = toNum(addon.quantity, 1);
+    const price = toNum(addon.price, 0);
     
-    // Windows Server
-    if (name.includes('winserver') || name.includes('windows server') || name.includes('win server')) {
+    // Skip if no identifier
+    if (!code && !name) continue;
+    
+    // Windows Server - match by code or name
+    if (code === 'winserver_2vcpu_unit' || 
+        name.includes('winserver') || 
+        name.includes('windows server') || 
+        name.includes('win server')) {
       result.winserver = qty;
       console.log('[EDIT] WindowsServer units restored:', qty);
       continue;
     }
     
-    // Backup
-    if (name.startsWith('backup ')) {
-      const planMatch = name.match(/backup\s+(\d+)/i);
+    // Support - match by code OR normalized name
+    if (code === 'support_basic' || nameNormalized === 'suporte basico') {
+      result.support.level = 'basic';
+      result.support.price = price;
+      console.log('[EDIT] support restored from addons[]: level=basic price=' + price);
+      continue;
+    }
+    if (code === 'support_intermediate' || nameNormalized === 'suporte intermediario') {
+      result.support.level = 'intermediate';
+      result.support.price = price;
+      console.log('[EDIT] support restored from addons[]: level=intermediate price=' + price);
+      continue;
+    }
+    if (code === 'support_advanced' || nameNormalized === 'suporte avancado') {
+      result.support.level = 'advanced';
+      result.support.price = price;
+      console.log('[EDIT] support restored from addons[]: level=advanced price=' + price);
+      continue;
+    }
+    
+    // Consultoria Técnica - match by code or name
+    if (code === 'consulting_hours' || 
+        nameNormalized === 'consultoria tecnica' || 
+        nameNormalized.includes('consultoria')) {
+      result.consulting.quantity = qty;
+      result.consulting.unitPrice = price > 0 ? price : 200;
+      console.log('[EDIT] consulting restored from addons[]: qty=' + qty + ' unitPrice=' + result.consulting.unitPrice);
+      continue;
+    }
+    
+    // DBA - match by code or name
+    if (code === 'dba_hours' || name === 'dba') {
+      result.dba.quantity = qty;
+      result.dba.unitPrice = price > 0 ? price : 250;
+      console.log('[EDIT] dba restored from addons[]: qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
+      continue;
+    }
+    
+    // Backup - match by code or name pattern
+    if (code?.startsWith('backup_') || name.startsWith('backup ')) {
+      const planMatch = (code || name).match(/backup[_\s]+(\d+)/i);
       if (planMatch) {
         result.backupPlan = planMatch[1] as '7' | '15' | '30';
         result.backupGb = qty;
@@ -391,50 +478,58 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     }
     
     // Antivirus
-    if (name.includes('antivirus') || name.includes('antivírus')) {
+    if (code === 'antivirus' || name.includes('antivirus') || name.includes('antivírus')) {
       result.antivirus = qty;
       continue;
     }
     
     // Firewall
-    if (name.includes('firewall')) {
+    if (code === 'firewall' || name.includes('firewall')) {
       result.firewall = true;
       continue;
     }
     
     // TSplus
-    if (name.includes('tsplus') || name.includes('ts plus')) {
+    if (code === 'tsplus' || name.includes('tsplus') || name.includes('ts plus')) {
       result.tsplus = qty;
       continue;
     }
     
     // CAL
-    if (name === 'cal') {
+    if (code === 'cal' || name === 'cal') {
       result.cal = qty;
       continue;
     }
     
     // Veeam VM
-    if (name.includes('veeam vm')) {
+    if (code === 'veeam_vm' || name.includes('veeam vm')) {
       result.veeamVm = qty;
       continue;
     }
     
     // Veeam Agent
-    if (name.includes('veeam agent')) {
+    if (code === 'veeam_agent' || name.includes('veeam agent')) {
       result.veeamAg = qty;
       continue;
     }
     
     // SQL
-    if (name.includes('sql')) {
-      if (name.includes('web')) result.sql = 'web';
-      else if (name.includes('we')) result.sql = 'we';
-      else if (name.includes('std') || name.includes('standard')) result.sql = 'std';
+    if (code?.startsWith('sql_') || name.includes('sql')) {
+      if (code?.includes('web') || name.includes('web')) result.sql = 'web';
+      else if (code?.includes('std') || name.includes('std') || name.includes('standard')) result.sql = 'std';
+      else if (code?.includes('we') || name.includes('we')) result.sql = 'we';
       result.sqlQty = qty;
       continue;
     }
   }
+  
+  console.log('[hydrateAddonsFromLegacy] Final result:', {
+    winserver: result.winserver,
+    backupPlan: result.backupPlan,
+    support: result.support,
+    consulting: result.consulting,
+    dba: result.dba,
+  });
   
   return result;
 }
@@ -507,6 +602,16 @@ function logAddonRestoration(addons: AddonsStateV2): void {
   if (addons.firewall) {
     console.log('[EDIT] Firewall restored: enabled');
   }
+  // Specialized services
+  if (addons.support.level !== 'none') {
+    console.log('[EDIT] restored from dados_proposta: support=' + JSON.stringify(addons.support));
+  }
+  if (addons.consulting.quantity > 0) {
+    console.log('[EDIT] restored from dados_proposta: consulting=' + JSON.stringify(addons.consulting));
+  }
+  if (addons.dba.quantity > 0) {
+    console.log('[EDIT] restored from dados_proposta: dba=' + JSON.stringify(addons.dba));
+  }
 }
 
 // ============================================================================
@@ -528,7 +633,7 @@ export interface ApiProposalPayload {
   contract_duration: number;
   discount_pct: number;
   total: number;
-  addons: Array<{ name: string; price: number; quantity: number }>;
+  addons: Array<{ code?: string; name: string; price: number; quantity: number }>;
   servers: Array<{
     name: string;
     vcpu: number;
@@ -572,13 +677,14 @@ export function serializeProposal(
   dueAt.setDate(dueAt.getDate() + validityDays);
   
   // ============================================
-  // BUILD ADDONS ARRAY
+  // BUILD ADDONS ARRAY (with code + name for robustness)
   // ============================================
-  const addonsArray: Array<{ name: string; price: number; quantity: number }> = [];
+  const addonsArray: Array<{ code?: string; name: string; price: number; quantity: number }> = [];
   
   // Windows Server - EXPLICIT
   if (state.addons.winserver > 0) {
     addonsArray.push({
+      code: 'winserver_2vcpu_unit',
       name: 'WinServer(2vCPU/unid.)',
       price: 0,
       quantity: state.addons.winserver,
@@ -586,9 +692,49 @@ export function serializeProposal(
     console.log('[serializeProposal] Added WinServer:', state.addons.winserver);
   }
   
+  // Support - Using official codes from ADMIN (with both code and name for compatibility)
+  if (state.addons.support.level !== 'none') {
+    const supportCodeMap: Record<string, { code: string; name: string }> = {
+      'basic': { code: 'support_basic', name: 'Suporte Básico' },
+      'intermediate': { code: 'support_intermediate', name: 'Suporte Intermediário' },
+      'advanced': { code: 'support_advanced', name: 'Suporte Avançado' },
+    };
+    const supportData = supportCodeMap[state.addons.support.level] || supportCodeMap['basic'];
+    addonsArray.push({
+      code: supportData.code,
+      name: supportData.name,
+      price: state.addons.support.price,
+      quantity: 1,
+    });
+    console.log('[SERIALIZE] support=' + supportData.code + ' price=' + state.addons.support.price);
+  }
+  
+  // Consultoria Técnica - Using official code (with both code and name)
+  if (state.addons.consulting.quantity > 0) {
+    addonsArray.push({
+      code: 'consulting_hours',
+      name: 'Consultoria Técnica',
+      price: state.addons.consulting.unitPrice,
+      quantity: state.addons.consulting.quantity,
+    });
+    console.log('[SERIALIZE] consulting_hours qty=' + state.addons.consulting.quantity + ' price=' + state.addons.consulting.unitPrice);
+  }
+  
+  // DBA - Using official code (with both code and name)
+  if (state.addons.dba.quantity > 0) {
+    addonsArray.push({
+      code: 'dba_hours',
+      name: 'DBA',
+      price: state.addons.dba.unitPrice,
+      quantity: state.addons.dba.quantity,
+    });
+    console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' price=' + state.addons.dba.unitPrice);
+  }
+  
   // Backup - EXPLICIT
   if (state.addons.backupPlan !== 'none' && state.addons.backupGb > 0) {
     addonsArray.push({
+      code: `backup_${state.addons.backupPlan}`,
       name: `Backup ${state.addons.backupPlan}`,
       price: 0,
       quantity: state.addons.backupGb,
@@ -598,42 +744,48 @@ export function serializeProposal(
   
   // Antivirus
   if (state.addons.antivirus > 0) {
-    addonsArray.push({ name: 'Antivirus', price: 0, quantity: state.addons.antivirus });
+    addonsArray.push({ code: 'antivirus', name: 'Antivirus', price: 0, quantity: state.addons.antivirus });
   }
   
   // Firewall
   if (state.addons.firewall) {
-    addonsArray.push({ name: 'Firewall', price: 0, quantity: 1 });
+    addonsArray.push({ code: 'firewall', name: 'Firewall', price: 0, quantity: 1 });
   }
   
   // TSplus
   if (state.addons.tsplus > 0) {
-    addonsArray.push({ name: 'TS Plus', price: 0, quantity: state.addons.tsplus });
+    addonsArray.push({ code: 'tsplus', name: 'TS Plus', price: 0, quantity: state.addons.tsplus });
   }
   
   // CAL
   if (state.addons.cal > 0) {
-    addonsArray.push({ name: 'CAL', price: 0, quantity: state.addons.cal });
+    addonsArray.push({ code: 'cal', name: 'CAL', price: 0, quantity: state.addons.cal });
   }
   
   // Veeam VM
   if (state.addons.veeamVm > 0) {
-    addonsArray.push({ name: 'Veeam VM', price: 0, quantity: state.addons.veeamVm });
+    addonsArray.push({ code: 'veeam_vm', name: 'Veeam VM', price: 0, quantity: state.addons.veeamVm });
   }
   
   // Veeam Agent
   if (state.addons.veeamAg > 0) {
-    addonsArray.push({ name: 'Veeam Agent', price: 0, quantity: state.addons.veeamAg });
+    addonsArray.push({ code: 'veeam_agent', name: 'Veeam Agent', price: 0, quantity: state.addons.veeamAg });
   }
   
   // SQL
   if (state.addons.sql !== 'none' && state.addons.sqlQty > 0) {
     addonsArray.push({
+      code: `sql_${state.addons.sql.toLowerCase()}`,
       name: `SQL ${state.addons.sql.toUpperCase()}`,
       price: 0,
       quantity: state.addons.sqlQty,
     });
   }
+  
+  // Log dados_proposta snapshot for debugging
+  console.log('[SAVE] dados_proposta.support=' + JSON.stringify(state.addons.support) + 
+    ' consulting=' + JSON.stringify(state.addons.consulting) + 
+    ' dba=' + JSON.stringify(state.addons.dba));
   
   // Storage items
   for (const storage of state.storageItems) {

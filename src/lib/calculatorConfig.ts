@@ -103,6 +103,12 @@ export interface CalculatorConfig {
     veeam_vm_unit: number;
     veeam_agent_unit: number;
     winserver_2vcpu_unit: number;
+    // Serviços Especializados
+    support_basic?: number;
+    support_intermediate?: number;
+    support_advanced?: number;
+    consulting_hours?: number;
+    dba_hours?: number;
   };
   backup_tables_brl_per_gb: Record<string, BackupPriceRange[]>;
   // OPEN SaaS pricing
@@ -243,7 +249,13 @@ export const DEFAULT_CONFIG: CalculatorConfig = {
     },
     veeam_vm_unit: 50.0,
     veeam_agent_unit: 45.0,
-    winserver_2vcpu_unit: 45.0
+    winserver_2vcpu_unit: 45.0,
+    // Serviços Especializados
+    support_basic: 1,
+    support_intermediate: 500,
+    support_advanced: 900,
+    consulting_hours: 200,
+    dba_hours: 250
   },
   backup_tables_brl_per_gb: {
     "7": [
@@ -615,6 +627,24 @@ export interface OpenSaaSState {
   users: number;
 }
 
+// Support tier type
+export type SupportLevel = 'none' | 'basic' | 'intermediate' | 'advanced';
+
+// Support tier prices (defaults)
+export const SUPPORT_LEVEL_PRICES: Record<SupportLevel, number> = {
+  none: 0,
+  basic: 1,
+  intermediate: 500,
+  advanced: 900,
+};
+
+export const SUPPORT_LEVEL_LABELS: Record<SupportLevel, string> = {
+  none: 'Sem Suporte',
+  basic: 'Básico',
+  intermediate: 'Intermediário',
+  advanced: 'Avançado',
+};
+
 export interface AddonsState {
   backupPlan: string;
   backupGb: number;
@@ -627,6 +657,19 @@ export interface AddonsState {
   veeamVm: number;
   veeamAg: number;
   winserver: number;
+  // New add-ons
+  support: {
+    level: SupportLevel;
+    price: number;
+  };
+  consulting: {
+    quantity: number;
+    unitPrice: number;
+  };
+  dba: {
+    quantity: number;
+    unitPrice: number;
+  };
   // Dynamic custom add-ons: key -> quantity
   customAddons?: Record<string, number>;
 }
