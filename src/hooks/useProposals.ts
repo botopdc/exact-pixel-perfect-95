@@ -1256,7 +1256,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     }
     
     if (hasAnyIndependentProduct) {
-      console.log('[localToApi] Created virtual servers for independent products:', serversArray.map(s => s.name.substring(0, 50)));
+      console.log('[localToApi] Created virtual servers for independent products:', serversArray.map(s => String(s.name).substring(0, 50)));
     }
   }
   
