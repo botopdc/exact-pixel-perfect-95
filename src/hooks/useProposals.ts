@@ -771,10 +771,14 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       
       // ============================================
       // GPU RECONSTRUCTION: Extract GPU from server object
+      // CRITICAL: Use explicit type checking to preserve GPU values
       // API may store GPU in: server.gpu, server.extras?.gpu, server.gpu_model, server.extras?.gpu_model
       // ============================================
-      const serverGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model || 'Sem GPU';
-      const serverGpuQty = toNum(server.gpuQty || server.gpu_qty || server.extras?.gpuQty || server.extras?.gpu_qty, 0);
+      const rawGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model;
+      const serverGpu = typeof rawGpu === 'string' && rawGpu !== '' ? rawGpu : 'Sem GPU';
+      
+      const rawGpuQty = server.gpuQty ?? server.gpu_qty ?? server.extras?.gpuQty ?? server.extras?.gpu_qty;
+      const serverGpuQty = typeof rawGpuQty === 'number' ? rawGpuQty : toNum(rawGpuQty, 0);
       
       if (serverGpu !== 'Sem GPU' && serverGpuQty > 0) {
         console.log('[EDIT] GPU restored on server ID=', server.id || idx, ':', { gpu: serverGpu, gpuQty: serverGpuQty });
