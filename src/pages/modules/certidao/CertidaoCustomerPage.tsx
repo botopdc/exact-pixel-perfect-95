@@ -1,9 +1,10 @@
 // ============================================================================
 // CERTIDÃO DE NASCIMENTO - CUSTOMER DETAIL PAGE
 // View customer info and their assets
+// Using /api/company CRUD
 // ============================================================================
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -40,9 +41,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useCompany, useUpdateCompany } from '@/hooks/useCompanies';
 import {
-  useCertCustomer,
-  useUpdateCertCustomer,
+  useCertAssets,
   useCreateCertAsset,
 } from '@/hooks/useBirthCertificate';
 import {
@@ -63,20 +64,25 @@ export default function CertidaoCustomerPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [showNewAssetDialog, setShowNewAssetDialog] = useState(false);
   
-  const { data: customer, isLoading, refetch } = useCertCustomer(customerId);
-  const updateCustomer = useUpdateCertCustomer();
+  // Use API hooks - customerId pode ser number
+  const companyId = customerId ? (isNaN(Number(customerId)) ? customerId : Number(customerId)) : undefined;
+  const { data: company, isLoading, refetch } = useCompany(companyId);
+  const updateCompany = useUpdateCompany();
   const createAsset = useCreateCertAsset();
   
-  // Form states
+  // Carregar assets do cliente (ainda via Supabase pois cert_assets não foi migrado)
+  const { data: assets } = useCertAssets(customerId);
+  
+  // Form states - mapeado para campos da API
   const [editForm, setEditForm] = useState({
-    razao_social: '',
-    nome_fantasia: '',
-    cnpj: '',
-    segmento: '',
-    cidade: '',
+    name: '',
+    legal_name: '',
+    docnum: '',
+    work_area: '',
+    city: '',
     uf: '',
-    tem_suporte: true,
-    observacoes: '',
+    has_support: true,
+    obs: '',
   });
 
   const [newAssetForm, setNewAssetForm] = useState({
@@ -104,24 +110,36 @@ export default function CertidaoCustomerPage() {
   }
 
   const handleStartEdit = () => {
-    if (customer) {
+    if (company) {
       setEditForm({
-        razao_social: customer.razao_social,
-        nome_fantasia: customer.nome_fantasia || '',
-        cnpj: customer.cnpj || '',
-        segmento: customer.segmento || '',
-        cidade: customer.cidade || '',
-        uf: customer.uf || '',
-        tem_suporte: customer.tem_suporte,
-        observacoes: customer.observacoes || '',
+        name: company.name,
+        legal_name: company.legal_name || '',
+        docnum: company.docnum || '',
+        work_area: company.work_area || '',
+        city: company.city || '',
+        uf: company.uf || '',
+        has_support: company.has_support ?? true,
+        obs: company.obs || '',
       });
       setIsEditing(true);
     }
   };
 
   const handleSaveEdit = async () => {
-    if (!customerId) return;
-    await updateCustomer.mutateAsync({ id: customerId, data: editForm });
+    if (!companyId) return;
+    await updateCompany.mutateAsync({ 
+      id: companyId, 
+      data: {
+        name: editForm.name,
+        legal_name: editForm.legal_name || null,
+        docnum: editForm.docnum || null,
+        work_area: editForm.work_area || null,
+        city: editForm.city || null,
+        uf: editForm.uf || null,
+        has_support: editForm.has_support,
+        obs: editForm.obs || null,
+      }
+    });
     setIsEditing(false);
   };
 
@@ -160,7 +178,7 @@ export default function CertidaoCustomerPage() {
     );
   }
 
-  if (!customer) {
+  if (!company) {
     return (
       <div className="container mx-auto p-6">
         <Card>
@@ -179,7 +197,9 @@ export default function CertidaoCustomerPage() {
     );
   }
 
-  const primaryContact = customer.contacts?.find(c => c.is_primary) || customer.contacts?.[0];
+  // Campos mapeados da API para exibição
+  const displayName = company.legal_name || company.name;
+  const subtitle = company.legal_name ? company.name : null;
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -195,10 +215,10 @@ export default function CertidaoCustomerPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Building2 className="h-6 w-6 text-primary" />
-            {customer.nome_fantasia || customer.razao_social}
+            {displayName}
           </h1>
-          {customer.nome_fantasia && (
-            <p className="text-muted-foreground">{customer.razao_social}</p>
+          {subtitle && (
+            <p className="text-muted-foreground">{subtitle}</p>
           )}
         </div>
         <Button variant="outline" size="icon" onClick={() => refetch()}>
@@ -220,39 +240,39 @@ export default function CertidaoCustomerPage() {
             {isEditing ? (
               <div className="space-y-4">
                 <div>
-                  <Label>Razão Social</Label>
+                  <Label>Nome Fantasia *</Label>
                   <Input
-                    value={editForm.razao_social}
-                    onChange={(e) => setEditForm({ ...editForm, razao_social: e.target.value })}
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                   />
                 </div>
                 <div>
-                  <Label>Nome Fantasia</Label>
+                  <Label>Razão Social</Label>
                   <Input
-                    value={editForm.nome_fantasia}
-                    onChange={(e) => setEditForm({ ...editForm, nome_fantasia: e.target.value })}
+                    value={editForm.legal_name}
+                    onChange={(e) => setEditForm({ ...editForm, legal_name: e.target.value })}
                   />
                 </div>
                 <div>
                   <Label>CNPJ</Label>
                   <Input
-                    value={editForm.cnpj}
-                    onChange={(e) => setEditForm({ ...editForm, cnpj: e.target.value })}
+                    value={editForm.docnum}
+                    onChange={(e) => setEditForm({ ...editForm, docnum: e.target.value })}
                   />
                 </div>
                 <div>
                   <Label>Segmento</Label>
                   <Input
-                    value={editForm.segmento}
-                    onChange={(e) => setEditForm({ ...editForm, segmento: e.target.value })}
+                    value={editForm.work_area}
+                    onChange={(e) => setEditForm({ ...editForm, work_area: e.target.value })}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label>Cidade</Label>
                     <Input
-                      value={editForm.cidade}
-                      onChange={(e) => setEditForm({ ...editForm, cidade: e.target.value })}
+                      value={editForm.city}
+                      onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
                     />
                   </div>
                   <div>
@@ -267,13 +287,13 @@ export default function CertidaoCustomerPage() {
                 <div>
                   <Label>Observações</Label>
                   <Textarea
-                    value={editForm.observacoes}
-                    onChange={(e) => setEditForm({ ...editForm, observacoes: e.target.value })}
+                    value={editForm.obs}
+                    onChange={(e) => setEditForm({ ...editForm, obs: e.target.value })}
                     rows={3}
                   />
                 </div>
                 <div className="flex gap-2">
-                  <Button onClick={handleSaveEdit} disabled={updateCustomer.isPending}>
+                  <Button onClick={handleSaveEdit} disabled={updateCompany.isPending}>
                     Salvar
                   </Button>
                   <Button variant="outline" onClick={() => setIsEditing(false)}>
@@ -285,25 +305,25 @@ export default function CertidaoCustomerPage() {
               <>
                 <div>
                   <p className="text-sm text-muted-foreground">CNPJ</p>
-                  <p className="font-mono">{customer.cnpj || '-'}</p>
+                  <p className="font-mono">{company.docnum || '-'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Segmento</p>
-                  <p>{customer.segmento || '-'}</p>
+                  <p>{company.work_area || '-'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Localização</p>
                   <p className="flex items-center gap-1">
                     <MapPin className="h-4 w-4" />
-                    {customer.cidade && customer.uf 
-                      ? `${customer.cidade}/${customer.uf}`
+                    {company.city && company.uf 
+                      ? `${company.city}/${company.uf}`
                       : '-'}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Tem Suporte?</p>
-                  <Badge variant={customer.tem_suporte ? 'default' : 'secondary'}>
-                    {customer.tem_suporte ? (
+                  <Badge variant={company.has_support ? 'default' : 'secondary'}>
+                    {company.has_support ? (
                       <><CheckCircle className="h-3 w-3 mr-1" /> Sim</>
                     ) : (
                       <><XCircle className="h-3 w-3 mr-1" /> Não</>
@@ -311,38 +331,10 @@ export default function CertidaoCustomerPage() {
                   </Badge>
                 </div>
 
-                {/* Primary Contact */}
-                {primaryContact && (
-                  <div className="pt-4 border-t">
-                    <p className="text-sm text-muted-foreground mb-2">Contato Principal</p>
-                    <div className="space-y-1">
-                      <p className="flex items-center gap-2">
-                        <User className="h-4 w-4" />
-                        {primaryContact.nome}
-                        {primaryContact.cargo && (
-                          <span className="text-muted-foreground">({primaryContact.cargo})</span>
-                        )}
-                      </p>
-                      {primaryContact.email && (
-                        <p className="flex items-center gap-2 text-sm">
-                          <Mail className="h-4 w-4" />
-                          {primaryContact.email}
-                        </p>
-                      )}
-                      {primaryContact.telefone && (
-                        <p className="flex items-center gap-2 text-sm">
-                          <Phone className="h-4 w-4" />
-                          {primaryContact.telefone}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {customer.observacoes && (
+                {company.obs && (
                   <div className="pt-4 border-t">
                     <p className="text-sm text-muted-foreground mb-1">Observações</p>
-                    <p className="text-sm">{customer.observacoes}</p>
+                    <p className="text-sm">{company.obs}</p>
                   </div>
                 )}
               </>
@@ -355,7 +347,7 @@ export default function CertidaoCustomerPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <Server className="h-5 w-5" />
-              Ativos ({customer.assets?.length || 0})
+              Ativos ({assets?.length || 0})
             </CardTitle>
             <Dialog open={showNewAssetDialog} onOpenChange={setShowNewAssetDialog}>
               <DialogTrigger asChild>
@@ -441,9 +433,9 @@ export default function CertidaoCustomerPage() {
             </Dialog>
           </CardHeader>
           <CardContent>
-            {customer.assets && customer.assets.length > 0 ? (
+            {assets && assets.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {customer.assets.map((asset) => (
+                {assets.map((asset) => (
                   <Card
                     key={asset.id}
                     className="cursor-pointer hover:border-primary/50 transition-colors"
@@ -477,7 +469,7 @@ export default function CertidaoCustomerPage() {
               <div className="text-center py-8 text-muted-foreground">
                 <Server className="h-12 w-12 mx-auto mb-3 opacity-30" />
                 <p>Nenhum ativo cadastrado</p>
-                <p className="text-sm">Clique em "Novo Ativo" para começar</p>
+                <p className="text-sm">Clique em "Novo Ativo" para adicionar</p>
               </div>
             )}
           </CardContent>
