@@ -249,6 +249,18 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       veeamVm: toNum(rawAddons.veeamVm, 0),
       veeamAg: toNum(rawAddons.veeamAg, 0),
       winserver: toNum(rawAddons.winserver, 0),
+      support: {
+        level: rawAddons.support?.level || 'none',
+        price: toNum(rawAddons.support?.price, 0),
+      },
+      consulting: {
+        quantity: toNum(rawAddons.consulting?.quantity, 0),
+        unitPrice: toNum(rawAddons.consulting?.unitPrice, 200),
+      },
+      dba: {
+        quantity: toNum(rawAddons.dba?.quantity, 0),
+        unitPrice: toNum(rawAddons.dba?.unitPrice, 250),
+      },
       customAddons: rawAddons.customAddons || {},
     };
     
@@ -440,6 +452,9 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     veeamVm: 0,
     veeamAg: 0,
     winserver: 0,
+    support: { level: 'none', price: 0 },
+    consulting: { quantity: 0, unitPrice: 200 },
+    dba: { quantity: 0, unitPrice: 250 },
     customAddons: {},
   };
   

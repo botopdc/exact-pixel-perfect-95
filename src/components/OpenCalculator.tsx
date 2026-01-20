@@ -54,6 +54,10 @@ import {
   CONTRACT_PLANS,
   VALID_CONTRACT_MONTHS,
   isValidContractMonth,
+  // Support levels
+  SUPPORT_LEVEL_PRICES,
+  SUPPORT_LEVEL_LABELS,
+  SupportLevel,
 } from '@/lib/calculatorConfig';
 import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -230,6 +234,9 @@ const OpenCalculator: React.FC = () => {
     veeamVm: 0,
     veeamAg: 0,
     winserver: 0,
+    support: { level: 'none', price: 0 },
+    consulting: { quantity: 0, unitPrice: 200 },
+    dba: { quantity: 0, unitPrice: 250 },
   });
   const [kubernetes, setKubernetes] = useState<KubernetesState>({
     enabled: false,
@@ -587,6 +594,26 @@ const OpenCalculator: React.FC = () => {
       const unitPrice = toNum(config.addons_brl.winserver_2vcpu_unit, 0);
       const st = unitPrice * winserverQty;
       subServices += addRow('WinServer(2vCPU/unid.)', winserverQty, unitPrice, st, 'svc_winserver');
+    }
+
+    // NEW ADD-ONS: Suporte, Consultoria, DBA
+    if (addons.support.level !== 'none' && addons.support.price > 0) {
+      const label = `Suporte ${SUPPORT_LEVEL_LABELS[addons.support.level as SupportLevel] || addons.support.level}`;
+      subServices += addRow(label, 1, addons.support.price, addons.support.price, 'svc_support');
+    }
+    
+    const consultingQty = toNum(addons.consulting.quantity, 0);
+    if (consultingQty > 0) {
+      const unitPrice = toNum(addons.consulting.unitPrice, 200);
+      const st = unitPrice * consultingQty;
+      subServices += addRow('Consultoria Técnica', `${consultingQty} h`, unitPrice, st, 'svc_consulting');
+    }
+    
+    const dbaQty = toNum(addons.dba.quantity, 0);
+    if (dbaQty > 0) {
+      const unitPrice = toNum(addons.dba.unitPrice, 250);
+      const st = unitPrice * dbaQty;
+      subServices += addRow('DBA', `${dbaQty} h`, unitPrice, st, 'svc_dba');
     }
 
     // Custom add-ons (dynamic from config)
@@ -1260,6 +1287,9 @@ const OpenCalculator: React.FC = () => {
     setAddons({
       backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: false,
       tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0, winserver: 0,
+      support: { level: 'none', price: 0 },
+      consulting: { quantity: 0, unitPrice: 200 },
+      dba: { quantity: 0, unitPrice: 250 },
     });
     setKubernetes({
       enabled: false,
@@ -2540,6 +2570,123 @@ const OpenCalculator: React.FC = () => {
                     />
                   </div>
                 )}
+              </div>
+
+              {/* NEW ADD-ONS: Suporte, Consultoria, DBA */}
+              <div className="mt-4 border-t border-border pt-4">
+                <label className="block text-sm font-medium text-foreground mb-3">Serviços Especializados</label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Suporte */}
+                  <div className="p-3 border border-border rounded-lg bg-muted/20">
+                    <label className="block text-xs text-muted-foreground mb-1">Suporte</label>
+                    <Select 
+                      value={addons.support.level} 
+                      onValueChange={(v) => {
+                        const level = v as SupportLevel;
+                        const defaultPrice = SUPPORT_LEVEL_PRICES[level];
+                        setAddons(prev => ({ 
+                          ...prev, 
+                          support: { level, price: defaultPrice }
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="bg-input border-border">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(SUPPORT_LEVEL_LABELS) as SupportLevel[]).map(level => (
+                          <SelectItem key={level} value={level}>
+                            {SUPPORT_LEVEL_LABELS[level]} {SUPPORT_LEVEL_PRICES[level] > 0 && `- R$ ${formatCurrency(SUPPORT_LEVEL_PRICES[level])}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {addons.support.level !== 'none' && (
+                      <div className="mt-2">
+                        <label className="block text-xs text-muted-foreground mb-1">Valor (R$)</label>
+                        <Input
+                          type="number"
+                          value={addons.support.price}
+                          onChange={(e) => setAddons(prev => ({ 
+                            ...prev, 
+                            support: { ...prev.support, price: parseFloat(e.target.value) || 0 }
+                          }))}
+                          min={0}
+                          step={0.01}
+                          className="bg-input border-border"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Consultoria Técnica */}
+                  <div className="p-3 border border-border rounded-lg bg-muted/20">
+                    <label className="block text-xs text-muted-foreground mb-1">Consultoria Técnica (horas)</label>
+                    <Input
+                      type="number"
+                      value={addons.consulting.quantity}
+                      onChange={(e) => setAddons(prev => ({ 
+                        ...prev, 
+                        consulting: { ...prev.consulting, quantity: parseInt(e.target.value) || 0 }
+                      }))}
+                      min={0}
+                      className="bg-input border-border"
+                    />
+                    {addons.consulting.quantity > 0 && (
+                      <div className="mt-2">
+                        <label className="block text-xs text-muted-foreground mb-1">Preço/hora (R$)</label>
+                        <Input
+                          type="number"
+                          value={addons.consulting.unitPrice}
+                          onChange={(e) => setAddons(prev => ({ 
+                            ...prev, 
+                            consulting: { ...prev.consulting, unitPrice: parseFloat(e.target.value) || 0 }
+                          }))}
+                          min={0}
+                          step={0.01}
+                          className="bg-input border-border"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          Total: R$ {formatCurrency(addons.consulting.quantity * addons.consulting.unitPrice)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* DBA */}
+                  <div className="p-3 border border-border rounded-lg bg-muted/20">
+                    <label className="block text-xs text-muted-foreground mb-1">DBA (horas)</label>
+                    <Input
+                      type="number"
+                      value={addons.dba.quantity}
+                      onChange={(e) => setAddons(prev => ({ 
+                        ...prev, 
+                        dba: { ...prev.dba, quantity: parseInt(e.target.value) || 0 }
+                      }))}
+                      min={0}
+                      className="bg-input border-border"
+                    />
+                    {addons.dba.quantity > 0 && (
+                      <div className="mt-2">
+                        <label className="block text-xs text-muted-foreground mb-1">Preço/hora (R$)</label>
+                        <Input
+                          type="number"
+                          value={addons.dba.unitPrice}
+                          onChange={(e) => setAddons(prev => ({ 
+                            ...prev, 
+                            dba: { ...prev.dba, unitPrice: parseFloat(e.target.value) || 0 }
+                          }))}
+                          min={0}
+                          step={0.01}
+                          className="bg-input border-border"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          Total: R$ {formatCurrency(addons.dba.quantity * addons.dba.unitPrice)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Custom Add-ons (dynamic from config) */}
