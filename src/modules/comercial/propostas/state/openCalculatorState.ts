@@ -26,6 +26,8 @@ import type {
 // ADDONS STATE
 // ============================================================================
 
+export type SupportLevelV2 = 'none' | 'basic' | 'intermediate' | 'advanced';
+
 export interface AddonsStateV2 {
   backupPlan: 'none' | '7' | '15' | '30';
   backupGb: number;
@@ -38,6 +40,19 @@ export interface AddonsStateV2 {
   veeamVm: number;
   veeamAg: number;
   winserver: number; // Windows Server 2vCPU units
+  // New add-ons
+  support: {
+    level: SupportLevelV2;
+    price: number;
+  };
+  consulting: {
+    quantity: number;
+    unitPrice: number;
+  };
+  dba: {
+    quantity: number;
+    unitPrice: number;
+  };
   customAddons: Record<string, number>;
 }
 
@@ -53,6 +68,9 @@ export const DEFAULT_ADDONS: AddonsStateV2 = {
   veeamVm: 0,
   veeamAg: 0,
   winserver: 0,
+  support: { level: 'none', price: 0 },
+  consulting: { quantity: 0, unitPrice: 200 },
+  dba: { quantity: 0, unitPrice: 250 },
   customAddons: {},
 };
 

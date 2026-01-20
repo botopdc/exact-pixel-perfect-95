@@ -582,6 +582,9 @@ export function transformApiToSavedProposal(apiProposal: ApiProposal, config: Ca
     veeamVm: 0,
     veeamAg: 0,
     winserver: 0,
+    support: { level: 'none', price: 0 },
+    consulting: { quantity: 0, unitPrice: 200 },
+    dba: { quantity: 0, unitPrice: 250 },
   };
 
   apiAddons.forEach(addon => {

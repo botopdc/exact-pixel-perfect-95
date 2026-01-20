@@ -250,6 +250,9 @@ const DEFAULT_ADDONS: AddonsState = {
   veeamVm: 0,
   veeamAg: 0,
   winserver: 0,
+  support: { level: 'none', price: 0 },
+  consulting: { quantity: 0, unitPrice: 200 },
+  dba: { quantity: 0, unitPrice: 250 },
   customAddons: {},
 };
 
@@ -425,6 +428,18 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
         veeamVm: toNum(rawAddons.veeamVm, 0),
         veeamAg: toNum(rawAddons.veeamAg, 0),
         winserver: toNum(rawAddons.winserver, 0),
+        support: {
+          level: (rawAddons.support as any)?.level || 'none',
+          price: toNum((rawAddons.support as any)?.price, 0),
+        },
+        consulting: {
+          quantity: toNum((rawAddons.consulting as any)?.quantity, 0),
+          unitPrice: toNum((rawAddons.consulting as any)?.unitPrice, 200),
+        },
+        dba: {
+          quantity: toNum((rawAddons.dba as any)?.quantity, 0),
+          unitPrice: toNum((rawAddons.dba as any)?.unitPrice, 250),
+        },
         customAddons: parseCustomAddons(rawAddons.customAddons),
       }
     : { ...DEFAULT_ADDONS };

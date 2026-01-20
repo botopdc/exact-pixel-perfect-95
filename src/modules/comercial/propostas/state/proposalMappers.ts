@@ -359,6 +359,18 @@ function hydrateAddons(raw: any): AddonsStateV2 {
     veeamVm: toNum(raw.veeamVm, 0),
     veeamAg: toNum(raw.veeamAg, 0),
     winserver: toNum(raw.winserver, 0),
+    support: {
+      level: raw.support?.level || 'none',
+      price: toNum(raw.support?.price, 0),
+    },
+    consulting: {
+      quantity: toNum(raw.consulting?.quantity, 0),
+      unitPrice: toNum(raw.consulting?.unitPrice, 200),
+    },
+    dba: {
+      quantity: toNum(raw.dba?.quantity, 0),
+      unitPrice: toNum(raw.dba?.unitPrice, 250),
+    },
     customAddons: raw.customAddons || {},
   };
 }
@@ -371,11 +383,44 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     
     const name = toStr(addon.name, '').toLowerCase();
     const qty = toNum(addon.quantity, 1);
+    const price = toNum(addon.price, 0);
     
     // Windows Server
     if (name.includes('winserver') || name.includes('windows server') || name.includes('win server')) {
       result.winserver = qty;
       console.log('[EDIT] WindowsServer units restored:', qty);
+      continue;
+    }
+    
+    // Suporte (Support) - NEW
+    if (name.startsWith('suporte ')) {
+      const levelMatch = name.match(/suporte\s+(basic|intermediate|advanced|básico|intermediário|avançado)/i);
+      if (levelMatch) {
+        const levelMap: Record<string, 'basic' | 'intermediate' | 'advanced'> = {
+          'basic': 'basic', 'básico': 'basic',
+          'intermediate': 'intermediate', 'intermediário': 'intermediate',
+          'advanced': 'advanced', 'avançado': 'advanced',
+        };
+        result.support.level = levelMap[levelMatch[1].toLowerCase()] || 'basic';
+        result.support.price = price;
+        console.log('[EDIT] Suporte restored:', result.support.level, result.support.price);
+      }
+      continue;
+    }
+    
+    // Consultoria Técnica - NEW
+    if (name.includes('consultoria')) {
+      result.consulting.quantity = qty;
+      result.consulting.unitPrice = price > 0 ? price : 200;
+      console.log('[EDIT] Consultoria restored:', result.consulting.quantity, 'h @', result.consulting.unitPrice);
+      continue;
+    }
+    
+    // DBA - NEW
+    if (name === 'dba') {
+      result.dba.quantity = qty;
+      result.dba.unitPrice = price > 0 ? price : 250;
+      console.log('[EDIT] DBA restored:', result.dba.quantity, 'h @', result.dba.unitPrice);
       continue;
     }
     
@@ -584,6 +629,36 @@ export function serializeProposal(
       quantity: state.addons.winserver,
     });
     console.log('[serializeProposal] Added WinServer:', state.addons.winserver);
+  }
+  
+  // Support - NEW
+  if (state.addons.support.level !== 'none') {
+    addonsArray.push({
+      name: `Suporte ${state.addons.support.level}`,
+      price: state.addons.support.price,
+      quantity: 1,
+    });
+    console.log('[serializeProposal] Added Suporte:', state.addons.support.level, state.addons.support.price);
+  }
+  
+  // Consultoria Técnica - NEW
+  if (state.addons.consulting.quantity > 0) {
+    addonsArray.push({
+      name: 'Consultoria Técnica',
+      price: state.addons.consulting.unitPrice,
+      quantity: state.addons.consulting.quantity,
+    });
+    console.log('[serializeProposal] Added Consultoria:', state.addons.consulting.quantity, 'h');
+  }
+  
+  // DBA - NEW
+  if (state.addons.dba.quantity > 0) {
+    addonsArray.push({
+      name: 'DBA',
+      price: state.addons.dba.unitPrice,
+      quantity: state.addons.dba.quantity,
+    });
+    console.log('[serializeProposal] Added DBA:', state.addons.dba.quantity, 'h');
   }
   
   // Backup - EXPLICIT

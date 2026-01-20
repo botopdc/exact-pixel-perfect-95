@@ -615,6 +615,24 @@ export interface OpenSaaSState {
   users: number;
 }
 
+// Support tier type
+export type SupportLevel = 'none' | 'basic' | 'intermediate' | 'advanced';
+
+// Support tier prices (defaults)
+export const SUPPORT_LEVEL_PRICES: Record<SupportLevel, number> = {
+  none: 0,
+  basic: 1,
+  intermediate: 500,
+  advanced: 900,
+};
+
+export const SUPPORT_LEVEL_LABELS: Record<SupportLevel, string> = {
+  none: 'Sem Suporte',
+  basic: 'Básico',
+  intermediate: 'Intermediário',
+  advanced: 'Avançado',
+};
+
 export interface AddonsState {
   backupPlan: string;
   backupGb: number;
@@ -627,6 +645,19 @@ export interface AddonsState {
   veeamVm: number;
   veeamAg: number;
   winserver: number;
+  // New add-ons
+  support: {
+    level: SupportLevel;
+    price: number;
+  };
+  consulting: {
+    quantity: number;
+    unitPrice: number;
+  };
+  dba: {
+    quantity: number;
+    unitPrice: number;
+  };
   // Dynamic custom add-ons: key -> quantity
   customAddons?: Record<string, number>;
 }
