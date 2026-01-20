@@ -912,14 +912,38 @@ const OpenCalculator: React.FC = () => {
           try {
             const fullProposal = await openApi.getProposal(urlIdParam);
             
+            // Detailed logging for debugging dados_proposta issues
+            const rawDadosProposta = (fullProposal as any)?.dados_proposta;
+            const parsedDadosProposta = typeof rawDadosProposta === 'string' 
+              ? (() => { try { return JSON.parse(rawDadosProposta); } catch { return null; } })()
+              : rawDadosProposta;
+            
             console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_API:', {
               id: (fullProposal as any)?.id,
-              hasDadosProposta: Boolean((fullProposal as any)?.dados_proposta),
-              hasItems: Boolean((fullProposal as any)?.items),
+              hasDadosProposta: Boolean(parsedDadosProposta),
+              dadosPropostaType: typeof rawDadosProposta,
+              dadosPropostaKeys: parsedDadosProposta ? Object.keys(parsedDadosProposta) : [],
+              hasStorageItems: Boolean(parsedDadosProposta?.storageItems?.length),
+              hasKubernetes: Boolean(parsedDadosProposta?.kubernetes?.enabled),
+              hasOpenSaas: Boolean(parsedDadosProposta?.openSaas?.enabled),
+              hasAddons: Boolean(parsedDadosProposta?.addons),
+              addonsCount: (fullProposal as any)?.addons?.length || 0,
+              serversCount: (fullProposal as any)?.servers?.length || 0,
             });
             
             // Convert API response to local format
+            // apiToLocal will handle both new format (dados_proposta) and legacy format (addons[])
             const localProposal = apiToLocal(fullProposal as any);
+            
+            // Log the converted proposal to verify reconstruction
+            console.log('[OpenCalculator] CONVERTED_LOCAL_PROPOSAL:', {
+              storageItemsCount: localProposal.storageItems?.length || 0,
+              kubernetesEnabled: Boolean((localProposal.kubernetes as any)?.enabled),
+              openSaasEnabled: Boolean((localProposal.openSaas as any)?.enabled),
+              openSaasUsers: (localProposal.openSaas as any)?.users || 0,
+              addons: localProposal.addons,
+              itemsCount: localProposal.items?.length || 0,
+            });
             
             // Normalize for calculator (cast to Record for normalizer compatibility)
             const normalized = normalizeProposalForEdit(localProposal as unknown as Record<string, unknown>);
