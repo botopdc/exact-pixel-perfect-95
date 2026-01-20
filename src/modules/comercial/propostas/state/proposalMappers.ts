@@ -285,19 +285,26 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
       const id = crypto.randomUUID();
       const name = toStr(server.name, '').toLowerCase();
       const isVM = name.includes('vm') || toNum(server.vcpu, 0) > 0;
-      
-      // CRITICAL: Extract GPU from server with explicit type checking
-      // Check multiple possible keys in order of priority
-      const rawGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model;
-      const gpu = typeof rawGpu === 'string' && rawGpu !== '' ? rawGpu : 'Sem GPU';
-      
-      const rawGpuQty = server.gpuQty ?? server.gpu_qty ?? server.extras?.gpuQty ?? server.extras?.gpu_qty;
-      const gpuQty = typeof rawGpuQty === 'number' ? rawGpuQty : toNum(rawGpuQty, 0);
-      
-      if (gpu !== 'Sem GPU' && gpuQty > 0) {
-        console.log('[EDIT] GPU restored on server ID=', id, ':', { gpu, gpuQty });
+
+      // CRITICAL: support GPU stored as object: { model, quantity }
+      let gpu = 'Sem GPU';
+      let gpuQty = 0;
+
+      if (server.gpu && typeof server.gpu === 'object') {
+        gpu = typeof server.gpu.model === 'string' && server.gpu.model !== '' ? server.gpu.model : 'Sem GPU';
+        gpuQty = typeof server.gpu.quantity === 'number' ? server.gpu.quantity : toNum(server.gpu.quantity, 0);
+      } else {
+        const rawGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model;
+        gpu = typeof rawGpu === 'string' && rawGpu !== '' ? rawGpu : 'Sem GPU';
+
+        const rawGpuQty = server.gpuQty ?? server.gpu_qty ?? server.extras?.gpuQty ?? server.extras?.gpu_qty;
+        gpuQty = typeof rawGpuQty === 'number' ? rawGpuQty : toNum(rawGpuQty, 0);
       }
-      
+
+      if (gpu !== 'Sem GPU' && gpuQty > 0) {
+        console.log(`[EDIT] GPU restored: model=${gpu} qty=${gpuQty}`);
+      }
+
       if (isVM) {
         return {
           type: 'vm' as const,
@@ -312,7 +319,7 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
           qtyServers: toNum(server.quantity, 1),
         } as VMItemV2;
       }
-      
+
       return {
         type: 'bm' as const,
         id,
@@ -522,7 +529,15 @@ export interface ApiProposalPayload {
   discount_pct: number;
   total: number;
   addons: Array<{ name: string; price: number; quantity: number }>;
-  servers: Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }>;
+  servers: Array<{
+    name: string;
+    vcpu: number;
+    ram: number;
+    storage: number;
+    price: number;
+    quantity: number;
+    gpu?: { model: string; quantity: number };
+  }>;
   due_at: string;
   proposal_status?: string;
   status?: string;
@@ -657,9 +672,24 @@ export function serializeProposal(
   // ============================================
   // BUILD SERVERS ARRAY
   // ============================================
-  const serversArray: Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number; gpu?: string; gpuQty?: number }> = [];
-  
+  const serversArray: Array<{
+    name: string;
+    vcpu: number;
+    ram: number;
+    storage: number;
+    price: number;
+    quantity: number;
+    gpu?: { model: string; quantity: number };
+  }> = [];
+
   for (const [idx, item] of state.items.entries()) {
+    const hasGpu = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU' && item.gpuQty > 0;
+    const gpuObj = hasGpu ? { model: item.gpu, quantity: item.gpuQty } : undefined;
+
+    if (hasGpu) {
+      console.log(`[SERIALIZE] gpu.enabled=true model=${item.gpu} qty=${item.gpuQty}`);
+    }
+
     if (item.type === 'vm') {
       serversArray.push({
         name: `VM #${idx + 1}`,
@@ -668,8 +698,7 @@ export function serializeProposal(
         storage: Math.round(item.nvmeTb * 1024),
         price: 0,
         quantity: item.qtyServers,
-        gpu: item.gpu !== 'Sem GPU' ? item.gpu : undefined,
-        gpuQty: item.gpuQty > 0 ? item.gpuQty : undefined,
+        gpu: gpuObj,
       });
     } else if (item.type === 'bm') {
       serversArray.push({
@@ -679,8 +708,7 @@ export function serializeProposal(
         storage: 0,
         price: 0,
         quantity: item.qtyServers,
-        gpu: item.gpu !== 'Sem GPU' ? item.gpu : undefined,
-        gpuQty: item.gpuQty > 0 ? item.gpuQty : undefined,
+        gpu: gpuObj,
       });
     }
   }
