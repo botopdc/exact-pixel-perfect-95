@@ -11,7 +11,7 @@ interface SendProposalEmailRequest {
   clientName: string;
   clientEmail: string;
   proposalId: string;
-  proposalLink: string;
+  proposalLink: string;  // MUST be the full canonical link with token
   totalValue: string;
   validityDate: string;
   senderEmail?: string;
@@ -40,9 +40,12 @@ const handler = async (req: Request): Promise<Response> => {
       isAcceptance = false,
     }: SendProposalEmailRequest = await req.json();
 
-    console.log(
-      `[send-proposal-email] Sending to: ${clientEmail}, proposal: ${proposalId}, isAcceptance: ${isAcceptance}`,
-    );
+    console.log("[send-proposal-email] Params:", {
+      to: clientEmail,
+      proposalId,
+      isAcceptance,
+      linkReceived: proposalLink,
+    });
 
     // Validate required fields
     if (!clientEmail || !clientName || !proposalId) {
@@ -53,24 +56,11 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    // CANONICAL LINK FORMAT: /proposta/aprovar?proposalId=X&token=Y
-    // If the link already contains token param, it's the canonical format - use as-is
-    // Otherwise, it's a legacy format that needs /aceite suffix (for backward compatibility only)
-    const isCanonicalFormat = proposalLink.includes('proposalId=') && proposalLink.includes('token=');
-    
-    let linkToUse: string;
-    if (isAcceptance) {
-      // For acceptance notification emails (sent to comercial@), use the original link
-      linkToUse = proposalLink;
-    } else if (isCanonicalFormat) {
-      // Canonical format already includes token - use as-is
-      linkToUse = proposalLink;
-      console.log("[send-proposal-email] Using canonical link format (with token)");
-    } else {
-      // Legacy format without token - add /aceite suffix (deprecated path)
-      console.log("[send-proposal-email] WARN: Using legacy link format, should migrate to canonical");
-      linkToUse = proposalLink.replace(/\/?$/, '/aceite');
-    }
+    // CRITICAL: Use proposalLink EXACTLY as received - no manipulation
+    // The caller is responsible for providing the canonical link format:
+    // https://core.opendata.center/proposta/aprovar?proposalId=<ID>&token=<TOKEN>
+    const linkToUse = proposalLink;
+    console.log("[send-proposal-email] Using link directly:", linkToUse);
 
     const emailHtml = isAcceptance
       ? `
