@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { FileDown, Save, List, Plus, Minus, ChevronDown, ChevronUp, Trash2, Settings, Mail, Loader2, RefreshCw, Copy, Bug, Shield, Percent, Pencil } from 'lucide-react';
-import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
+import { useNavigate, Link as RouterLink, useLocation, useSearchParams } from 'react-router-dom';
 
 import ProductIcon from './ProductIcon';
 import { EditablePriceCell } from './calculator/EditablePriceCell';
@@ -57,7 +57,7 @@ import {
 } from '@/lib/calculatorConfig';
 import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useSaveProposal, SavedProposal } from '@/hooks/useProposals';
+import { useSaveProposal, SavedProposal, apiToLocal } from '@/hooks/useProposals';
 import { useSavePartnerProposal } from '@/hooks/usePartnerProposals';
 import { authService } from '@/services/authService';
 import { partnerAuthService } from '@/services/partnersService';
@@ -74,6 +74,7 @@ import {
   PricingRules 
 } from '@/config/pricingRules';
 import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/proposalNormalizer';
+import { openApi } from '@/lib/openApi';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -87,8 +88,19 @@ interface CalculatorUserContext {
 const OpenCalculator: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
+  
+  // URL-based edit mode detection (edit=1&id=...)
+  const urlEditParam = searchParams.get('edit');
+  const urlIdParam = searchParams.get('id');
+  const isUrlEditMode = urlEditParam === '1' && !!urlIdParam;
+  
+  // Track if we're loading the proposal for edit mode from API
+  const [loadingEditProposal, setLoadingEditProposal] = useState(false);
+  const [editModeError, setEditModeError] = useState<string | null>(null);
+  const initializedEditModeRef = useRef(false);
   
   // Get user context (works for both internal users and partners)
   const userContext = useMemo((): CalculatorUserContext => {
@@ -803,80 +815,145 @@ const OpenCalculator: React.FC = () => {
     });
   }, [config?.baremetal?.cpu_models, config?.baremetal?.ram_tiers, config?.baremetal?.disks]);
 
-  // Add initial VM after config loads OR load proposal for editing
+  // Helper function to apply normalized state to calculator
+  const applyNormalizedState = useCallback((normalized: ReturnType<typeof normalizeProposalForEdit>, displayId: string) => {
+    console.log('[OpenCalculator] EDIT_MODE_HYDRATION_COMPLETE:', {
+      vmCount: normalized.vmItems.length,
+      bmCount: normalized.baremetalItems.length,
+      storageCount: normalized.storageItems.length,
+      kubernetesEnabled: normalized.kubernetes.enabled,
+      openSaasEnabled: normalized.openSaas.enabled,
+      openSaasUsers: normalized.openSaas.users,
+      selectedTerm: normalized.selectedTerm,
+      addons: normalized.addons,
+      priceOverrides: Object.keys(normalized.priceOverrides).length,
+      grandTotal: normalized.totals.grandTotal,
+    });
+    
+    // Apply normalized state to calculator
+    // FX is now fixed at 1, no need to restore it
+    setSelectedTerm(normalized.selectedTerm);
+    setDatacenter(normalized.datacenter);
+    setClient(normalized.client);
+    setProposal(normalized.proposal);
+    
+    // Merge VM and BM items into single items array
+    // CRITICAL: Do NOT create default BareMetal when there are no servers
+    const allItems = normalizedToCalculatorItems(normalized);
+    setItems(allItems);
+    
+    setAddons(normalized.addons);
+    setKubernetes(normalized.kubernetes);
+    setStorageItems(normalized.storageItems);
+    setReseller(normalized.reseller);
+    setOpenSaas(normalized.openSaas);
+    setPriceOverrides(normalized.priceOverrides);
+    setObservacao(normalized.observacao);
+    
+    // Expand all loaded items
+    const allItemIds = allItems.map((item: any) => item.id);
+    setExpandedItems(new Set(allItemIds));
+    
+    // Mark as edit mode with API numeric ID (critical for updates)
+    setIsEditMode(true);
+    setEditingProposalId(normalized.apiId ? String(normalized.apiId) : null);
+    
+    console.log('[OpenCalculator] EDIT_MODE activated:', {
+      apiNumericId: normalized.apiId,
+      displayId,
+      isEditMode: true,
+      hydratedItemsCount: allItems.length,
+      storageCount: normalized.storageItems.length,
+      kubernetesEnabled: normalized.kubernetes.enabled,
+      openSaasEnabled: normalized.openSaas.enabled,
+      openSaasUsers: normalized.openSaas.users,
+    });
+    
+    setInitialized(true);
+    
+    // Clear the navigation state to prevent re-loading on refresh
+    window.history.replaceState({}, document.title);
+    
+    toast({ title: 'Proposta carregada', description: `Editando proposta ${displayId}` });
+  }, [toast]);
+
+  // MAIN INITIALIZATION: Add initial VM OR load proposal for editing
+  // CRITICAL: This effect is now URL-based (edit=1&id=...) and self-sufficient
   useEffect(() => {
     if (configLoading) return;
     
-    // Check if we have a proposal to edit from navigation state
-    const editProposal = location.state?.editProposal;
+    // Prevent duplicate initialization
+    if (initializedEditModeRef.current) return;
     
-    if (editProposal && !initialized) {
-      // Use centralized normalizer for hydration
-      console.log('[OpenCalculator] HYDRATION START using normalizeProposalForEdit');
+    // CASE 1: URL-based edit mode (edit=1&id=...)
+    // This is the PRIMARY source of truth for edit mode
+    if (isUrlEditMode && urlIdParam) {
+      console.log('[OpenCalculator] EDIT_MODE_DETECTED via URL:', { edit: urlEditParam, id: urlIdParam });
       
-      const normalized = normalizeProposalForEdit(editProposal);
+      // Check if we have proposal data from navigation state (optimization)
+      const editProposalFromState = location.state?.editProposal;
       
-      console.log('[OpenCalculator] Normalized result:', {
-        vmCount: normalized.vmItems.length,
-        bmCount: normalized.baremetalItems.length,
-        storageCount: normalized.storageItems.length,
-        kubernetesEnabled: normalized.kubernetes.enabled,
-        openSaasEnabled: normalized.openSaas.enabled,
-        selectedTerm: normalized.selectedTerm,
-        grandTotal: normalized.totals.grandTotal,
-      });
+      if (editProposalFromState) {
+        // We have proposal data from navigation - use it directly
+        console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_STATE');
+        initializedEditModeRef.current = true;
+        
+        const normalized = normalizeProposalForEdit(editProposalFromState);
+        applyNormalizedState(normalized, normalized.displayId);
+      } else {
+        // NO state data - MUST fetch from API
+        console.log('[OpenCalculator] FETCHING_FULL_PROPOSAL from API:', urlIdParam);
+        initializedEditModeRef.current = true;
+        setLoadingEditProposal(true);
+        setEditModeError(null);
+        
+        // Fetch complete proposal from API
+        const fetchProposal = async () => {
+          try {
+            const fullProposal = await openApi.getProposal(urlIdParam);
+            
+            console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_API:', {
+              id: (fullProposal as any)?.id,
+              hasDadosProposta: Boolean((fullProposal as any)?.dados_proposta),
+              hasItems: Boolean((fullProposal as any)?.items),
+            });
+            
+            // Convert API response to local format
+            const localProposal = apiToLocal(fullProposal as any);
+            
+            // Normalize for calculator (cast to Record for normalizer compatibility)
+            const normalized = normalizeProposalForEdit(localProposal as unknown as Record<string, unknown>);
+            
+            applyNormalizedState(normalized, normalized.displayId);
+          } catch (error: any) {
+            console.error('[OpenCalculator] ERROR fetching proposal:', error);
+            setEditModeError(error.response?.data?.message || error.message || 'Erro ao carregar proposta');
+            toast({
+              title: 'Erro ao carregar proposta',
+              description: error.response?.data?.message || 'Não foi possível carregar os dados da proposta.',
+              variant: 'destructive',
+            });
+            // Reset to allow creating new proposal
+            setInitialized(true);
+          } finally {
+            setLoadingEditProposal(false);
+          }
+        };
+        
+        fetchProposal();
+      }
       
-      // Apply normalized state to calculator
-      // FX is now fixed at 1, no need to restore it
-      setSelectedTerm(normalized.selectedTerm);
-      setDatacenter(normalized.datacenter);
-      setClient(normalized.client);
-      setProposal(normalized.proposal);
-      
-      // Merge VM and BM items into single items array
-      // CRITICAL: Do NOT create default BareMetal when there are no servers
-      const allItems = normalizedToCalculatorItems(normalized);
-      setItems(allItems);
-      
-      setAddons(normalized.addons);
-      setKubernetes(normalized.kubernetes);
-      setStorageItems(normalized.storageItems);
-      setReseller(normalized.reseller);
-      setOpenSaas(normalized.openSaas);
-      setPriceOverrides(normalized.priceOverrides);
-      setObservacao(normalized.observacao);
-      
-      // Expand all loaded items
-      const allItemIds = allItems.map((item: any) => item.id);
-      setExpandedItems(new Set(allItemIds));
-      
-      // Mark as edit mode with API numeric ID (critical for updates)
-      setIsEditMode(true);
-      setEditingProposalId(normalized.apiId ? String(normalized.apiId) : null);
-      
-      console.log('[OpenCalculator] EDIT MODE activated:', {
-        apiNumericId: normalized.apiId,
-        displayId: normalized.displayId,
-        isEditMode: true,
-        hydratedItemsCount: allItems.length,
-        storageCount: normalized.storageItems.length,
-        kubernetesEnabled: normalized.kubernetes.enabled,
-        openSaasEnabled: normalized.openSaas.enabled,
-      });
-      
-      setInitialized(true);
-      
-      // Clear the navigation state to prevent re-loading on refresh
-      window.history.replaceState({}, document.title);
-      
-      toast({ title: 'Proposta carregada', description: `Editando proposta ${normalized.displayId}` });
-    } else if (!initialized && items.length === 0) {
+      return;
+    }
+    
+    // CASE 2: New proposal (no edit mode)
+    if (!initialized && items.length === 0) {
       // CRITICAL: Only add default VM for NEW proposals, not edits
       // Do NOT create default BareMetal when editing proposals without servers
       addVM();
       setInitialized(true);
     }
-  }, [configLoading, initialized, items.length, addVM, location.state, toast]);
+  }, [configLoading, initialized, items.length, addVM, location.state, toast, isUrlEditMode, urlIdParam, urlEditParam, applyNormalizedState]);
 
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
@@ -1204,7 +1281,8 @@ const OpenCalculator: React.FC = () => {
 
   // Loading state - check both configLoading AND config existence
   // This ensures we don't render the calculator UI until config is fully loaded
-  if (configLoading || !config) {
+  // Also check if we're loading a proposal for edit mode
+  if (configLoading || !config || loadingEditProposal) {
     return (
       <div className="min-h-screen bg-background">
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
@@ -1216,12 +1294,59 @@ const OpenCalculator: React.FC = () => {
         <main className="container mx-auto px-4 py-6">
           <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
             <div className="space-y-6">
-              <Skeleton className="h-8 w-96" />
-              <Skeleton className="h-64 w-full" />
-              <Skeleton className="h-48 w-full" />
+              {loadingEditProposal ? (
+                <>
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Carregando proposta para edição...</span>
+                  </div>
+                  <Skeleton className="h-64 w-full" />
+                  <Skeleton className="h-48 w-full" />
+                </>
+              ) : (
+                <>
+                  <Skeleton className="h-8 w-96" />
+                  <Skeleton className="h-64 w-full" />
+                  <Skeleton className="h-48 w-full" />
+                </>
+              )}
             </div>
             <div className="space-y-6">
               <Skeleton className="h-96 w-full" />
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+  
+  // Error state for edit mode
+  if (editModeError && isUrlEditMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+            <span className="text-2xl font-bold tracking-wide text-foreground">OPEN — Calculadora VM + BareMetal</span>
+          </div>
+        </header>
+        <main className="container mx-auto px-4 py-6">
+          <div className="max-w-lg mx-auto text-center py-12">
+            <div className="h-16 w-16 rounded-full bg-destructive/20 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="h-8 w-8 text-destructive" />
+            </div>
+            <h2 className="text-xl font-semibold text-foreground mb-2">Erro ao carregar proposta</h2>
+            <p className="text-muted-foreground mb-6">{editModeError}</p>
+            <div className="flex gap-3 justify-center">
+              <Button variant="outline" onClick={() => navigate(-1)}>
+                Voltar
+              </Button>
+              <Button onClick={() => {
+                setEditModeError(null);
+                initializedEditModeRef.current = false;
+                navigate('/modulos/comercial/propostas/criar', { replace: true });
+              }}>
+                Nova Proposta
+              </Button>
             </div>
           </div>
         </main>
