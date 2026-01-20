@@ -55,11 +55,9 @@ export async function getCompanies(filters: CompanyFilters = {}): Promise<Compan
   if (filters.uf) params.uf = filters.uf;
   if (filters.__page) params.__page = filters.__page;
   if (filters.__perPage) params.__perPage = filters.__perPage;
-  if (filters.__order) params.__order = filters.__order;
   
   // Default pagination
   if (!params.__perPage) params.__perPage = 50;
-  if (!params.__order) params.__order = '-updated_at';
   
   return await openApi.getCompanies(params as CompanyFilters);
 }
@@ -67,7 +65,7 @@ export async function getCompanies(filters: CompanyFilters = {}): Promise<Compan
 export async function getAllCompanies(): Promise<ApiCompany[]> {
   logDataSource({ module: MODULE, source: 'API', operation: 'READ', endpoint: '/api/company', details: 'List all companies' });
   
-  const response = await openApi.getCompanies({ __perPage: 1000, __order: '-updated_at' });
+  const response = await openApi.getCompanies({ __perPage: 1000 });
   return response.data;
 }
 
