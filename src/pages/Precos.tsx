@@ -850,9 +850,35 @@ const Precos = () => {
                 </CardContent>
               </Card>
 
+              {/* Serviços Especializados */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Serviços Especializados (R$)</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  {[
+                    { key: 'support_basic', label: 'Suporte Básico', value: config.addons_brl.support_basic ?? 1 },
+                    { key: 'support_intermediate', label: 'Suporte Intermediário', value: config.addons_brl.support_intermediate ?? 500 },
+                    { key: 'support_advanced', label: 'Suporte Avançado', value: config.addons_brl.support_advanced ?? 900 },
+                    { key: 'consulting_hours', label: 'Consultoria Técnica (hora)', value: config.addons_brl.consulting_hours ?? 200 },
+                    { key: 'dba_hours', label: 'DBA (hora)', value: config.addons_brl.dba_hours ?? 250 },
+                  ].map(({ key, label, value }) => (
+                    <div key={key} className="space-y-2">
+                      <Label>{label}</Label>
+                      <Input 
+                        type="number" step="0.01" value={value} 
+                        readOnly={!isAdmin} disabled={!isAdmin}
+                        className={!isAdmin ? "bg-muted/30" : ""}
+                        onChange={(e) => handleUpdateAddonPrice(key, label, value, Number(e.target.value))}
+                      />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
               {/* Custom Add-ons */}
               {(() => {
-                const standardKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
+                const standardKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit', 'support_basic', 'support_intermediate', 'support_advanced', 'consulting_hours', 'dba_hours'];
                 const customEntries = Object.entries(config.addons_brl).filter(
                   ([key, value]) => !standardKeys.includes(key) && typeof value === 'number'
                 );

@@ -617,7 +617,7 @@ const OpenCalculator: React.FC = () => {
     }
 
     // Custom add-ons (dynamic from config)
-    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
+    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit', 'support_basic', 'support_intermediate', 'support_advanced', 'consulting_hours', 'dba_hours'];
     Object.entries(config.addons_brl).forEach(([key, price]) => {
       if (!standardAddonKeys.includes(key) && typeof price === 'number') {
         const qty = toNum(addons.customAddons?.[key], 0);
@@ -2572,21 +2572,28 @@ const OpenCalculator: React.FC = () => {
                 )}
               </div>
 
-              {/* NEW ADD-ONS: Suporte, Consultoria, DBA */}
+              {/* SERVIÇOS ESPECIALIZADOS: Suporte, Consultoria, DBA - Preços carregados do Admin */}
               <div className="mt-4 border-t border-border pt-4">
                 <label className="block text-sm font-medium text-foreground mb-3">Serviços Especializados</label>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Suporte */}
+                  {/* Suporte - dropdown apenas, preço vem do Admin */}
                   <div className="p-3 border border-border rounded-lg bg-muted/20">
                     <label className="block text-xs text-muted-foreground mb-1">Suporte</label>
                     <Select 
                       value={addons.support.level} 
                       onValueChange={(v) => {
                         const level = v as SupportLevel;
-                        const defaultPrice = SUPPORT_LEVEL_PRICES[level];
+                        // Carrega preço do Admin config (addons_brl.support_*)
+                        const adminPrice = level === 'basic' 
+                          ? (config.addons_brl?.support_basic ?? 1)
+                          : level === 'intermediate' 
+                            ? (config.addons_brl?.support_intermediate ?? 500)
+                            : level === 'advanced' 
+                              ? (config.addons_brl?.support_advanced ?? 900)
+                              : 0;
                         setAddons(prev => ({ 
                           ...prev, 
-                          support: { level, price: defaultPrice }
+                          support: { level, price: adminPrice }
                         }));
                       }}
                     >
@@ -2594,104 +2601,82 @@ const OpenCalculator: React.FC = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {(Object.keys(SUPPORT_LEVEL_LABELS) as SupportLevel[]).map(level => (
-                          <SelectItem key={level} value={level}>
-                            {SUPPORT_LEVEL_LABELS[level]} {SUPPORT_LEVEL_PRICES[level] > 0 && `- R$ ${formatCurrency(SUPPORT_LEVEL_PRICES[level])}`}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="none">Sem Suporte</SelectItem>
+                        <SelectItem value="basic">
+                          Básico - R$ {formatCurrency(config.addons_brl?.support_basic ?? 1)}
+                        </SelectItem>
+                        <SelectItem value="intermediate">
+                          Intermediário - R$ {formatCurrency(config.addons_brl?.support_intermediate ?? 500)}
+                        </SelectItem>
+                        <SelectItem value="advanced">
+                          Avançado - R$ {formatCurrency(config.addons_brl?.support_advanced ?? 900)}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     {addons.support.level !== 'none' && (
-                      <div className="mt-2">
-                        <label className="block text-xs text-muted-foreground mb-1">Valor (R$)</label>
-                        <Input
-                          type="number"
-                          value={addons.support.price}
-                          onChange={(e) => setAddons(prev => ({ 
-                            ...prev, 
-                            support: { ...prev.support, price: parseFloat(e.target.value) || 0 }
-                          }))}
-                          min={0}
-                          step={0.01}
-                          className="bg-input border-border"
-                        />
-                      </div>
+                      <span className="text-xs text-muted-foreground mt-1 block">
+                        Valor: R$ {formatCurrency(addons.support.price)}/mês
+                      </span>
                     )}
                   </div>
 
-                  {/* Consultoria Técnica */}
+                  {/* Consultoria Técnica - quantidade apenas, preço vem do Admin */}
                   <div className="p-3 border border-border rounded-lg bg-muted/20">
                     <label className="block text-xs text-muted-foreground mb-1">Consultoria Técnica (horas)</label>
                     <Input
                       type="number"
                       value={addons.consulting.quantity}
-                      onChange={(e) => setAddons(prev => ({ 
-                        ...prev, 
-                        consulting: { ...prev.consulting, quantity: parseInt(e.target.value) || 0 }
-                      }))}
+                      onChange={(e) => {
+                        const qty = parseInt(e.target.value) || 0;
+                        // Carrega preço do Admin config
+                        const adminPrice = config.addons_brl?.consulting_hours ?? 200;
+                        setAddons(prev => ({ 
+                          ...prev, 
+                          consulting: { quantity: qty, unitPrice: adminPrice }
+                        }));
+                      }}
                       min={0}
                       className="bg-input border-border"
                     />
-                    {addons.consulting.quantity > 0 && (
-                      <div className="mt-2">
-                        <label className="block text-xs text-muted-foreground mb-1">Preço/hora (R$)</label>
-                        <Input
-                          type="number"
-                          value={addons.consulting.unitPrice}
-                          onChange={(e) => setAddons(prev => ({ 
-                            ...prev, 
-                            consulting: { ...prev.consulting, unitPrice: parseFloat(e.target.value) || 0 }
-                          }))}
-                          min={0}
-                          step={0.01}
-                          className="bg-input border-border"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          Total: R$ {formatCurrency(addons.consulting.quantity * addons.consulting.unitPrice)}
-                        </span>
-                      </div>
-                    )}
+                    <span className="text-xs text-muted-foreground">
+                      R$ {formatCurrency(config.addons_brl?.consulting_hours ?? 200)}/hora
+                      {addons.consulting.quantity > 0 && (
+                        <> | Total: R$ {formatCurrency(addons.consulting.quantity * addons.consulting.unitPrice)}</>
+                      )}
+                    </span>
                   </div>
 
-                  {/* DBA */}
+                  {/* DBA - quantidade apenas, preço vem do Admin */}
                   <div className="p-3 border border-border rounded-lg bg-muted/20">
                     <label className="block text-xs text-muted-foreground mb-1">DBA (horas)</label>
                     <Input
                       type="number"
                       value={addons.dba.quantity}
-                      onChange={(e) => setAddons(prev => ({ 
-                        ...prev, 
-                        dba: { ...prev.dba, quantity: parseInt(e.target.value) || 0 }
-                      }))}
+                      onChange={(e) => {
+                        const qty = parseInt(e.target.value) || 0;
+                        // Carrega preço do Admin config
+                        const adminPrice = config.addons_brl?.dba_hours ?? 250;
+                        setAddons(prev => ({ 
+                          ...prev, 
+                          dba: { quantity: qty, unitPrice: adminPrice }
+                        }));
+                      }}
                       min={0}
                       className="bg-input border-border"
                     />
-                    {addons.dba.quantity > 0 && (
-                      <div className="mt-2">
-                        <label className="block text-xs text-muted-foreground mb-1">Preço/hora (R$)</label>
-                        <Input
-                          type="number"
-                          value={addons.dba.unitPrice}
-                          onChange={(e) => setAddons(prev => ({ 
-                            ...prev, 
-                            dba: { ...prev.dba, unitPrice: parseFloat(e.target.value) || 0 }
-                          }))}
-                          min={0}
-                          step={0.01}
-                          className="bg-input border-border"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          Total: R$ {formatCurrency(addons.dba.quantity * addons.dba.unitPrice)}
-                        </span>
-                      </div>
-                    )}
+                    <span className="text-xs text-muted-foreground">
+                      R$ {formatCurrency(config.addons_brl?.dba_hours ?? 250)}/hora
+                      {addons.dba.quantity > 0 && (
+                        <> | Total: R$ {formatCurrency(addons.dba.quantity * addons.dba.unitPrice)}</>
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Custom Add-ons (dynamic from config) */}
               {(() => {
-                const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
+                const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit', 'support_basic', 'support_intermediate', 'support_advanced', 'consulting_hours', 'dba_hours'];
                 const customAddonEntries = Object.entries(config.addons_brl).filter(
                   ([key, value]) => !standardAddonKeys.includes(key) && typeof value === 'number'
                 );
