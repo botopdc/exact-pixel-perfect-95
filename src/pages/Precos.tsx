@@ -456,7 +456,7 @@ const Precos = () => {
   const handleRemoveAddon = (addonKey: string, addonLabel: string, price: number) => {
     if (!isAdmin) return;
     
-    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit'];
+    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
     if (standardAddonKeys.includes(addonKey)) {
       toast({ title: 'Ação não permitida', description: 'Não é possível remover add-ons padrão.', variant: 'destructive' });
       return;
@@ -835,6 +835,7 @@ const Precos = () => {
                     { key: 'cal_unit', label: 'CAL (unid.)', value: config.addons_brl.cal_unit },
                     { key: 'veeam_vm_unit', label: 'Veeam VM (unid.)', value: config.addons_brl.veeam_vm_unit },
                     { key: 'veeam_agent_unit', label: 'Veeam Agent (unid.)', value: config.addons_brl.veeam_agent_unit },
+                    { key: 'winserver_2vcpu_unit', label: 'WinServer(2vCPU/unid.)', value: config.addons_brl.winserver_2vcpu_unit },
                   ].map(({ key, label, value }) => (
                     <div key={key} className="space-y-2">
                       <Label>{label}</Label>
@@ -851,7 +852,7 @@ const Precos = () => {
 
               {/* Custom Add-ons */}
               {(() => {
-                const standardKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit'];
+                const standardKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
                 const customEntries = Object.entries(config.addons_brl).filter(
                   ([key, value]) => !standardKeys.includes(key) && typeof value === 'number'
                 );

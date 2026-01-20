@@ -102,6 +102,7 @@ export interface CalculatorConfig {
     sql: Record<string, number>;
     veeam_vm_unit: number;
     veeam_agent_unit: number;
+    winserver_2vcpu_unit: number;
   };
   backup_tables_brl_per_gb: Record<string, BackupPriceRange[]>;
   // OPEN SaaS pricing
@@ -241,7 +242,8 @@ export const DEFAULT_CONFIG: CalculatorConfig = {
       std: 2240.0
     },
     veeam_vm_unit: 50.0,
-    veeam_agent_unit: 45.0
+    veeam_agent_unit: 45.0,
+    winserver_2vcpu_unit: 45.0
   },
   backup_tables_brl_per_gb: {
     "7": [
@@ -624,6 +626,7 @@ export interface AddonsState {
   sqlQty: number;
   veeamVm: number;
   veeamAg: number;
+  winserver: number;
   // Dynamic custom add-ons: key -> quantity
   customAddons?: Record<string, number>;
 }

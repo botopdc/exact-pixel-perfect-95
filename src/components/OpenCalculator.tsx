@@ -229,6 +229,7 @@ const OpenCalculator: React.FC = () => {
     sqlQty: 0,
     veeamVm: 0,
     veeamAg: 0,
+    winserver: 0,
   });
   const [kubernetes, setKubernetes] = useState<KubernetesState>({
     enabled: false,
@@ -581,9 +582,15 @@ const OpenCalculator: React.FC = () => {
       const st = unitPrice * veeamAgQty;
       subServices += addRow('Veeam Agent (Workstation)', veeamAgQty, unitPrice, st, 'svc_veeam_agent');
     }
+    const winserverQty = toNum(addons.winserver, 0);
+    if (winserverQty > 0) {
+      const unitPrice = toNum(config.addons_brl.winserver_2vcpu_unit, 0);
+      const st = unitPrice * winserverQty;
+      subServices += addRow('WinServer(2vCPU/unid.)', winserverQty, unitPrice, st, 'svc_winserver');
+    }
 
     // Custom add-ons (dynamic from config)
-    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit'];
+    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
     Object.entries(config.addons_brl).forEach(([key, price]) => {
       if (!standardAddonKeys.includes(key) && typeof price === 'number') {
         const qty = toNum(addons.customAddons?.[key], 0);
@@ -1244,7 +1251,7 @@ const OpenCalculator: React.FC = () => {
     setItems([]);
     setAddons({
       backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: false,
-      tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0,
+      tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0, winserver: 0,
     });
     setKubernetes({
       enabled: false,
@@ -2482,6 +2489,21 @@ const OpenCalculator: React.FC = () => {
                 </div>
               </div>
 
+              {/* WinServer */}
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <div className="relative">
+                  <label className="block text-xs text-muted-foreground mb-1">WinServer(2vCPU/unid.) (qtd)</label>
+                  <Input
+                    type="number"
+                    value={addons.winserver}
+                    onChange={(e) => setAddons(prev => ({ ...prev, winserver: parseInt(e.target.value) || 0 }))}
+                    min={0}
+                    className="bg-input border-border"
+                  />
+                  <span className="text-xs text-muted-foreground">R$ {config.addons_brl.winserver_2vcpu_unit}/unid.</span>
+                </div>
+              </div>
+
               {/* Backup */}
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div className="relative">
@@ -2514,7 +2536,7 @@ const OpenCalculator: React.FC = () => {
 
               {/* Custom Add-ons (dynamic from config) */}
               {(() => {
-                const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit'];
+                const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
                 const customAddonEntries = Object.entries(config.addons_brl).filter(
                   ([key, value]) => !standardAddonKeys.includes(key) && typeof value === 'number'
                 );
