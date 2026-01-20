@@ -1044,6 +1044,14 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
+    // ============================================
+    // WINSERVER - EXPLICIT (CRITICAL FOR PERSISTENCE)
+    // ============================================
+    if (typeof addons.winserver === 'number' && addons.winserver > 0) {
+      addonsArray.push({ name: 'WinServer(2vCPU/unid.)', price: 0, quantity: addons.winserver });
+      console.log('[localToApi] Added WinServer to payload:', addons.winserver);
+    }
+    
     // Standard addon mappings with proper type handling
     if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
       addonsArray.push({ name: 'Antivirus', price: 0, quantity: addons.antivirus });
@@ -1066,6 +1074,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // Backup
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
       addonsArray.push({ name: `Backup ${addons.backupPlan}`, price: 0, quantity: addons.backupGb });
+      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb);
     }
     // SQL
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
