@@ -129,7 +129,7 @@ function AppSidebar() {
     <Sidebar className="border-r border-sidebar-border">
       {/* Logo Header */}
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link to="/dashboard" className="flex items-center gap-3">
+        <Link to="/modulos/dashboard" className="flex items-center gap-3">
           <img src={logoWhite} alt="OPEN Datacenter" className="h-8 w-auto" />
           {!collapsed && (
             <div className="flex flex-col">
@@ -212,19 +212,26 @@ function DashboardHeader() {
 
   const getPageTitle = () => {
     const path = location.pathname;
+    // Modular routes
+    if (path === '/modulos/dashboard') return 'Dashboard';
+    if (path === '/modulos/dashboard/ceo') return 'CEO View';
+    if (path === '/modulos/comercial/propostas/criar') return 'Calculadora de Preços';
+    if (path === '/modulos/comercial/executivos') return 'Executivos';
+    if (path === '/modulos/comercial/gestao-executivos') return 'Gestão de Executivos';
+    if (path === '/modulos/comercial/propostas') return 'Propostas Executivos';
+    if (path === '/modulos/comercial/metas') return 'Metas Comerciais';
+    if (path === '/modulos/comercial/comissoes') return 'Gestão de Comissões';
+    if (path === '/modulos/comercial/potencial-gerente') return 'Meu Potencial (Gerente)';
+    if (path === '/modulos/comercial/meu-potencial') return 'Meu Potencial';
+    if (path === '/modulos/parceiros/executivo') return 'Executivo Parceiros';
+    if (path === '/modulos/parceiros/gestao') return 'Gestão de Parceiros';
+    if (path === '/modulos/parceiros/propostas') return 'Propostas Parceiros';
+    if (path === '/modulos/parceiros/comissoes') return 'Gestão de Comissões';
+    if (path === '/modulos/admin/usuarios') return 'Gestão de Usuários';
+    // Legacy routes (kept for backwards compatibility)
     if (path === '/dashboard') return 'Dashboard';
     if (path === '/ceo') return 'CEO View';
     if (path === '/calculadora') return 'Calculadora de Preços';
-    if (path === '/comercial/executivos') return 'Executivos';
-    if (path === '/comercial/gestao-executivos') return 'Gestão de Executivos';
-    if (path === '/comercial/propostas') return 'Propostas Executivos';
-    if (path === '/comercial/metas') return 'Metas Comerciais';
-    if (path === '/comercial/comissoes') return 'Gestão de Comissões';
-    if (path === '/comercial/potencial-gerente') return 'Meu Potencial (Gerente)';
-    if (path === '/parceiros/executivo') return 'Executivo Parceiros';
-    if (path === '/parceiros/gestao') return 'Gestão de Parceiros';
-    if (path === '/parceiros/propostas') return 'Propostas Parceiros';
-    if (path === '/parceiros/comissoes') return 'Gestão de Comissões';
     if (path === '/atendimentos/suporte') return 'Suporte';
     if (path === '/atendimentos/cs') return 'Customer Success';
     if (path === '/atendimentos/novo') return 'Novo Ticket';
@@ -297,7 +304,7 @@ function RouteGuard({ children }: { children: React.ReactNode }) {
       toast.error('Acesso não permitido', {
         description: 'Você não tem permissão para acessar esta página.',
       });
-      navigate('/dashboard', { replace: true });
+      navigate('/modulos/dashboard', { replace: true });
     }
   }, [location.pathname, userLevel, navigate]);
 
@@ -320,11 +327,11 @@ export default function DashboardLayout() {
         return;
       }
       
-      // Apenas Executivos (700) usam ExecutiveLayout
-      // Gerente Comercial (750) usa DashboardLayout com menu completo
+      // ALL internal users (including 700) now use ModuleLayout
+      // Redirect to modular dashboard
       const user = authService.getCurrentUser();
-      if (user?.level === 700) {
-        navigate('/executivo/dashboard', { replace: true });
+      if (user?.level && user.level >= 600) {
+        navigate('/modulos/dashboard', { replace: true });
         return;
       }
     };

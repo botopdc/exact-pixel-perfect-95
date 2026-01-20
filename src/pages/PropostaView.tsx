@@ -317,7 +317,7 @@ const PropostaView: React.FC = () => {
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
           <div className="container mx-auto px-4 py-4 flex items-center justify-between">
             <OpenLogo />
-            <Button variant="open-outline" onClick={() => navigate('/')}>
+            <Button variant="open-outline" onClick={() => navigate('/modulos/comercial/propostas')}>
               <ArrowLeft className="w-4 h-4" />
               Voltar
             </Button>
@@ -326,7 +326,7 @@ const PropostaView: React.FC = () => {
         <main className="container mx-auto px-4 py-16 text-center">
           <h1 className="text-2xl font-bold text-foreground mb-4">Proposta não encontrada</h1>
           <p className="text-muted-foreground mb-6">A proposta solicitada não existe ou foi removida.</p>
-          <Button variant="open" onClick={() => navigate('/')}>Ir para Calculadora</Button>
+          <Button variant="open" onClick={() => navigate('/modulos/comercial/propostas')}>Voltar para Propostas</Button>
         </main>
       </div>
     );
@@ -339,9 +339,9 @@ const PropostaView: React.FC = () => {
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
           <div className="container mx-auto px-4 py-4 flex items-center justify-between">
             <OpenLogo />
-            <Button variant="open-outline" onClick={() => navigate(dashboardRoute)}>
+            <Button variant="open-outline" onClick={() => navigate('/modulos/comercial/propostas')}>
               <ArrowLeft className="w-4 h-4" />
-              Voltar
+              Voltar para Propostas
             </Button>
           </div>
         </header>
@@ -355,8 +355,8 @@ const PropostaView: React.FC = () => {
               Você não tem permissão para visualizar esta proposta. 
               Apenas o criador da proposta ou gestores podem acessá-la.
             </p>
-            <Button variant="open" onClick={() => navigate(dashboardRoute)}>
-              Voltar ao Dashboard
+            <Button variant="open" onClick={() => navigate('/modulos/comercial/propostas')}>
+              Voltar para Propostas
             </Button>
           </div>
         </main>
@@ -557,9 +557,9 @@ const PropostaView: React.FC = () => {
 
         {/* Action buttons below document */}
         <div className="flex justify-center gap-4 mt-8 print:hidden">
-          <Button variant="open-outline" onClick={() => navigate(dashboardRoute)}>
+          <Button variant="open-outline" onClick={() => navigate('/modulos/comercial/propostas')}>
             <ArrowLeft className="w-4 h-4" />
-            Voltar para dashboard
+            Voltar para Propostas
           </Button>
           <Button variant="open" onClick={handleDownloadPDF}>
             <FileDown className="w-4 h-4" />

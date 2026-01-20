@@ -81,28 +81,28 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'dashboard',
         title: 'Dashboard',
-        url: '/dashboard',
+        url: '/modulos/dashboard',
         icon: LayoutDashboard,
         allowedLevels: [600, 750, 775, 900, 950, 1000], // Gerente Comercial (750) usa DashboardLayout
       },
       {
         id: 'ceo-view',
         title: 'CEO View',
-        url: '/ceo',
+        url: '/modulos/dashboard/ceo',
         icon: Crown,
         allowedLevels: [1000], // Apenas Admin - CEO View é restrito
       },
       {
         id: 'calculadora-main',
         title: 'Calculadora de Preços',
-        url: '/calculadora',
+        url: '/modulos/comercial/propostas/criar',
         icon: Calculator,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-usuarios',
         title: 'Gestão de Usuários',
-        url: '/gestao-usuarios',
+        url: '/modulos/admin/usuarios',
         icon: Users,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
@@ -117,42 +117,42 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'executivos',
         title: 'Executivos',
-        url: '/comercial/executivos',
+        url: '/modulos/comercial/executivos',
         icon: UserCheck,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-executivos',
         title: 'Gestão de Executivos',
-        url: '/comercial/gestao-executivos',
+        url: '/modulos/comercial/gestao-executivos',
         icon: Settings,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'propostas-executivos',
         title: 'Propostas Executivos',
-        url: '/comercial/propostas',
+        url: '/modulos/comercial/propostas',
         icon: FileStack,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'metas-comerciais',
         title: 'Metas',
-        url: '/comercial/metas',
+        url: '/modulos/comercial/metas',
         icon: Target,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'comissoes-executivos',
         title: 'Gestão de Comissões',
-        url: '/comercial/comissoes',
+        url: '/modulos/comercial/comissoes',
         icon: DollarSign,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'potencial-gerente',
         title: 'Meu Potencial (Gerente)',
-        url: '/comercial/potencial-gerente',
+        url: '/modulos/comercial/potencial-gerente',
         icon: TrendingUp,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
@@ -167,28 +167,28 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'executivo-parceiros',
         title: 'Executivo Parceiros',
-        url: '/parceiros/executivo',
+        url: '/modulos/parceiros/executivo',
         icon: PieChart,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-parceiros',
         title: 'Gestão de Parceiros',
-        url: '/parceiros/gestao',
+        url: '/modulos/parceiros/gestao',
         icon: Handshake,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'propostas-parceiros',
         title: 'Propostas Parceiros',
-        url: '/parceiros/propostas',
+        url: '/modulos/parceiros/propostas',
         icon: FileStack,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
         id: 'gestao-comissoes-parceiros',
         title: 'Gestão de Comissões',
-        url: '/parceiros/comissoes',
+        url: '/modulos/parceiros/comissoes',
         icon: DollarSign,
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
@@ -203,14 +203,14 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'atendimentos-suporte',
         title: 'Suporte',
-        url: '/atendimentos/suporte',
+        url: '/modulos/atendimentos/suporte',
         icon: Wrench,
         allowedLevels: [900, 950, 1000],
       },
       {
         id: 'atendimentos-cs',
         title: 'Customer Success',
-        url: '/atendimentos/cs',
+        url: '/modulos/atendimentos/cs',
         icon: Users,
         allowedLevels: [775, 950, 1000],
       },
@@ -225,21 +225,21 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'kpi-suporte',
         title: 'Suporte',
-        url: '/kpis/suporte',
+        url: '/modulos/atendimentos/kpis/suporte',
         icon: BarChart3,
         allowedLevels: [950, 1000],
       },
       {
         id: 'kpi-cs',
         title: 'Customer Success',
-        url: '/kpis/cs',
+        url: '/modulos/atendimentos/kpis/cs',
         icon: PieChart,
         allowedLevels: [775, 950, 1000],
       },
       {
         id: 'kpi-gestao',
         title: 'Gestão',
-        url: '/kpis/gestao',
+        url: '/modulos/atendimentos/kpis/gestao',
         icon: TrendingUp,
         allowedLevels: [950, 1000],
       },
@@ -254,14 +254,14 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'hs-cs',
         title: 'Visão CS',
-        url: '/health/cs',
+        url: '/modulos/atendimentos/health/cs',
         icon: Heart,
         allowedLevels: [775, 1000],
       },
       {
         id: 'hs-executivo',
         title: 'Visão Executiva',
-        url: '/health/executivo',
+        url: '/modulos/atendimentos/health/executivo',
         icon: Activity,
         allowedLevels: [950, 1000],
       },
@@ -276,7 +276,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'artigos',
         title: 'Artigos',
-        url: '/artigos',
+        url: '/modulos/conteudo/artigos',
         icon: BookOpen,
         allowedLevels: [900, 950, 1000],
       },
@@ -291,7 +291,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         id: 'vagas',
         title: 'Vagas / RH',
-        url: '/rh/vagas',
+        url: '/modulos/gente/vagas',
         icon: Briefcase,
         allowedLevels: [600, 1000],
       },
@@ -430,10 +430,11 @@ export function isRouteAllowed(pathname: string, userLevel: number | null): bool
     return userLevel === USER_LEVELS.GERENTE_COMERCIAL || userLevel >= USER_LEVELS.ADMIN;
   }
   
-  // Rotas do portal executivo - APENAS level 700 (Executivo)
-  // Level 750 (Gerente Comercial) usa DashboardLayout com menu completo
+  // LEGACY: Rotas do portal executivo - agora redirecionadas para /modulos/*
+  // Mantido apenas para compatibilidade durante a transição
   if (pathname.match(/^\/executivo\//)) {
-    return userLevel === 700;
+    // Allow access so the redirect can happen
+    return userLevel >= 600;
   }
 
   // Verifica mapeamento estático

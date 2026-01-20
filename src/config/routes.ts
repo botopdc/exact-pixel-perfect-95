@@ -14,32 +14,62 @@ export const ROUTES = {
       `/proposta/aprovar?proposalId=${encodeURIComponent(proposalId)}&token=${encodeURIComponent(token)}`,
   },
   
-  // Admin/Internal routes (level 1000, 900+, etc.)
+  // NEW MODULAR ROUTES - Main navigation system
+  modulos: {
+    dashboard: '/modulos/dashboard',
+    comercial: {
+      home: '/modulos/comercial',
+      proposals: '/modulos/comercial/propostas',
+      proposalNew: '/modulos/comercial/propostas/criar',
+      proposalEdit: (id: string | number) => `/modulos/comercial/propostas/criar?edit=1&id=${id}`,
+      executivos: '/modulos/comercial/executivos',
+      metas: '/modulos/comercial/metas',
+      comissoes: '/modulos/comercial/comissoes',
+      meuPotencial: '/modulos/comercial/meu-potencial',
+      potencialGerente: '/modulos/comercial/potencial-gerente',
+    },
+    parceiros: {
+      home: '/modulos/parceiros',
+      gestao: '/modulos/parceiros/gestao',
+      proposals: '/modulos/parceiros/propostas',
+      comissoes: '/modulos/parceiros/comissoes',
+    },
+    atendimentos: {
+      home: '/modulos/atendimentos',
+      interno: '/modulos/atendimentos/interno',
+      suporte: '/modulos/atendimentos/suporte',
+      analistas: '/modulos/atendimentos/analistas',
+    },
+  },
+  
+  // LEGACY ROUTES - Keep for redirects only, do not use for navigation
+  // These are being phased out in favor of /modulos/* routes
   admin: {
-    dashboard: '/dashboard',
-    calculator: '/calculadora',
+    dashboard: '/modulos/dashboard',
+    calculator: '/modulos/comercial/propostas/criar',
     ceo: '/ceo',
   },
   
-  // Executive routes (level 700 only - simplified layout)
+  // LEGACY: Executive routes - REDIRECTS to modular routes
+  // Level 700 now uses ModuleLayout like other internal users
   executivo: {
-    dashboard: '/executivo/dashboard',
-    calculator: '/executivo/calculadora',
-    proposals: '/executivo/propostas',
-    potential: '/executivo/potencial',
+    dashboard: '/modulos/dashboard',
+    calculator: '/modulos/comercial/propostas/criar',
+    proposals: '/modulos/comercial/propostas',
+    potential: '/modulos/comercial/potencial',
   },
   
-  // Manager routes (level 750 - uses DashboardLayout with full menu)
+  // LEGACY: Manager routes - REDIRECTS to modular routes
   gerente: {
-    dashboard: '/dashboard',
-    calculator: '/calculadora',
-    proposals: '/comercial/propostas',
-    potential: '/comercial/potencial-gerente',
-    goals: '/comercial/metas',
-    commissions: '/comercial/comissoes',
+    dashboard: '/modulos/dashboard',
+    calculator: '/modulos/comercial/propostas/criar',
+    proposals: '/modulos/comercial/propostas',
+    potential: '/modulos/comercial/potencial',
+    goals: '/modulos/comercial/metas',
+    commissions: '/modulos/comercial/comissoes',
   },
   
-  // Partner routes (level 200)
+  // Partner routes (level 200) - keep separate namespace
   parceiro: {
     login: '/parceiro/login',
     register: '/parceiro/cadastro',
@@ -53,7 +83,7 @@ export const ROUTES = {
 
 /**
  * Get the correct dashboard route based on user level and context
- * This function ensures users are always directed to the appropriate dashboard
+ * ALL internal users now use the modular dashboard
  * 
  * @param userLevel - The numeric level of the user (e.g., 200, 700, 750, 1000)
  * @param isPartner - Whether the user has an active partner session
@@ -65,46 +95,45 @@ export function getDashboardRoute(userLevel: number | undefined, isPartner: bool
     return ROUTES.parceiro.dashboard;
   }
   
-  // Level 700 (Executivo) uses simplified ExecutiveLayout
-  if (userLevel === 700) {
-    return ROUTES.executivo.dashboard;
-  }
-  
-  // Level 750 (Gerente Comercial) uses DashboardLayout with full menu
-  // All other internal users (admin, support, CS, etc.) also use DashboardLayout
-  return ROUTES.admin.dashboard;
+  // ALL internal users (700, 750, 900, 1000, etc.) use modular dashboard
+  return ROUTES.modulos.dashboard;
 }
 
 /**
- * Get the correct calculator route based on user level and context
+ * Get the correct calculator/proposal creation route based on user level and context
+ * ALL internal users now use the modular proposal creation route
  */
 export function getCalculatorRoute(userLevel: number | undefined, isPartner: boolean): string {
   if (isPartner) {
     return ROUTES.parceiro.calculator;
   }
   
-  // Level 700 (Executivo) uses simplified ExecutiveLayout
-  if (userLevel === 700) {
-    return ROUTES.executivo.calculator;
-  }
-  
-  // Level 750 and others use main calculator in DashboardLayout
-  return ROUTES.admin.calculator;
+  // ALL internal users use modular proposal creation route
+  return ROUTES.modulos.comercial.proposalNew;
 }
 
 /**
- * Get the correct proposals route based on user level and context
+ * Get the correct proposal edit route with ID
+ */
+export function getProposalEditRoute(proposalId: string | number, isPartner: boolean): string {
+  if (isPartner) {
+    // Partners edit in their own calculator
+    return `${ROUTES.parceiro.calculator}?edit=1&id=${proposalId}`;
+  }
+  
+  // ALL internal users use modular edit route
+  return ROUTES.modulos.comercial.proposalEdit(proposalId);
+}
+
+/**
+ * Get the correct proposals list route based on user level and context
+ * ALL internal users now use the modular proposals list
  */
 export function getProposalsRoute(userLevel: number | undefined, isPartner: boolean): string {
   if (isPartner) {
     return ROUTES.parceiro.proposals;
   }
   
-  // Level 700 (Executivo) uses simplified ExecutiveLayout
-  if (userLevel === 700) {
-    return ROUTES.executivo.proposals;
-  }
-  
-  // Level 750 and others use main proposals in DashboardLayout
-  return ROUTES.gerente.proposals;
+  // ALL internal users use modular proposals route
+  return ROUTES.modulos.comercial.proposals;
 }

@@ -208,6 +208,9 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
   if (typeof addons.veeam_agent_unit === 'number') {
     addonItems.push({ label: 'Veeam Agent', by: 'unit', type: 'BRL', value: Number(addons.veeam_agent_unit) || 0 });
   }
+  if (typeof addons.winserver_2vcpu_unit === 'number') {
+    addonItems.push({ label: 'WinServer(2vCPU/unid.)', by: 'unit', type: 'BRL', value: Number(addons.winserver_2vcpu_unit) || 0 });
+  }
   
   if (addonItems.length > 0) {
     payloads.push({

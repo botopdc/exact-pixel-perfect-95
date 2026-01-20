@@ -53,17 +53,18 @@ function ExecutiveSidebar() {
   };
 
   // Menu items for level 700 (Executivo) only - this layout is simplified
+  // IMPORTANT: Use modular routes, NOT legacy /executivo/* paths
   const menuItems = [
-    { title: 'Dashboard', url: '/executivo/dashboard', icon: LayoutDashboard },
-    { title: 'Calculadora de Preços', url: '/executivo/calculadora', icon: Calculator },
-    { title: 'Propostas Salvas', url: '/executivo/propostas', icon: FileStack },
-    { title: 'Meu Potencial', url: '/executivo/potencial', icon: TrendingUp },
+    { title: 'Dashboard', url: '/modulos/dashboard', icon: LayoutDashboard },
+    { title: 'Calculadora de Preços', url: '/modulos/comercial/propostas/criar', icon: Calculator },
+    { title: 'Propostas Salvas', url: '/modulos/comercial/propostas', icon: FileStack },
+    { title: 'Meu Potencial', url: '/modulos/comercial/meu-potencial', icon: TrendingUp },
   ];
 
   return (
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link to="/executivo/dashboard" className="flex items-center gap-3">
+        <Link to="/modulos/dashboard" className="flex items-center gap-3">
           <img src={logoWhite} alt="OPEN Datacenter" className="h-8 w-auto" />
           {!collapsed && (
             <div className="flex flex-col">
@@ -155,11 +156,12 @@ function ExecutiveHeader() {
 
   const getPageTitle = () => {
     const path = location.pathname;
-    if (path === '/executivo/dashboard') return 'Dashboard';
-    if (path === '/executivo/calculadora') return 'Calculadora de Preços';
-    if (path === '/executivo/propostas') return 'Propostas Salvas';
-    if (path === '/executivo/potencial') return 'Meu Potencial';
-    if (path === '/executivo/potencial-gerente') return 'Meu Potencial (Gerente)';
+    // Use modular routes for title matching
+    if (path === '/modulos/dashboard') return 'Dashboard';
+    if (path === '/modulos/comercial/propostas/criar') return 'Calculadora de Preços';
+    if (path === '/modulos/comercial/propostas') return 'Propostas Salvas';
+    if (path === '/modulos/comercial/meu-potencial') return 'Meu Potencial';
+    if (path === '/modulos/comercial/potencial-gerente') return 'Meu Potencial (Gerente)';
     return 'Portal do Executivo';
   };
 
@@ -194,20 +196,10 @@ export default function ExecutiveLayout() {
         return;
       }
       
-      // This layout is ONLY for level 700 (Executivo)
-      // Level 750 (Gerente Comercial) and 1000 (Admin) use DashboardLayout with full menu
-      if (user.level !== 700) {
-        // Redirect managers and admins to full dashboard
-        if (user.level === 750 || user.level === 1000) {
-          navigate('/dashboard', { replace: true });
-          return;
-        }
-        // Others are not allowed
-        toast.error('Acesso restrito a Executivos');
-        authService.logout();
-        navigate('/login', { replace: true });
-        return;
-      }
+      // DEPRECATED: This layout is being phased out
+      // ALL internal users now use ModuleLayout - redirect to modular routes
+      navigate('/modulos/dashboard', { replace: true });
+      return;
 
       // Validate API session
       try {

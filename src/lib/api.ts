@@ -214,7 +214,7 @@ export const transformApiConfig = (items: ApiConfigItem[]): CalculatorConfig => 
     gpu_usd: {},
     vm_prices_brl: { vcpu: 0, ram_per_gb: 0, nvme_per_gb: 0, ip_public: 0 },
     baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
-    addons_brl: { antivirus_unit: 0, firewall_pfsense: 0, tsplus_unit: 0, cal_unit: 0, sql: {}, veeam_vm_unit: 0, veeam_agent_unit: 0 },
+    addons_brl: { antivirus_unit: 0, firewall_pfsense: 0, tsplus_unit: 0, cal_unit: 0, sql: {}, veeam_vm_unit: 0, veeam_agent_unit: 0, winserver_2vcpu_unit: 45.0 },
     backup_tables_brl_per_gb: DEFAULT_CONFIG.backup_tables_brl_per_gb,
   };
 
@@ -256,6 +256,7 @@ export const transformApiConfig = (items: ApiConfigItem[]): CalculatorConfig => 
           else if (item.label.includes('CAL')) config.addons_brl.cal_unit = value;
           else if (item.label.includes('Veeam VM')) config.addons_brl.veeam_vm_unit = value;
           else if (item.label.includes('Veeam Agent')) config.addons_brl.veeam_agent_unit = value;
+          else if (item.label.includes('WinServer')) config.addons_brl.winserver_2vcpu_unit = value;
         }
         break;
 
@@ -580,6 +581,7 @@ export function transformApiToSavedProposal(apiProposal: ApiProposal, config: Ca
     sqlQty: 0,
     veeamVm: 0,
     veeamAg: 0,
+    winserver: 0,
   };
 
   apiAddons.forEach(addon => {
@@ -745,6 +747,7 @@ export const api = {
       configItems.push({ category: 'Add-ons', group: 'Serviços', label: 'CAL', type: 'BRL', value: String(config.addons_brl.cal_unit) });
       configItems.push({ category: 'Add-ons', group: 'Serviços', label: 'Veeam VM', type: 'BRL', value: String(config.addons_brl.veeam_vm_unit) });
       configItems.push({ category: 'Add-ons', group: 'Serviços', label: 'Veeam Agent', type: 'BRL', value: String(config.addons_brl.veeam_agent_unit) });
+      configItems.push({ category: 'Add-ons', group: 'Serviços', label: 'WinServer(2vCPU/unid.)', type: 'BRL', value: String(config.addons_brl.winserver_2vcpu_unit) });
 
       // SQL editions
       Object.entries(config.addons_brl.sql).forEach(([edition, price]) => {
@@ -753,7 +756,7 @@ export const api = {
       });
 
       // Custom add-ons (any key not in the standard list)
-      const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit'];
+      const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
       Object.entries(config.addons_brl).forEach(([key, value]) => {
         if (!standardAddonKeys.includes(key) && typeof value === 'number') {
           configItems.push({ category: 'Add-ons', group: 'Serviços Customizados', label: key, type: 'BRL', value: String(value) });

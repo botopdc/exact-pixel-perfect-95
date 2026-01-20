@@ -270,7 +270,7 @@ export default function MeuPotencialGerente() {
         
         if (!user || (user.level !== 750 && user.level !== 1000)) {
           toast.error('Acesso restrito a Gerentes Comerciais');
-          navigate('/dashboard', { replace: true });
+          navigate('/modulos/dashboard', { replace: true });
           return;
         }
 

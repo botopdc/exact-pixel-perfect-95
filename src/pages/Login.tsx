@@ -29,7 +29,7 @@ export default function LoginPage() {
   React.useEffect(() => {
     if (authService.isAuthenticated()) {
       const user = authService.getCurrentUser();
-      const redirectPath = user ? getRedirectPath(user.level) : '/dashboard';
+      const redirectPath = user ? getRedirectPath(user.level) : '/modulos/dashboard';
       navigate(redirectPath, { replace: true });
     }
   }, [navigate]);
