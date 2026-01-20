@@ -307,7 +307,7 @@ function apiToPartnerProposal(apiProposal: any, session: any): PartnerProposal {
         id: item.id || crypto.randomUUID(),
         vcpu: toNum(item.vcpu, 16),
         ramGb: toNum(item.ramGb, 128),
-        nvmeTb: toNum(item.nvmeTb, 0.05),
+        nvmeTb: toNum(item.nvmeTb, 0.09765625), // 100GB default
         qtyServers: toNum(item.qtyServers, 1),
         ips: toNum(item.ips, 0),
         gpuQty: toNum(item.gpuQty, 0),
