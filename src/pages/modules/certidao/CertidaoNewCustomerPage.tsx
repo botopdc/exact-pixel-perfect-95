@@ -1,6 +1,6 @@
 // ============================================================================
 // CERTIDÃO DE NASCIMENTO - NEW CUSTOMER PAGE
-// Form to create a new customer
+// Form to create a new customer using /api/company
 // ============================================================================
 
 import React, { useState } from 'react';
@@ -12,22 +12,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { useCreateCertCustomer } from '@/hooks/useBirthCertificate';
+import { useCreateCompany } from '@/hooks/useCompanies';
 import { authService } from '@/services/authService';
 
 export default function CertidaoNewCustomerPage() {
   const navigate = useNavigate();
-  const createCustomer = useCreateCertCustomer();
+  const createCompany = useCreateCompany();
   
+  // Form com campos da API /api/company
   const [form, setForm] = useState({
-    razao_social: '',
-    nome_fantasia: '',
-    cnpj: '',
-    segmento: '',
-    cidade: '',
+    name: '',           // nome_fantasia → name
+    legal_name: '',     // razao_social → legal_name
+    docnum: '',         // cnpj → docnum
+    work_area: '',      // segmento → work_area
+    city: '',
     uf: '',
-    tem_suporte: true,
-    observacoes: '',
+    has_support: true,  // tem_suporte → has_support
+    obs: '',            // observacoes → obs
   });
 
   // Access control
@@ -49,22 +50,22 @@ export default function CertidaoNewCustomerPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!form.razao_social.trim()) {
+    if (!form.name.trim()) {
       return;
     }
 
-    const customer = await createCustomer.mutateAsync({
-      razao_social: form.razao_social,
-      nome_fantasia: form.nome_fantasia || null,
-      cnpj: form.cnpj || null,
-      segmento: form.segmento || null,
-      cidade: form.cidade || null,
+    const company = await createCompany.mutateAsync({
+      name: form.name,
+      legal_name: form.legal_name || null,
+      docnum: form.docnum || null,
+      work_area: form.work_area || null,
+      city: form.city || null,
       uf: form.uf || null,
-      tem_suporte: form.tem_suporte,
-      observacoes: form.observacoes || null,
+      has_support: form.has_support,
+      obs: form.obs || null,
     });
 
-    navigate(`/modulos/atendimentos/certidoes/${customer.id}`);
+    navigate(`/modulos/atendimentos/certidoes/${company.id}`);
   };
 
   return (
@@ -95,21 +96,21 @@ export default function CertidaoNewCustomerPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label>Razão Social *</Label>
+              <Label>Nome Fantasia *</Label>
               <Input
                 required
-                placeholder="Nome completo da empresa"
-                value={form.razao_social}
-                onChange={(e) => setForm({ ...form, razao_social: e.target.value })}
+                placeholder="Nome comercial da empresa"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
 
             <div>
-              <Label>Nome Fantasia</Label>
+              <Label>Razão Social</Label>
               <Input
-                placeholder="Nome comercial"
-                value={form.nome_fantasia}
-                onChange={(e) => setForm({ ...form, nome_fantasia: e.target.value })}
+                placeholder="Nome completo da empresa"
+                value={form.legal_name}
+                onChange={(e) => setForm({ ...form, legal_name: e.target.value })}
               />
             </div>
 
@@ -117,8 +118,8 @@ export default function CertidaoNewCustomerPage() {
               <Label>CNPJ</Label>
               <Input
                 placeholder="00.000.000/0000-00"
-                value={form.cnpj}
-                onChange={(e) => setForm({ ...form, cnpj: e.target.value })}
+                value={form.docnum}
+                onChange={(e) => setForm({ ...form, docnum: e.target.value })}
               />
             </div>
 
@@ -126,8 +127,8 @@ export default function CertidaoNewCustomerPage() {
               <Label>Segmento</Label>
               <Input
                 placeholder="Ex: Tecnologia, Varejo, Indústria"
-                value={form.segmento}
-                onChange={(e) => setForm({ ...form, segmento: e.target.value })}
+                value={form.work_area}
+                onChange={(e) => setForm({ ...form, work_area: e.target.value })}
               />
             </div>
 
@@ -136,8 +137,8 @@ export default function CertidaoNewCustomerPage() {
                 <Label>Cidade</Label>
                 <Input
                   placeholder="São Paulo"
-                  value={form.cidade}
-                  onChange={(e) => setForm({ ...form, cidade: e.target.value })}
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
                 />
               </div>
               <div>
@@ -159,8 +160,8 @@ export default function CertidaoNewCustomerPage() {
                 </p>
               </div>
               <Switch
-                checked={form.tem_suporte}
-                onCheckedChange={(checked) => setForm({ ...form, tem_suporte: checked })}
+                checked={form.has_support}
+                onCheckedChange={(checked) => setForm({ ...form, has_support: checked })}
               />
             </div>
 
@@ -169,18 +170,18 @@ export default function CertidaoNewCustomerPage() {
               <Textarea
                 placeholder="Informações adicionais sobre o cliente..."
                 rows={4}
-                value={form.observacoes}
-                onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                value={form.obs}
+                onChange={(e) => setForm({ ...form, obs: e.target.value })}
               />
             </div>
 
             <div className="flex gap-2 pt-4">
               <Button 
                 type="submit" 
-                disabled={!form.razao_social.trim() || createCustomer.isPending}
+                disabled={!form.name.trim() || createCompany.isPending}
               >
                 <Save className="h-4 w-4 mr-2" />
-                {createCustomer.isPending ? 'Salvando...' : 'Criar Cliente'}
+                {createCompany.isPending ? 'Salvando...' : 'Criar Cliente'}
               </Button>
               <Button 
                 type="button" 
