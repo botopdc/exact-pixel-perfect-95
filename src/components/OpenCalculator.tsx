@@ -277,7 +277,7 @@ const OpenCalculator: React.FC = () => {
       gpuQty: 0,
       vcpu: 16,
       ramGb: 128,
-      nvmeTb: 0.05, // 50GB = 0.05TB (stored in TB for calculation compatibility)
+      nvmeTb: 0.09765625, // 100GB = 100/1024 TB (stored in TB for calculation compatibility)
       trafficTb: 5,
       ips: 1,
       qtyServers: 1,
@@ -790,11 +790,15 @@ const OpenCalculator: React.FC = () => {
       
       if (item.type === 'bm') {
         // Normalize BareMetal item - ensure disks is always an array
+        // CRITICAL: Use explicit checks for GPU to preserve values during edit mode
+        const bmGpu = typeof item.gpu === 'string' && item.gpu !== '' ? item.gpu : 'Sem GPU';
+        const bmGpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : 0;
+        
         return {
           type: 'bm' as const,
           id,
-          gpu: item.gpu || 'Sem GPU',
-          gpuQty: item.gpuQty || 0,
+          gpu: bmGpu,
+          gpuQty: bmGpuQty,
           bmCpu: item.bmCpu || config?.baremetal?.cpu_models?.[0]?.id || 'intel_xeon_e2136',
           bmRam: item.bmRam || config?.baremetal?.ram_tiers?.[0]?.id || 'ram_128gb',
           disks: Array.isArray(item.disks) && item.disks.length > 0 
@@ -806,14 +810,18 @@ const OpenCalculator: React.FC = () => {
         };
       } else {
         // Normalize VM item (default if type not specified)
+        // CRITICAL: Use explicit checks for GPU to preserve values during edit mode
+        const vmGpu = typeof item.gpu === 'string' && item.gpu !== '' ? item.gpu : 'Sem GPU';
+        const vmGpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : 0;
+        
         return {
           type: 'vm' as const,
           id,
-          gpu: item.gpu || 'Sem GPU',
-          gpuQty: item.gpuQty || 0,
+          gpu: vmGpu,
+          gpuQty: vmGpuQty,
           vcpu: item.vcpu ?? 16,
           ramGb: item.ramGb ?? 128,
-          nvmeTb: item.nvmeTb ?? 0.05,
+          nvmeTb: item.nvmeTb ?? 0.09765625,
           trafficTb: item.trafficTb ?? 5,
           ips: item.ips ?? 1,
           qtyServers: item.qtyServers ?? 1,

@@ -188,15 +188,20 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     // Normalize items to ensure all required fields exist (especially disks for BM)
     const normalizedItems = (dadosProposta.items || []).map((item: any, idx: number) => {
       // ============================================
-      // GPU PRESERVATION: Log and preserve GPU data from dados_proposta
+      // GPU PRESERVATION: support both legacy shape (gpu:string + gpuQty:number)
+      // and new API/server shape (gpu:{ model, quantity })
       // ============================================
-      const itemGpu = item.gpu || 'Sem GPU';
-      const itemGpuQty = toNum(item.gpuQty, 0);
-      
+      const rawGpuObj = item.gpu && typeof item.gpu === 'object' ? item.gpu : null;
+      const rawGpuModel = rawGpuObj ? (rawGpuObj as any).model : item.gpu;
+      const rawGpuQty = rawGpuObj ? (rawGpuObj as any).quantity : item.gpuQty;
+
+      const itemGpu = typeof rawGpuModel === 'string' && rawGpuModel !== '' ? rawGpuModel : 'Sem GPU';
+      const itemGpuQty = typeof rawGpuQty === 'number' ? rawGpuQty : toNum(rawGpuQty, 0);
+
       if (itemGpu !== 'Sem GPU' && itemGpuQty > 0) {
-        console.log('[EDIT] GPU restored on server ID=', item.id || idx, ':', { gpu: itemGpu, gpuQty: itemGpuQty });
+        console.log(`[EDIT] GPU restored: model=${itemGpu} qty=${itemGpuQty}`);
       }
-      
+
       if (item.type === 'bm') {
         return {
           ...item,
@@ -213,7 +218,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         gpuQty: itemGpuQty,
         vcpu: toNum(item.vcpu, 16),
         ramGb: toNum(item.ramGb, 128),
-        nvmeTb: toNum(item.nvmeTb, 0.05),
+        nvmeTb: toNum(item.nvmeTb, 0.09765625), // 100GB default
         qtyServers: toNum(item.qtyServers, 1),
         ips: toNum(item.ips, 0),
       };
@@ -771,15 +776,29 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       
       // ============================================
       // GPU RECONSTRUCTION: Extract GPU from server object
-      // API may store GPU in: server.gpu, server.extras?.gpu, server.gpu_model, server.extras?.gpu_model
+      // CRITICAL: support both shapes:
+      // - gpu: { model, quantity }
+      // - gpu_model + gpu_qty
+      // - gpu + gpuQty (legacy)
       // ============================================
-      const serverGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model || 'Sem GPU';
-      const serverGpuQty = toNum(server.gpuQty || server.gpu_qty || server.extras?.gpuQty || server.extras?.gpu_qty, 0);
-      
-      if (serverGpu !== 'Sem GPU' && serverGpuQty > 0) {
-        console.log('[EDIT] GPU restored on server ID=', server.id || idx, ':', { gpu: serverGpu, gpuQty: serverGpuQty });
+      let serverGpu = 'Sem GPU';
+      let serverGpuQty = 0;
+
+      if (server.gpu && typeof server.gpu === 'object') {
+        serverGpu = typeof server.gpu.model === 'string' && server.gpu.model !== '' ? server.gpu.model : 'Sem GPU';
+        serverGpuQty = typeof server.gpu.quantity === 'number' ? server.gpu.quantity : toNum(server.gpu.quantity, 0);
+      } else {
+        const rawGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model;
+        serverGpu = typeof rawGpu === 'string' && rawGpu !== '' ? rawGpu : 'Sem GPU';
+
+        const rawGpuQty = server.gpuQty ?? server.gpu_qty ?? server.extras?.gpuQty ?? server.extras?.gpu_qty;
+        serverGpuQty = typeof rawGpuQty === 'number' ? rawGpuQty : toNum(rawGpuQty, 0);
       }
-      
+
+      if (serverGpu !== 'Sem GPU' && serverGpuQty > 0) {
+        console.log(`[EDIT] GPU restored: model=${serverGpu} qty=${serverGpuQty}`);
+      }
+
       if (isVM) {
         return {
           type: 'vm' as const,
@@ -1044,6 +1063,14 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
+    // ============================================
+    // WINSERVER - EXPLICIT (CRITICAL FOR PERSISTENCE)
+    // ============================================
+    if (typeof addons.winserver === 'number' && addons.winserver > 0) {
+      addonsArray.push({ name: 'WinServer(2vCPU/unid.)', price: 0, quantity: addons.winserver });
+      console.log('[localToApi] Added WinServer to payload:', addons.winserver);
+    }
+    
     // Standard addon mappings with proper type handling
     if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
       addonsArray.push({ name: 'Antivirus', price: 0, quantity: addons.antivirus });
@@ -1066,6 +1093,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // Backup
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
       addonsArray.push({ name: `Backup ${addons.backupPlan}`, price: 0, quantity: addons.backupGb });
+      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb);
     }
     // SQL
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
@@ -1086,29 +1114,54 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     }
   }
   
-  // Transform servers/items to API format: array of {name, vcpu, ram, storage, price, quantity}
-  const serversArray: Array<{ name: string; vcpu: number; ram: number; storage: number; price: number; quantity: number }> = [];
+  // Transform servers/items to API format
+  // IMPORTANT: GPU must be persisted inside the server object (servers[].gpu)
+  const serversArray: Array<Record<string, unknown>> = [];
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
       // Handle VM/BM format from calculator
       if (item.type === 'vm') {
-        serversArray.push({
+        const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
+          ? item.gpu
+          : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
+        const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
+
+        const vm: Record<string, unknown> = {
           name: `VM #${idx + 1}`,
           vcpu: item.vcpu || 0,
           ram: item.ramGb || 0,
           storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
           price: 0,
           quantity: item.qtyServers || 1,
-        });
+        };
+
+        if (gpuModel && gpuQty > 0) {
+          vm.gpu = { model: gpuModel, quantity: gpuQty };
+          console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
+        }
+
+        serversArray.push(vm);
       } else if (item.type === 'bm') {
-        serversArray.push({
+        const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
+          ? item.gpu
+          : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
+        const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
+
+        const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
           vcpu: 0,
           ram: 0,
           storage: 0,
           price: 0,
           quantity: item.qtyServers || 1,
-        });
+        };
+
+        if (gpuModel && gpuQty > 0) {
+          bm.gpu = { model: gpuModel, quantity: gpuQty };
+          console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
+        }
+
+        serversArray.push(bm);
       } else {
         // Fallback for legacy format
         serversArray.push({
@@ -1203,7 +1256,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     }
     
     if (hasAnyIndependentProduct) {
-      console.log('[localToApi] Created virtual servers for independent products:', serversArray.map(s => s.name.substring(0, 50)));
+      console.log('[localToApi] Created virtual servers for independent products:', serversArray.map(s => String(s.name).substring(0, 50)));
     }
   }
   
