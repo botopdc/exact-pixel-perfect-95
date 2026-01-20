@@ -6,6 +6,7 @@ import {
   AddonsState,
   VALID_CONTRACT_MONTHS,
   isValidContractMonth,
+  StorageType,
 } from '@/lib/calculatorConfig';
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
@@ -364,7 +365,11 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   
   // LEGACY FORMAT: Reconstruct from servers/addons arrays (backward compatibility)
   // This path handles proposals that don't have dados_proposta OR where dados_proposta is empty
-  console.log('[apiToLocal] Using legacy format for proposal', apiProposal.id);
+  console.log('[apiToLocal] LEGACY: dados_proposta missing → reconstructing from addons[]', {
+    proposalId: apiProposal.id,
+    addonsCount: apiProposal.addons?.length || 0,
+    serversCount: apiProposal.servers?.length || 0,
+  });
   
   // Map contract_duration to selectedTerm (MUST include all valid plans: 1, 12, 24, 36, 48)
   const contractDuration = apiProposal.contract_duration;
@@ -387,23 +392,194 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     'CE1': 'CE1',
   };
   
+  // ============================================
+  // LAYER B: RECONSTRUCT INDEPENDENT PRODUCTS FROM addons[] WHEN dados_proposta IS MISSING
+  // This is critical for proposals that were saved before dados_proposta was implemented
+  // ============================================
+  let reconstructedStorageFromAddons: any[] = [];
+  let reconstructedKubernetesFromAddons: any = null;
+  let reconstructedOpenSaasFromAddons: any = null;
+  const reconstructedAddonsState: AddonsState = {
+    backupPlan: 'none',
+    backupGb: 0,
+    antivirus: 0,
+    firewall: false,
+    tsplus: 0,
+    cal: 0,
+    sql: 'none',
+    sqlQty: 0,
+    veeamVm: 0,
+    veeamAg: 0,
+    customAddons: {},
+  };
+  
   // Transform API addons array to legacy addons object format for display
+  // AND reconstruct independent products (Storage, Kubernetes, OPEN SaaS)
   const addonsObj: Record<string, { enabled: boolean; price: number; quantity: number }> = {};
   let addonsTotal = 0;
+  
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
     for (const addon of apiProposal.addons) {
-      if (addon.name) {
-        const addonPrice = toNum(addon.price, 0);
-        const addonQty = toNum(addon.quantity, 1);
-        addonsObj[addon.name] = {
-          enabled: true,
-          price: addonPrice,
-          quantity: addonQty,
+      if (!addon.name) continue;
+      
+      const addonName = addon.name.trim();
+      const addonPrice = toNum(addon.price, 0);
+      const addonQty = toNum(addon.quantity, 1);
+      const addonNameLower = addonName.toLowerCase();
+      
+      // Store in legacy addonsObj
+      addonsObj[addonName] = {
+        enabled: true,
+        price: addonPrice,
+        quantity: addonQty,
+      };
+      addonsTotal += addonPrice * addonQty;
+      
+      // ============================================
+      // PARSE STORAGE: "Storage SAS 0.1TB" or "Storage S3 500GB BR" or legacy "Storage SAN..."
+      // ============================================
+      if (addonNameLower.startsWith('storage ')) {
+        const storageMatch = addonName.match(/storage\s+(\w+)\s+([\d.]+)\s*(TB|GB)?(?:\s+(\w+))?/i);
+        if (storageMatch) {
+          const rawType = storageMatch[1].toLowerCase();
+          const value = parseFloat(storageMatch[2]) || 1;
+          const unit = (storageMatch[3] || 'TB').toUpperCase();
+          const region = storageMatch[4] || 'BR';
+          
+          // Map legacy names to canonical StorageType
+          let normalizedStorageType: StorageType = 'sas'; // default
+          if (rawType === 'sas' || rawType === 'san' || rawType === 'nas') {
+            normalizedStorageType = 'sas';
+          } else if (rawType === 's3' || rawType === 'bucket') {
+            normalizedStorageType = 's3';
+          } else if (rawType === 'nvme' || rawType === 'ssd') {
+            normalizedStorageType = 'nvme';
+          }
+          
+          reconstructedStorageFromAddons.push({
+            id: crypto.randomUUID(),
+            storageType: normalizedStorageType,
+            region: (region.toUpperCase() === 'USA' || region.toUpperCase() === 'US') ? 'USA' : 'BR',
+            volumeTB: unit === 'TB' ? value : 0,
+            volumeGB: unit === 'GB' ? value : 0,
+          });
+        }
+        continue;
+      }
+      
+      // ============================================
+      // PARSE KUBERNETES: "Kubernetes Small" or "Kubernetes k8s_medium"
+      // ============================================
+      if (addonNameLower.startsWith('kubernetes ')) {
+        const k8sMatch = addonName.match(/kubernetes\s+(\w+)/i);
+        let plan = 'k8s_small';
+        if (k8sMatch) {
+          const planSuffix = k8sMatch[1].toLowerCase();
+          // Normalize plan name
+          if (planSuffix === 'small' || planSuffix === 'k8s_small') plan = 'k8s_small';
+          else if (planSuffix === 'medium' || planSuffix === 'k8s_medium') plan = 'k8s_medium';
+          else if (planSuffix === 'large' || planSuffix === 'k8s_large') plan = 'k8s_large';
+          else if (planSuffix === 'xl' || planSuffix === 'k8s_xl') plan = 'k8s_xl';
+          else if (planSuffix === 'enterprise' || planSuffix === 'k8s_enterprise') plan = 'k8s_enterprise';
+        }
+        reconstructedKubernetesFromAddons = { 
+          enabled: true, 
+          plan,
+          addons: {
+            support_24x7: false,
+            backup_velero: false,
+            dr_multisite: false,
+            observability: false,
+            cicd_managed: false,
+            devops_hours: 0,
+          },
+          extras: { vcpu: 0, ramGB: 0, diskGB: 0 },
         };
-        addonsTotal += addonPrice * addonQty;
+        continue;
+      }
+      
+      // ============================================
+      // PARSE OPEN SAAS: "OPEN SaaS 10 usuários" or "OPEN SaaS (10)"
+      // ============================================
+      if (addonNameLower.startsWith('open saas') || addonNameLower.startsWith('opensaas')) {
+        const usersMatch = addonName.match(/(\d+)/);
+        const users = usersMatch ? parseInt(usersMatch[1], 10) : addonQty;
+        reconstructedOpenSaasFromAddons = { 
+          enabled: true, 
+          users: Math.max(1, users),
+        };
+        continue;
+      }
+      
+      // ============================================
+      // PARSE STANDARD ADDONS → AddonsState
+      // ============================================
+      if (addonNameLower.includes('antivirus') || addonNameLower.includes('antivírus')) {
+        reconstructedAddonsState.antivirus = addonQty;
+      } else if (addonNameLower.includes('firewall')) {
+        reconstructedAddonsState.firewall = true;
+      } else if (addonNameLower.includes('tsplus') || addonNameLower.includes('ts plus')) {
+        reconstructedAddonsState.tsplus = addonQty;
+      } else if (addonNameLower.includes('cal') || addonNameLower.includes('ts-cal')) {
+        reconstructedAddonsState.cal = addonQty;
+      } else if (addonNameLower.includes('veeam') && addonNameLower.includes('vm')) {
+        reconstructedAddonsState.veeamVm = addonQty;
+      } else if (addonNameLower.includes('veeam') && (addonNameLower.includes('agent') || addonNameLower.includes('workstation'))) {
+        reconstructedAddonsState.veeamAg = addonQty;
+      } else if (addonNameLower.includes('sql')) {
+        // Detect SQL type from name
+        if (addonNameLower.includes('enterprise')) {
+          reconstructedAddonsState.sql = 'enterprise';
+        } else if (addonNameLower.includes('standard')) {
+          reconstructedAddonsState.sql = 'standard';
+        } else if (addonNameLower.includes('web')) {
+          reconstructedAddonsState.sql = 'web';
+        } else {
+          reconstructedAddonsState.sql = 'standard'; // Default
+        }
+        reconstructedAddonsState.sqlQty = addonQty;
+      } else if (addonNameLower.includes('backup')) {
+        // Parse backup size from name if available
+        const backupGbMatch = addonName.match(/(\d+)\s*GB/i);
+        const backupTbMatch = addonName.match(/(\d+)\s*TB/i);
+        if (backupTbMatch) {
+          reconstructedAddonsState.backupGb = parseInt(backupTbMatch[1], 10) * 1024;
+        } else if (backupGbMatch) {
+          reconstructedAddonsState.backupGb = parseInt(backupGbMatch[1], 10);
+        } else {
+          reconstructedAddonsState.backupGb = addonQty; // Use quantity as GB
+        }
+        
+        // Detect backup plan
+        if (addonNameLower.includes('gold')) {
+          reconstructedAddonsState.backupPlan = 'gold';
+        } else if (addonNameLower.includes('silver')) {
+          reconstructedAddonsState.backupPlan = 'silver';
+        } else if (addonNameLower.includes('bronze')) {
+          reconstructedAddonsState.backupPlan = 'bronze';
+        } else {
+          reconstructedAddonsState.backupPlan = 'bronze'; // Default
+        }
       }
     }
   }
+  
+  // Log reconstruction summary
+  console.log('[apiToLocal] LEGACY reconstruction from addons[]:', {
+    storageCount: reconstructedStorageFromAddons.length,
+    k8sEnabled: !!reconstructedKubernetesFromAddons,
+    openSaasUsers: reconstructedOpenSaasFromAddons?.users || 0,
+    addonsApplied: {
+      antivirus: reconstructedAddonsState.antivirus,
+      firewall: reconstructedAddonsState.firewall,
+      backupPlan: reconstructedAddonsState.backupPlan,
+      backupGb: reconstructedAddonsState.backupGb,
+      sql: reconstructedAddonsState.sql,
+      sqlQty: reconstructedAddonsState.sqlQty,
+      veeamVm: reconstructedAddonsState.veeamVm,
+      veeamAg: reconstructedAddonsState.veeamAg,
+    },
+  });
   
   // ============================================
   // VIRTUAL SERVER RECONSTRUCTION
@@ -471,20 +647,25 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         reconstructedStorageItems = virtual.payload.items;
         console.log('[apiToLocal] Reconstructed storage items from virtual server:', reconstructedStorageItems.length);
       } else {
-        // Legacy format: try to parse from name (e.g., "Storage SAN 0.1TB")
+        // Legacy format: try to parse from name (e.g., "Storage SAS 0.1TB")
         const match = serverName.match(/storage\s+(\w+)\s+([\d.]+)(TB|GB)/i);
         if (match) {
-          const storageType = match[1].toUpperCase();
+          const rawType = match[1].toLowerCase();
           const value = parseFloat(match[2]);
           const unit = match[3].toUpperCase();
+          // Map legacy names to canonical StorageType
+          let normalizedType: StorageType = 'sas';
+          if (rawType === 's3' || rawType === 'bucket') normalizedType = 's3';
+          else if (rawType === 'nvme' || rawType === 'ssd') normalizedType = 'nvme';
+          
           reconstructedStorageItems.push({
             id: crypto.randomUUID(),
-            storageType: storageType === 'SAN' ? 'SAN' : 'NAS',
-            region: 'SP1',
+            storageType: normalizedType,
+            region: 'BR' as const,
             volumeTB: unit === 'TB' ? value : 0,
             volumeGB: unit === 'GB' ? value : 0,
           });
-          console.log('[apiToLocal] Reconstructed legacy storage item:', { storageType, value, unit });
+          console.log('[apiToLocal] Reconstructed legacy storage item:', { storageType: normalizedType, value, unit });
         }
       }
     } else if (virtual.type === 'kubernetes') {
@@ -641,12 +822,35 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     } : undefined
   );
   
-  // Log what was reconstructed from virtual servers
-  console.log('[apiToLocal] LEGACY reconstruction results:', {
+  // ============================================
+  // MERGE RECONSTRUCTION SOURCES
+  // Priority: virtual servers > addons[] reconstruction
+  // ============================================
+  const finalStorageItems = reconstructedStorageItems.length > 0 
+    ? reconstructedStorageItems 
+    : reconstructedStorageFromAddons;
+  const finalKubernetes = reconstructedKubernetes || reconstructedKubernetesFromAddons || {};
+  const finalOpenSaas = reconstructedOpenSaas || reconstructedOpenSaasFromAddons || undefined;
+  
+  // For addons, prefer the structured AddonsState if we parsed anything meaningful
+  const hasReconstructedAddons = reconstructedAddonsState.antivirus > 0 || 
+    reconstructedAddonsState.firewall || 
+    reconstructedAddonsState.backupPlan !== 'none' ||
+    reconstructedAddonsState.sql !== 'none' ||
+    reconstructedAddonsState.veeamVm > 0 ||
+    reconstructedAddonsState.veeamAg > 0;
+  
+  // Log final reconstruction results
+  console.log('[apiToLocal] LEGACY final reconstruction results:', {
     items: items.length,
-    storageItems: reconstructedStorageItems.length,
-    kubernetes: !!reconstructedKubernetes,
-    openSaas: !!reconstructedOpenSaas,
+    storageItems: finalStorageItems.length,
+    storageSource: reconstructedStorageItems.length > 0 ? 'virtual_servers' : 'addons[]',
+    kubernetes: !!finalKubernetes?.enabled,
+    kubernetesSource: reconstructedKubernetes ? 'virtual_servers' : (reconstructedKubernetesFromAddons ? 'addons[]' : 'none'),
+    openSaas: !!finalOpenSaas?.enabled,
+    openSaasUsers: finalOpenSaas?.users || 0,
+    openSaasSource: reconstructedOpenSaas ? 'virtual_servers' : (reconstructedOpenSaasFromAddons ? 'addons[]' : 'none'),
+    addonsSource: hasReconstructedAddons ? 'reconstructed' : 'raw',
   });
   
   return {
@@ -666,11 +870,12 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       createdAt: apiProposal.created_at,
     },
     items,
-    addons: addonsObj,
-    // USE RECONSTRUCTED VALUES from virtual servers (not empty defaults!)
-    kubernetes: reconstructedKubernetes || {},
-    storageItems: reconstructedStorageItems,
-    openSaas: reconstructedOpenSaas || undefined,
+    // Use reconstructed AddonsState if we parsed meaningful data, otherwise fall back to raw
+    addons: hasReconstructedAddons ? reconstructedAddonsState : addonsObj,
+    // USE RECONSTRUCTED VALUES (merged from virtual servers AND addons[])
+    kubernetes: finalKubernetes,
+    storageItems: finalStorageItems,
+    openSaas: finalOpenSaas,
     reseller: apiProposal.reseller_name ? {
       enabled: true,
       viewMode: 'INTERNO' as const,
