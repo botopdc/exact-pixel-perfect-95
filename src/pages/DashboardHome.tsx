@@ -142,25 +142,25 @@ export default function DashboardHome() {
         </p>
         <div className="flex flex-wrap justify-center gap-4">
           <Link 
-            to="/atendimentos/suporte" 
+            to="/modulos/atendimentos/suporte" 
             className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
           >
             Fila de Suporte →
           </Link>
           <Link 
-            to="/health-score/cs" 
+            to="/modulos/atendimentos/health/cs" 
             className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
           >
             Health Score →
           </Link>
           <Link 
-            to="/kpis/gestao" 
+            to="/modulos/atendimentos/kpis/gestao" 
             className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
           >
             KPIs de Gestão →
           </Link>
           <Link 
-            to="/calculadora" 
+            to="/modulos/comercial/propostas/criar" 
             className="text-primary hover:text-primary/80 text-sm font-medium transition-colors"
           >
             Calculadora de Preços →
