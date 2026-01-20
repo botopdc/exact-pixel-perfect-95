@@ -234,8 +234,10 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
 function hydrateServerItems(items: any[]): ServerItemV2[] {
   return items.map((item, idx) => {
     const id = item.id || crypto.randomUUID();
-    const gpu = toStr(item.gpu, 'Sem GPU');
-    const gpuQty = toNum(item.gpuQty, 0);
+    
+    // CRITICAL: Explicit GPU preservation - only default if truly missing or empty
+    const gpu = typeof item.gpu === 'string' && item.gpu !== '' ? item.gpu : 'Sem GPU';
+    const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty, 0);
     
     // Log GPU restoration
     if (gpu !== 'Sem GPU' && gpuQty > 0) {
@@ -284,9 +286,13 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
       const name = toStr(server.name, '').toLowerCase();
       const isVM = name.includes('vm') || toNum(server.vcpu, 0) > 0;
       
-      // Extract GPU from server
-      const gpu = toStr(server.gpu || server.gpu_model || server.extras?.gpu, 'Sem GPU');
-      const gpuQty = toNum(server.gpuQty || server.gpu_qty || server.extras?.gpuQty, 0);
+      // CRITICAL: Extract GPU from server with explicit type checking
+      // Check multiple possible keys in order of priority
+      const rawGpu = server.gpu || server.gpu_model || server.extras?.gpu || server.extras?.gpu_model;
+      const gpu = typeof rawGpu === 'string' && rawGpu !== '' ? rawGpu : 'Sem GPU';
+      
+      const rawGpuQty = server.gpuQty ?? server.gpu_qty ?? server.extras?.gpuQty ?? server.extras?.gpu_qty;
+      const gpuQty = typeof rawGpuQty === 'number' ? rawGpuQty : toNum(rawGpuQty, 0);
       
       if (gpu !== 'Sem GPU' && gpuQty > 0) {
         console.log('[EDIT] GPU restored on server ID=', id, ':', { gpu, gpuQty });

@@ -169,9 +169,11 @@ function detectItemType(item: ProposalItem): ItemType | null {
 }
 
 // Normalize a VM item
+// CRITICAL: Use explicit type checks for GPU to preserve values during edit mode
 function normalizeVMItem(item: ProposalItem): VMItem {
-  const gpu = item.gpu || 'Sem GPU';
-  const gpuQty = toNum(item.gpuQty, 0);
+  // Explicit GPU preservation: only default if truly missing or empty string
+  const gpu = typeof item.gpu === 'string' && item.gpu !== '' ? item.gpu : 'Sem GPU';
+  const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty, 0);
   
   // Log GPU restoration for debugging
   if (gpu !== 'Sem GPU' && gpuQty > 0) {
@@ -193,9 +195,11 @@ function normalizeVMItem(item: ProposalItem): VMItem {
 }
 
 // Normalize a BM item
+// CRITICAL: Use explicit type checks for GPU to preserve values during edit mode
 function normalizeBMItem(item: ProposalItem): BMItem {
-  const gpu = item.gpu || 'Sem GPU';
-  const gpuQty = toNum(item.gpuQty, 0);
+  // Explicit GPU preservation: only default if truly missing or empty string
+  const gpu = typeof item.gpu === 'string' && item.gpu !== '' ? item.gpu : 'Sem GPU';
+  const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty, 0);
   
   // Log GPU restoration for debugging
   if (gpu !== 'Sem GPU' && gpuQty > 0) {
