@@ -44,9 +44,13 @@ const PropostaAprovar: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   
-  // URL params
+  // URL params - read raw values
   const proposalIdParam = searchParams.get('proposalId');
-  const approvalToken = searchParams.get('token');
+  const rawToken = searchParams.get('token') || '';
+  
+  // CRITICAL: Normalize token - remove any "/aceite" or other suffixes
+  // The token should be ONLY the hash, nothing else
+  const approvalToken = rawToken.split('/')[0].trim();
   
   // States
   const [proposal, setProposal] = useState<CalculatorProposal | null>(null);
@@ -57,19 +61,27 @@ const PropostaAprovar: React.FC = () => {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<'Aprovado' | 'Reprovado' | null>(null);
   
-  // Validate URL params
+  // Validate URL params on mount
   useEffect(() => {
+    // Validate proposalId
     if (!proposalIdParam) {
-      setLoadError('Link inválido: ID da proposta não encontrado');
+      setLoadError('Link inválido ou incompleto: ID da proposta não encontrado');
       setIsLoadingProposal(false);
       return;
     }
     
+    // Validate token - must exist and be non-empty after normalization
     if (!approvalToken) {
-      setLoadError('Link inválido: Token de aprovação não encontrado');
+      setLoadError('Link inválido ou incompleto: Token de aprovação não encontrado');
       setIsLoadingProposal(false);
       return;
     }
+    
+    console.log('[PropostaAprovar] Validated params:', {
+      proposalId: proposalIdParam,
+      tokenLength: approvalToken.length,
+      tokenPreview: approvalToken.substring(0, 8) + '...',
+    });
     
     // Fetch proposal data
     fetchProposal();
@@ -111,23 +123,52 @@ const PropostaAprovar: React.FC = () => {
   };
   
   const handleSubmitAcceptance = async () => {
-    if (!proposal || !approvalToken || !pendingAction) return;
+    // Validate before proceeding
+    if (!proposal) {
+      toast({
+        title: 'Erro',
+        description: 'Dados da proposta não carregados.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (!approvalToken) {
+      toast({
+        title: 'Erro',
+        description: 'Link inválido ou incompleto: Token não encontrado.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (!pendingAction) return;
+    
+    // Validate proposal_id is a valid integer
+    const numericId = proposal.id;
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      toast({
+        title: 'Erro',
+        description: 'Link inválido ou incompleto: ID da proposta inválido.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
     setConfirmDialogOpen(false);
     setIsSubmitting(true);
     
     try {
-      // Use the numeric ID from the proposal response
-      const numericId = proposal.id;
-      
       console.log('[PropostaAprovar] Submitting acceptance:', {
         proposal_id: numericId,
         status: pendingAction,
+        tokenPreview: approvalToken.substring(0, 8) + '...',
       });
       
+      // Send ONLY the clean token hash - no "/aceite" suffix
       await defineAcceptance({
         proposal_id: numericId,
-        approval_token: approvalToken,
+        approval_token: approvalToken,  // Already normalized (cleaned of suffixes)
         status: pendingAction,
       });
       
@@ -142,17 +183,21 @@ const PropostaAprovar: React.FC = () => {
     } catch (error: any) {
       console.error('[PropostaAprovar] Error submitting acceptance:', error);
       
+      // Extract error message from response if available
       let errorMessage = 'Erro ao processar sua decisão. Tente novamente.';
       
-      if (error.response?.status === 404) {
+      // Prioritize response.data.message if exists
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.status === 404) {
         errorMessage = 'Proposta não encontrada ou token expirado';
       } else if (error.response?.status === 422) {
         const validationErrors = error.response?.data?.errors;
         if (validationErrors) {
           errorMessage = Object.values(validationErrors).flat().join(', ');
-        } else {
-          errorMessage = error.response?.data?.message || 'Erro de validação';
         }
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       
       toast({
