@@ -53,14 +53,24 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    // Generate the acceptance link (new route for client to accept)
-    // Ensure the link always points to the acceptance page for client emails
-    let acceptanceLink = proposalLink;
-    if (!proposalLink.includes('/aceite')) {
-      // Remove trailing slash if present, then add /aceite
-      acceptanceLink = proposalLink.replace(/\/?$/, '/aceite');
+    // CANONICAL LINK FORMAT: /proposta/aprovar?proposalId=X&token=Y
+    // If the link already contains token param, it's the canonical format - use as-is
+    // Otherwise, it's a legacy format that needs /aceite suffix (for backward compatibility only)
+    const isCanonicalFormat = proposalLink.includes('proposalId=') && proposalLink.includes('token=');
+    
+    let linkToUse: string;
+    if (isAcceptance) {
+      // For acceptance notification emails (sent to comercial@), use the original link
+      linkToUse = proposalLink;
+    } else if (isCanonicalFormat) {
+      // Canonical format already includes token - use as-is
+      linkToUse = proposalLink;
+      console.log("[send-proposal-email] Using canonical link format (with token)");
+    } else {
+      // Legacy format without token - add /aceite suffix (deprecated path)
+      console.log("[send-proposal-email] WARN: Using legacy link format, should migrate to canonical");
+      linkToUse = proposalLink.replace(/\/?$/, '/aceite');
     }
-    const linkToUse = isAcceptance ? proposalLink : acceptanceLink;
 
     const emailHtml = isAcceptance
       ? `

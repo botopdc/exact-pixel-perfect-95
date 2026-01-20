@@ -88,7 +88,7 @@ const PropostaAprovar: React.FC = () => {
   }, [proposalIdParam, approvalToken]);
   
   const fetchProposal = async () => {
-    if (!proposalIdParam) return;
+    if (!proposalIdParam || !approvalToken) return;
     
     setIsLoadingProposal(true);
     setLoadError(null);
@@ -96,6 +96,27 @@ const PropostaAprovar: React.FC = () => {
     try {
       console.log('[PropostaAprovar] Fetching proposal:', proposalIdParam);
       const data = await getProposalPublic(proposalIdParam);
+      
+      // Validate token against API
+      console.log('[PropostaAprovar] Validating token against API...');
+      const { getApprovalToken } = await import('@/services/calculatorProposalService');
+      try {
+        const tokenResponse = await getApprovalToken(proposalIdParam);
+        if (tokenResponse.token !== approvalToken) {
+          console.error('[PropostaAprovar] Token mismatch:', {
+            urlToken: approvalToken.substring(0, 8) + '...',
+            apiToken: tokenResponse.token.substring(0, 8) + '...',
+          });
+          setLoadError('Link inválido ou expirado. Solicite um novo link ao comercial.');
+          return;
+        }
+        console.log('[PropostaAprovar] Token validated successfully');
+      } catch (tokenError: any) {
+        console.error('[PropostaAprovar] Token validation failed:', tokenError);
+        setLoadError('Não foi possível validar o link. Tente novamente ou solicite um novo link.');
+        return;
+      }
+      
       setProposal(data);
       
       // Check if already approved/rejected
