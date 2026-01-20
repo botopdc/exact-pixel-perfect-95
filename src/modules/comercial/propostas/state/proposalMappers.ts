@@ -347,6 +347,30 @@ function hydrateDisks(disks: any): DiskItemV2[] {
 }
 
 function hydrateAddons(raw: any): AddonsStateV2 {
+  const support = {
+    level: raw.support?.level || 'none',
+    price: toNum(raw.support?.price, 0),
+  };
+  const consulting = {
+    quantity: toNum(raw.consulting?.quantity, 0),
+    unitPrice: toNum(raw.consulting?.unitPrice, 200),
+  };
+  const dba = {
+    quantity: toNum(raw.dba?.quantity, 0),
+    unitPrice: toNum(raw.dba?.unitPrice, 250),
+  };
+  
+  // Log specialized services restoration from snapshot
+  if (support.level !== 'none') {
+    console.log('[EDIT] support restored (snapshot): level=' + support.level + ' price=' + support.price);
+  }
+  if (consulting.quantity > 0) {
+    console.log('[EDIT] consulting restored (snapshot): qty=' + consulting.quantity + ' unitPrice=' + consulting.unitPrice);
+  }
+  if (dba.quantity > 0) {
+    console.log('[EDIT] dba restored (snapshot): qty=' + dba.quantity + ' unitPrice=' + dba.unitPrice);
+  }
+  
   return {
     backupPlan: raw.backupPlan || 'none',
     backupGb: toNum(raw.backupGb, 0),
@@ -359,18 +383,9 @@ function hydrateAddons(raw: any): AddonsStateV2 {
     veeamVm: toNum(raw.veeamVm, 0),
     veeamAg: toNum(raw.veeamAg, 0),
     winserver: toNum(raw.winserver, 0),
-    support: {
-      level: raw.support?.level || 'none',
-      price: toNum(raw.support?.price, 0),
-    },
-    consulting: {
-      quantity: toNum(raw.consulting?.quantity, 0),
-      unitPrice: toNum(raw.consulting?.unitPrice, 200),
-    },
-    dba: {
-      quantity: toNum(raw.dba?.quantity, 0),
-      unitPrice: toNum(raw.dba?.unitPrice, 250),
-    },
+    support,
+    consulting,
+    dba,
     customAddons: raw.customAddons || {},
   };
 }
@@ -392,7 +407,26 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       continue;
     }
     
-    // Suporte (Support) - NEW
+    // Support - Using official codes (support_basic, support_intermediate, support_advanced)
+    if (name === 'support_basic') {
+      result.support.level = 'basic';
+      result.support.price = price;
+      console.log('[EDIT] support restored: level=basic price=' + price);
+      continue;
+    }
+    if (name === 'support_intermediate') {
+      result.support.level = 'intermediate';
+      result.support.price = price;
+      console.log('[EDIT] support restored: level=intermediate price=' + price);
+      continue;
+    }
+    if (name === 'support_advanced') {
+      result.support.level = 'advanced';
+      result.support.price = price;
+      console.log('[EDIT] support restored: level=advanced price=' + price);
+      continue;
+    }
+    // Legacy support names (backward compatibility)
     if (name.startsWith('suporte ')) {
       const levelMatch = name.match(/suporte\s+(basic|intermediate|advanced|básico|intermediário|avançado)/i);
       if (levelMatch) {
@@ -403,24 +437,38 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
         };
         result.support.level = levelMap[levelMatch[1].toLowerCase()] || 'basic';
         result.support.price = price;
-        console.log('[EDIT] Suporte restored:', result.support.level, result.support.price);
+        console.log('[EDIT] support restored (legacy): level=' + result.support.level + ' price=' + price);
       }
       continue;
     }
     
-    // Consultoria Técnica - NEW
+    // Consultoria Técnica - Using official code
+    if (name === 'consulting_hours') {
+      result.consulting.quantity = qty;
+      result.consulting.unitPrice = price > 0 ? price : 200;
+      console.log('[EDIT] consulting restored: qty=' + qty + ' unitPrice=' + result.consulting.unitPrice);
+      continue;
+    }
+    // Legacy consultoria names (backward compatibility)
     if (name.includes('consultoria')) {
       result.consulting.quantity = qty;
       result.consulting.unitPrice = price > 0 ? price : 200;
-      console.log('[EDIT] Consultoria restored:', result.consulting.quantity, 'h @', result.consulting.unitPrice);
+      console.log('[EDIT] consulting restored (legacy): qty=' + qty + ' unitPrice=' + result.consulting.unitPrice);
       continue;
     }
     
-    // DBA - NEW
+    // DBA - Using official code
+    if (name === 'dba_hours') {
+      result.dba.quantity = qty;
+      result.dba.unitPrice = price > 0 ? price : 250;
+      console.log('[EDIT] dba restored: qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
+      continue;
+    }
+    // Legacy DBA name (backward compatibility)
     if (name === 'dba') {
       result.dba.quantity = qty;
       result.dba.unitPrice = price > 0 ? price : 250;
-      console.log('[EDIT] DBA restored:', result.dba.quantity, 'h @', result.dba.unitPrice);
+      console.log('[EDIT] dba restored (legacy): qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
       continue;
     }
     
@@ -631,34 +679,40 @@ export function serializeProposal(
     console.log('[serializeProposal] Added WinServer:', state.addons.winserver);
   }
   
-  // Support - NEW
+  // Support - Using official codes from ADMIN
   if (state.addons.support.level !== 'none') {
+    const supportCodeMap: Record<string, string> = {
+      'basic': 'support_basic',
+      'intermediate': 'support_intermediate',
+      'advanced': 'support_advanced',
+    };
+    const code = supportCodeMap[state.addons.support.level] || 'support_basic';
     addonsArray.push({
-      name: `Suporte ${state.addons.support.level}`,
+      name: code,
       price: state.addons.support.price,
       quantity: 1,
     });
-    console.log('[serializeProposal] Added Suporte:', state.addons.support.level, state.addons.support.price);
+    console.log('[SERIALIZE] support=' + code + ' price=' + state.addons.support.price);
   }
   
-  // Consultoria Técnica - NEW
+  // Consultoria Técnica - Using official code
   if (state.addons.consulting.quantity > 0) {
     addonsArray.push({
-      name: 'Consultoria Técnica',
+      name: 'consulting_hours',
       price: state.addons.consulting.unitPrice,
       quantity: state.addons.consulting.quantity,
     });
-    console.log('[serializeProposal] Added Consultoria:', state.addons.consulting.quantity, 'h');
+    console.log('[SERIALIZE] consulting_hours qty=' + state.addons.consulting.quantity + ' price=' + state.addons.consulting.unitPrice);
   }
   
-  // DBA - NEW
+  // DBA - Using official code
   if (state.addons.dba.quantity > 0) {
     addonsArray.push({
-      name: 'DBA',
+      name: 'dba_hours',
       price: state.addons.dba.unitPrice,
       quantity: state.addons.dba.quantity,
     });
-    console.log('[serializeProposal] Added DBA:', state.addons.dba.quantity, 'h');
+    console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' price=' + state.addons.dba.unitPrice);
   }
   
   // Backup - EXPLICIT

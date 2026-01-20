@@ -448,12 +448,24 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
   if (rawAddons) {
     const hasBackup = (rawAddons.backupPlan as string) && (rawAddons.backupPlan as string) !== 'none';
     const hasWinserver = toNum(rawAddons.winserver, 0) > 0;
+    const hasSupport = (rawAddons.support as any)?.level && (rawAddons.support as any)?.level !== 'none';
+    const hasConsulting = toNum((rawAddons.consulting as any)?.quantity, 0) > 0;
+    const hasDba = toNum((rawAddons.dba as any)?.quantity, 0) > 0;
     
     if (hasBackup) {
       console.log('[normalizeProposalForEdit] [EDIT] Backup restored: plan=', rawAddons.backupPlan, ', gb=', toNum(rawAddons.backupGb, 0));
     }
     if (hasWinserver) {
       console.log('[normalizeProposalForEdit] [EDIT] WindowsServer units restored:', toNum(rawAddons.winserver, 0));
+    }
+    if (hasSupport) {
+      console.log('[normalizeProposalForEdit] [EDIT] support restored: level=' + (rawAddons.support as any)?.level + ' price=' + toNum((rawAddons.support as any)?.price, 0));
+    }
+    if (hasConsulting) {
+      console.log('[normalizeProposalForEdit] [EDIT] consulting restored: qty=' + toNum((rawAddons.consulting as any)?.quantity, 0) + ' unitPrice=' + toNum((rawAddons.consulting as any)?.unitPrice, 200));
+    }
+    if (hasDba) {
+      console.log('[normalizeProposalForEdit] [EDIT] dba restored: qty=' + toNum((rawAddons.dba as any)?.quantity, 0) + ' unitPrice=' + toNum((rawAddons.dba as any)?.unitPrice, 250));
     }
   }
   
