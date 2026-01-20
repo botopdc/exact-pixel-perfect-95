@@ -30,56 +30,15 @@ function getAuditUser() {
 }
 
 // ============================================================================
-// CUSTOMERS
+// CUSTOMERS - MIGRATED TO useCompanies.ts (uses /api/company)
+// Use hooks from @/hooks/useCompanies instead:
+// - useAllCompanies() / useCompanies(filters)
+// - useCompany(id)
+// - useCreateCompany()
+// - useUpdateCompany()
+// - useDeleteCompany()
+// - useCompanySearch(query)
 // ============================================================================
-
-export function useCertCustomers() {
-  return useQuery({
-    queryKey: ['cert-customers'],
-    queryFn: birthCertificateService.getCustomers,
-  });
-}
-
-export function useCertCustomer(id: string | undefined) {
-  return useQuery({
-    queryKey: ['cert-customer', id],
-    queryFn: () => birthCertificateService.getCustomer(id!),
-    enabled: !!id,
-  });
-}
-
-export function useCreateCertCustomer() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: (customer: Omit<CertCustomer, 'id' | 'created_at' | 'updated_at' | 'contacts' | 'assets' | 'asset_count'>) =>
-      birthCertificateService.createCustomer(customer, getAuditUser()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cert-customers'] });
-      toast.success('Cliente criado com sucesso');
-    },
-    onError: (error: Error) => {
-      toast.error(`Erro ao criar cliente: ${error.message}`);
-    },
-  });
-}
-
-export function useUpdateCertCustomer() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CertCustomer> }) =>
-      birthCertificateService.updateCustomer(id, data, getAuditUser()),
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['cert-customers'] });
-      queryClient.invalidateQueries({ queryKey: ['cert-customer', id] });
-      toast.success('Cliente atualizado com sucesso');
-    },
-    onError: (error: Error) => {
-      toast.error(`Erro ao atualizar cliente: ${error.message}`);
-    },
-  });
-}
 
 // ============================================================================
 // CUSTOMER CONTACTS

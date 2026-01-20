@@ -46,100 +46,16 @@ async function logAudit(
 }
 
 // ============================================================================
-// CUSTOMERS
+// CUSTOMERS - MIGRATED TO companyService.ts (uses /api/company)
+// Use functions from @/services/companyService instead:
+// - getCompanies(filters)
+// - getAllCompanies()
+// - getCompany(id)
+// - createCompany(data)
+// - updateCompany(id, data)
+// - deleteCompany(id)
+// - searchCompanies(query)
 // ============================================================================
-
-export async function getCustomers(): Promise<CertCustomer[]> {
-  const { data, error } = await supabase
-    .from('cert_customers')
-    .select(`
-      *,
-      cert_assets(id)
-    `)
-    .order('updated_at', { ascending: false });
-
-  if (error) throw error;
-
-  return (data || []).map((c: Record<string, unknown>) => ({
-    ...c,
-    asset_count: Array.isArray(c.cert_assets) ? c.cert_assets.length : 0,
-  })) as CertCustomer[];
-}
-
-export async function getCustomer(id: string): Promise<CertCustomer | null> {
-  const { data, error } = await supabase
-    .from('cert_customers')
-    .select(`
-      *,
-      cert_customer_contacts(*),
-      cert_assets(*)
-    `)
-    .eq('id', id)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return null;
-    throw error;
-  }
-
-  return {
-    ...data,
-    contacts: data.cert_customer_contacts || [],
-    assets: data.cert_assets || [],
-  } as CertCustomer;
-}
-
-export async function createCustomer(
-  customer: Omit<CertCustomer, 'id' | 'created_at' | 'updated_at' | 'contacts' | 'assets' | 'asset_count'>,
-  auditUser?: { id: string; name: string; level: number }
-): Promise<CertCustomer> {
-  const { data, error } = await supabase
-    .from('cert_customers')
-    .insert(customer)
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await logAudit(
-    'customer',
-    data.id,
-    'CREATE',
-    customer as Record<string, unknown>,
-    auditUser?.id,
-    auditUser?.name,
-    auditUser?.level
-  );
-
-  return data as CertCustomer;
-}
-
-export async function updateCustomer(
-  id: string,
-  customer: Partial<CertCustomer>,
-  auditUser?: { id: string; name: string; level: number }
-): Promise<CertCustomer> {
-  const { data, error } = await supabase
-    .from('cert_customers')
-    .update(customer)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await logAudit(
-    'customer',
-    id,
-    'UPDATE',
-    customer as Record<string, unknown>,
-    auditUser?.id,
-    auditUser?.name,
-    auditUser?.level
-  );
-
-  return data as CertCustomer;
-}
 
 // ============================================================================
 // CUSTOMER CONTACTS
@@ -886,11 +802,9 @@ export async function unlinkProposal(
 
 // Export service object
 export const birthCertificateService = {
-  // Customers
-  getCustomers,
-  getCustomer,
-  createCustomer,
-  updateCustomer,
+  // Customers - MIGRATED to companyService.ts (uses /api/company)
+  // Use: import { companyService } from '@/services/companyService';
+  
   // Contacts
   getCustomerContacts,
   createCustomerContact,
