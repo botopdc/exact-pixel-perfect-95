@@ -35,7 +35,7 @@ export interface AddonsStateV2 {
   firewall: boolean;
   tsplus: number;
   cal: number;
-  sql: 'none' | 'web' | 'we' | 'std';
+  sql: 'none' | 'web' | 'std';
   sqlQty: number;
   veeamVm: number;
   veeamAg: number;

@@ -513,11 +513,12 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       continue;
     }
     
-    // SQL
+    // SQL (WE removido - apenas WEB e STD)
     if (code?.startsWith('sql_') || name.includes('sql')) {
       if (code?.includes('web') || name.includes('web')) result.sql = 'web';
       else if (code?.includes('std') || name.includes('std') || name.includes('standard')) result.sql = 'std';
-      else if (code?.includes('we') || name.includes('we')) result.sql = 'we';
+      // Fallback: propostas antigas com WE mapeiam para WEB
+      else if (code?.includes('we') || name.includes('we')) result.sql = 'web';
       result.sqlQty = qty;
       continue;
     }

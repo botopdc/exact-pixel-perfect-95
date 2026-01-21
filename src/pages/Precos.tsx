@@ -627,12 +627,13 @@ const Precos = () => {
 
         {/* Tabs */}
         <Tabs defaultValue="vm" className="space-y-6">
-          <TabsList className="grid grid-cols-7 w-full max-w-4xl">
+          <TabsList className="grid grid-cols-8 w-full max-w-5xl">
             <TabsTrigger value="vm">VM</TabsTrigger>
             <TabsTrigger value="baremetal">BareMetal</TabsTrigger>
             <TabsTrigger value="gpu">GPU</TabsTrigger>
             <TabsTrigger value="addons">Add-ons</TabsTrigger>
             <TabsTrigger value="storage">Storage</TabsTrigger>
+            <TabsTrigger value="backup">Backup</TabsTrigger>
             <TabsTrigger value="kubernetes">Kubernetes</TabsTrigger>
             <TabsTrigger value="geral">Geral</TabsTrigger>
           </TabsList>
@@ -927,22 +928,32 @@ const Precos = () => {
                   {Object.keys(config.addons_brl?.sql ?? {}).length === 0 ? (
                     <p className="text-muted-foreground text-sm col-span-4">Nenhuma opção configurada.</p>
                   ) : (
-                    Object.entries(config.addons_brl?.sql ?? {}).map(([sqlType, price]) => (
-                      <div key={sqlType} className="space-y-2">
-                        <Label className="flex items-center justify-between">
-                          {sqlType === 'none' ? 'Nenhum' : sqlType.toUpperCase()}
-                          {isAdmin && sqlType !== 'none' && (
-                            <Button variant="ghost" size="icon" onClick={() => handleRemoveSql(sqlType, Number(price))} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>
-                          )}
-                        </Label>
-                        <Input 
-                          type="number" step="0.01" value={Number(price)} 
-                          readOnly={!isAdmin} disabled={!isAdmin}
-                          className={!isAdmin ? "bg-muted/30" : ""}
-                          onChange={(e) => handleUpdateSqlPrice(sqlType, Number(price), Number(e.target.value))}
-                        />
-                      </div>
-                    ))
+                    Object.entries(config.addons_brl?.sql ?? {})
+                      .filter(([sqlType]) => sqlType !== 'we') // Remove WE da exibição
+                      .map(([sqlType, price]) => {
+                        const formatSqlLabel = (k: string) => {
+                          if (k === 'none') return 'Nenhum';
+                          if (k === 'web') return 'WEB (2vCPU)';
+                          if (k === 'std') return 'STD (8vCPU)';
+                          return k.toUpperCase();
+                        };
+                        return (
+                          <div key={sqlType} className="space-y-2">
+                            <Label className="flex items-center justify-between">
+                              {formatSqlLabel(sqlType)}
+                              {isAdmin && sqlType !== 'none' && (
+                                <Button variant="ghost" size="icon" onClick={() => handleRemoveSql(sqlType, Number(price))} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>
+                              )}
+                            </Label>
+                            <Input 
+                              type="number" step="0.01" value={Number(price)} 
+                              readOnly={!isAdmin} disabled={!isAdmin}
+                              className={!isAdmin ? "bg-muted/30" : ""}
+                              onChange={(e) => handleUpdateSqlPrice(sqlType, Number(price), Number(e.target.value))}
+                            />
+                          </div>
+                        );
+                      })
                   )}
                 </CardContent>
               </Card>
@@ -1052,6 +1063,83 @@ const Precos = () => {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* Backup Tab */}
+          <TabsContent value="backup">
+            <Card>
+              <CardHeader>
+                <CardTitle>Tabela de Backup (R$/GB/mês)</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Preços por faixa de volume para cada plano de retenção
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="7" className="w-full">
+                  <TabsList className="grid grid-cols-3 w-full max-w-sm">
+                    <TabsTrigger value="7">7 dias</TabsTrigger>
+                    <TabsTrigger value="15">15 dias</TabsTrigger>
+                    <TabsTrigger value="30">30 dias</TabsTrigger>
+                  </TabsList>
+
+                  {['7', '15', '30'].map((retention) => (
+                    <TabsContent key={retention} value={retention} className="mt-4">
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-sm font-medium">Faixa (GB)</th>
+                              <th className="px-4 py-2 text-right text-sm font-medium">Preço (R$/GB)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(config.backup_tables_brl_per_gb?.[retention] || []).map((range, idx) => (
+                              <tr key={`${retention}-${idx}`} className="border-t">
+                                <td className="px-4 py-2 text-sm text-muted-foreground">
+                                  {range.min} - {range.max} GB
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  <Input
+                                    type="number"
+                                    step="0.001"
+                                    min="0"
+                                    value={range.price}
+                                    readOnly={!isAdmin}
+                                    disabled={!isAdmin}
+                                    className={`w-28 text-right ml-auto ${!isAdmin ? "bg-muted/30" : ""}`}
+                                    onChange={(e) => {
+                                      if (!isAdmin) return;
+                                      const newPrice = Number(e.target.value);
+                                      const oldPrice = range.price;
+                                      
+                                      updateConfig(prev => {
+                                        const updatedTables = { ...prev.backup_tables_brl_per_gb };
+                                        const ranges = [...(updatedTables[retention] || [])];
+                                        ranges[idx] = { ...ranges[idx], price: newPrice };
+                                        updatedTables[retention] = ranges;
+                                        return { ...prev, backup_tables_brl_per_gb: updatedTables };
+                                      });
+                                      
+                                      addLogEntry(
+                                        'UPDATE_ITEM',
+                                        `backup_${retention}dias`,
+                                        `${range.min}-${range.max} GB`,
+                                        oldPrice,
+                                        newPrice
+                                      );
+                                    }}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Kubernetes Tab */}
