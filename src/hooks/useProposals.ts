@@ -321,17 +321,50 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     const savedResult = dadosProposta.result;
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
     
-    // CRITICAL: If result is missing or has empty rows, reconstruct from snapshot
-    const needsReconstruction = !savedResult || !savedResult.rows || savedResult.rows.length === 0;
+    // CRITICAL: Determine if we need to reconstruct the result
+    // This is necessary when:
+    // 1. Result is missing or has no rows
+    // 2. Rows exist but have zero prices (indicative of corrupt/incomplete data)
+    // 3. The sum of row subtotals doesn't match any reasonable total
+    const hasEmptyRows = !savedResult || !savedResult.rows || savedResult.rows.length === 0;
+    
+    // Check for zero prices in rows - more aggressive check
+    const hasZeroPrices = savedResult?.rows?.some((row: any) => {
+      // A row is considered "bad" if both unitPrice and subtotal are zero but qty is > 0
+      const qty = typeof row.qty === 'number' ? row.qty : 1;
+      const hasZeroUnit = row.unitPrice === 0 || row.unitPrice === undefined || row.unitPrice === null;
+      const hasZeroSub = row.subtotal === 0 || row.subtotal === undefined || row.subtotal === null;
+      return qty > 0 && hasZeroUnit && hasZeroSub;
+    });
+    
+    // Calculate sum of rows for validation
+    const rowsSum = savedResult?.rows?.reduce((sum: number, row: any) => {
+      const finalTotal = row.finalTotal ?? row.subtotal ?? 0;
+      return sum + toNum(finalTotal, 0);
+    }, 0) || 0;
+    
+    // If we have a significant total but rows sum is zero or much smaller, something is wrong
+    const hasMismatchedTotal = grandTotal > 100 && rowsSum < (grandTotal * 0.1);
+    
+    const needsReconstruction = hasEmptyRows || hasZeroPrices || hasMismatchedTotal;
     let finalResult = savedResult;
     
     if (needsReconstruction && canBuildResult(dadosProposta)) {
-      console.log('[apiToLocal] Reconstructing result from snapshot for proposal', apiProposal.id);
+      console.log('[apiToLocal] Reconstructing result from snapshot for proposal', apiProposal.id, {
+        hasEmptyRows,
+        hasZeroPrices,
+        hasMismatchedTotal,
+        rowCount: savedResult?.rows?.length || 0,
+        rowsSum,
+        grandTotal,
+      });
       finalResult = buildResultFromSnapshot(
         dadosProposta,
         grandTotal,
         apiProposal.contract_duration || 12
       );
+    } else if (needsReconstruction) {
+      console.warn('[apiToLocal] Cannot reconstruct result - insufficient data in dados_proposta', apiProposal.id);
     }
     
     // Resolve status: prioritize API "status" field, then proposal_status, then dados_proposta
@@ -1316,7 +1349,23 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     proposal: proposal.proposal,
     
     // ALL items with complete data (VMs, BareMetals with disks, etc)
-    items: proposal.items, // Complete items with all fields
+    // CRITICAL: Enrich items with prices from result for proper reconstruction later
+    items: (proposal.items || []).map((item: any, idx: number) => {
+      // Find matching rows in result to get calculated prices
+      const resultRows = proposal.result?.rows || [];
+      const prefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
+      
+      // Sum up all related row prices (cpu, ram, disk, gpu, etc)
+      const relatedRows = resultRows.filter((r: any) => r.rowKey?.startsWith(prefix));
+      const unitPrice = relatedRows.reduce((sum: number, r: any) => sum + (r.unitPrice || 0), 0);
+      const totalPrice = relatedRows.reduce((sum: number, r: any) => sum + (r.finalTotal || r.subtotal || 0), 0);
+      
+      return {
+        ...item,
+        unitPrice: item.unitPrice || unitPrice,
+        totalPrice: item.totalPrice || totalPrice,
+      };
+    }),
     
     // ALL addons
     addons: proposal.addons, // Complete addons object
