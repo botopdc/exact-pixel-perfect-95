@@ -119,6 +119,8 @@ const SavedProposals: React.FC = () => {
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const isAdmin = userLevel === 1000;
+  const isManager = userLevel === 750;
+  const canSeeExecutive = userLevel >= 750; // Manager (750) and Admin (1000) can see executive column
   const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel === 1000;
   
   // Local storage hooks
@@ -139,6 +141,14 @@ const SavedProposals: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProposalStatus | 'all'>('all');
 
+  // Helper to get executive name from proposal
+  const getExecutiveName = (proposal: SavedProposal): string => {
+    // 1. Try populated creator object (from __with=creator)
+    if (proposal.creator?.name) return proposal.creator.name;
+    // 2. Fallback
+    return '—';
+  };
+
   // Filtered proposals
   const filteredProposals = useMemo(() => {
     return proposals.filter((p) => {
@@ -148,21 +158,25 @@ const SavedProposals: React.FC = () => {
         if (proposalStatus !== statusFilter) return false;
       }
       
-      // Filter by search query (client name or company)
+      // Filter by search query (client name, company, ID, or executive name)
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const clientName = (p.client?.name || '').toLowerCase();
         const companyName = (p.client?.company || '').toLowerCase();
         const proposalId = (p.proposal?.id || '').toLowerCase();
+        const executiveName = getExecutiveName(p).toLowerCase();
         
-        if (!clientName.includes(query) && !companyName.includes(query) && !proposalId.includes(query)) {
+        // Include executive name in search when user can see it
+        const matchesExecutive = canSeeExecutive && executiveName.includes(query);
+        
+        if (!clientName.includes(query) && !companyName.includes(query) && !proposalId.includes(query) && !matchesExecutive) {
           return false;
         }
       }
       
       return true;
     });
-  }, [proposals, statusFilter, searchQuery]);
+  }, [proposals, statusFilter, searchQuery, canSeeExecutive]);
 
   const handleDownloadPDF = (proposal: SavedProposal) => {
     // Check if we have a valid result to generate PDF
@@ -582,6 +596,9 @@ const SavedProposals: React.FC = () => {
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
                       <th className="text-left py-3 px-4 text-muted-foreground font-medium">Cliente</th>
+                      {canSeeExecutive && (
+                        <th className="text-left py-3 px-4 text-muted-foreground font-medium">Executivo</th>
+                      )}
                       <th className="text-left py-3 px-4 text-muted-foreground font-medium">ID Proposta</th>
                       <th className="text-left py-3 px-4 text-muted-foreground font-medium">Status</th>
                       <th className="text-left py-3 px-4 text-muted-foreground font-medium">Data Criação</th>
@@ -604,6 +621,9 @@ const SavedProposals: React.FC = () => {
                       return (
                         <tr key={proposalId} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                           <td className="py-4 px-4 font-medium text-foreground">{clientName}</td>
+                          {canSeeExecutive && (
+                            <td className="py-4 px-4 text-muted-foreground">{getExecutiveName(p)}</td>
+                          )}
                           <td className="py-4 px-4">
                             <span className={`font-mono text-sm font-semibold ${getIdColorClass(p.status)}`}>{proposalId}</span>
                           </td>
