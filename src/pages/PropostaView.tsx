@@ -165,8 +165,13 @@ const PropostaView: React.FC = () => {
   const { data: attachments = [] } = useAttachments(id);
 
   const handleDownloadPDF = async () => {
-    if (!proposal?.result) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos', variant: 'destructive' });
+    // Check if we have a valid result to generate PDF
+    const hasValidResult = proposal?.result && 
+      proposal.result.rows && 
+      proposal.result.rows.length > 0;
+    
+    if (!hasValidResult) {
+      toast({ title: 'Erro', description: 'Dados da proposta incompletos para gerar PDF', variant: 'destructive' });
       return;
     }
     
@@ -184,6 +189,7 @@ const PropostaView: React.FC = () => {
         datacenter: proposal.datacenter || 'SP1',
         observacao: proposal.observacao,
         attachments: attachments,
+        reseller: proposal.reseller,
       });
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
     } catch (error) {
