@@ -116,11 +116,17 @@ export function buildResultFromSnapshot(
       totalServers += qty;
       
       if (item.type === 'VM') {
-        const unitPrice = item.unitPrice || 0;
-        const total = item.totalPrice || unitPrice * qty;
+        // CRITICAL: Use stored unitPrice and totalPrice from snapshot
+        const unitPrice = item.unitPrice ?? 0;
+        const total = item.totalPrice ?? (unitPrice * qty);
         const rowKey = `vm_${idx}`;
         const overrideTotal = priceOverrides[rowKey];
         const finalTotal = overrideTotal ?? total;
+        
+        // Log if prices are missing for debugging
+        if (unitPrice === 0 && total === 0) {
+          console.warn('[proposalResultBuilder] VM item has zero prices:', item.name || `VM ${idx}`);
+        }
         
         const label = item.name || `VM ${item.vcpu || 0}vCPU / ${item.ram || 0}GB RAM / ${item.nvme || 0}GB NVMe`;
         rows.push({
@@ -153,11 +159,17 @@ export function buildResultFromSnapshot(
           });
         }
       } else if (item.type === 'BareMetal') {
-        const unitPrice = item.unitPrice || 0;
-        const total = item.totalPrice || unitPrice * qty;
+        // CRITICAL: Use stored unitPrice and totalPrice from snapshot
+        const unitPrice = item.unitPrice ?? 0;
+        const total = item.totalPrice ?? (unitPrice * qty);
         const rowKey = `bm_${idx}`;
         const overrideTotal = priceOverrides[rowKey];
         const finalTotal = overrideTotal ?? total;
+        
+        // Log if prices are missing for debugging
+        if (unitPrice === 0 && total === 0) {
+          console.warn('[proposalResultBuilder] BareMetal item has zero prices:', item.name || `BM ${idx}`);
+        }
         
         const label = item.name || `BareMetal ${item.cpu || ''} / ${item.ramTier || ''}`;
         rows.push({
