@@ -533,6 +533,34 @@ class OpenApiClient {
             }
           }
           break;
+          
+        case 'backup':
+          // Parse backup pricing table from API format
+          // Format: label = "7_dias_1_100", value = 0.5
+          for (const entry of configData || []) {
+            if (!entry.label) continue;
+            
+            // Parse label like "7_dias_1_100" → retention=7, min=1, max=100
+            const match = entry.label.match(/^(\d+)_dias_(\d+)_(\d+)$/);
+            if (match) {
+              const retention = match[1]; // "7", "15", "30"
+              const min = parseInt(match[2], 10);
+              const max = parseInt(match[3], 10);
+              const price = getValue(entry);
+              
+              if (!config.backup_tables_brl_per_gb[retention]) {
+                config.backup_tables_brl_per_gb[retention] = [];
+              }
+              
+              config.backup_tables_brl_per_gb[retention].push({ min, max, price });
+            }
+          }
+          
+          // Sort each retention's ranges by min value
+          for (const retention of Object.keys(config.backup_tables_brl_per_gb)) {
+            config.backup_tables_brl_per_gb[retention].sort((a, b) => a.min - b.min);
+          }
+          break;
       }
     }
 

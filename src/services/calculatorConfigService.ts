@@ -195,6 +195,9 @@ export const CONFIG_MAPPINGS = {
   // Kubernetes (IDs 10, 11)
   KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Preços Base dos Planos' },
   KUBERNETES_ADDONS: { category: 'Kubernetes', section: 'Add-ons Kubernetes' },
+  
+  // Backup pricing by retention (7/15/30 days)
+  BACKUP: { category: 'Backup', section: 'Tabela de Preços' },
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
