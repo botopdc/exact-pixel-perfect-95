@@ -121,6 +121,7 @@ export function isDiscountAllowed(
 
 /**
  * Valida se um override é permitido para o user_level
+ * Sem limite máximo de % - apenas regra de aprovação acima de 20%
  */
 export function isOverrideAllowed(
   overridePercent: number, 
@@ -133,16 +134,6 @@ export function isOverrideAllowed(
       allowed: false,
       requiresApproval: false,
       message: 'Seu perfil não permite aplicar comissão de parceiro.',
-    };
-  }
-  
-  const maxOverride = rules.maxOverridePercent || 30;
-  
-  if (overridePercent > maxOverride) {
-    return {
-      allowed: false,
-      requiresApproval: false,
-      message: `Comissão acima do permitido. Máximo: ${maxOverride}%`,
     };
   }
   
