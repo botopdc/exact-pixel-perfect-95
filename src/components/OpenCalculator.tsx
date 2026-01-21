@@ -2501,14 +2501,22 @@ const OpenCalculator: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {/* Safe access to config.addons_brl.sql with fallback */}
+                      {/* Safe access to config.addons_brl.sql with fallback - WE removido */}
                       {Object.entries(config?.addons_brl?.sql ?? {})
-                        .filter(([key]) => key && key.trim() !== '')
-                        .map(([key, price]) => (
-                          <SelectItem key={key} value={key}>
-                            {key === 'none' ? 'Nenhum' : key.toUpperCase()} {Number(price) > 0 && `- R$ ${formatCurrency(Number(price))}`}
-                          </SelectItem>
-                        ))}
+                        .filter(([key]) => key && key.trim() !== '' && key !== 'we')
+                        .map(([key, price]) => {
+                          const formatSqlLabel = (k: string) => {
+                            if (k === 'none') return 'Nenhum';
+                            if (k === 'web') return 'WEB (2vCPU)';
+                            if (k === 'std') return 'STD (8vCPU)';
+                            return k.toUpperCase();
+                          };
+                          return (
+                            <SelectItem key={key} value={key}>
+                              {formatSqlLabel(key)} {Number(price) > 0 && `- R$ ${formatCurrency(Number(price))}`}
+                            </SelectItem>
+                          );
+                        })}
                     </SelectContent>
                   </Select>
                 </div>

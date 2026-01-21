@@ -184,10 +184,12 @@ export function buildResultFromSnapshot(
     }
     
     if (addons.sql && addons.sql !== 'none') {
-      const sqlPrices: Record<string, number> = { web: 200, we: 265, std: 2240 };
+      const sqlPrices: Record<string, number> = { web: 200, std: 2240 };
+      const sqlLabels: Record<string, string> = { web: 'WEB (2vCPU)', std: 'STD (8vCPU)' };
       const price = sqlPrices[addons.sql] || 0;
+      const label = sqlLabels[addons.sql] || addons.sql.toUpperCase();
       if (price > 0) {
-        rows.push({ label: `SQL Server ${addons.sql.toUpperCase()}`, qty: 1, unitPrice: price, subtotal: price, finalTotal: price });
+        rows.push({ label: `SQL Server ${label}`, qty: 1, unitPrice: price, subtotal: price, finalTotal: price });
         subServices += price;
       }
     }
