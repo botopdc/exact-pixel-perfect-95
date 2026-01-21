@@ -2920,25 +2920,25 @@ const OpenCalculator: React.FC = () => {
                       <span className="text-muted-foreground">Subtotal Backup</span>
                       <span className="text-foreground">{formatCurrencyBRL(result.subBackup)}</span>
                     </div>
-                    {result.subKubernetes > 0 && (
+                    {(result.subKubernetes ?? 0) > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Subtotal Kubernetes</span>
                         <span className="text-foreground">{formatCurrencyBRL(result.subKubernetes)}</span>
                       </div>
                     )}
-                    {result.subStorage > 0 && (
+                    {(result.subStorage ?? 0) > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Subtotal Storage</span>
                         <span className="text-foreground">{formatCurrencyBRL(result.subStorage)}</span>
                       </div>
                     )}
-                    {result.discountValue > 0 && (
+                    {(result.discountValue ?? 0) > 0 && (
                       <div className="flex justify-between text-sm text-green-500">
                         <span>Desconto prazo ({(result.discountPct * 100).toFixed(0)}%)</span>
                         <span>-{formatCurrencyBRL(result.discountValue)}</span>
                       </div>
                     )}
-                    {result.partnerDiscountValue && result.partnerDiscountValue > 0 && (
+                    {(result.partnerDiscountValue ?? 0) > 0 && (
                       <div className="flex justify-between text-sm text-emerald-500">
                         <span>Desconto parceiro ({((result.partnerDiscountPct || 0) * 100).toFixed(0)}%)</span>
                         <span>-{formatCurrencyBRL(result.partnerDiscountValue)}</span>
@@ -2963,7 +2963,7 @@ const OpenCalculator: React.FC = () => {
                   </div>
 
                   {/* Comissão Parceiro section - only in PARCEIRO mode */}
-                  {reseller.viewMode === 'INTERNO' && result.overValue > 0 && (
+                  {reseller.viewMode === 'INTERNO' && (result.overValue ?? 0) > 0 && (
                     <div className="py-3 border-t border-border space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Comissão Parceiro ({result.overPercent.toFixed(1)}%)</span>
@@ -2983,7 +2983,7 @@ const OpenCalculator: React.FC = () => {
                   )}
 
                   {/* GPU info */}
-                  {result.gpuUsdTotal > 0 && (
+                  {(result.gpuUsdTotal ?? 0) > 0 && (
                     <div className="text-xs text-muted-foreground py-2 border-t border-border">
                       GPU: USD {formatCurrency(result.gpuUsdTotal)} × {fx} = R$ {formatCurrency(result.gpuBrlTotal)}
                     </div>
@@ -2994,7 +2994,7 @@ const OpenCalculator: React.FC = () => {
               {/* Actions */}
               <div className="space-y-2 pt-4 border-t border-border">
                 {/* Commission checkbox - only show if there's commission configured */}
-                {result && result.overValue > 0 && (
+                {result && (result.overValue ?? 0) > 0 && (
                   <div className="flex items-center gap-2 pb-2">
                     <input
                       type="checkbox"
