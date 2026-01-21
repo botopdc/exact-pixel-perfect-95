@@ -221,14 +221,15 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     });
   }
 
-  // 9. SQL Server prices (ID 7) - Labels: "Nenhum", "WEB", "WE", "STD"
+  // 9. SQL Server prices (ID 7) - Labels: "Nenhum", "WEB", "STD"
   if (addons.sql && typeof addons.sql === 'object') {
-    const sqlItems: ConfigItem[] = Object.entries(addons.sql).map(([edition, price]) => {
+    const sqlItems: ConfigItem[] = Object.entries(addons.sql)
+      .filter(([edition]) => edition !== 'we') // Remove WE if present
+      .map(([edition, price]) => {
       // Map edition keys to exact CSV labels
       let label = edition;
       if (edition === 'none') label = 'Nenhum';
       else if (edition === 'web') label = 'WEB';
-      else if (edition === 'we') label = 'WE';
       else if (edition === 'std') label = 'STD';
       else label = edition.toUpperCase();
       

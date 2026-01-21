@@ -927,22 +927,32 @@ const Precos = () => {
                   {Object.keys(config.addons_brl?.sql ?? {}).length === 0 ? (
                     <p className="text-muted-foreground text-sm col-span-4">Nenhuma opção configurada.</p>
                   ) : (
-                    Object.entries(config.addons_brl?.sql ?? {}).map(([sqlType, price]) => (
-                      <div key={sqlType} className="space-y-2">
-                        <Label className="flex items-center justify-between">
-                          {sqlType === 'none' ? 'Nenhum' : sqlType.toUpperCase()}
-                          {isAdmin && sqlType !== 'none' && (
-                            <Button variant="ghost" size="icon" onClick={() => handleRemoveSql(sqlType, Number(price))} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>
-                          )}
-                        </Label>
-                        <Input 
-                          type="number" step="0.01" value={Number(price)} 
-                          readOnly={!isAdmin} disabled={!isAdmin}
-                          className={!isAdmin ? "bg-muted/30" : ""}
-                          onChange={(e) => handleUpdateSqlPrice(sqlType, Number(price), Number(e.target.value))}
-                        />
-                      </div>
-                    ))
+                    Object.entries(config.addons_brl?.sql ?? {})
+                      .filter(([sqlType]) => sqlType !== 'we') // Remove WE da exibição
+                      .map(([sqlType, price]) => {
+                        const formatSqlLabel = (k: string) => {
+                          if (k === 'none') return 'Nenhum';
+                          if (k === 'web') return 'WEB (2vCPU)';
+                          if (k === 'std') return 'STD (8vCPU)';
+                          return k.toUpperCase();
+                        };
+                        return (
+                          <div key={sqlType} className="space-y-2">
+                            <Label className="flex items-center justify-between">
+                              {formatSqlLabel(sqlType)}
+                              {isAdmin && sqlType !== 'none' && (
+                                <Button variant="ghost" size="icon" onClick={() => handleRemoveSql(sqlType, Number(price))} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>
+                              )}
+                            </Label>
+                            <Input 
+                              type="number" step="0.01" value={Number(price)} 
+                              readOnly={!isAdmin} disabled={!isAdmin}
+                              className={!isAdmin ? "bg-muted/30" : ""}
+                              onChange={(e) => handleUpdateSqlPrice(sqlType, Number(price), Number(e.target.value))}
+                            />
+                          </div>
+                        );
+                      })
                   )}
                 </CardContent>
               </Card>

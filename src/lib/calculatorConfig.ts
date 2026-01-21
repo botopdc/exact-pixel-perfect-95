@@ -244,7 +244,6 @@ export const DEFAULT_CONFIG: CalculatorConfig = {
     sql: {
       none: 0,
       web: 200.0,
-      we: 265.0,
       std: 2240.0
     },
     veeam_vm_unit: 50.0,
