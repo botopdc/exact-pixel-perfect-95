@@ -752,9 +752,9 @@ const OpenCalculator: React.FC = () => {
     const partnerDiscountValue = grandTotalBeforePartner * partnerDiscountPct;
     const grandTotal = grandTotalBeforePartner - partnerDiscountValue;
 
-    // Calculate over values (reseller margin)
+    // Calculate over values (reseller margin) - sem limite máximo
     const resellerOverValue = toNum(reseller.overValue, 0);
-    const overValue = Math.max(0, Math.min(resellerOverValue, grandTotal * 0.3)); // Cap at 30%
+    const overValue = Math.max(0, resellerOverValue);
     const overPercent = grandTotal > 0 ? (overValue / grandTotal) * 100 : 0;
     const totalWithOver = grandTotal + overValue;
 
@@ -1370,8 +1370,6 @@ const OpenCalculator: React.FC = () => {
     toast({ title: 'Aprovado', description: 'Proposta marcada como aprovada' });
   };
 
-  // Calculate max over value (30% of subtotal)
-  const maxOverValue = result ? result.grandTotal * 0.3 : 0;
 
   const validityDate = getValidityDate(proposal.createdAt, proposal.validityDays);
 
@@ -2775,23 +2773,22 @@ const OpenCalculator: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Comissão Parceiro (R$) — máx 30%</label>
+                  <label className="block text-xs text-muted-foreground mb-1">Comissão Parceiro (R$)</label>
                   <Input
                     type="number"
                     value={reseller.overValue}
                     onChange={(e) => {
-                      const val = Math.max(0, Math.min(parseFloat(e.target.value) || 0, maxOverValue));
+                      const val = Math.max(0, parseFloat(e.target.value) || 0);
                       setReseller(prev => ({ ...prev, overValue: val }));
                     }}
                     min={0}
-                    max={maxOverValue}
                     step={0.01}
                     className="bg-input border-border"
                     disabled={reseller.approvalStatus === 'Aprovado'}
                   />
                   {result && (
                     <span className="text-xs text-muted-foreground">
-                      {result.overPercent.toFixed(1)}% do total (máx: R$ {formatCurrency(maxOverValue)})
+                      {result.overPercent.toFixed(1)}% do total
                     </span>
                   )}
                 </div>
