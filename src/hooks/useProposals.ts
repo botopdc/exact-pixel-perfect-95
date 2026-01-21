@@ -11,6 +11,7 @@ import {
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
+import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -315,9 +316,23 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       users: toNum(rawOpenSaas.users, 0),
     };
     
-    // Use saved result or use total from API
+    // Use saved result OR build from snapshot if result is missing/incomplete
+    // Import buildResultFromSnapshot for reconstruction
     const savedResult = dadosProposta.result;
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
+    
+    // CRITICAL: If result is missing or has empty rows, reconstruct from snapshot
+    const needsReconstruction = !savedResult || !savedResult.rows || savedResult.rows.length === 0;
+    let finalResult = savedResult;
+    
+    if (needsReconstruction && canBuildResult(dadosProposta)) {
+      console.log('[apiToLocal] Reconstructing result from snapshot for proposal', apiProposal.id);
+      finalResult = buildResultFromSnapshot(
+        dadosProposta,
+        grandTotal,
+        apiProposal.contract_duration || 12
+      );
+    }
     
     // Resolve status: prioritize API "status" field, then proposal_status, then dados_proposta
     // Then normalize to canonical ProposalStatus
@@ -381,7 +396,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       // RBAC fields from API - critical for access control
       created_by: apiProposal.created_by ?? null,
       creator: apiProposal.creator ?? null,
-      result: savedResult || {
+      result: finalResult || {
         rows: [],
         subRec: 0,
         subIps: 0,

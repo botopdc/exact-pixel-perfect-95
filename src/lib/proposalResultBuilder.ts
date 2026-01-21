@@ -26,19 +26,31 @@ interface DadosPropostaSnapshot {
   }>;
   addons?: {
     antivirus?: number;
+    antivirusPrice?: number;
     firewall?: boolean;
+    firewallPrice?: number;
     tsplus?: number;
+    tsplusPrice?: number;
     cal?: number;
+    calPrice?: number;
     winserver?: number;
+    winserverPrice?: number;
     sql?: string;
+    sqlPrice?: number;
     veeamVm?: number;
+    veeamVmPrice?: number;
     veeamAgent?: number;
+    veeamAgentPrice?: number;
     backupPlan?: string;
     backupRetention?: string;
     backupGb?: number;
+    backupPrice?: number;
     supportLevel?: string;
+    supportPrice?: number;
     consultingHours?: number;
+    consultingPrice?: number;
     dbaHours?: number;
+    dbaPrice?: number;
   };
   kubernetes?: {
     enabled?: boolean;
@@ -60,6 +72,20 @@ interface DadosPropostaSnapshot {
   };
   priceOverrides?: Record<string, number>;
   selectedTerm?: string;
+  // Financial snapshot (calculated values from calculator)
+  result?: {
+    rows?: Array<{ label: string; qty: number; unitPrice: number; subtotal: number; finalTotal?: number }>;
+    subRec?: number;
+    subIps?: number;
+    subServices?: number;
+    subBackup?: number;
+    subKubernetes?: number;
+    subStorage?: number;
+    subOpenSaas?: number;
+    grandTotal?: number;
+    discountPct?: number;
+    discountValue?: number;
+  };
 }
 
 /**
@@ -149,70 +175,74 @@ export function buildResultFromSnapshot(
     });
   }
 
-  // Process addons
+  // Process addons - use snapshot prices when available, otherwise use defaults
   if (dadosProposta.addons) {
     const addons = dadosProposta.addons;
     
     if (addons.antivirus && addons.antivirus > 0) {
-      const price = 69.9 * addons.antivirus;
-      rows.push({ label: 'Antivírus', qty: addons.antivirus, unitPrice: 69.9, subtotal: price, finalTotal: price });
+      const unitPrice = addons.antivirusPrice ?? 69.9;
+      const price = unitPrice * addons.antivirus;
+      rows.push({ label: 'Antivírus', qty: addons.antivirus, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.firewall) {
-      const price = 199.9;
-      rows.push({ label: 'Firewall pfSense', qty: 1, unitPrice: 199.9, subtotal: price, finalTotal: price });
+      const price = addons.firewallPrice ?? 199.9;
+      rows.push({ label: 'Firewall pfSense', qty: 1, unitPrice: price, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.tsplus && addons.tsplus > 0) {
-      const price = 40 * addons.tsplus;
-      rows.push({ label: 'TSplus', qty: addons.tsplus, unitPrice: 40, subtotal: price, finalTotal: price });
+      const unitPrice = addons.tsplusPrice ?? 40;
+      const price = unitPrice * addons.tsplus;
+      rows.push({ label: 'TSplus', qty: addons.tsplus, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.cal && addons.cal > 0) {
-      const price = 55 * addons.cal;
-      rows.push({ label: 'CAL RDS', qty: addons.cal, unitPrice: 55, subtotal: price, finalTotal: price });
+      const unitPrice = addons.calPrice ?? 55;
+      const price = unitPrice * addons.cal;
+      rows.push({ label: 'CAL RDS', qty: addons.cal, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.winserver && addons.winserver > 0) {
-      const price = 45 * addons.winserver;
-      rows.push({ label: 'WinServer (2vCPU/unid.)', qty: addons.winserver, unitPrice: 45, subtotal: price, finalTotal: price });
+      const unitPrice = addons.winserverPrice ?? 45;
+      const price = unitPrice * addons.winserver;
+      rows.push({ label: 'WinServer (2vCPU/unid.)', qty: addons.winserver, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.sql && addons.sql !== 'none') {
-      const sqlPrices: Record<string, number> = { web: 200, std: 2240 };
+      const sqlPrices: Record<string, number> = { web: 265, std: 2240 };
       const sqlLabels: Record<string, string> = { web: 'WEB (2vCPU)', std: 'STD (8vCPU)' };
-      const price = sqlPrices[addons.sql] || 0;
+      const unitPrice = addons.sqlPrice ?? sqlPrices[addons.sql] ?? 0;
       const label = sqlLabels[addons.sql] || addons.sql.toUpperCase();
-      if (price > 0) {
-        rows.push({ label: `SQL Server ${label}`, qty: 1, unitPrice: price, subtotal: price, finalTotal: price });
-        subServices += price;
+      if (unitPrice > 0) {
+        rows.push({ label: `SQL Server ${label}`, qty: 1, unitPrice, subtotal: unitPrice, finalTotal: unitPrice });
+        subServices += unitPrice;
       }
     }
     
     if (addons.veeamVm && addons.veeamVm > 0) {
-      const price = 50 * addons.veeamVm;
-      rows.push({ label: 'Veeam Backup (VM)', qty: addons.veeamVm, unitPrice: 50, subtotal: price, finalTotal: price });
+      const unitPrice = addons.veeamVmPrice ?? 50;
+      const price = unitPrice * addons.veeamVm;
+      rows.push({ label: 'Veeam Backup (VM)', qty: addons.veeamVm, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.veeamAgent && addons.veeamAgent > 0) {
-      const price = 45 * addons.veeamAgent;
-      rows.push({ label: 'Veeam Backup (Agente)', qty: addons.veeamAgent, unitPrice: 45, subtotal: price, finalTotal: price });
+      const unitPrice = addons.veeamAgentPrice ?? 45;
+      const price = unitPrice * addons.veeamAgent;
+      rows.push({ label: 'Veeam Backup (Agente)', qty: addons.veeamAgent, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
-    // Backup
+    // Backup - use snapshot price or default to 0.5/GB
     if (addons.backupPlan && addons.backupPlan !== 'none' && addons.backupGb) {
-      // Estimate backup price - would need full calculation
-      const gbPrice = 0.5; // Default estimate
-      const price = gbPrice * addons.backupGb;
+      const price = addons.backupPrice ?? (0.5 * addons.backupGb);
       rows.push({ 
-        label: `Backup ${addons.backupRetention || '7'} dias (${addons.backupGb}GB)`, 
+        label: `Backup ${addons.backupRetention || addons.backupPlan || '7'} dias (${addons.backupGb}GB)`, 
         qty: 1, 
         unitPrice: price, 
         subtotal: price,
@@ -221,10 +251,10 @@ export function buildResultFromSnapshot(
       subBackup += price;
     }
     
-    // Specialized services
+    // Specialized services - use snapshot prices when available
     if (addons.supportLevel && addons.supportLevel !== 'none') {
       const supportPrices: Record<string, number> = { basic: 1, intermediate: 500, advanced: 900 };
-      const price = supportPrices[addons.supportLevel] || 0;
+      const price = addons.supportPrice ?? supportPrices[addons.supportLevel] ?? 0;
       if (price > 0) {
         const label = addons.supportLevel === 'basic' ? 'Suporte Básico' :
                       addons.supportLevel === 'intermediate' ? 'Suporte Intermediário' : 'Suporte Avançado';
@@ -234,14 +264,16 @@ export function buildResultFromSnapshot(
     }
     
     if (addons.consultingHours && addons.consultingHours > 0) {
-      const price = 200 * addons.consultingHours;
-      rows.push({ label: 'Consultoria Técnica', qty: addons.consultingHours, unitPrice: 200, subtotal: price, finalTotal: price });
+      const unitPrice = addons.consultingPrice ? (addons.consultingPrice / addons.consultingHours) : 200;
+      const price = addons.consultingPrice ?? (200 * addons.consultingHours);
+      rows.push({ label: 'Consultoria Técnica', qty: addons.consultingHours, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.dbaHours && addons.dbaHours > 0) {
-      const price = 250 * addons.dbaHours;
-      rows.push({ label: 'DBA', qty: addons.dbaHours, unitPrice: 250, subtotal: price, finalTotal: price });
+      const unitPrice = addons.dbaPrice ? (addons.dbaPrice / addons.dbaHours) : 250;
+      const price = addons.dbaPrice ?? (250 * addons.dbaHours);
+      rows.push({ label: 'DBA', qty: addons.dbaHours, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
   }

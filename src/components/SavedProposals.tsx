@@ -165,8 +165,13 @@ const SavedProposals: React.FC = () => {
   }, [proposals, statusFilter, searchQuery]);
 
   const handleDownloadPDF = (proposal: SavedProposal) => {
-    if (!proposal.result) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos', variant: 'destructive' });
+    // Check if we have a valid result to generate PDF
+    const hasValidResult = proposal.result && 
+      proposal.result.rows && 
+      proposal.result.rows.length > 0;
+    
+    if (!hasValidResult) {
+      toast({ title: 'Erro', description: 'Dados da proposta incompletos para gerar PDF', variant: 'destructive' });
       return;
     }
     
@@ -183,6 +188,7 @@ const SavedProposals: React.FC = () => {
       result: proposal.result,
       selectedTerm: proposal.selectedTerm,
       datacenter: proposal.datacenter || 'SP1',
+      observacao: proposal.observacao,
     });
     toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
   };
