@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
-import { CalculatorConfig } from '@/lib/calculatorConfig';
+import { CalculatorConfig, DEFAULT_CONFIG } from '@/lib/calculatorConfig';
 import { openApi, CalculatorConfigApiResponse } from '@/lib/openApi';
 
 export const CONFIG_QUERY_KEY = ['calculator-config'];
@@ -35,7 +35,10 @@ const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorC
     vm_prices_brl: apiConfig.vm_prices_brl,
     baremetal: apiConfig.baremetal,
     addons_brl: normalizedAddonsBrl,
-    backup_tables_brl_per_gb: apiConfig.backup_tables_brl_per_gb,
+    // Fallback to DEFAULT_CONFIG if API returns empty backup tables
+    backup_tables_brl_per_gb: Object.keys(apiConfig.backup_tables_brl_per_gb || {}).length > 0
+      ? apiConfig.backup_tables_brl_per_gb
+      : DEFAULT_CONFIG.backup_tables_brl_per_gb,
     open_saas_price_per_user: apiConfig.open_saas_price_per_user,
     storage_prices: apiConfig.storage_prices as unknown as CalculatorConfig['storage_prices'],
     storage_pricing: apiConfig.storage_pricing as unknown as CalculatorConfig['storage_pricing'],

@@ -347,6 +347,35 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     }
   }
 
+  // 14. Backup pricing table (7/15/30 days with volume ranges)
+  if (config.backup_tables_brl_per_gb) {
+    // Transform backup_tables_brl_per_gb to API format
+    // Each retention period becomes an item with nested ranges
+    const backupItems: ConfigItem[] = [];
+    
+    for (const [retention, ranges] of Object.entries(config.backup_tables_brl_per_gb)) {
+      // Create one config item per range in each retention period
+      for (const range of ranges) {
+        backupItems.push({
+          label: `${retention}_dias_${range.min}_${range.max}`,
+          by: 'GB',
+          type: 'BRL',
+          value: Number(range.price) || 0,
+          description: `Retenção ${retention} dias, ${range.min}-${range.max} GB`,
+        });
+      }
+    }
+    
+    if (backupItems.length > 0) {
+      payloads.push({
+        category: CONFIG_MAPPINGS.BACKUP.category,
+        section: CONFIG_MAPPINGS.BACKUP.section,
+        configKey: makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section),
+        config: backupItems,
+      });
+    }
+  }
+
   return payloads;
 }
 
@@ -423,6 +452,7 @@ export function useConfigPersistence() {
     makeConfigKey(STORAGE_NVME_MAPPING.category, STORAGE_NVME_MAPPING.section),
     makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section),
     makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section),
+    makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section),
   ];
 
   // Helper to mark a section as modified
@@ -522,6 +552,12 @@ export function useConfigPersistence() {
     const key = type === 'fx' 
       ? makeConfigKey(CONFIG_MAPPINGS.GERAL_FX.category, CONFIG_MAPPINGS.GERAL_FX.section)
       : makeConfigKey(CONFIG_MAPPINGS.GERAL_DESCONTO.category, CONFIG_MAPPINGS.GERAL_DESCONTO.section);
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
+
+  // Wrapper to update Backup and mark section modified
+  const updateBackup = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
+    const key = makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section);
     updateConfig(updater, [key]);
   }, [updateConfig]);
 
@@ -800,6 +836,7 @@ export function useConfigPersistence() {
     updateStorage,
     updateKubernetes,
     updateGeneral,
+    updateBackup,
     // API operations
     saveToApi,
     resetToApi,
