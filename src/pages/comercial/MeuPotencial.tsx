@@ -929,7 +929,24 @@ export default function MeuPotencial() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          {(p.commission_rate * 100).toFixed(1)}%
+                          <div className="flex items-center justify-end gap-1">
+                            <span className={p.is_override ? 'font-semibold text-primary' : ''}>
+                              {(p.commission_rate * 100).toFixed(1)}%
+                            </span>
+                            {p.is_override && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                                    <Percent className="h-2.5 w-2.5 mr-0.5" />
+                                    custom
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Comissão personalizada</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right font-bold text-primary">
                           {formatCurrency(p.commission_value)}
