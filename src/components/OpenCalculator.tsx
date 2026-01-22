@@ -167,6 +167,33 @@ const OpenCalculator: React.FC = () => {
     };
   }, [location.pathname]);
 
+  // SECURITY: Architects (level 690) cannot create or edit proposals
+  const isArchitect = userContext.userLevel === 690;
+  
+  // Block architects from accessing calculator in edit mode
+  useEffect(() => {
+    if (isArchitect && isUrlEditMode) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Arquitetos não podem editar propostas',
+        variant: 'destructive',
+      });
+      navigate('/modulos/comercial/propostas');
+    }
+  }, [isArchitect, isUrlEditMode, navigate, toast]);
+  
+  // Block architects from creating new proposals
+  useEffect(() => {
+    if (isArchitect && !isUrlEditMode) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Arquitetos não podem criar propostas',
+        variant: 'destructive',
+      });
+      navigate('/modulos/comercial/propostas');
+    }
+  }, [isArchitect, isUrlEditMode, navigate, toast]);
+
   // Determine if this is a partner context for saving
   const isPartnerContext = userContext.userLevel === 200;
   const partnerSession = isPartnerContext ? partnerAuthService.getSession() : null;

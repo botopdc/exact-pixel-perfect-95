@@ -120,8 +120,13 @@ const SavedProposals: React.FC = () => {
   const userLevel = session?.level || 0;
   const isAdmin = userLevel === 1000;
   const isManager = userLevel === 750;
+  const isArchitect = userLevel === 690; // Architect has read-only access
   const canSeeExecutive = userLevel >= 750; // Manager (750) and Admin (1000) can see executive column
   const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel === 1000;
+  // Architect can only: View, View Access, Download PDF
+  const canEditProposal = !isArchitect;
+  const canCopyLink = !isArchitect;
+  const canSendEmail = !isArchitect;
   
   // Local storage hooks
   const { data: proposals = [], isLoading } = useProposals();
@@ -271,6 +276,16 @@ const SavedProposals: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const handleEdit = async (proposal: SavedProposal) => {
+    // Block editing for architects (level 690)
+    if (isArchitect) {
+      toast({ 
+        title: 'Acesso restrito', 
+        description: 'Arquitetos não podem editar propostas', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
     // Block editing of approved or rejected proposals
     if (proposal.status === 'APPROVED') {
       toast({ 
@@ -641,28 +656,40 @@ const SavedProposals: React.FC = () => {
                           <td className="py-4 px-4 text-right font-semibold text-primary">{formatCurrencyBRL(total)}</td>
                           <td className="py-4 px-4">
                             <div className="flex items-center justify-center gap-1">
+                              {/* View - Always visible */}
                               <Button variant="ghost" size="icon" onClick={() => handleView(proposalId)} className="text-primary hover:text-primary hover:bg-primary/10" title="Visualizar proposta">
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                onClick={() => handleEdit(p)} 
-                                className={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "text-muted-foreground cursor-not-allowed opacity-50" : "text-primary hover:text-primary hover:bg-primary/10"} 
-                                title={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "Proposta finalizada não pode ser editada" : "Editar proposta"}
-                                disabled={p.status === 'APPROVED' || p.status === 'REJECTED' || editingId === String(p.id)}
-                              >
-                                {editingId === String(p.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
-                              </Button>
+                              {/* Edit - Hidden for architects (level 690) */}
+                              {canEditProposal && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => handleEdit(p)} 
+                                  className={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "text-muted-foreground cursor-not-allowed opacity-50" : "text-primary hover:text-primary hover:bg-primary/10"} 
+                                  title={(p.status === 'APPROVED' || p.status === 'REJECTED') ? "Proposta finalizada não pode ser editada" : "Editar proposta"}
+                                  disabled={p.status === 'APPROVED' || p.status === 'REJECTED' || editingId === String(p.id)}
+                                >
+                                  {editingId === String(p.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
+                                </Button>
+                              )}
+                              {/* View Access - Always visible */}
                               <Button variant="ghost" size="icon" onClick={() => handleViewAccess(proposalId)} className="text-primary hover:text-primary hover:bg-primary/10" title="Ver acessos">
                                 <BarChart3 className="w-4 h-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => handleCopyAcceptanceLink(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Copiar link de aprovação" disabled={copyingLinkId === proposalId}>
-                                {copyingLinkId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
-                              </Button>
-                              <Button variant="ghost" size="icon" onClick={() => handleSendEmail(p)} className="text-primary hover:text-primary hover:bg-primary/10" title={hasEmail ? "Enviar por email" : "Sem email cadastrado"} disabled={!hasEmail || sendingEmailId === proposalId}>
-                                {sendingEmailId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                              </Button>
+                              {/* Copy Link - Hidden for architects (level 690) */}
+                              {canCopyLink && (
+                                <Button variant="ghost" size="icon" onClick={() => handleCopyAcceptanceLink(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Copiar link de aprovação" disabled={copyingLinkId === proposalId}>
+                                  {copyingLinkId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
+                                </Button>
+                              )}
+                              {/* Send Email - Hidden for architects (level 690) */}
+                              {canSendEmail && (
+                                <Button variant="ghost" size="icon" onClick={() => handleSendEmail(p)} className="text-primary hover:text-primary hover:bg-primary/10" title={hasEmail ? "Enviar por email" : "Sem email cadastrado"} disabled={!hasEmail || sendingEmailId === proposalId}>
+                                  {sendingEmailId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                                </Button>
+                              )}
+                              {/* Download PDF - Always visible */}
                               <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Baixar PDF">
                                 <FileDown className="w-4 h-4" />
                               </Button>
