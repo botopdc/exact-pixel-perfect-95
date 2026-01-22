@@ -18,6 +18,7 @@ import {
   UserStoreRequest,
   UserUpdateRequest,
 } from '@/hooks/useUsers';
+import { CommissionOverrideEditor } from '@/components/admin/CommissionOverrideEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -74,6 +75,7 @@ import {
 } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 import {
   Users,
   Search,
@@ -92,6 +94,7 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
+  Percent,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -777,6 +780,20 @@ export default function GestaoUsuarios() {
                     {...editForm.register('birthday')}
                   />
                 </div>
+
+                {/* Commission Override Section - Only for eligible users */}
+                {selectedUser && [700, 750, 775].includes(selectedUser.level) && (
+                  <>
+                    <Separator className="my-6" />
+                    <CommissionOverrideEditor
+                      externalUserId={selectedUser.id}
+                      userLevel={selectedUser.level}
+                      userName={selectedUser.name}
+                      adminEmail={session?.email || ''}
+                      adminName={session?.name || 'Admin'}
+                    />
+                  </>
+                )}
 
                 <SheetFooter className="mt-6">
                   <Button type="button" variant="outline" onClick={() => setShowEditSheet(false)}>
