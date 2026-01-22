@@ -12,6 +12,7 @@ import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
+import { persistArchitectCommission } from '@/services/proposalParticipantService';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -1863,7 +1864,19 @@ export function useUpdateProposalStatus() {
       const result = await openApi.updateProposal(numericId, updatePayload);
       console.log('[useUpdateProposalStatus] Update result:', result);
       
-      return { success: true, data: result, apiId: numericId };
+      // If status is APPROVED, persist architect commission
+      if (status === 'APPROVED') {
+        try {
+          const contractDuration = existing.contract_duration || 12;
+          await persistArchitectCommission(String(numericId), contractDuration);
+          console.log('[useUpdateProposalStatus] Architect commission persisted for proposal:', numericId);
+        } catch (commissionError) {
+          console.warn('[useUpdateProposalStatus] Failed to persist architect commission (non-blocking):', commissionError);
+          // Don't fail the approval flow - this is an optional step
+        }
+      }
+      
+      return { success: true, data: result, apiId: numericId, contractDuration: existing.contract_duration };
     },
     onSuccess: (result, { id }) => {
       console.log('[useUpdateProposalStatus] SUCCESS - Invalidating queries for:', id, 'apiId:', result?.apiId);
