@@ -61,6 +61,7 @@ import PropostasExecutivos from '@/pages/comercial/PropostasExecutivos';
 import ComissoesExecutivos from '@/pages/comercial/ComissoesExecutivos';
 import MeuPotencial from '@/pages/comercial/MeuPotencial';
 import MeuPotencialGerente from '@/pages/comercial/MeuPotencialGerente';
+import MeuPotencialArquiteto from '@/pages/comercial/MeuPotencialArquiteto';
 import MetasComerciais from '@/pages/comercial/MetasComerciais';
 import GestaoUsuarios from '@/pages/GestaoUsuarios';
 
@@ -200,6 +201,7 @@ const App = () => (
             <Route path="/modulos/comercial/metas" element={<MetasComerciais />} />
             <Route path="/modulos/comercial/comissoes" element={<ComissoesExecutivos />} />
             <Route path="/modulos/comercial/meu-potencial" element={<MeuPotencial />} />
+            <Route path="/modulos/comercial/potencial-arquiteto" element={<MeuPotencialArquiteto />} />
             <Route path="/modulos/comercial/potencial-gerente" element={<MeuPotencialGerente />} />
             
             {/* Parceiros Module */}
