@@ -319,12 +319,18 @@ export const generateOpenPDF = async ({
     // Save the merged PDF
     const mergedPdfBytes = await mergedPdf.save();
 
-    // Download the merged PDF
+    // Download the merged PDF - use UUID or sanitized ID for filename
     const blob = new Blob([new Uint8Array(mergedPdfBytes)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `OPEN_proposta_${proposal.id.replace(/[^a-zA-Z0-9_-]/g, '')}.pdf`;
+    
+    // Generate filename with UUID pattern or sanitized ID
+    const proposalIdentifier = proposal.id.replace(/[^a-zA-Z0-9_-]/g, '');
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    link.download = `OPEN_proposta_${proposalIdentifier}_${timestamp}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {

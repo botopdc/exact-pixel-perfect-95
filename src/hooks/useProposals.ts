@@ -11,6 +11,7 @@ import {
 import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
+import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -92,6 +93,14 @@ export interface SavedProposal {
     name: string;
     level: number;
   } | null;
+  // Preserve dados_proposta for fallback access to creator info
+  dados_proposta?: {
+    created_by_user_id?: number;
+    created_by_email?: string;
+    created_by_name?: string;
+    created_by_level?: number;
+    [key: string]: any;
+  };
 }
 
 // API Proposal format (what comes from the API)
@@ -315,9 +324,56 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       users: toNum(rawOpenSaas.users, 0),
     };
     
-    // Use saved result or use total from API
+    // Use saved result OR build from snapshot if result is missing/incomplete
+    // Import buildResultFromSnapshot for reconstruction
     const savedResult = dadosProposta.result;
     const grandTotal = toNum(apiProposal.total, toNum(savedResult?.grandTotal, 0));
+    
+    // CRITICAL: Determine if we need to reconstruct the result
+    // This is necessary when:
+    // 1. Result is missing or has no rows
+    // 2. Rows exist but have zero prices (indicative of corrupt/incomplete data)
+    // 3. The sum of row subtotals doesn't match any reasonable total
+    const hasEmptyRows = !savedResult || !savedResult.rows || savedResult.rows.length === 0;
+    
+    // Check for zero prices in rows - more aggressive check
+    const hasZeroPrices = savedResult?.rows?.some((row: any) => {
+      // A row is considered "bad" if both unitPrice and subtotal are zero but qty is > 0
+      const qty = typeof row.qty === 'number' ? row.qty : 1;
+      const hasZeroUnit = row.unitPrice === 0 || row.unitPrice === undefined || row.unitPrice === null;
+      const hasZeroSub = row.subtotal === 0 || row.subtotal === undefined || row.subtotal === null;
+      return qty > 0 && hasZeroUnit && hasZeroSub;
+    });
+    
+    // Calculate sum of rows for validation
+    const rowsSum = savedResult?.rows?.reduce((sum: number, row: any) => {
+      const finalTotal = row.finalTotal ?? row.subtotal ?? 0;
+      return sum + toNum(finalTotal, 0);
+    }, 0) || 0;
+    
+    // If we have a significant total but rows sum is zero or much smaller, something is wrong
+    const hasMismatchedTotal = grandTotal > 100 && rowsSum < (grandTotal * 0.1);
+    
+    const needsReconstruction = hasEmptyRows || hasZeroPrices || hasMismatchedTotal;
+    let finalResult = savedResult;
+    
+    if (needsReconstruction && canBuildResult(dadosProposta)) {
+      console.log('[apiToLocal] Reconstructing result from snapshot for proposal', apiProposal.id, {
+        hasEmptyRows,
+        hasZeroPrices,
+        hasMismatchedTotal,
+        rowCount: savedResult?.rows?.length || 0,
+        rowsSum,
+        grandTotal,
+      });
+      finalResult = buildResultFromSnapshot(
+        dadosProposta,
+        grandTotal,
+        apiProposal.contract_duration || 12
+      );
+    } else if (needsReconstruction) {
+      console.warn('[apiToLocal] Cannot reconstruct result - insufficient data in dados_proposta', apiProposal.id);
+    }
     
     // Resolve status: prioritize API "status" field, then proposal_status, then dados_proposta
     // Then normalize to canonical ProposalStatus
@@ -379,9 +435,16 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       acceptance: resolvedAcceptance,
       observacao: dadosProposta.observacao || apiProposal.observations || undefined,
       // RBAC fields from API - critical for access control
-      created_by: apiProposal.created_by ?? null,
-      creator: apiProposal.creator ?? null,
-      result: savedResult || {
+      created_by: apiProposal.created_by ?? dadosProposta.created_by_user_id ?? null,
+      creator: apiProposal.creator ?? (dadosProposta.created_by_name ? {
+        id: dadosProposta.created_by_user_id,
+        email: dadosProposta.created_by_email,
+        name: dadosProposta.created_by_name,
+        level: dadosProposta.created_by_level,
+      } : null),
+      // Preserve dados_proposta for fallback access to creator info
+      dados_proposta: dadosProposta,
+      result: finalResult || {
         rows: [],
         subRec: 0,
         subIps: 0,
@@ -1278,15 +1341,30 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Build complete dados_proposta object with ALL calculator state
   // This ensures we can restore the exact proposal when editing
   // CRITICAL: dados_proposta is the SOURCE OF TRUTH - do not save just the total!
+  
+  // CRITICAL: Get current user session to persist creator info
+  const session = authService.getSession();
+  const currentUserId = session?.userId || null;
+  const currentUserEmail = session?.email || null;
+  const currentUserName = session?.name || null;
+  const currentUserLevel = session?.level || null;
+  
+  // Use existing creator info if already set (editing), otherwise use current user
+  const existingCreatorId = (proposal as any).created_by_user_id || (proposal as any).created_by || proposal.creator?.id;
+  const existingCreatorName = (proposal as any).created_by_name || proposal.creator?.name;
+  const existingCreatorEmail = (proposal as any).created_by_email || proposal.creator?.email;
+  const existingCreatorLevel = (proposal as any).created_by_level || proposal.creator?.level;
+  
   const dadosProposta = {
     // Unique proposal identifiers
     proposalId: proposal.proposal?.id,
     
-    // Owner tracking (required)
-    created_by_user_id: proposal.result?.grandTotal ? (proposal as any).created_by_user_id : undefined,
-    created_by_email: (proposal as any).created_by_email,
-    created_by_name: (proposal as any).created_by_name,
-    created_by_level: (proposal as any).created_by_level,
+    // Owner tracking (CRITICAL for Executivo column and RBAC)
+    // Preserve existing creator on edits, set from session on new proposals
+    created_by_user_id: existingCreatorId || currentUserId,
+    created_by_email: existingCreatorEmail || currentUserEmail,
+    created_by_name: existingCreatorName || currentUserName,
+    created_by_level: existingCreatorLevel || currentUserLevel,
     created_by_role: (proposal as any).created_by_role,
     
     // Configuration
@@ -1301,7 +1379,23 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     proposal: proposal.proposal,
     
     // ALL items with complete data (VMs, BareMetals with disks, etc)
-    items: proposal.items, // Complete items with all fields
+    // CRITICAL: Enrich items with prices from result for proper reconstruction later
+    items: (proposal.items || []).map((item: any, idx: number) => {
+      // Find matching rows in result to get calculated prices
+      const resultRows = proposal.result?.rows || [];
+      const prefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
+      
+      // Sum up all related row prices (cpu, ram, disk, gpu, etc)
+      const relatedRows = resultRows.filter((r: any) => r.rowKey?.startsWith(prefix));
+      const unitPrice = relatedRows.reduce((sum: number, r: any) => sum + (r.unitPrice || 0), 0);
+      const totalPrice = relatedRows.reduce((sum: number, r: any) => sum + (r.finalTotal || r.subtotal || 0), 0);
+      
+      return {
+        ...item,
+        unitPrice: item.unitPrice || unitPrice,
+        totalPrice: item.totalPrice || totalPrice,
+      };
+    }),
     
     // ALL addons
     addons: proposal.addons, // Complete addons object

@@ -8,9 +8,10 @@
  * 
  * 1️⃣ COMISSÃO DO GERENTE: 1% do TCV total do time
  * 
- * 2️⃣ PAGAMENTO: Sempre 3 parcelas iguais
+ * 2️⃣ CAMPO "total" = MRR (valor mensal)
+ *    TCV = MRR × contract_duration
  * 
- * 3️⃣ MRR: Apenas métrica de acompanhamento (TCV / contract_duration)
+ * 3️⃣ PAGAMENTO: Sempre 3 parcelas iguais
  * 
  * 4️⃣ SOMENTE status = APPROVED
  * 
@@ -87,7 +88,7 @@ interface ApiProposal {
   company: string;
   email: string;
   phone: string;
-  total: number;
+  total: number; // MRR - valor MENSAL
   contract_duration: number;
   status?: string;
   channel_type?: string;
@@ -309,11 +310,14 @@ export default function MeuPotencialGerente() {
           return isApproved && belongsToTeam;
         });
 
-        // 4. Process proposals with manager commission (1% TCV)
+        // 4. Process proposals - CRITICAL: total = MRR, TCV = MRR × meses
         const processed: ProcessedProposal[] = teamProposals.map((p) => {
-          const tcv = normalizeNumber(p.total);
+          // MRR = campo "total" (valor MENSAL)
+          const mrr = normalizeNumber(p.total);
           const duration = Math.max(Number(p.contract_duration) || 1, 1);
-          const mrr = tcv / duration;
+          
+          // TCV = MRR × meses
+          const tcv = mrr * duration;
           
           // Manager commission = 1% of TCV
           const managerCommission = tcv * MANAGER_COMMISSION_RATE;
