@@ -39,6 +39,12 @@ import {
   isStandardDuration,
   computeTCV,
 } from '@/services/executiveCommissionService';
+import { 
+  calculateProposalCommission as calcUnified, 
+  CommissionUser, 
+  CommissionProposal 
+} from '@/services/commissionCalculator';
+import { getCommissionOverride } from '@/services/commissionOverrideService';
 import { useMRRGoals } from '@/hooks/useMRRGoals';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -122,6 +128,7 @@ interface ProcessedProposal {
   p2: number;
   p3: number;
   is_standard_duration: boolean;
+  is_override: boolean; // Se a comissão veio de um override
   dadosIncompletos: boolean;
   
   // Date and status
@@ -288,6 +295,9 @@ export default function MeuPotencial() {
         
         setUserId(user.id);
         
+        // Buscar override de comissão do usuário
+        const commissionOverride = await getCommissionOverride(user.id);
+        
         const response = await openApi.getProposals({
           __perPage: 500,
         });
@@ -305,19 +315,26 @@ export default function MeuPotencial() {
           return isApproved && isOwner;
         });
 
-        // Process proposals - CRITICAL: total = MRR, TCV = MRR × meses
+        // Construir objeto de usuário para cálculo unificado
+        const commissionUser: CommissionUser = {
+          id: user.id,
+          level: user.level,
+          commission_pct_override: commissionOverride?.commission_pct_override ?? null,
+        };
+
+        // Process proposals - USANDO CÁLCULO UNIFICADO COM OVERRIDE
         const processed: ProcessedProposal[] = filteredProposals.map((p) => {
           // MRR = campo "total" (valor MENSAL)
           const mrr = p.total || 0;
           const duration = p.contract_duration || 0;
           
-          // TCV = MRR × meses
-          const tcv = computeTCV(mrr, duration);
+          // Usar calculadora unificada
+          const commissionResult = calcUnified(
+            { total: mrr, contract_duration: duration },
+            commissionUser
+          );
           
-          // Comissão calculada sobre TCV
-          const rate = computeCommissionPct(duration);
-          const commission = computeCommissionValue(tcv, duration);
-          const installments = computeInstallments(commission);
+          const installments = computeInstallments(commissionResult.totalCommission);
           
           // Determine base date (priority: accepted_at > approved_at > sent_at > updated_at)
           const baseDate = 
@@ -339,15 +356,16 @@ export default function MeuPotencial() {
             id: p.id,
             cliente: p.name || 'N/A',
             empresa: p.company || 'N/A',
-            mrr,
-            tcv,
+            mrr: commissionResult.mrr,
+            tcv: commissionResult.tcv,
             contract_term_months: duration,
-            commission_rate: rate,
-            commission_value: commission,
+            commission_rate: commissionResult.commissionPct,
+            commission_value: commissionResult.totalCommission,
             p1: installments.p1,
             p2: installments.p2,
             p3: installments.p3,
             is_standard_duration: isStandardDuration(duration),
+            is_override: commissionResult.isOverride,
             dadosIncompletos: !mrr || !duration,
             baseDate,
             basePaymentMonth,

@@ -990,6 +990,39 @@ export type Database = {
         }
         Relationships: []
       }
+      user_commission_overrides: {
+        Row: {
+          commission_pct_override: number | null
+          created_at: string
+          created_by_email: string | null
+          created_by_name: string | null
+          external_user_id: number
+          id: string
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          commission_pct_override?: number | null
+          created_at?: string
+          created_by_email?: string | null
+          created_by_name?: string | null
+          external_user_id: number
+          id?: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          commission_pct_override?: number | null
+          created_at?: string
+          created_by_email?: string | null
+          created_by_name?: string | null
+          external_user_id?: number
+          id?: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
