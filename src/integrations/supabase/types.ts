@@ -583,6 +583,36 @@ export type Database = {
           },
         ]
       }
+      proposal_participants: {
+        Row: {
+          commission_pct: number | null
+          created_at: string
+          external_user_id: number
+          id: string
+          proposal_id: string
+          role: Database["public"]["Enums"]["participant_role"]
+          updated_at: string
+        }
+        Insert: {
+          commission_pct?: number | null
+          created_at?: string
+          external_user_id: number
+          id?: string
+          proposal_id: string
+          role: Database["public"]["Enums"]["participant_role"]
+          updated_at?: string
+        }
+        Update: {
+          commission_pct?: number | null
+          created_at?: string
+          external_user_id?: number
+          id?: string
+          proposal_id?: string
+          role?: Database["public"]["Enums"]["participant_role"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       proposal_views: {
         Row: {
           client_email: string | null
@@ -1087,6 +1117,7 @@ export type Database = {
         | "MUDANCA"
         | "OUTRO"
       on_call_level: "N1" | "N2" | "N3"
+      participant_role: "EXECUTIVE" | "MANAGER" | "CS" | "ARCHITECT"
       root_cause_category:
         | "HARDWARE"
         | "CONFIG"
@@ -1284,6 +1315,7 @@ export const Constants = {
         "OUTRO",
       ],
       on_call_level: ["N1", "N2", "N3"],
+      participant_role: ["EXECUTIVE", "MANAGER", "CS", "ARCHITECT"],
       root_cause_category: [
         "HARDWARE",
         "CONFIG",
