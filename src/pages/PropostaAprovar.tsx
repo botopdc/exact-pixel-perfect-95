@@ -24,6 +24,7 @@ import {
   defineAcceptance, 
   CalculatorProposal 
 } from '@/services/calculatorProposalService';
+import { persistArchitectCommission } from '@/services/proposalParticipantService';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
 import { useToast } from '@/hooks/use-toast';
@@ -190,6 +191,18 @@ const PropostaAprovar: React.FC = () => {
       });
       
       console.log('[PropostaAprovar] POST define-acceptance SUCCESS');
+      
+      // If approved, persist architect commission
+      if (pendingAction === 'Aprovado' && proposal) {
+        try {
+          const contractDuration = proposal.contract_duration || 12;
+          await persistArchitectCommission(String(numericId), contractDuration);
+          console.log('[PropostaAprovar] Architect commission persisted for proposal:', numericId);
+        } catch (commissionError) {
+          console.warn('[PropostaAprovar] Failed to persist architect commission (non-blocking):', commissionError);
+          // Don't fail the approval flow - this is an optional step
+        }
+      }
       
       setFinalStatus(pendingAction === 'Aprovado' ? 'approved' : 'rejected');
       
