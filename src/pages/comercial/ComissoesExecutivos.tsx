@@ -102,29 +102,23 @@ function useMRRByExecutive(executiveIds: number[]) {
         return status === 'aprovado' || status === 'approved' || status === 'aprovada';
       });
 
-      // Calculate MRR by executive: MRR = total / contract_duration
+      // CRITICAL: total = MRR (valor mensal), então MRR = total diretamente
+      // NÃO dividir por duration! O campo total JÁ é o valor mensal
       const mrrByExec = new Map<number, number>();
       const execIdsSet = new Set(executiveIds);
 
-      for (const p of allProposals) {
+      for (const p of approvedProposals) {
         const createdBy = p.created_by;
         if (!createdBy || !execIdsSet.has(createdBy)) continue;
 
-        // Normalize total
-        let total = 0;
+        // MRR = campo "total" (já é o valor mensal)
+        let mrr = 0;
         if (typeof p.total === 'number') {
-          total = p.total;
+          mrr = p.total;
         } else if (typeof p.total === 'string') {
-          total = parseFloat(p.total.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+          mrr = parseFloat(p.total.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
         }
 
-        // Normalize duration
-        let duration = p.contract_duration || p.dados_proposta?.config?.vigencia || 1;
-        if (typeof duration !== 'number' || duration <= 0) {
-          duration = 1;
-        }
-
-        const mrr = total / duration;
         mrrByExec.set(createdBy, (mrrByExec.get(createdBy) || 0) + mrr);
       }
 

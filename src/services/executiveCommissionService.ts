@@ -13,13 +13,15 @@
  * - 48 meses = 2.5% do TCV
  * - Fallback: < 24 meses = 4%, >= 24 meses = 2.5%
  * 
- * 2️⃣ TCV = campo "total" da proposta (Total do Contrato)
+ * 2️⃣ CAMPO "total" DA API = MRR (valor mensal)
+ *    TCV = total × contract_duration (MRR × meses)
  * 
  * 3️⃣ NÃO HÁ CAP - Comissão é calculada sem teto
  * 
  * 4️⃣ PAGAMENTO: Sempre 3 parcelas iguais (3x)
  * 
  * 5️⃣ FÓRMULA:
+ * TCV = MRR × prazo_meses
  * comissao = TCV × taxa
  * parcela = comissao / 3
  * 
@@ -54,7 +56,8 @@ export interface ExecutiveProposal {
   executivo_id: string;
   executivo_nome: string;
   cliente_nome: string;
-  tcv: number; // Total Contract Value (campo "total" da API)
+  mrr: number; // MRR - campo "total" da API é o valor MENSAL
+  tcv: number; // TCV = MRR × prazo_meses (calculado)
   prazo_meses: number;
   status: ProposalStatus;
   status_pagamento: PaymentStatus;
@@ -122,7 +125,7 @@ export interface ApiProposalData {
   company: string;
   email: string;
   phone: string;
-  total: number; // TCV - Total Contract Value
+  total: number; // MRR - Valor MENSAL da proposta
   contract_duration: number;
   discount_pct: number;
   status?: string;
@@ -176,12 +179,31 @@ export function computeCommissionPct(durationMonths: number): number {
 }
 
 /**
+ * Compute TCV from MRR and duration
+ * TCV = MRR × meses
+ */
+export function computeTCV(mrr: number, durationMonths: number): number {
+  return round2(mrr * durationMonths);
+}
+
+/**
  * Compute commission value from TCV and duration
  * NO CAP - Simple multiplication
  */
 export function computeCommissionValue(tcv: number, durationMonths: number): number {
   const rate = computeCommissionPct(durationMonths);
   return round2(tcv * rate);
+}
+
+/**
+ * Compute commission from MRR (full pipeline)
+ * TCV = MRR × meses, then comissão = TCV × taxa
+ */
+export function computeCommissionFromMRR(mrr: number, durationMonths: number): { tcv: number; commission: number; rate: number } {
+  const tcv = computeTCV(mrr, durationMonths);
+  const rate = computeCommissionPct(durationMonths);
+  const commission = round2(tcv * rate);
+  return { tcv, commission, rate };
 }
 
 /**
@@ -390,10 +412,13 @@ export function transformApiProposalById(
     return null;
   }
   
-  // TCV = campo "total" da proposta
-  const tcv = apiProposal.total || 0;
+  // MRR = campo "total" da proposta (valor MENSAL)
+  const mrr = apiProposal.total || 0;
   const prazoMeses = apiProposal.contract_duration || 
     apiProposal.dados_proposta?.config?.vigencia || 12;
+  
+  // TCV = MRR × meses
+  const tcv = computeTCV(mrr, prazoMeses);
   
   const apiStatus = (apiProposal.status || '').toLowerCase();
   let status: ProposalStatus = 'pendente';
@@ -423,6 +448,7 @@ export function transformApiProposalById(
     executivo_id: String(executive.id),
     executivo_nome: executive.name,
     cliente_nome: clienteNome,
+    mrr,
     tcv,
     prazo_meses: prazoMeses,
     status,
@@ -590,9 +616,13 @@ export function transformApiProposal(
     return null;
   }
   
-  const tcv = apiProposal.total || 0;
+  // MRR = campo "total" (valor mensal)
+  const mrr = apiProposal.total || 0;
   const prazoMeses = apiProposal.contract_duration || 
     apiProposal.dados_proposta?.config?.vigencia || 12;
+  
+  // TCV = MRR × meses
+  const tcv = computeTCV(mrr, prazoMeses);
   
   const apiStatus = (apiProposal.status || '').toLowerCase();
   let status: ProposalStatus = 'pendente';
@@ -605,6 +635,7 @@ export function transformApiProposal(
     executivo_id: String(executive.id),
     executivo_nome: executive.name,
     cliente_nome: apiProposal.company || apiProposal.name || 'N/A',
+    mrr,
     tcv,
     prazo_meses: prazoMeses,
     status,

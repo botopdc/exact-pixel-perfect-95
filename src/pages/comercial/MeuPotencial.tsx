@@ -11,7 +11,8 @@
  * - 24, 36, 48 meses = 2.5% do TCV
  * - Fallback: < 24m = 4%, >= 24m = 2.5%
  * 
- * 2️⃣ TCV = campo "total" da proposta
+ * 2️⃣ CAMPO "total" = MRR (valor mensal)
+ *    TCV = MRR × contract_duration
  * 
  * 3️⃣ SEM CAP - Sem teto de comissão
  * 
@@ -36,6 +37,7 @@ import {
   computeCommissionValue,
   computeInstallments,
   isStandardDuration,
+  computeTCV,
 } from '@/services/executiveCommissionService';
 import { useMRRGoals } from '@/hooks/useMRRGoals';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -95,7 +97,7 @@ interface ApiProposal {
   company: string;
   email: string;
   phone: string;
-  total: number; // TCV
+  total: number; // MRR - valor MENSAL
   contract_duration: number;
   status?: string;
   channel_type?: string;
@@ -111,7 +113,8 @@ interface ProcessedProposal {
   id: number;
   cliente: string;
   empresa: string;
-  tcv: number;
+  mrr: number; // MRR - valor mensal original
+  tcv: number; // TCV = MRR × meses
   contract_term_months: number;
   commission_rate: number;
   commission_value: number;
@@ -302,10 +305,16 @@ export default function MeuPotencial() {
           return isApproved && isOwner;
         });
 
-        // Process proposals
+        // Process proposals - CRITICAL: total = MRR, TCV = MRR × meses
         const processed: ProcessedProposal[] = filteredProposals.map((p) => {
-          const tcv = p.total || 0;
+          // MRR = campo "total" (valor MENSAL)
+          const mrr = p.total || 0;
           const duration = p.contract_duration || 0;
+          
+          // TCV = MRR × meses
+          const tcv = computeTCV(mrr, duration);
+          
+          // Comissão calculada sobre TCV
           const rate = computeCommissionPct(duration);
           const commission = computeCommissionValue(tcv, duration);
           const installments = computeInstallments(commission);
@@ -330,6 +339,7 @@ export default function MeuPotencial() {
             id: p.id,
             cliente: p.name || 'N/A',
             empresa: p.company || 'N/A',
+            mrr,
             tcv,
             contract_term_months: duration,
             commission_rate: rate,
@@ -338,7 +348,7 @@ export default function MeuPotencial() {
             p2: installments.p2,
             p3: installments.p3,
             is_standard_duration: isStandardDuration(duration),
-            dadosIncompletos: !tcv || !duration,
+            dadosIncompletos: !mrr || !duration,
             baseDate,
             basePaymentMonth,
             basePaymentYear,
@@ -394,11 +404,8 @@ export default function MeuPotencial() {
     const atRiskCommission = atRiskProposals.reduce((sum, p) => sum + p.commission_value, 0);
     const expiredCommission = expiredProposals.reduce((sum, p) => sum + p.commission_value, 0);
 
-    // Calculate MRR: for each proposal, MRR = TCV / contract_duration
-    const mrrTotal = propostas.reduce((sum, p) => {
-      const months = p.contract_term_months || 1;
-      return sum + (p.tcv / months);
-    }, 0);
+    // MRR já está na proposta (campo mrr = total original)
+    const mrrTotal = propostas.reduce((sum, p) => sum + p.mrr, 0);
 
     return {
       totalCommission,
