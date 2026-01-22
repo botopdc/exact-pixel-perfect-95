@@ -1078,11 +1078,33 @@ const OpenCalculator: React.FC = () => {
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
 
+  // Check if a VM item has at least one resource defined (not completely empty)
+  // A VM is valid if it has: vCPU > 0 OR RAM > 0 OR NVMe > 0 OR IPs > 0 OR GPU selected OR trafficTb > 0
+  const isVMValid = useCallback((item: ServerItem): boolean => {
+    if (item.type !== 'vm') return true; // Non-VM items are always valid here
+    const vm = item as VMItem;
+    const hasVcpu = (vm.vcpu ?? 0) > 0;
+    const hasRam = (vm.ramGb ?? 0) > 0;
+    const hasNvme = (vm.nvmeTb ?? 0) > 0;
+    const hasIps = (vm.ips ?? 0) > 0;
+    const hasTraffic = (vm.trafficTb ?? 0) > 0;
+    const hasGpu = vm.gpu && vm.gpu !== 'Sem GPU';
+    return hasVcpu || hasRam || hasNvme || hasIps || hasTraffic || hasGpu;
+  }, []);
+
+  // Get list of empty VM items (for validation error messages)
+  const getEmptyVMItems = useCallback((): { index: number; id: string }[] => {
+    return items
+      .map((item, index) => ({ item, index, id: item.id }))
+      .filter(({ item }) => item.type === 'vm' && !isVMValid(item))
+      .map(({ index, id }) => ({ index: index + 1, id })); // 1-indexed for display
+  }, [items, isVMValid]);
+
   // Check if there's at least one sellable item (servers OR any product/addon)
   // IMPORTANT: Storage, Kubernetes, OPEN SaaS are now independent products that DON'T require VM/BM
   const hasAnyItem = useCallback(() => {
-    // Core products (servers)
-    const hasVM = items.some(i => i.type === 'vm');
+    // Core products (servers) - VMs must be valid (not empty)
+    const hasValidVM = items.some(i => i.type === 'vm' && isVMValid(i));
     const hasBareMetal = items.some(i => i.type === 'bm');
     
     // Independent products (don't require servers)
@@ -1101,8 +1123,8 @@ const OpenCalculator: React.FC = () => {
       addons.veeamVm > 0 || 
       addons.veeamAg > 0;
     
-    return hasVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS || hasAddons;
-  }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users, addons]);
+    return hasValidVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS || hasAddons;
+  }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users, addons, isVMValid]);
 
   // Save proposal via API
   const handleSave = async () => {
@@ -1110,6 +1132,18 @@ const OpenCalculator: React.FC = () => {
       toast({ title: 'Erro', description: 'Informe o nome do cliente ou empresa', variant: 'destructive' });
       return;
     }
+    // Validate: check for empty VM items first
+    const emptyVMs = getEmptyVMItems();
+    if (emptyVMs.length > 0) {
+      const vmNumbers = emptyVMs.map(v => `#${v.index}`).join(', ');
+      toast({ 
+        title: 'VM sem recursos', 
+        description: `VM ${vmNumbers} está sem nenhum recurso selecionado. Defina pelo menos um upgrade (vCPU, RAM, disco, IP ou GPU) ou remova o item.`, 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
     // Validate: at least one item (server, product, or addon) must exist
     if (!hasAnyItem()) {
       toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para salvar a proposta.', variant: 'destructive' });
@@ -1812,22 +1846,37 @@ const OpenCalculator: React.FC = () => {
                 {items.map((item, idx) => {
                   const isExpanded = expandedItems.has(item.id);
                   const gpuOptions = Object.keys(config.gpu_usd);
+                  const isEmptyVM = item.type === 'vm' && !isVMValid(item);
 
                   return (
-                    <div key={item.id} className="border border-border rounded-lg overflow-hidden bg-card/50">
+                    <div 
+                      key={item.id} 
+                      className={`border rounded-lg overflow-hidden bg-card/50 ${
+                        isEmptyVM ? 'border-destructive border-2' : 'border-border'
+                      }`}
+                    >
                       {/* Header */}
                       <div
-                        className="flex items-center justify-between px-4 py-3 bg-muted/30 cursor-pointer"
+                        className={`flex items-center justify-between px-4 py-3 cursor-pointer ${
+                          isEmptyVM ? 'bg-destructive/10' : 'bg-muted/30'
+                        }`}
                         onClick={() => toggleExpand(item.id)}
                       >
                         <div className="flex items-center gap-3">
-                          <ProductIcon type={item.type === 'vm' ? 'vm' : 'baremetal'} size={18} className="text-emerald-400" />
-                          <span className="bg-emerald-500 text-white text-xs font-bold uppercase px-2 py-1 rounded-full">
+                          <ProductIcon type={item.type === 'vm' ? 'vm' : 'baremetal'} size={18} className={isEmptyVM ? 'text-destructive' : 'text-emerald-400'} />
+                          <span className={`text-white text-xs font-bold uppercase px-2 py-1 rounded-full ${
+                            isEmptyVM ? 'bg-destructive' : 'bg-emerald-500'
+                          }`}>
                             {item.type === 'vm' ? 'VM' : 'BAREMETAL'}
                           </span>
                           <span className="font-medium text-foreground">
                             {item.type === 'vm' ? `VM #${idx + 1}` : `BareMetal #${idx + 1}`}
                           </span>
+                          {isEmptyVM && (
+                            <span className="text-xs text-destructive font-medium">
+                              (Sem recursos definidos)
+                            </span>
+                          )}
                           <span className="text-xs text-muted-foreground">
                             {item.qtyServers}x servidor(es)
                           </span>
@@ -1906,8 +1955,11 @@ const OpenCalculator: React.FC = () => {
                                 <Input
                                   type="number"
                                   value={item.vcpu}
-                                  onChange={(e) => updateItem(item.id, { vcpu: parseInt(e.target.value) || 1 })}
-                                  min={1}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    updateItem(item.id, { vcpu: Number.isNaN(val) || val < 0 ? 0 : val });
+                                  }}
+                                  min={0}
                                   className="bg-input border-border"
                                 />
                               </div>
@@ -1916,8 +1968,11 @@ const OpenCalculator: React.FC = () => {
                                 <Input
                                   type="number"
                                   value={item.ramGb}
-                                  onChange={(e) => updateItem(item.id, { ramGb: parseInt(e.target.value) || 1 })}
-                                  min={1}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    updateItem(item.id, { ramGb: Number.isNaN(val) || val < 0 ? 0 : val });
+                                  }}
+                                  min={0}
                                   className="bg-input border-border"
                                 />
                               </div>
