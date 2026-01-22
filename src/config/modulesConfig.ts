@@ -109,7 +109,7 @@ export const SIDEBAR_MODULES: Module[] = [
     title: 'Comercial',
     icon: Briefcase,
     url: '/modulos/comercial',
-    allowedLevels: [700, 750, 1000],
+    allowedLevels: [690, 700, 750, 1000],
   },
   {
     id: 'parceiros',
@@ -203,13 +203,13 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
     description: 'Gestão de vendas, executivos e propostas',
     icon: Briefcase,
     homeUrl: '/modulos/comercial',
-    allowedLevels: [700, 750, 1000],
+    allowedLevels: [690, 700, 750, 1000],
     subNavigation: [
       {
         id: 'visao-geral',
         title: 'Visão Geral',
         url: '/modulos/comercial',
-        allowedLevels: [700, 750, 1000],
+        allowedLevels: [690, 700, 750, 1000],
       },
       {
         id: 'executivos',
@@ -221,9 +221,9 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         id: 'propostas',
         title: 'Propostas',
         url: '/modulos/comercial/propostas',
-        allowedLevels: [700, 750, 1000],
+        allowedLevels: [690, 700, 750, 1000],
         tabs: [
-          { id: 'lista', title: 'Lista', url: '/modulos/comercial/propostas', allowedLevels: [700, 750, 1000] },
+          { id: 'lista', title: 'Lista', url: '/modulos/comercial/propostas', allowedLevels: [690, 700, 750, 1000] },
           { id: 'criar', title: 'Criar', url: '/modulos/comercial/propostas/criar', allowedLevels: [700, 750, 1000] },
           { id: 'templates', title: 'Templates', url: '/modulos/comercial/propostas/templates', allowedLevels: [750, 1000] },
           { id: 'aprovacoes', title: 'Aprovações', url: '/modulos/comercial/propostas/aprovacoes', allowedLevels: [750, 1000] },
@@ -245,7 +245,13 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         id: 'meu-potencial',
         title: 'Meu Potencial',
         url: '/modulos/comercial/meu-potencial',
-        allowedLevels: [700], // Apenas Executivos
+        allowedLevels: [700], // Executivos
+      },
+      {
+        id: 'meu-potencial-arquiteto',
+        title: 'Meu Potencial',
+        url: '/modulos/comercial/potencial-arquiteto',
+        allowedLevels: [690], // Arquitetos
       },
       {
         id: 'potencial-gerente',

@@ -14,7 +14,7 @@
  * 5. Backend validates token - if invalid, returns 401/404/422
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FileDown, Check, X, Loader2, AlertCircle } from 'lucide-react';
@@ -24,6 +24,7 @@ import {
   defineAcceptance, 
   CalculatorProposal 
 } from '@/services/calculatorProposalService';
+import { persistArchitectCommission } from '@/services/proposalParticipantService';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
 import { useToast } from '@/hooks/use-toast';
@@ -53,12 +54,16 @@ const PropostaAprovar: React.FC = () => {
   // CRITICAL: Normalize token - remove any "/aceite" or other suffixes that may have been added
   const approvalToken = rawToken.split('/')[0].trim();
   
+  // Ref Guard to prevent double-click processing
+  const actionInProgressRef = useRef(false);
+  
   // States
   const [proposal, setProposal] = useState<CalculatorProposal | null>(null);
   const [isLoadingProposal, setIsLoadingProposal] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [finalStatus, setFinalStatus] = useState<FinalStatus>(null);
+  // Keep dialog state only for rejection confirmation
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<'Aprovado' | 'Reprovado' | null>(null);
   
@@ -135,13 +140,27 @@ const PropostaAprovar: React.FC = () => {
     }
   };
   
-  const handleConfirmAction = (action: 'Aprovado' | 'Reprovado') => {
-    setPendingAction(action);
-    setConfirmDialogOpen(true);
-  };
-  
-  const handleSubmitAcceptance = async () => {
-    // Validate before proceeding
+  /**
+   * Handle immediate approval - NO CONFIRMATION MODAL
+   * Uses ref guard to prevent double-click processing
+   */
+  const handleApproveImmediate = async () => {
+    // 1. Ref Guard - prevent double processing (sync check)
+    if (actionInProgressRef.current) {
+      console.log('[PropostaAprovar] Action already in progress, ignoring click');
+      return;
+    }
+    
+    // 2. Idempotency check - already approved?
+    if (finalStatus === 'approved') {
+      toast({
+        title: 'Proposta já aprovada',
+        description: 'Esta proposta já foi aprovada anteriormente.',
+      });
+      return;
+    }
+    
+    // 3. Validate before proceeding
     if (!proposal) {
       toast({
         title: 'Erro',
@@ -160,9 +179,6 @@ const PropostaAprovar: React.FC = () => {
       return;
     }
     
-    if (!pendingAction) return;
-    
-    // Validate proposal_id is a valid integer
     const numericId = proposal.id;
     if (!Number.isInteger(numericId) || numericId <= 0) {
       toast({
@@ -173,38 +189,60 @@ const PropostaAprovar: React.FC = () => {
       return;
     }
     
-    setConfirmDialogOpen(false);
+    // 4. Lock immediately (sync) before any async work
+    actionInProgressRef.current = true;
     setIsSubmitting(true);
     
     try {
+      // 5. Fresh DB check - re-fetch to ensure not already approved
+      console.log('[PropostaAprovar] Fresh check before approval...');
+      const freshProposal = await getProposalPublic(proposalIdParam!);
+      const freshStatus = freshProposal.status?.toUpperCase();
+      
+      if (freshStatus === 'APROVADO' || freshStatus === 'APPROVED') {
+        console.log('[PropostaAprovar] Proposal already approved (fresh check)');
+        setFinalStatus('approved');
+        toast({
+          title: 'Proposta já aprovada',
+          description: 'Esta proposta já foi aprovada anteriormente.',
+        });
+        return;
+      }
+      
+      // 6. Execute approval
       console.log('[PropostaAprovar] POST define-acceptance:', {
         proposal_id: numericId,
-        status: pendingAction,
+        status: 'Aprovado',
         tokenPreview: approvalToken.substring(0, 12) + '...',
       });
       
       await defineAcceptance({
         proposal_id: numericId,
         approval_token: approvalToken,
-        status: pendingAction,
+        status: 'Aprovado',
       });
       
       console.log('[PropostaAprovar] POST define-acceptance SUCCESS');
       
-      setFinalStatus(pendingAction === 'Aprovado' ? 'approved' : 'rejected');
+      // 7. Persist architect commission (non-blocking)
+      try {
+        const contractDuration = proposal.contract_duration || 12;
+        await persistArchitectCommission(String(numericId), contractDuration);
+        console.log('[PropostaAprovar] Architect commission persisted for proposal:', numericId);
+      } catch (commissionError) {
+        console.warn('[PropostaAprovar] Failed to persist architect commission (non-blocking):', commissionError);
+      }
+      
+      // 8. Update UI immediately
+      setFinalStatus('approved');
       
       toast({
-        title: pendingAction === 'Aprovado' ? 'Proposta aprovada!' : 'Proposta recusada',
-        description: pendingAction === 'Aprovado' 
-          ? 'Nossa equipe comercial entrará em contato em breve.' 
-          : 'Sua decisão foi registrada.',
+        title: 'Proposta aprovada com sucesso!',
+        description: 'Nossa equipe comercial entrará em contato em breve.',
       });
     } catch (error: any) {
       console.error('[PropostaAprovar] POST define-acceptance ERROR:', error);
-      console.error('[PropostaAprovar] Response status:', error.response?.status);
-      console.error('[PropostaAprovar] Response data:', error.response?.data);
       
-      // Extract error message from response
       let errorMessage = 'Erro ao processar sua decisão. Tente novamente.';
       
       if (error.response?.data?.message) {
@@ -230,6 +268,89 @@ const PropostaAprovar: React.FC = () => {
         variant: 'destructive',
       });
     } finally {
+      actionInProgressRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+  
+  /**
+   * Handle rejection - KEEPS CONFIRMATION MODAL
+   */
+  const handleRejectWithConfirmation = () => {
+    if (actionInProgressRef.current || finalStatus === 'rejected') return;
+    setPendingAction('Reprovado');
+    setConfirmDialogOpen(true);
+  };
+  
+  /**
+   * Submit rejection after confirmation
+   */
+  const handleSubmitRejection = async () => {
+    if (actionInProgressRef.current) return;
+    
+    if (!proposal || !approvalToken) {
+      toast({
+        title: 'Erro',
+        description: 'Dados incompletos.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    const numericId = proposal.id;
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      toast({
+        title: 'Erro',
+        description: 'ID da proposta inválido.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    actionInProgressRef.current = true;
+    setConfirmDialogOpen(false);
+    setIsSubmitting(true);
+    
+    try {
+      console.log('[PropostaAprovar] POST define-acceptance (rejection):', {
+        proposal_id: numericId,
+        status: 'Reprovado',
+      });
+      
+      await defineAcceptance({
+        proposal_id: numericId,
+        approval_token: approvalToken,
+        status: 'Reprovado',
+      });
+      
+      console.log('[PropostaAprovar] POST define-acceptance (rejection) SUCCESS');
+      
+      setFinalStatus('rejected');
+      
+      toast({
+        title: 'Proposta recusada',
+        description: 'Sua decisão foi registrada.',
+      });
+    } catch (error: any) {
+      console.error('[PropostaAprovar] Rejection ERROR:', error);
+      
+      let errorMessage = 'Erro ao processar sua decisão. Tente novamente.';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Proposta não encontrada ou link expirado.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Link inválido ou expirado. Solicite um novo link.';
+      }
+      
+      toast({
+        title: 'Erro',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      actionInProgressRef.current = false;
       setIsSubmitting(false);
       setPendingAction(null);
     }
@@ -403,13 +524,13 @@ const PropostaAprovar: React.FC = () => {
                 <Button 
                   variant="success"
                   className="w-full"
-                  onClick={() => handleConfirmAction('Aprovado')}
-                  disabled={isSubmitting}
+                  onClick={handleApproveImmediate}
+                  disabled={isSubmitting || actionInProgressRef.current}
                 >
-                  {isSubmitting && pendingAction === 'Aprovado' ? (
+                  {isSubmitting && !pendingAction ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processando...
+                      Aprovando...
                     </>
                   ) : (
                     <>
@@ -422,7 +543,7 @@ const PropostaAprovar: React.FC = () => {
                 <Button 
                   variant="outline"
                   className="w-full text-destructive border-destructive/50 hover:bg-destructive/10"
-                  onClick={() => handleConfirmAction('Reprovado')}
+                  onClick={handleRejectWithConfirmation}
                   disabled={isSubmitting}
                 >
                   {isSubmitting && pendingAction === 'Reprovado' ? (
@@ -447,28 +568,23 @@ const PropostaAprovar: React.FC = () => {
         </p>
       </div>
       
-      {/* Confirmation Dialog */}
+      {/* Confirmation Dialog - Only for rejection */}
       <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingAction === 'Aprovado' ? 'Confirmar Aprovação' : 'Confirmar Recusa'}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Confirmar Recusa</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingAction === 'Aprovado' 
-                ? `Você está prestes a APROVAR a proposta no valor de ${totalValue}/mês. Esta ação não pode ser desfeita.`
-                : `Você está prestes a RECUSAR esta proposta. Esta ação não pode ser desfeita.`
-              }
+              Você está prestes a RECUSAR esta proposta. Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isSubmitting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction 
-              onClick={handleSubmitAcceptance}
-              className={pendingAction === 'Aprovado' ? 'bg-success hover:bg-success/90' : 'bg-destructive hover:bg-destructive/90'}
+              onClick={handleSubmitRejection}
+              className="bg-destructive hover:bg-destructive/90"
               disabled={isSubmitting}
             >
-              {pendingAction === 'Aprovado' ? 'Sim, Aprovar' : 'Sim, Recusar'}
+              Sim, Recusar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

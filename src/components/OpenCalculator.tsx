@@ -7,6 +7,7 @@ import { useNavigate, Link as RouterLink, useLocation, useSearchParams } from 'r
 
 import ProductIcon from './ProductIcon';
 import { EditablePriceCell } from './calculator/EditablePriceCell';
+import { ArchitectSelector } from './calculator/ArchitectSelector';
 import {
   CalculatorConfig,
   ServerItem,
@@ -79,6 +80,7 @@ import {
 } from '@/config/pricingRules';
 import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/proposalNormalizer';
 import { openApi } from '@/lib/openApi';
+import { setArchitectParticipant, removeArchitectParticipant, getArchitectParticipant } from '@/services/proposalParticipantService';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -164,6 +166,33 @@ const OpenCalculator: React.FC = () => {
       profileLabel: 'Visitante',
     };
   }, [location.pathname]);
+
+  // SECURITY: Architects (level 690) cannot create or edit proposals
+  const isArchitect = userContext.userLevel === 690;
+  
+  // Block architects from accessing calculator in edit mode
+  useEffect(() => {
+    if (isArchitect && isUrlEditMode) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Arquitetos não podem editar propostas',
+        variant: 'destructive',
+      });
+      navigate('/modulos/comercial/propostas');
+    }
+  }, [isArchitect, isUrlEditMode, navigate, toast]);
+  
+  // Block architects from creating new proposals
+  useEffect(() => {
+    if (isArchitect && !isUrlEditMode) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Arquitetos não podem criar propostas',
+        variant: 'destructive',
+      });
+      navigate('/modulos/comercial/propostas');
+    }
+  }, [isArchitect, isUrlEditMode, navigate, toast]);
 
   // Determine if this is a partner context for saving
   const isPartnerContext = userContext.userLevel === 200;
@@ -267,11 +296,16 @@ const OpenCalculator: React.FC = () => {
   const [observacao, setObservacao] = useState('');
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingProposalId, setEditingProposalId] = useState<string | null>(null);
+  // Architect participant (level 690) - null means no architect assigned
+  const [selectedArchitectId, setSelectedArchitectId] = useState<number | null>(null);
   // Check if admin mode (same PIN as /precos page)
   const isAdminMode = localStorage.getItem('open_precos_adminMode') === 'true';
   
   // Check if user can edit prices (markup)
   const canEditMarkup = canEditPriceMarkup(userContext.userLevel);
+  
+  // Only show architect selector for internal users (not partners)
+  const showArchitectSelector = !isPartnerContext && userContext.userLevel && userContext.userLevel >= 700;
 
   // FX is now fixed at 1 (removed - all prices are BRL)
 
@@ -892,6 +926,10 @@ const OpenCalculator: React.FC = () => {
     setPriceOverrides(normalized.priceOverrides);
     setObservacao(normalized.observacao);
     
+    // Load architect participant from dados_proposta if present
+    const savedArchitectId = (normalized as any).selectedArchitectId ?? null;
+    setSelectedArchitectId(savedArchitectId);
+    
     // Expand all loaded items
     const allItemIds = allItems.map((item: any) => item.id);
     setExpandedItems(new Set(allItemIds));
@@ -899,6 +937,21 @@ const OpenCalculator: React.FC = () => {
     // Mark as edit mode with API numeric ID (critical for updates)
     setIsEditMode(true);
     setEditingProposalId(normalized.apiId ? String(normalized.apiId) : null);
+    
+    // If we have an apiId but no architect from dados_proposta, try loading from proposal_participants
+    const proposalId = normalized.apiId ? String(normalized.apiId) : null;
+    if (proposalId && !savedArchitectId) {
+      getArchitectParticipant(proposalId)
+        .then(participant => {
+          if (participant) {
+            console.log('[OpenCalculator] Loaded architect from participants:', participant.external_user_id);
+            setSelectedArchitectId(participant.external_user_id);
+          }
+        })
+        .catch(err => {
+          console.warn('[OpenCalculator] Could not load architect participant:', err);
+        });
+    }
     
     console.log('[OpenCalculator] EDIT_MODE activated:', {
       apiNumericId: normalized.apiId,
@@ -909,6 +962,7 @@ const OpenCalculator: React.FC = () => {
       kubernetesEnabled: normalized.kubernetes.enabled,
       openSaasEnabled: normalized.openSaas.enabled,
       openSaasUsers: normalized.openSaas.users,
+      selectedArchitectId: savedArchitectId,
     });
     
     setInitialized(true);
@@ -1113,6 +1167,7 @@ const OpenCalculator: React.FC = () => {
         priceOverrides, // Manual price adjustments (markup)
         result, // Computed result for reference
         observacao: observacao.trim() || undefined,
+        selectedArchitectId, // Architect participant for commission tracking
         // Owner tracking (required for persistence)
         created_by_user_id: ownerInfo.ownerUserId,
         created_by_email: ownerInfo.ownerEmail,
@@ -1152,14 +1207,32 @@ const OpenCalculator: React.FC = () => {
         console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id });
         
         // After successful save, update editingProposalId with the returned ID (for new proposals)
+        const savedProposalId = savedData?.id ? String(savedData.id) : editingProposalId;
         if (!isEditMode && savedData?.id) {
           setIsEditMode(true);
           setEditingProposalId(String(savedData.id));
         }
+        
+        // Link or unlink architect participant after proposal is saved
+        if (savedProposalId) {
+          try {
+            if (selectedArchitectId) {
+              await setArchitectParticipant(savedProposalId, selectedArchitectId);
+              console.log('[OpenCalculator] Architect linked:', { proposalId: savedProposalId, architectId: selectedArchitectId });
+            } else {
+              // If architect was removed, unlink from proposal
+              await removeArchitectParticipant(savedProposalId);
+              console.log('[OpenCalculator] Architect unlinked from proposal:', savedProposalId);
+            }
+          } catch (architectError) {
+            console.warn('[OpenCalculator] Failed to update architect participant:', architectError);
+            // Don't fail the save operation if architect linking fails
+          }
+        }
       }
 
       // Store payload for debug purposes (admin mode)
-      setLastPayload(JSON.stringify({ fx, selectedTerm, datacenter, client, proposal, items, addons, kubernetes, storageItems, reseller, openSaas, result, observacao }, null, 2));
+      setLastPayload(JSON.stringify({ fx, selectedTerm, datacenter, client, proposal, items, addons, kubernetes, storageItems, reseller, openSaas, result, observacao, selectedArchitectId }, null, 2));
 
       const toastTitle = isEditMode ? 'Proposta atualizada' : 'Proposta salva';
       const toastDesc = isEditMode 
@@ -1343,6 +1416,8 @@ const OpenCalculator: React.FC = () => {
     // Clear edit mode
     setIsEditMode(false);
     setEditingProposalId(null);
+    // Clear architect selection
+    setSelectedArchitectId(null);
     setTimeout(addVM, 0);
   };
 
@@ -1667,6 +1742,16 @@ const OpenCalculator: React.FC = () => {
               <p className="text-xs text-muted-foreground mt-2">
                 Válida até: {validityDate.toLocaleDateString('pt-BR')}
               </p>
+              
+              {/* Architect Selector - only for internal users level 700+ */}
+              {showArchitectSelector && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <ArchitectSelector
+                    value={selectedArchitectId}
+                    onChange={setSelectedArchitectId}
+                  />
+                </div>
+              )}
               
               {/* Observação field */}
               <div className="mt-4">
