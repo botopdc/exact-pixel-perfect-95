@@ -12,7 +12,7 @@ import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
-import { persistArchitectCommission } from '@/services/proposalParticipantService';
+import { persistArchitectCommission, getProposalsByParticipant } from '@/services/proposalParticipantService';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -1545,23 +1545,99 @@ export function filterProposalsByOwnership(
     return filtered;
   }
   
+  // Architects (690): SPECIAL CASE - will be filtered separately by participant query
+  // Return empty here; architect proposals are fetched via useArchitectProposals
+  if (userLevel === 690) {
+    console.log('[filterProposalsByOwnership] Level 690 (Architect) - proposals will be filtered by participant');
+    return []; // Architect proposals fetched separately
+  }
+  
   // Other internal levels (600, 900, 950): no access to commercial proposals
   console.warn('[filterProposalsByOwnership] Level', userLevel, 'has no access to proposals');
   return [];
 }
 
+// Hook to fetch proposals for architects (level 690)
+// Fetches only proposals where the user is a participant with role=ARCHITECT
+export function useArchitectProposals(page = 1, perPage = 100) {
+  const session = authService.getSession();
+  const userId = session?.userId || null;
+  
+  return useQuery({
+    queryKey: ['proposals', 'api', 'architect', page, perPage, userId],
+    queryFn: async () => {
+      if (!userId) {
+        console.warn('[useArchitectProposals] No userId available');
+        return [];
+      }
+      
+      const numericUserId = Number(userId);
+      
+      try {
+        // 1. Get all proposal IDs where this user is an ARCHITECT participant
+        const participations = await getProposalsByParticipant(numericUserId, 'ARCHITECT');
+        
+        if (participations.length === 0) {
+          console.log('[useArchitectProposals] No architect participations found for user:', numericUserId);
+          return [];
+        }
+        
+        const participantProposalIds = participations.map(p => p.proposal_id);
+        console.log('[useArchitectProposals] Found architect participations:', participantProposalIds.length);
+        
+        // 2. Fetch all proposals (paginated) and filter by participation
+        const response = await openApi.getProposals({
+          channel_type: 'CLIENTE',
+          __page: page,
+          __perPage: 500, // Fetch more to ensure we have all architect proposals
+        });
+        
+        const apiProposals = (response.data || []) as ApiProposal[];
+        const localProposals = apiProposals.map(apiToLocal);
+        
+        // 3. Filter to only proposals where user is architect participant
+        const filtered = localProposals.filter(p => {
+          const proposalApiId = p.id ? String(p.id) : null;
+          return proposalApiId && participantProposalIds.includes(proposalApiId);
+        });
+        
+        console.log('[useArchitectProposals] Filtered proposals:', filtered.length, 'of', localProposals.length);
+        
+        return filtered;
+      } catch (error) {
+        console.warn('[useArchitectProposals] Error fetching proposals:', error);
+        return [];
+      }
+    },
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    enabled: !!userId,
+  });
+}
+
 // Hook to fetch executive proposals from API (excludes partner proposals)
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
+// For architects (690), use useArchitectProposals instead
 export function useProposals(page = 1, perPage = 100) {
   // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
   
-  return useQuery({
+  // For architects, delegate to useArchitectProposals
+  const architectQuery = useArchitectProposals(page, perPage);
+  
+  const regularQuery = useQuery({
     queryKey: ['proposals', 'api', 'executive', page, perPage, userLevel, userId],
     queryFn: async () => {
+      // Don't fetch for architects - they use the architect query
+      if (userLevel === 690) {
+        return [];
+      }
+      
       try {
         // Call API directly: GET /api/calculator/proposal
         const response = await openApi.getProposals({
@@ -1600,7 +1676,15 @@ export function useProposals(page = 1, perPage = 100) {
     gcTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    enabled: userLevel !== 690, // Disable for architects
   });
+  
+  // Return architect query for level 690, regular query otherwise
+  if (userLevel === 690) {
+    return architectQuery;
+  }
+  
+  return regularQuery;
 }
 
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
