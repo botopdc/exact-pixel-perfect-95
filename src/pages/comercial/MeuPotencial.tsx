@@ -42,9 +42,20 @@ import {
 import { 
   calculateProposalCommission as calcUnified, 
   CommissionUser, 
-  CommissionProposal 
+  CommissionProposal,
+  CS_COMMISSION_RATE,
+  formatCommissionPct,
 } from '@/services/commissionCalculator';
 import { getCommissionOverride } from '@/services/commissionOverrideService';
+
+// User commission profile type
+interface UserCommissionProfile {
+  level: number;
+  overridePct: number | null;
+  displayText: string;
+  isOverride: boolean;
+  isCS: boolean;
+}
 import { useMRRGoals } from '@/hooks/useMRRGoals';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -272,6 +283,7 @@ export default function MeuPotencial() {
   const [propostas, setPropostas] = useState<ProcessedProposal[]>([]);
   const [userId, setUserId] = useState<number | null>(null);
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+  const [commissionProfile, setCommissionProfile] = useState<UserCommissionProfile | null>(null);
 
   // MRR Goals hook
   const { getGoalForExecutive, isLoading: isLoadingGoals } = useMRRGoals();
@@ -287,8 +299,10 @@ export default function MeuPotencial() {
         
         if (!mounted) return;
         
-        if (!user || user.level !== 700) {
-          toast.error('Acesso restrito a Executivos');
+        // Permitir Comercial (700) e CS (775)
+        const allowedLevels = [700, 775];
+        if (!user || !allowedLevels.includes(user.level)) {
+          toast.error('Acesso restrito a Executivos e CS');
           navigate('/login', { replace: true });
           return;
         }
@@ -297,6 +311,28 @@ export default function MeuPotencial() {
         
         // Buscar override de comissão do usuário
         const commissionOverride = await getCommissionOverride(user.id);
+        const overridePct = commissionOverride?.commission_pct_override ?? null;
+        
+        // Construir perfil de comissão do usuário
+        const isOverrideActive = overridePct !== null && overridePct !== undefined;
+        const isCS = user.level === 775;
+        
+        let displayText: string;
+        if (isOverrideActive) {
+          displayText = `Comissão: ${formatCommissionPct(overridePct)} do TCV | Pagamento em 3x`;
+        } else if (isCS) {
+          displayText = `Comissão CS: ${formatCommissionPct(CS_COMMISSION_RATE)} do TCV | Pagamento em 3x`;
+        } else {
+          displayText = '1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | Pagamento em 3x';
+        }
+        
+        setCommissionProfile({
+          level: user.level,
+          overridePct,
+          displayText,
+          isOverride: isOverrideActive,
+          isCS,
+        });
         
         const response = await openApi.getProposals({
           __perPage: 500,
@@ -319,7 +355,7 @@ export default function MeuPotencial() {
         const commissionUser: CommissionUser = {
           id: user.id,
           level: user.level,
-          commission_pct_override: commissionOverride?.commission_pct_override ?? null,
+          commission_pct_override: overridePct,
         };
 
         // Process proposals - USANDO CÁLCULO UNIFICADO COM OVERRIDE
@@ -636,9 +672,24 @@ export default function MeuPotencial() {
       <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
         <CardContent className="py-4">
           <div className="flex flex-wrap items-center gap-4 text-sm">
-            <Badge variant="outline" className="text-sm py-1">
+            <Badge 
+              variant="outline" 
+              className={`text-sm py-1 ${commissionProfile?.isOverride ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+            >
               <FileText className="h-3 w-3 mr-1" />
-              1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | Pagamento em 3x
+              {commissionProfile?.displayText || '1/12m = 4% do TCV | 24/36/48m = 2,5% do TCV | Pagamento em 3x'}
+              {commissionProfile?.isOverride && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="ml-1 cursor-help">
+                      <Percent className="h-3 w-3 inline" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Comissão personalizada</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </Badge>
             <Badge variant="outline" className="text-sm py-1">
               <Calendar className="h-3 w-3 mr-1" />
@@ -1094,31 +1145,73 @@ export default function MeuPotencial() {
                 <div className="space-y-4">
                   <h4 className="font-medium">Exemplo: TCV R$ 100.000</h4>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between p-2 bg-muted/50 rounded">
-                      <span>12 meses (4%)</span>
-                      <span className="font-medium">{formatCurrency(4000)}</span>
-                    </div>
-                    <div className="flex justify-between p-2 bg-muted/50 rounded">
-                      <span>24 meses (2,5%)</span>
-                      <span className="font-medium">{formatCurrency(2500)}</span>
-                    </div>
-                    <div className="flex justify-between p-2 bg-muted/50 rounded">
-                      <span>36 meses (2,5%)</span>
-                      <span className="font-medium">{formatCurrency(2500)}</span>
-                    </div>
+                    {/* Mostrar simulador adequado ao perfil */}
+                    {commissionProfile?.isOverride || commissionProfile?.isCS ? (
+                      // Usuário com override ou CS: mostrar apenas o percentual único
+                      <>
+                        <div className="flex justify-between p-2 bg-primary/10 rounded border border-primary/20">
+                          <span>
+                            {commissionProfile.isOverride 
+                              ? `Comissão personalizada (${formatCommissionPct(commissionProfile.overridePct!)})`
+                              : `Comissão CS (${formatCommissionPct(CS_COMMISSION_RATE)})`
+                            }
+                          </span>
+                          <span className="font-medium text-primary">
+                            {formatCurrency(100000 * (commissionProfile.overridePct ?? CS_COMMISSION_RATE))}
+                          </span>
+                        </div>
+                        <div className="flex justify-between p-2 bg-muted/50 rounded">
+                          <span>Parcela (1/3)</span>
+                          <span className="font-medium">
+                            {formatCurrency((100000 * (commissionProfile.overridePct ?? CS_COMMISSION_RATE)) / 3)}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      // Comercial padrão: régua 4%/2,5%
+                      <>
+                        <div className="flex justify-between p-2 bg-muted/50 rounded">
+                          <span>12 meses (4%)</span>
+                          <span className="font-medium">{formatCurrency(4000)}</span>
+                        </div>
+                        <div className="flex justify-between p-2 bg-muted/50 rounded">
+                          <span>24 meses (2,5%)</span>
+                          <span className="font-medium">{formatCurrency(2500)}</span>
+                        </div>
+                        <div className="flex justify-between p-2 bg-muted/50 rounded">
+                          <span>36 meses (2,5%)</span>
+                          <span className="font-medium">{formatCurrency(2500)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-4">
                   <h4 className="font-medium">Parcelas (3x)</h4>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between p-2 bg-muted/50 rounded">
-                      <span>Comissão R$ 4.000 →</span>
-                      <span className="font-medium">3x {formatCurrency(1333.33)}</span>
-                    </div>
-                    <div className="flex justify-between p-2 bg-muted/50 rounded">
-                      <span>Comissão R$ 2.500 →</span>
-                      <span className="font-medium">3x {formatCurrency(833.33)}</span>
-                    </div>
+                    {commissionProfile?.isOverride || commissionProfile?.isCS ? (
+                      // Override/CS: mostrar parcelas do percentual único
+                      <div className="flex justify-between p-2 bg-muted/50 rounded">
+                        <span>
+                          Comissão {formatCurrency(100000 * (commissionProfile.overridePct ?? CS_COMMISSION_RATE))} →
+                        </span>
+                        <span className="font-medium">
+                          3x {formatCurrency((100000 * (commissionProfile.overridePct ?? CS_COMMISSION_RATE)) / 3)}
+                        </span>
+                      </div>
+                    ) : (
+                      // Comercial padrão: parcelas para 4% e 2,5%
+                      <>
+                        <div className="flex justify-between p-2 bg-muted/50 rounded">
+                          <span>Comissão R$ 4.000 →</span>
+                          <span className="font-medium">3x {formatCurrency(1333.33)}</span>
+                        </div>
+                        <div className="flex justify-between p-2 bg-muted/50 rounded">
+                          <span>Comissão R$ 2.500 →</span>
+                          <span className="font-medium">3x {formatCurrency(833.33)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
