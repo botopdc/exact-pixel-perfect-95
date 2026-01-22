@@ -141,11 +141,15 @@ const SavedProposals: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProposalStatus | 'all'>('all');
 
-  // Helper to get executive name from proposal
+  // Helper to get executive name from proposal with multiple fallbacks
   const getExecutiveName = (proposal: SavedProposal): string => {
-    // 1. Try populated creator object (from __with=creator)
+    // 1. Try populated creator object (from __with=creator API expansion)
     if (proposal.creator?.name) return proposal.creator.name;
-    // 2. Fallback
+    
+    // 2. Try dados_proposta snapshot (saved when proposal was created)
+    if (proposal.dados_proposta?.created_by_name) return proposal.dados_proposta.created_by_name;
+    
+    // 3. Final fallback
     return '—';
   };
 

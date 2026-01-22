@@ -93,6 +93,14 @@ export interface SavedProposal {
     name: string;
     level: number;
   } | null;
+  // Preserve dados_proposta for fallback access to creator info
+  dados_proposta?: {
+    created_by_user_id?: number;
+    created_by_email?: string;
+    created_by_name?: string;
+    created_by_level?: number;
+    [key: string]: any;
+  };
 }
 
 // API Proposal format (what comes from the API)
@@ -427,8 +435,15 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       acceptance: resolvedAcceptance,
       observacao: dadosProposta.observacao || apiProposal.observations || undefined,
       // RBAC fields from API - critical for access control
-      created_by: apiProposal.created_by ?? null,
-      creator: apiProposal.creator ?? null,
+      created_by: apiProposal.created_by ?? dadosProposta.created_by_user_id ?? null,
+      creator: apiProposal.creator ?? (dadosProposta.created_by_name ? {
+        id: dadosProposta.created_by_user_id,
+        email: dadosProposta.created_by_email,
+        name: dadosProposta.created_by_name,
+        level: dadosProposta.created_by_level,
+      } : null),
+      // Preserve dados_proposta for fallback access to creator info
+      dados_proposta: dadosProposta,
       result: finalResult || {
         rows: [],
         subRec: 0,
@@ -1326,15 +1341,30 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Build complete dados_proposta object with ALL calculator state
   // This ensures we can restore the exact proposal when editing
   // CRITICAL: dados_proposta is the SOURCE OF TRUTH - do not save just the total!
+  
+  // CRITICAL: Get current user session to persist creator info
+  const session = authService.getSession();
+  const currentUserId = session?.userId || null;
+  const currentUserEmail = session?.email || null;
+  const currentUserName = session?.name || null;
+  const currentUserLevel = session?.level || null;
+  
+  // Use existing creator info if already set (editing), otherwise use current user
+  const existingCreatorId = (proposal as any).created_by_user_id || (proposal as any).created_by || proposal.creator?.id;
+  const existingCreatorName = (proposal as any).created_by_name || proposal.creator?.name;
+  const existingCreatorEmail = (proposal as any).created_by_email || proposal.creator?.email;
+  const existingCreatorLevel = (proposal as any).created_by_level || proposal.creator?.level;
+  
   const dadosProposta = {
     // Unique proposal identifiers
     proposalId: proposal.proposal?.id,
     
-    // Owner tracking (required)
-    created_by_user_id: proposal.result?.grandTotal ? (proposal as any).created_by_user_id : undefined,
-    created_by_email: (proposal as any).created_by_email,
-    created_by_name: (proposal as any).created_by_name,
-    created_by_level: (proposal as any).created_by_level,
+    // Owner tracking (CRITICAL for Executivo column and RBAC)
+    // Preserve existing creator on edits, set from session on new proposals
+    created_by_user_id: existingCreatorId || currentUserId,
+    created_by_email: existingCreatorEmail || currentUserEmail,
+    created_by_name: existingCreatorName || currentUserName,
+    created_by_level: existingCreatorLevel || currentUserLevel,
     created_by_role: (proposal as any).created_by_role,
     
     // Configuration

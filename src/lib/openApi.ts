@@ -576,8 +576,14 @@ class OpenApiClient {
     email?: string;
     __page?: number;
     __perPage?: number;
+    __with?: string;
   }): Promise<{ data: unknown[]; total: number }> {
-    const response = await this.client.get('/calculator/proposal', { params });
+    // Always include creator for RBAC and executive column display
+    const enrichedParams = {
+      ...params,
+      __with: params?.__with || 'creator',
+    };
+    const response = await this.client.get('/calculator/proposal', { params: enrichedParams });
     return response.data;
   }
 
