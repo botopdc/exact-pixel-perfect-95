@@ -22,6 +22,7 @@ import Calculadora from '@/pages/Calculadora';
 import PropostaView from '@/pages/PropostaView';
 import PropostaAceite from '@/pages/PropostaAceite';
 import PropostaAprovar from '@/pages/PropostaAprovar';
+import PropostaPdfPublic from '@/pages/PropostaPdfPublic';
 import Propostas from '@/pages/Propostas';
 import Precos from '@/pages/Precos';
 import Artigos from '@/pages/Artigos';
@@ -140,6 +141,7 @@ const App = () => (
           <Route path="/proposta/:id" element={<PropostaView />} />
           <Route path="/proposta/:id/aceite" element={<PropostaAceite />} />
           <Route path="/proposta/aprovar" element={<PropostaAprovar />} />
+          <Route path="/proposta/pdf" element={<PropostaPdfPublic />} />
           
           {/* Public job routes */}
           <Route path="/vagas" element={<VagasPublic />} />
