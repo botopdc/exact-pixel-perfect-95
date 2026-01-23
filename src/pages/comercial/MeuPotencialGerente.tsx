@@ -154,13 +154,23 @@ const MONTH_NAMES = [
 // ============================================
 
 function normalizeNumber(value: unknown): number {
-  if (typeof value === 'number' && !isNaN(value)) return value;
-  if (typeof value === 'string') {
-    const cleaned = value.replace(/[R$\s.]/g, '').replace(',', '.');
-    const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : parsed;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value === null || value === undefined) return 0;
+  const raw = String(value).trim().replace(/[R$\s]/g, '');
+  if (!raw) return 0;
+  const lastDot = raw.lastIndexOf('.');
+  const lastComma = raw.lastIndexOf(',');
+  let normalized = raw;
+  if (lastDot !== -1 && lastComma !== -1) {
+    if (lastDot > lastComma) normalized = raw.replace(/,/g, '');
+    else normalized = raw.replace(/\./g, '').replace(/,/g, '.');
+  } else if (lastComma !== -1) {
+    normalized = /^\d{1,3}(,\d{3})+$/.test(raw) ? raw.replace(/,/g, '') : raw.replace(/,/g, '.');
+  } else if (lastDot !== -1) {
+    normalized = /^\d{1,3}(\.\d{3})+$/.test(raw) ? raw.replace(/\./g, '') : raw;
   }
-  return 0;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function formatCurrency(value: number): string {
