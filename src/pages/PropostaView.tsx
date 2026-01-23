@@ -5,7 +5,7 @@ import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2, ShieldX } from 'l
 import OpenLogo from '@/components/OpenLogo';
 import { useProposal, useSendProposalEmail, useUpdateProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { downloadProposalPdf } from '@/services/proposalPdfService';
 import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentsList } from '@/components/attachments/AttachmentsList';
@@ -165,35 +165,21 @@ const PropostaView: React.FC = () => {
   const { data: attachments = [] } = useAttachments(id);
 
   const handleDownloadPDF = async () => {
-    // Check if we have a valid result to generate PDF
-    const hasValidResult = proposal?.result && 
-      proposal.result.rows && 
-      proposal.result.rows.length > 0;
-    
-    if (!hasValidResult) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos para gerar PDF', variant: 'destructive' });
+    if (!id) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
     // Track PDF download
-    if (id) {
-      trackEvent.mutate({ proposalId: id, type: 'pdf_download', channel: 'ui' });
-    }
+    trackEvent.mutate({ proposalId: id, type: 'pdf_download', channel: 'ui' });
     
-    try {
-      await generateOpenPDF({
-        client: proposal.client,
-        proposal: proposal.proposal,
-        result: proposal.result,
-        selectedTerm: proposal.selectedTerm,
-        datacenter: proposal.datacenter || 'SP1',
-        observacao: proposal.observacao,
-        attachments: attachments,
-        reseller: proposal.reseller,
-      });
+    // Use unified PDF service - always fetches from backend
+    const result = await downloadProposalPdf(id);
+    
+    if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
-    } catch (error) {
-      toast({ title: 'Erro ao gerar PDF', description: 'Não foi possível gerar o PDF', variant: 'destructive' });
+    } else {
+      toast({ title: 'Erro ao gerar PDF', description: result.error || 'Não foi possível gerar o PDF', variant: 'destructive' });
     }
   };
 

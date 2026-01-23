@@ -8,7 +8,7 @@ import OpenLogo from './OpenLogo';
 import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal } from '@/hooks/useProposals';
 import { openApi } from '@/lib/openApi';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { downloadProposalPdf } from '@/services/proposalPdfService';
 import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
@@ -187,33 +187,27 @@ const SavedProposals: React.FC = () => {
     });
   }, [proposals, statusFilter, searchQuery, canSeeExecutive]);
 
-  const handleDownloadPDF = (proposal: SavedProposal) => {
-    // Check if we have a valid result to generate PDF
-    const hasValidResult = proposal.result && 
-      proposal.result.rows && 
-      proposal.result.rows.length > 0;
+  const handleDownloadPDF = async (proposal: SavedProposal) => {
+    const proposalId = proposal.id ? String(proposal.id) : proposal.proposal?.id || '';
     
-    if (!hasValidResult) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos para gerar PDF', variant: 'destructive' });
+    if (!proposalId) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
-    const proposalId = proposal.proposal?.id || '';
-    
     // Track PDF download
-    if (proposalId) {
-      trackEvent.mutate({ proposalId, type: 'pdf_download', channel: 'ui' });
+    if (proposal.proposal?.id) {
+      trackEvent.mutate({ proposalId: proposal.proposal.id, type: 'pdf_download', channel: 'ui' });
     }
     
-    generateOpenPDF({
-      client: proposal.client,
-      proposal: proposal.proposal,
-      result: proposal.result,
-      selectedTerm: proposal.selectedTerm,
-      datacenter: proposal.datacenter || 'SP1',
-      observacao: proposal.observacao,
-    });
-    toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    // Use unified PDF service - always fetches from backend
+    const result = await downloadProposalPdf(proposalId);
+    
+    if (result.success) {
+      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    } else {
+      toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+    }
   };
 
   // State for Safari fallback modal
