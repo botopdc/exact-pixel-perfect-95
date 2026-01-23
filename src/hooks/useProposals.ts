@@ -1138,7 +1138,19 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // ============================================
   // STANDARD ADDONS (services/extras)
+  // Build a lookup map from result.rows for addon prices
   // ============================================
+  const addonResultRows = (proposal.result?.rows || []) as Array<{ key?: string; unitPrice?: number; subtotal?: number }>;
+  const addonPriceByKey: Record<string, { unitPrice: number; subtotal: number }> = {};
+  for (const row of addonResultRows) {
+    if (row.key) {
+      addonPriceByKey[row.key] = {
+        unitPrice: toNum(row.unitPrice, 0),
+        subtotal: toNum(row.subtotal, 0),
+      };
+    }
+  }
+  
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
@@ -1146,37 +1158,60 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // WINSERVER - EXPLICIT (CRITICAL FOR PERSISTENCE)
     // ============================================
     if (typeof addons.winserver === 'number' && addons.winserver > 0) {
-      addonsArray.push({ name: 'WinServer(2vCPU/unid.)', price: 0, quantity: addons.winserver });
-      console.log('[localToApi] Added WinServer to payload:', addons.winserver);
+      const winserverPrice = addonPriceByKey['svc_winserver']?.unitPrice || 0;
+      addonsArray.push({ name: 'WinServer(2vCPU/unid.)', price: winserverPrice, quantity: addons.winserver });
+      console.log('[localToApi] Added WinServer to payload:', addons.winserver, 'price:', winserverPrice);
     }
     
-    // Standard addon mappings with proper type handling
+    // Standard addon mappings with proper type handling - extract prices from result rows
     if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
-      addonsArray.push({ name: 'Antivirus', price: 0, quantity: addons.antivirus });
+      const price = addonPriceByKey['svc_antivirus']?.unitPrice || 0;
+      addonsArray.push({ name: 'Antivirus', price, quantity: addons.antivirus });
     }
     if (addons.firewall === true) {
-      addonsArray.push({ name: 'Firewall', price: 0, quantity: 1 });
+      const price = addonPriceByKey['svc_firewall']?.unitPrice || 0;
+      addonsArray.push({ name: 'Firewall', price, quantity: 1 });
     }
     if (typeof addons.tsplus === 'number' && addons.tsplus > 0) {
-      addonsArray.push({ name: 'TS Plus', price: 0, quantity: addons.tsplus });
+      const price = addonPriceByKey['svc_tsplus']?.unitPrice || 0;
+      addonsArray.push({ name: 'TS Plus', price, quantity: addons.tsplus });
     }
     if (typeof addons.cal === 'number' && addons.cal > 0) {
-      addonsArray.push({ name: 'CAL', price: 0, quantity: addons.cal });
+      const price = addonPriceByKey['svc_cal']?.unitPrice || 0;
+      addonsArray.push({ name: 'CAL', price, quantity: addons.cal });
     }
     if (typeof addons.veeamVm === 'number' && addons.veeamVm > 0) {
-      addonsArray.push({ name: 'Veeam VM', price: 0, quantity: addons.veeamVm });
+      const price = addonPriceByKey['svc_veeam_vm']?.unitPrice || 0;
+      addonsArray.push({ name: 'Veeam VM', price, quantity: addons.veeamVm });
     }
     if (typeof addons.veeamAg === 'number' && addons.veeamAg > 0) {
-      addonsArray.push({ name: 'Veeam Agent', price: 0, quantity: addons.veeamAg });
+      const price = addonPriceByKey['svc_veeam_agent']?.unitPrice || 0;
+      addonsArray.push({ name: 'Veeam Agent', price, quantity: addons.veeamAg });
     }
-    // Backup
+    // Backup - get price from backup row
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
-      addonsArray.push({ name: `Backup ${addons.backupPlan}`, price: 0, quantity: addons.backupGb });
-      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb);
+      const backupKey = `backup_${addons.backupPlan}`;
+      const price = addonPriceByKey[backupKey]?.unitPrice || 0;
+      addonsArray.push({ name: `Backup ${addons.backupPlan}`, price, quantity: addons.backupGb });
+      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb, 'price:', price);
     }
     // SQL
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
-      addonsArray.push({ name: `SQL ${addons.sql.toUpperCase()}`, price: 0, quantity: addons.sqlQty });
+      const sqlKey = `svc_sql_${addons.sql}`;
+      const price = addonPriceByKey[sqlKey]?.unitPrice || 0;
+      addonsArray.push({ name: `SQL ${addons.sql.toUpperCase()}`, price, quantity: addons.sqlQty });
+    }
+    // Support - specialized service
+    if (addons.support && addons.support.level !== 'none' && addons.support.price > 0) {
+      addonsArray.push({ name: `Suporte ${addons.support.level}`, price: addons.support.price, quantity: 1 });
+    }
+    // Consulting - specialized service
+    if (addons.consulting && typeof addons.consulting.quantity === 'number' && addons.consulting.quantity > 0) {
+      addonsArray.push({ name: 'Consultoria Técnica', price: addons.consulting.unitPrice || 200, quantity: addons.consulting.quantity });
+    }
+    // DBA - specialized service
+    if (addons.dba && typeof addons.dba.quantity === 'number' && addons.dba.quantity > 0) {
+      addonsArray.push({ name: 'DBA', price: addons.dba.unitPrice || 250, quantity: addons.dba.quantity });
     }
     // Custom addons (legacy support)
     if (addons.customAddons && typeof addons.customAddons === 'object') {
@@ -1187,7 +1222,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
             addonsArray.push({ name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
           }
         } else if (typeof value === 'number' && value > 0) {
-          addonsArray.push({ name: key, price: 0, quantity: value });
+          const customKey = `svc_custom_${key}`;
+          const price = addonPriceByKey[customKey]?.unitPrice || 0;
+          addonsArray.push({ name: key, price, quantity: value });
         }
       }
     }
@@ -1195,9 +1232,27 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // Transform servers/items to API format
   // IMPORTANT: GPU must be persisted inside the server object (servers[].gpu)
+  // CRITICAL: Calculate individual item prices from result.rows for accurate persistence
   const serversArray: Array<Record<string, unknown>> = [];
+  
+  // Build a lookup map from result.rows by key for price extraction
+  const serverResultRows = (proposal.result?.rows || []) as Array<{ key?: string; subtotal?: number }>;
+  const priceByKey: Record<string, number> = {};
+  for (const row of serverResultRows) {
+    if (row.key) {
+      // Sum up all subtotals for rows with the same key prefix (e.g., vm_0_cpu, vm_0_ram, vm_0_disk)
+      const keyPrefix = row.key.split('_').slice(0, 2).join('_'); // e.g., "vm_0" or "bm_1"
+      priceByKey[keyPrefix] = (priceByKey[keyPrefix] || 0) + toNum(row.subtotal, 0);
+      priceByKey[row.key] = toNum(row.subtotal, 0);
+    }
+  }
+  
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
+      // Calculate total price for this server from result rows
+      const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
+      const serverPrice = priceByKey[itemPrefix] || 0;
+      
       // Handle VM/BM format from calculator
       if (item.type === 'vm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
@@ -1210,7 +1265,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           vcpu: item.vcpu || 0,
           ram: item.ramGb || 0,
           storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
-          price: 0,
+          price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
         };
 
@@ -1218,7 +1273,8 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           vm.gpu = { model: gpuModel, quantity: gpuQty };
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
-
+        
+        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} vcpu=${item.vcpu} ram=${item.ramGb}`);
         serversArray.push(vm);
       } else if (item.type === 'bm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
@@ -1231,7 +1287,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           vcpu: 0,
           ram: 0,
           storage: 0,
-          price: 0,
+          price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
         };
 
@@ -1239,7 +1295,8 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           bm.gpu = { model: gpuModel, quantity: gpuQty };
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
-
+        
+        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice}`);
         serversArray.push(bm);
       } else {
         // Fallback for legacy format
@@ -1248,7 +1305,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           vcpu: item.vcpu || item.cpu || 0,
           ram: item.ram || item.memory || item.ramGb || 0,
           storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
-          price: item.price || item.total || item.monthlyPrice || 0,
+          price: item.price || item.total || item.monthlyPrice || serverPrice || 0,
           quantity: item.quantity || item.qtyServers || 1,
         });
       }
