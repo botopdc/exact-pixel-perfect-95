@@ -1139,17 +1139,28 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // ============================================
   // STANDARD ADDONS (services/extras)
   // Build a lookup map from result.rows for addon prices
+  // CRITICAL FIX: SummaryRow uses 'rowKey' (not 'key'), and we need 'finalTotal' for override support
   // ============================================
-  const addonResultRows = (proposal.result?.rows || []) as Array<{ key?: string; unitPrice?: number; subtotal?: number }>;
+  const addonResultRows = (proposal.result?.rows || []) as Array<{ 
+    rowKey?: string; 
+    key?: string; // legacy fallback
+    unitPrice?: number; 
+    subtotal?: number;
+    finalTotal?: number;
+  }>;
   const addonPriceByKey: Record<string, { unitPrice: number; subtotal: number }> = {};
   for (const row of addonResultRows) {
-    if (row.key) {
-      addonPriceByKey[row.key] = {
+    // Use rowKey first (correct field), fallback to key for legacy
+    const rowKey = row.rowKey || row.key;
+    if (rowKey) {
+      addonPriceByKey[rowKey] = {
         unitPrice: toNum(row.unitPrice, 0),
-        subtotal: toNum(row.subtotal, 0),
+        subtotal: toNum(row.finalTotal, toNum(row.subtotal, 0)),
       };
     }
   }
+  
+  console.log('[localToApi] Addon price lookup map:', Object.keys(addonPriceByKey));
   
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
@@ -1236,22 +1247,40 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   const serversArray: Array<Record<string, unknown>> = [];
   
   // Build a lookup map from result.rows by key for price extraction
-  const serverResultRows = (proposal.result?.rows || []) as Array<{ key?: string; subtotal?: number }>;
-  const priceByKey: Record<string, number> = {};
+  // CRITICAL FIX: SummaryRow uses 'rowKey' (not 'key'), and we need 'finalTotal' for override support
+  const serverResultRows = (proposal.result?.rows || []) as Array<{ 
+    rowKey?: string; 
+    key?: string; // legacy fallback
+    subtotal?: number;
+    finalTotal?: number;
+  }>;
+  const priceByPrefix: Record<string, number> = {};
+  
   for (const row of serverResultRows) {
-    if (row.key) {
-      // Sum up all subtotals for rows with the same key prefix (e.g., vm_0_cpu, vm_0_ram, vm_0_disk)
-      const keyPrefix = row.key.split('_').slice(0, 2).join('_'); // e.g., "vm_0" or "bm_1"
-      priceByKey[keyPrefix] = (priceByKey[keyPrefix] || 0) + toNum(row.subtotal, 0);
-      priceByKey[row.key] = toNum(row.subtotal, 0);
+    // Use rowKey first (correct field), fallback to key for legacy
+    const rowKey = row.rowKey || row.key;
+    if (!rowKey) continue;
+    
+    // Use finalTotal (respects overrides) or fallback to subtotal
+    const rowTotal = toNum(row.finalTotal, toNum(row.subtotal, 0));
+    
+    // Extract prefix: "vm_0_cpu" -> "vm_0", "bm_1_ram" -> "bm_1"
+    const parts = rowKey.split('_');
+    if (parts.length >= 2 && (parts[0] === 'vm' || parts[0] === 'bm')) {
+      const keyPrefix = `${parts[0]}_${parts[1]}`; // e.g., "vm_0" or "bm_1"
+      priceByPrefix[keyPrefix] = (priceByPrefix[keyPrefix] || 0) + rowTotal;
     }
   }
+  
+  console.log('[localToApi] Server price aggregation:', priceByPrefix);
+  console.log('[localToApi] Result rows count:', serverResultRows.length, 
+    '| Sample rowKeys:', serverResultRows.slice(0, 5).map((r: any) => r.rowKey || r.key || 'NO_KEY'));
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
       // Calculate total price for this server from result rows
       const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
-      const serverPrice = priceByKey[itemPrefix] || 0;
+      const serverPrice = priceByPrefix[itemPrefix] || 0;
       
       // Handle VM/BM format from calculator
       if (item.type === 'vm') {
@@ -1483,7 +1512,11 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // IMPORTANT: This hook is used by EXECUTIVES (level 700+), so channel_type is always CLIENTE
   // Partner proposals use useSavePartnerProposal which sets channel_type: PARCEIRO
-  return {
+  
+  // ============================================
+  // FINAL VALIDATION: Log payload before returning
+  // ============================================
+  const finalPayload = {
     name: proposal.client?.name || '',
     company: proposal.client?.company || '',
     phone: proposal.client?.phone || '',
@@ -1493,7 +1526,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     commission_value: proposal.reseller?.overValue || null,
     commission_reason: proposal.reseller?.overReason || null,
     observations: proposal.observacao || null,
-    fx: proposal.fx || 5,
+    fx: proposal.fx || 1, // Fixed at 1 for BRL
     datacenter: datacenterNames[proposal.datacenter || 'SP1'] || 'São Paulo',
     contract_duration: contractDuration,
     discount_pct: discountPct,
@@ -1523,6 +1556,23 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // CRITICAL: Save complete calculator state for perfect editing restoration
     dados_proposta: dadosProposta,
   };
+  
+  // Log payload for debugging (in dev mode)
+  console.log('[localToApi] FINAL PAYLOAD for API:');
+  console.log('  total:', finalPayload.total);
+  console.log('  discount_pct:', finalPayload.discount_pct);
+  console.log('  servers:', serversArray.map((s: any) => ({ name: s.name, price: s.price, qty: s.quantity })));
+  console.log('  addons:', addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity })));
+  
+  // Validate: warn if servers have price = 0 but have resources
+  for (const server of serversArray) {
+    const hasResources = (server.vcpu as number) > 0 || (server.ram as number) > 0 || (server.storage as number) > 0;
+    if (hasResources && server.price === 0) {
+      console.warn('[localToApi] WARNING: Server has resources but price=0:', server);
+    }
+  }
+  
+  return finalPayload;
 }
 
 // ============================================================================
