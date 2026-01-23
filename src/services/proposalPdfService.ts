@@ -24,18 +24,50 @@ interface PdfGenerationResult {
  * Fetch proposal from API and generate PDF
  * Used for internal (authenticated) access
  */
+/**
+ * Extract numeric ID from various formats
+ * Handles: 49, "49", "PROP-49", "OPEN-123", etc.
+ */
+function extractNumericId(value: string | number): number | null {
+  // Already a number
+  if (typeof value === 'number' && !isNaN(value)) {
+    return value;
+  }
+  
+  const str = String(value).trim();
+  
+  // Pure numeric string
+  if (/^\d+$/.test(str)) {
+    return Number(str);
+  }
+  
+  // Extract number from prefixed format (PROP-49, OPEN-123, etc.)
+  const match = str.match(/\d+/);
+  if (match) {
+    const extracted = Number(match[0]);
+    console.warn('[proposalPdfService] Extracted numeric ID from prefixed format:', str, '→', extracted);
+    return extracted;
+  }
+  
+  return null;
+}
+
 export async function downloadProposalPdf(proposalId: string | number): Promise<PdfGenerationResult> {
-  // CRITICAL: Validate ID is numeric - reject display IDs like "OPEN-xxxx"
-  const idStr = String(proposalId);
-  if (idStr.startsWith('OPEN-') || isNaN(Number(idStr))) {
-    console.error('[proposalPdfService] Invalid ID format. Expected numeric ID, got:', proposalId);
+  // CRITICAL: Extract and validate numeric ID
+  const numericId = extractNumericId(proposalId);
+  
+  if (numericId === null) {
+    console.error('[proposalPdfService] Cannot extract numeric ID from:', proposalId);
     return { 
       success: false, 
-      error: 'ID inválido para gerar PDF. Use proposal.id numérico.' 
+      error: 'ID inválido para gerar PDF. Não foi possível extrair ID numérico.' 
     };
   }
   
-  console.log('[proposalPdfService] Fetching proposal from API:', proposalId);
+  // Use the extracted numeric ID for all API calls
+  const idStr = String(numericId);
+  
+  console.log('[proposalPdfService] Fetching proposal from API:', idStr, '(original input:', proposalId, ')');
   
   try {
     // 1. Fetch proposal from backend (source of truth)
@@ -160,12 +192,23 @@ export async function downloadProposalPdfPublic(
   proposalId: string | number, 
   fileAccessToken: string
 ): Promise<PdfGenerationResult> {
-  console.log('[proposalPdfService] Public PDF download:', proposalId);
+  // Extract numeric ID (same logic as internal)
+  const numericId = extractNumericId(proposalId);
+  
+  if (numericId === null) {
+    console.error('[proposalPdfService] Public: Cannot extract numeric ID from:', proposalId);
+    return { 
+      success: false, 
+      error: 'Link de acesso inválido' 
+    };
+  }
+  
+  console.log('[proposalPdfService] Public PDF download:', numericId, '(original:', proposalId, ')');
   
   try {
     // 1. Fetch proposal using public endpoint
     // The public endpoint doesn't require auth but we validate token matches
-    const apiProposal = await getProposalPublic(String(proposalId));
+    const apiProposal = await getProposalPublic(String(numericId));
     
     if (!apiProposal) {
       return { success: false, error: 'Proposta não encontrada' };
