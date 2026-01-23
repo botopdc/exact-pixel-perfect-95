@@ -1054,6 +1054,64 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
 
 // Transform local proposal to API format - SAVES COMPLETE DATA in dados_proposta
 function localToApi(proposal: SavedProposal): Record<string, unknown> {
+  // ============================================
+  // CRITICAL: Build price maps from result.rows FIRST
+  // This is the ONLY source of truth for calculated prices
+  // ============================================
+  const resultRows = (proposal.result?.rows || []) as Array<{
+    label?: string;
+    rowKey?: string;
+    key?: string; // legacy fallback
+    qty?: string | number;
+    unitPrice?: number;
+    subtotal?: number;
+    finalTotal?: number;
+  }>;
+  
+  // Log the source data for debugging
+  console.log('[localToApi] RESUMO USADO NO PAYLOAD:', {
+    rowCount: resultRows.length,
+    rows: resultRows.map(r => ({
+      rowKey: r.rowKey || r.key,
+      label: r.label,
+      unitPrice: r.unitPrice,
+      finalTotal: r.finalTotal,
+      subtotal: r.subtotal,
+    })),
+    grandTotal: proposal.result?.grandTotal,
+  });
+  
+  // Build price map for SERVERS: aggregate by prefix (vm_0, bm_1, etc.)
+  // Each server may have multiple rows (cpu, ram, disk, gpu, ips, traffic)
+  const serverPriceByPrefix: Record<string, number> = {};
+  
+  // Build price map for ADDONS: exact rowKey match
+  const addonPriceByKey: Record<string, { unitPrice: number; subtotal: number }> = {};
+  
+  for (const row of resultRows) {
+    const rowKey = row.rowKey || row.key;
+    if (!rowKey) continue;
+    
+    const rowTotal = toNum(row.finalTotal, toNum(row.subtotal, 0));
+    const rowUnitPrice = toNum(row.unitPrice, 0);
+    
+    // Check if this is a server row (vm_X_* or bm_X_*)
+    const serverMatch = rowKey.match(/^(vm|bm)_(\d+)_/);
+    if (serverMatch) {
+      const prefix = `${serverMatch[1]}_${serverMatch[2]}`; // e.g., "vm_0" or "bm_1"
+      serverPriceByPrefix[prefix] = (serverPriceByPrefix[prefix] || 0) + rowTotal;
+    }
+    
+    // Also store in addon lookup (for services like svc_*, backup_*, etc.)
+    addonPriceByKey[rowKey] = {
+      unitPrice: rowUnitPrice,
+      subtotal: rowTotal,
+    };
+  }
+  
+  console.log('[localToApi] Server price aggregation by prefix:', serverPriceByPrefix);
+  console.log('[localToApi] Addon price lookup keys:', Object.keys(addonPriceByKey));
+  
   // Map selectedTerm to contract_duration (MUST include all valid plans: 1, 12, 24, 36, 48)
   // Use centralized validation
   const termAsNumber = parseInt(proposal.selectedTerm, 10);
@@ -1090,26 +1148,29 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // ============================================
   // INDEPENDENT PRODUCTS (don't require servers)
-  // FIX: Removed volumeTB >= 1 restriction - use any volume > 0 (TB or GB)
-  // FIX: Removed users >= 5 restriction - allow any users > 0
+  // Extract prices from result.rows using appropriate keys
   // ============================================
   
   // Storage items - add each storage configuration as an addon
-  // Accept if volumeTB > 0 OR volumeGB > 0
   if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
-    for (const storage of proposal.storageItems) {
+    for (let i = 0; i < proposal.storageItems.length; i++) {
+      const storage = proposal.storageItems[i];
       const volumeTB = toNum(storage.volumeTB, 0);
       const volumeGB = toNum(storage.volumeGB, 0);
-      // Calculate effective TB for display (if only GB is set, convert)
       const effectiveTB = volumeTB > 0 ? volumeTB : (volumeGB > 0 ? volumeGB / 1024 : 0);
       
       if (volumeTB > 0 || volumeGB > 0) {
         const displaySize = effectiveTB >= 1 
           ? `${effectiveTB.toFixed(effectiveTB % 1 === 0 ? 0 : 2)}TB`
           : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
+        
+        // Try to find price from result rows (storage_0, storage_1, etc.)
+        const storageKey = `storage_${i}`;
+        const storagePrice = addonPriceByKey[storageKey]?.subtotal || storage.price || 0;
+        
         addonsArray.push({
           name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
-          price: storage.price || 0,
+          price: storagePrice,
           quantity: 1,
         });
       }
@@ -1119,48 +1180,31 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Kubernetes - add as addon if enabled
   if (proposal.kubernetes && proposal.kubernetes.enabled) {
     const k8s = proposal.kubernetes;
+    // Try to find Kubernetes price from result rows
+    const k8sPrice = addonPriceByKey['kubernetes']?.subtotal 
+      || addonPriceByKey['k8s']?.subtotal 
+      || k8s.price || 0;
+    
     addonsArray.push({
       name: `Kubernetes ${k8s.plan || 'Standard'}`,
-      price: k8s.price || 0,
+      price: k8sPrice,
       quantity: 1,
     });
   }
   
   // OPEN SaaS - add as addon if enabled with ANY users > 0
-  // FIX: Removed users >= 5 restriction
   if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users > 0) {
+    // Try to find OpenSaaS price from result rows
+    const saasPrice = addonPriceByKey['opensaas']?.subtotal 
+      || addonPriceByKey['open_saas']?.subtotal 
+      || proposal.openSaas.price || 0;
+    
     addonsArray.push({
       name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
-      price: proposal.openSaas.price || 0,
+      price: saasPrice,
       quantity: proposal.openSaas.users,
     });
   }
-  
-  // ============================================
-  // STANDARD ADDONS (services/extras)
-  // Build a lookup map from result.rows for addon prices
-  // CRITICAL FIX: SummaryRow uses 'rowKey' (not 'key'), and we need 'finalTotal' for override support
-  // ============================================
-  const addonResultRows = (proposal.result?.rows || []) as Array<{ 
-    rowKey?: string; 
-    key?: string; // legacy fallback
-    unitPrice?: number; 
-    subtotal?: number;
-    finalTotal?: number;
-  }>;
-  const addonPriceByKey: Record<string, { unitPrice: number; subtotal: number }> = {};
-  for (const row of addonResultRows) {
-    // Use rowKey first (correct field), fallback to key for legacy
-    const rowKey = row.rowKey || row.key;
-    if (rowKey) {
-      addonPriceByKey[rowKey] = {
-        unitPrice: toNum(row.unitPrice, 0),
-        subtotal: toNum(row.finalTotal, toNum(row.subtotal, 0)),
-      };
-    }
-  }
-  
-  console.log('[localToApi] Addon price lookup map:', Object.keys(addonPriceByKey));
   
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
@@ -1243,44 +1287,14 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // Transform servers/items to API format
   // IMPORTANT: GPU must be persisted inside the server object (servers[].gpu)
-  // CRITICAL: Calculate individual item prices from result.rows for accurate persistence
+  // CRITICAL: Use serverPriceByPrefix built at the start from result.rows
   const serversArray: Array<Record<string, unknown>> = [];
-  
-  // Build a lookup map from result.rows by key for price extraction
-  // CRITICAL FIX: SummaryRow uses 'rowKey' (not 'key'), and we need 'finalTotal' for override support
-  const serverResultRows = (proposal.result?.rows || []) as Array<{ 
-    rowKey?: string; 
-    key?: string; // legacy fallback
-    subtotal?: number;
-    finalTotal?: number;
-  }>;
-  const priceByPrefix: Record<string, number> = {};
-  
-  for (const row of serverResultRows) {
-    // Use rowKey first (correct field), fallback to key for legacy
-    const rowKey = row.rowKey || row.key;
-    if (!rowKey) continue;
-    
-    // Use finalTotal (respects overrides) or fallback to subtotal
-    const rowTotal = toNum(row.finalTotal, toNum(row.subtotal, 0));
-    
-    // Extract prefix: "vm_0_cpu" -> "vm_0", "bm_1_ram" -> "bm_1"
-    const parts = rowKey.split('_');
-    if (parts.length >= 2 && (parts[0] === 'vm' || parts[0] === 'bm')) {
-      const keyPrefix = `${parts[0]}_${parts[1]}`; // e.g., "vm_0" or "bm_1"
-      priceByPrefix[keyPrefix] = (priceByPrefix[keyPrefix] || 0) + rowTotal;
-    }
-  }
-  
-  console.log('[localToApi] Server price aggregation:', priceByPrefix);
-  console.log('[localToApi] Result rows count:', serverResultRows.length, 
-    '| Sample rowKeys:', serverResultRows.slice(0, 5).map((r: any) => r.rowKey || r.key || 'NO_KEY'));
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
-      // Calculate total price for this server from result rows
+      // Get total price for this server from pre-built price map
       const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
-      const serverPrice = priceByPrefix[itemPrefix] || 0;
+      const serverPrice = serverPriceByPrefix[itemPrefix] || 0;
       
       // Handle VM/BM format from calculator
       if (item.type === 'vm') {
@@ -1303,7 +1317,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
-        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} vcpu=${item.vcpu} ram=${item.ramGb}`);
+        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${item.vcpu} ram=${item.ramGb}`);
         serversArray.push(vm);
       } else if (item.type === 'bm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
@@ -1325,7 +1339,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
-        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice}`);
+        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix}`);
         serversArray.push(bm);
       } else {
         // Fallback for legacy format
@@ -1557,19 +1571,37 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     dados_proposta: dadosProposta,
   };
   
-  // Log payload for debugging (in dev mode)
-  console.log('[localToApi] FINAL PAYLOAD for API:');
-  console.log('  total:', finalPayload.total);
-  console.log('  discount_pct:', finalPayload.discount_pct);
-  console.log('  servers:', serversArray.map((s: any) => ({ name: s.name, price: s.price, qty: s.quantity })));
-  console.log('  addons:', addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity })));
+  // ============================================
+  // FINAL VALIDATION AND LOGGING
+  // ============================================
+  console.log('[localToApi] PAYLOAD FINAL:', {
+    total: finalPayload.total,
+    discount_pct: finalPayload.discount_pct,
+    fx: finalPayload.fx,
+    servers: serversArray.map((s: any) => ({ name: s.name, price: s.price, qty: s.quantity, vcpu: s.vcpu, ram: s.ram })),
+    addons: addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity })),
+  });
   
   // Validate: warn if servers have price = 0 but have resources
+  let hasZeroPriceWarning = false;
   for (const server of serversArray) {
     const hasResources = (server.vcpu as number) > 0 || (server.ram as number) > 0 || (server.storage as number) > 0;
     if (hasResources && server.price === 0) {
-      console.warn('[localToApi] WARNING: Server has resources but price=0:', server);
+      console.warn('[localToApi] ⚠️ Server has resources but price=0:', server);
+      hasZeroPriceWarning = true;
     }
+  }
+  
+  // Validate addons
+  for (const addon of addonsArray) {
+    if ((addon.quantity as number) > 0 && addon.price === 0) {
+      console.warn('[localToApi] ⚠️ Addon has quantity but price=0:', addon);
+      hasZeroPriceWarning = true;
+    }
+  }
+  
+  if (hasZeroPriceWarning) {
+    console.error('[localToApi] ❌ CRITICAL: Some items have price=0. Check result.rows mapping.');
   }
   
   return finalPayload;
