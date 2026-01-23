@@ -188,20 +188,25 @@ const SavedProposals: React.FC = () => {
   }, [proposals, statusFilter, searchQuery, canSeeExecutive]);
 
   const handleDownloadPDF = async (proposal: SavedProposal) => {
-    const proposalId = proposal.id ? String(proposal.id) : proposal.proposal?.id || '';
+    // CRITICAL: Always use numeric ID (proposal.id), never display ID (proposal.proposal?.id = "OPEN-xxxx")
+    const numericId = proposal.id;
+    const displayId = proposal.proposal?.id || '';
     
-    if (!proposalId) {
-      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
+    if (!numericId) {
+      console.error('[SavedProposals] No numeric ID available for PDF download:', { displayId });
+      toast({ title: 'Erro', description: 'ID numérico da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
-    // Track PDF download
-    if (proposal.proposal?.id) {
-      trackEvent.mutate({ proposalId: proposal.proposal.id, type: 'pdf_download', channel: 'ui' });
+    console.log('[SavedProposals] Download PDF using numeric ID:', numericId, '(display:', displayId, ')');
+    
+    // Track PDF download using display ID for analytics
+    if (displayId) {
+      trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
     }
     
-    // Use unified PDF service - always fetches from backend
-    const result = await downloadProposalPdf(proposalId);
+    // Use unified PDF service with NUMERIC ID - always fetches from backend
+    const result = await downloadProposalPdf(numericId);
     
     if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });

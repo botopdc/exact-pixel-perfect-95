@@ -25,11 +25,21 @@ interface PdfGenerationResult {
  * Used for internal (authenticated) access
  */
 export async function downloadProposalPdf(proposalId: string | number): Promise<PdfGenerationResult> {
+  // CRITICAL: Validate ID is numeric - reject display IDs like "OPEN-xxxx"
+  const idStr = String(proposalId);
+  if (idStr.startsWith('OPEN-') || isNaN(Number(idStr))) {
+    console.error('[proposalPdfService] Invalid ID format. Expected numeric ID, got:', proposalId);
+    return { 
+      success: false, 
+      error: 'ID inválido para gerar PDF. Use proposal.id numérico.' 
+    };
+  }
+  
   console.log('[proposalPdfService] Fetching proposal from API:', proposalId);
   
   try {
     // 1. Fetch proposal from backend (source of truth)
-    const apiProposal = await openApi.getProposal(String(proposalId)) as CalculatorProposal;
+    const apiProposal = await openApi.getProposal(idStr) as CalculatorProposal;
     
     if (!apiProposal) {
       return { success: false, error: 'Proposta não encontrada' };
@@ -44,6 +54,17 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
     // 2. Extract dados_proposta
     const dadosProposta = apiProposal.dados_proposta as any;
     
+    console.log('[proposalPdfService] dados_proposta check:', {
+      hasDadosProposta: !!dadosProposta,
+      hasItems: dadosProposta?.items?.length || 0,
+      hasAddons: dadosProposta?.addons ? Object.keys(dadosProposta.addons).length : 0,
+      hasKubernetes: !!dadosProposta?.kubernetes?.enabled,
+      hasStorage: dadosProposta?.storageItems?.length || 0,
+      hasOpenSaas: !!dadosProposta?.openSaas?.enabled,
+      hasResult: !!dadosProposta?.result,
+      hasResultRows: dadosProposta?.result?.rows?.length || 0,
+    });
+    
     // 3. Build result from snapshot or use existing
     let result = dadosProposta?.result;
     
@@ -56,7 +77,17 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       );
     }
     
+    // Log the result state
+    console.log('[proposalPdfService] Result state:', {
+      hasResult: !!result,
+      rowsCount: result?.rows?.length || 0,
+      grandTotal: result?.grandTotal,
+    });
+    
     if (!result || !result.rows || result.rows.length === 0) {
+      console.error('[proposalPdfService] Insufficient data. Cannot generate PDF.', {
+        dadosProposta: dadosProposta ? JSON.stringify(dadosProposta).substring(0, 500) : 'null',
+      });
       return { 
         success: false, 
         error: 'Dados da proposta insuficientes para gerar PDF' 

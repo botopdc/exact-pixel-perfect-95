@@ -165,16 +165,23 @@ const PropostaView: React.FC = () => {
   const { data: attachments = [] } = useAttachments(id);
 
   const handleDownloadPDF = async () => {
-    if (!id) {
-      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
+    // CRITICAL: Use numeric ID from proposal object, not URL param (which might be display ID)
+    const numericId = proposal?.id;
+    const displayId = id || proposal?.proposal?.id || '';
+    
+    if (!numericId) {
+      console.error('[PropostaView] No numeric ID available for PDF download:', { urlParam: id, displayId });
+      toast({ title: 'Erro', description: 'ID numérico da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
-    // Track PDF download
-    trackEvent.mutate({ proposalId: id, type: 'pdf_download', channel: 'ui' });
+    console.log('[PropostaView] Download PDF using numeric ID:', numericId, '(display:', displayId, ')');
     
-    // Use unified PDF service - always fetches from backend
-    const result = await downloadProposalPdf(id);
+    // Track PDF download using display ID for analytics
+    trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
+    
+    // Use unified PDF service with NUMERIC ID - always fetches from backend
+    const result = await downloadProposalPdf(numericId);
     
     if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
