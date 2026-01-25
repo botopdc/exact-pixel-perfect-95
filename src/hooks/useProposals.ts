@@ -1715,6 +1715,7 @@ export function useArchitectProposals(page = 1, perPage = 100) {
       
       try {
         // 1. Get all proposal IDs where this user is an ARCHITECT participant
+        console.log('[useArchitectProposals] Fetching participations for user:', numericUserId);
         const participations = await getProposalsByParticipant(numericUserId, 'ARCHITECT');
         
         if (participations.length === 0) {
@@ -1722,8 +1723,9 @@ export function useArchitectProposals(page = 1, perPage = 100) {
           return [];
         }
         
+        // proposal_id in Supabase is stored as string of the numeric API ID
         const participantProposalIds = participations.map(p => p.proposal_id);
-        console.log('[useArchitectProposals] Found architect participations:', participantProposalIds.length);
+        console.log('[useArchitectProposals] Found architect participations:', participantProposalIds);
         
         // 2. Fetch all proposals (paginated) and filter by participation
         const response = await openApi.getProposals({
@@ -1736,6 +1738,7 @@ export function useArchitectProposals(page = 1, perPage = 100) {
         const localProposals = apiProposals.map(apiToLocal);
         
         // 3. Filter to only proposals where user is architect participant
+        // Note: compare as strings since proposal_id in Supabase is stored as string
         const filtered = localProposals.filter(p => {
           const proposalApiId = p.id ? String(p.id) : null;
           return proposalApiId && participantProposalIds.includes(proposalApiId);
