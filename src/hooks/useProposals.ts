@@ -22,7 +22,7 @@ import { persistArchitectCommission, getProposalsByParticipant } from '@/service
 // EXPIRED = Proposal validity has passed
 export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
 
-// Legacy status mapping - for backward compatibility
+// Legacy status mapping - for backward compatibility (API → Internal)
 const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
   '': 'DRAFT',
   'S': 'DRAFT', // Legacy "Sem status" → DRAFT
@@ -35,6 +35,20 @@ const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
   'Rejected': 'REJECTED',
   'Recusado': 'REJECTED',
 };
+
+// Reverse mapping - Internal → API format for updates
+const STATUS_TO_API_MAP: Record<ProposalStatus, string> = {
+  'DRAFT': '',
+  'SENT': 'Enviado',
+  'APPROVED': 'Approved',
+  'REJECTED': 'Rejected',
+  'EXPIRED': '', // Expired is computed, not set via API
+};
+
+// Convert internal ProposalStatus to API format for updates
+export function statusToApiFormat(status: ProposalStatus): string {
+  return STATUS_TO_API_MAP[status] || '';
+}
 
 // Normalize any status value to canonical ProposalStatus
 export function normalizeStatus(rawStatus: string | undefined | null): ProposalStatus {
@@ -2081,12 +2095,12 @@ export function useUpdateProposalStatus() {
         servers: existing.servers,
         addons: existing.addons,
         dados_proposta: existing.dados_proposta,
-        // STATUS FIELD - the ONLY field needed per API spec
-        // Using the official API format: "Approved", "Rejected", "Enviado"
-        status: status,
+        // STATUS FIELD - Convert internal status to API format
+        // Internal: APPROVED, REJECTED, SENT → API: Approved, Rejected, Enviado
+        status: statusToApiFormat(status),
       };
       
-      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status);
+      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status, '→ API:', statusToApiFormat(status));
       
       const result = await openApi.updateProposal(numericId, updatePayload);
       console.log('[useUpdateProposalStatus] Update result:', result);
