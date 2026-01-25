@@ -202,16 +202,23 @@ export const MENU_SECTIONS: MenuSection[] = [
     items: [
       {
         id: 'chamados-fila',
-        title: 'Visão Geral (Fila)',
+        title: 'Visão Geral',
         url: '/modulos/atendimentos/chamados',
         icon: Wrench,
         allowedLevels: [900, 950, 1000],
       },
       {
-        id: 'chamados-lista',
-        title: 'Chamados',
-        url: '/modulos/atendimentos/chamados/lista',
+        id: 'meus-chamados',
+        title: 'Meus Chamados',
+        url: '/modulos/atendimentos/meus-chamados',
         icon: Wrench,
+        allowedLevels: [900, 950, 1000],
+      },
+      {
+        id: 'analistas-suporte',
+        title: 'Analistas',
+        url: '/modulos/atendimentos/analistas-suporte',
+        icon: Users,
         allowedLevels: [900, 950, 1000],
       },
       {
