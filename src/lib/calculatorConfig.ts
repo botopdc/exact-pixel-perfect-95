@@ -648,7 +648,7 @@ export interface AddonsState {
   backupPlan: string;
   backupGb: number;
   antivirus: number;
-  firewall: boolean;
+  firewall: number; // Changed from boolean to quantity
   tsplus: number;
   cal: number;
   sql: string;

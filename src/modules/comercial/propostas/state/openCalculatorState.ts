@@ -32,7 +32,7 @@ export interface AddonsStateV2 {
   backupPlan: 'none' | '7' | '15' | '30';
   backupGb: number;
   antivirus: number;
-  firewall: boolean;
+  firewall: number; // Changed from boolean to quantity
   tsplus: number;
   cal: number;
   sql: 'none' | 'web' | 'std';
@@ -60,7 +60,7 @@ export const DEFAULT_ADDONS: AddonsStateV2 = {
   backupPlan: 'none',
   backupGb: 0,
   antivirus: 0,
-  firewall: false,
+  firewall: 0, // Changed from false to 0
   tsplus: 0,
   cal: 0,
   sql: 'none',

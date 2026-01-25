@@ -574,7 +574,7 @@ export function transformApiToSavedProposal(apiProposal: ApiProposal, config: Ca
     backupPlan: 'none',
     backupGb: 0,
     antivirus: 0,
-    firewall: false,
+    firewall: 0, // Changed from false to 0
     tsplus: 0,
     cal: 0,
     sql: 'none',
@@ -590,7 +590,7 @@ export function transformApiToSavedProposal(apiProposal: ApiProposal, config: Ca
   apiAddons.forEach(addon => {
     switch (addon.type) {
       case 'antivirus': addons.antivirus = addon.qty; break;
-      case 'firewall': addons.firewall = true; break;
+      case 'firewall': addons.firewall = addon.qty > 0 ? addon.qty : 1; break; // Support quantity
       case 'tsplus': addons.tsplus = addon.qty; break;
       case 'cal': addons.cal = addon.qty; break;
       case 'sql': addons.sql = addon.edition || 'none'; addons.sqlQty = addon.qty; break;
