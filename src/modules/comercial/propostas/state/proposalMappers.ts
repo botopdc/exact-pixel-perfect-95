@@ -375,7 +375,8 @@ function hydrateAddons(raw: any): AddonsStateV2 {
     backupPlan: raw.backupPlan || 'none',
     backupGb: toNum(raw.backupGb, 0),
     antivirus: toNum(raw.antivirus, 0),
-    firewall: toBool(raw.firewall),
+    // Firewall: now a quantity. Convert old boolean (true) to 1, false to 0
+    firewall: typeof raw.firewall === 'boolean' ? (raw.firewall ? 1 : 0) : toNum(raw.firewall, 0),
     tsplus: toNum(raw.tsplus, 0),
     cal: toNum(raw.cal, 0),
     sql: raw.sql || 'none',
@@ -483,9 +484,10 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       continue;
     }
     
-    // Firewall
+    // Firewall - now supports quantity
     if (code === 'firewall' || name.includes('firewall')) {
-      result.firewall = true;
+      result.firewall = qty > 0 ? qty : 1; // If qty not set, default to 1 for old boolean data
+      console.log('[EDIT] Firewall restored: qty=' + result.firewall);
       continue;
     }
     
@@ -748,9 +750,9 @@ export function serializeProposal(
     addonsArray.push({ code: 'antivirus', name: 'Antivirus', price: 0, quantity: state.addons.antivirus });
   }
   
-  // Firewall
-  if (state.addons.firewall) {
-    addonsArray.push({ code: 'firewall', name: 'Firewall', price: 0, quantity: 1 });
+  // Firewall (qty) - now with quantity support
+  if (state.addons.firewall > 0) {
+    addonsArray.push({ code: 'firewall', name: 'Firewall (qtd)', price: 0, quantity: state.addons.firewall });
   }
   
   // TSplus

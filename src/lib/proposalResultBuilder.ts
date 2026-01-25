@@ -198,9 +198,12 @@ export function buildResultFromSnapshot(
       subServices += price;
     }
     
-    if (addons.firewall) {
-      const price = addons.firewallPrice ?? 199.9;
-      rows.push({ label: 'Firewall pfSense', qty: 1, unitPrice: price, subtotal: price, finalTotal: price });
+    // Firewall (qtd) - now with quantity support
+    const firewallQty = typeof addons.firewall === 'boolean' ? (addons.firewall ? 1 : 0) : (addons.firewall ?? 0);
+    if (firewallQty > 0) {
+      const unitPrice = addons.firewallPrice ?? 199.9;
+      const price = unitPrice * firewallQty;
+      rows.push({ label: 'Firewall (qtd)', qty: firewallQty, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     

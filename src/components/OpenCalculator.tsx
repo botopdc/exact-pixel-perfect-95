@@ -255,7 +255,7 @@ const OpenCalculator: React.FC = () => {
     backupPlan: 'none',
     backupGb: 0,
     antivirus: 0,
-    firewall: false,
+    firewall: 0, // Changed from false to 0
     tsplus: 0,
     cal: 0,
     sql: 'none',
@@ -589,9 +589,11 @@ const OpenCalculator: React.FC = () => {
       const st = unitPrice * antivirusQty;
       subServices += addRow('Antivirus', antivirusQty, unitPrice, st, 'svc_antivirus');
     }
-    if (addons.firewall) {
+    const firewallQty = toNum(addons.firewall, 0);
+    if (firewallQty > 0) {
       const unitPrice = toNum(config.addons_brl.firewall_pfsense, 0);
-      subServices += addRow('Firewall PFsense', 1, unitPrice, unitPrice, 'svc_firewall');
+      const st = unitPrice * firewallQty;
+      subServices += addRow('Firewall (qtd)', firewallQty, unitPrice, st, 'svc_firewall');
     }
     const tsplusQty = toNum(addons.tsplus, 0);
     if (tsplusQty > 0) {
@@ -1419,7 +1421,7 @@ const OpenCalculator: React.FC = () => {
     setProposal({ id: generateProposalId(), validityDays: 7, createdAt: new Date().toISOString() });
     setItems([]);
     setAddons({
-      backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: false,
+      backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: 0,
       tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0, winserver: 0,
       support: { level: 'none', price: 0 },
       consulting: { quantity: 0, unitPrice: 200 },
@@ -2617,18 +2619,17 @@ const OpenCalculator: React.FC = () => {
                   <span className="text-xs text-muted-foreground">R$ {config.addons_brl.cal_unit}/unid.</span>
                 </div>
 
-                {/* Firewall */}
+                {/* Firewall (qtd) */}
                 <div className="relative">
-                  <label className="block text-xs text-muted-foreground mb-1">Firewall pfSense</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={addons.firewall}
-                      onChange={(e) => setAddons(prev => ({ ...prev, firewall: e.target.checked }))}
-                      className="rounded border-border h-4 w-4"
-                    />
-                    <span className="text-xs text-muted-foreground">Ativar — R$ {config.addons_brl.firewall_pfsense}/mês</span>
-                  </div>
+                  <label className="block text-xs text-muted-foreground mb-1">Firewall (qtd)</label>
+                  <Input
+                    type="number"
+                    value={addons.firewall}
+                    onChange={(e) => setAddons(prev => ({ ...prev, firewall: parseInt(e.target.value) || 0 }))}
+                    min={0}
+                    className="bg-input border-border"
+                  />
+                  <span className="text-xs text-muted-foreground">R$ {config.addons_brl.firewall_pfsense}/unid.</span>
                 </div>
               </div>
 

@@ -194,7 +194,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     addonItems.push({ label: 'Antivirus', by: 'unit', type: 'BRL', value: Number(addons.antivirus_unit) || 0 });
   }
   if (typeof addons.firewall_pfsense === 'number') {
-    addonItems.push({ label: 'Firewall pfSense', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 });
+    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 });
   }
   if (typeof addons.tsplus_unit === 'number') {
     addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', value: Number(addons.tsplus_unit) || 0 });

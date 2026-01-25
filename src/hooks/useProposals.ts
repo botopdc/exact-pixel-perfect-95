@@ -251,7 +251,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       backupPlan: rawAddons.backupPlan || 'none',
       backupGb: toNum(rawAddons.backupGb, 0),
       antivirus: toNum(rawAddons.antivirus, 0),
-      firewall: Boolean(rawAddons.firewall),
+      // Firewall: convert old boolean to number
+      firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
       tsplus: toNum(rawAddons.tsplus, 0),
       cal: toNum(rawAddons.cal, 0),
       sql: rawAddons.sql || 'none',
@@ -508,7 +509,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     backupPlan: 'none',
     backupGb: 0,
     antivirus: 0,
-    firewall: false,
+    firewall: 0, // Changed from false to 0
     tsplus: 0,
     cal: 0,
     sql: 'none',
@@ -627,8 +628,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         reconstructedAddonsState.antivirus = addonQty;
         console.log('[EDIT] Antivirus restored:', addonQty);
       } else if (addonNameLower.includes('firewall')) {
-        reconstructedAddonsState.firewall = true;
-        console.log('[EDIT] Firewall restored: true');
+        reconstructedAddonsState.firewall = addonQty > 0 ? addonQty : 1; // Convert old boolean to qty
+        console.log('[EDIT] Firewall restored: qty=' + reconstructedAddonsState.firewall);
       } else if (addonNameLower.includes('tsplus') || addonNameLower.includes('ts plus')) {
         reconstructedAddonsState.tsplus = addonQty;
         console.log('[EDIT] TSPlus restored:', addonQty);

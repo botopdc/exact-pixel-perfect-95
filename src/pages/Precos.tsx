@@ -831,7 +831,7 @@ const Precos = () => {
                 <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     { key: 'antivirus_unit', label: 'Antivírus (unid.)', value: config.addons_brl.antivirus_unit },
-                    { key: 'firewall_pfsense', label: 'Firewall pfSense', value: config.addons_brl.firewall_pfsense },
+                    { key: 'firewall_pfsense', label: 'Firewall (qtd)', value: config.addons_brl.firewall_pfsense },
                     { key: 'tsplus_unit', label: 'TSplus (unid.)', value: config.addons_brl.tsplus_unit },
                     { key: 'cal_unit', label: 'CAL (unid.)', value: config.addons_brl.cal_unit },
                     { key: 'veeam_vm_unit', label: 'Veeam VM (unid.)', value: config.addons_brl.veeam_vm_unit },

@@ -242,7 +242,7 @@ const DEFAULT_ADDONS: AddonsState = {
   backupPlan: 'none',
   backupGb: 0,
   antivirus: 0,
-  firewall: false,
+  firewall: 0, // Changed from false to 0
   tsplus: 0,
   cal: 0,
   sql: 'none',
@@ -420,7 +420,8 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
         backupPlan: (rawAddons.backupPlan as string) || 'none',
         backupGb: toNum(rawAddons.backupGb, 0),
         antivirus: toNum(rawAddons.antivirus, 0),
-        firewall: Boolean(rawAddons.firewall),
+        // Firewall: convert old boolean to number
+        firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
         tsplus: toNum(rawAddons.tsplus, 0),
         cal: toNum(rawAddons.cal, 0),
         sql: (rawAddons.sql as string) || 'none',
