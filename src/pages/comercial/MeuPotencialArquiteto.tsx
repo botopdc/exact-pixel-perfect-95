@@ -237,11 +237,15 @@ export default function MeuPotencialArquiteto() {
         setUserId(user.id);
         
         // Get proposals where this user is an ARCHITECT participant
+        console.log('[MeuPotencialArquiteto] Fetching participations for user:', user.id);
         const participations = await getProposalsByParticipant(user.id, 'ARCHITECT');
         
         if (!mounted) return;
         
+        console.log('[MeuPotencialArquiteto] Found participations:', participations.length, participations);
+        
         if (participations.length === 0) {
+          console.log('[MeuPotencialArquiteto] No participations found, showing empty state');
           setPropostas([]);
           setLoading(false);
           return;
@@ -255,16 +259,26 @@ export default function MeuPotencialArquiteto() {
         const allProposals = (response.data || []) as ApiProposal[];
         const now = new Date();
         
-        // Get proposal IDs where architect participates
+        // Get proposal IDs where architect participates (stored as string in Supabase)
         const participatingProposalIds = new Set(
           participations.map(p => p.proposal_id)
         );
         
+        console.log('[MeuPotencialArquiteto] Participating proposal IDs:', Array.from(participatingProposalIds));
+        console.log('[MeuPotencialArquiteto] All proposals from API:', allProposals.map(p => ({ id: p.id, status: p.status })));
+        
         // Filter to APPROVED proposals where architect is participant
+        // Note: proposal_id in Supabase is stored as string of the numeric API ID
         const filteredProposals = allProposals.filter((p) => {
           const normalizedStatus = normalizeStatus(p.status);
           const isApproved = normalizedStatus === 'APPROVED';
-          const isParticipant = participatingProposalIds.has(String(p.id));
+          const proposalIdStr = String(p.id);
+          const isParticipant = participatingProposalIds.has(proposalIdStr);
+          
+          if (isParticipant) {
+            console.log('[MeuPotencialArquiteto] Proposal', p.id, 'isApproved:', isApproved, 'status:', p.status, 'normalized:', normalizedStatus);
+          }
+          
           return isApproved && isParticipant;
         });
         
