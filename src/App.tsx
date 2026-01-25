@@ -116,6 +116,14 @@ import InternalTicketDetailPage from '@/pages/modules/atendimento-interno/Intern
 import SupportQueuePage from '@/pages/modules/atendimento-interno/SupportQueuePage';
 import AnalistasPage from '@/pages/modules/atendimento-interno/AnalistasPage';
 
+// Support Tickets Module (Client-facing)
+import SupportTicketQueuePage from '@/pages/modules/atendimentos/SupportQueuePage';
+import SupportTicketDetailPage from '@/pages/modules/atendimentos/SupportTicketDetailPage';
+import MeusTicketsPage from '@/pages/modules/atendimentos/MeusTicketsPage';
+import AnalistasSuportePage from '@/pages/modules/atendimentos/AnalistasSuportePage';
+import SLAPoliciesPage from '@/pages/modules/atendimentos/SLAPoliciesPage';
+import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
+
 // Birth Certificate (Certidão de Nascimento) Pages
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
 import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
@@ -221,11 +229,19 @@ const App = () => (
             <Route path="/modulos/atendimentos/interno/novo" element={<CreateInternalTicketPage />} />
             <Route path="/modulos/atendimentos/interno/:id" element={<InternalTicketDetailPage />} />
             
-            {/* Analistas (Gestão do time de suporte - 950+) */}
+            {/* Analistas (Gestão do time de suporte interno - 950+) */}
             <Route path="/modulos/atendimentos/analistas" element={<AnalistasPage />} />
             
-            {/* Support Queue (Fila de Suporte - para técnicos 900+) */}
+            {/* Support Queue Interno (Fila de Suporte - para técnicos 900+) */}
             <Route path="/modulos/atendimentos/suporte" element={<SupportQueuePage />} />
+            
+            {/* Support Tickets (Chamados de Clientes - 900/1000) */}
+            <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
+            <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
+            <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
+            <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
+            <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />
+            <Route path="/modulos/atendimentos/relatorios" element={<TicketReportsPage />} />
 
             {/* Suporte Técnico (Centro de Operações) - Wrapped with Error Boundary */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />

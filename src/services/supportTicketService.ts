@@ -87,10 +87,13 @@ export async function listSupportTickets(
     params.assigned_team = filters.assigned_team;
   }
   if (filters.assigned_to) {
-    params.assigned_to = filters.assigned_to;
+    params.assigned_to_user_id = filters.assigned_to;
   }
   if (filters.client_id) {
     params.client_id = filters.client_id;
+  }
+  if (filters.resource_type) {
+    params.resource_type = filters.resource_type;
   }
   if (filters.date_from) {
     params.date_from = filters.date_from;

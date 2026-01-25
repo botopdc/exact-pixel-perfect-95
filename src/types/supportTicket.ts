@@ -138,6 +138,7 @@ export interface SupportTicketFilters {
   assigned_team?: SupportTeam;
   assigned_to?: number;
   client_id?: number;
+  resource_type?: string;
   date_from?: string;
   date_to?: string;
   search?: string;
