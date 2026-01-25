@@ -85,6 +85,7 @@ import EstruturaPage from '@/pages/modules/gente/EstruturaPage';
 import MetasInternasPage from '@/pages/modules/gente/MetasInternasPage';
 import AvaliacoesPage from '@/pages/modules/gente/AvaliacoesPage';
 import AcademyPage from '@/pages/modules/gente/AcademyPage';
+import VagasPage from '@/pages/modules/gente/VagasPage';
 
 // Academy Pages (external users)
 import AcademyLogin from '@/pages/academy/AcademyLogin';
@@ -288,7 +289,7 @@ const App = () => (
             
             {/* Gente & Gestão Module */}
             <Route path="/modulos/gente" element={<GenteModuleHome />} />
-            <Route path="/modulos/gente/vagas" element={<VagasRH />} />
+            <Route path="/modulos/gente/vagas" element={<VagasPage />} />
             <Route path="/modulos/gente/vagas/nova" element={<JobForm />} />
             <Route path="/modulos/gente/vagas/:id" element={<VagaDetalhe />} />
             <Route path="/modulos/gente/vagas/:id/editar" element={<JobForm isEdit />} />
