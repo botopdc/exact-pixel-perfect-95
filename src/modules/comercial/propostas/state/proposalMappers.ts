@@ -621,6 +621,37 @@ function logAddonRestoration(addons: AddonsStateV2): void {
 // SERIALIZE TO API (for saving)
 // ============================================================================
 
+/**
+ * Addon payload for API (v12+)
+ * Requires config_id and item_id for backend price calculation
+ */
+export interface ApiAddonPayload {
+  config_id?: number;     // ID of the calculator config entry (Add-ons category)
+  item_id?: number;       // ID of the item within the config
+  code?: string;          // Legacy: addon code for compatibility
+  name: string;           // Display name
+  price: number;          // Price (backend will recalculate from config)
+  quantity: number;       // Quantity
+}
+
+/**
+ * Server payload for API (v12+)
+ * Requires config_id and item IDs for backend price calculation
+ */
+export interface ApiServerPayload {
+  config_id?: number;       // ID of the calculator config (VM/BareMetal category)
+  name: string;
+  vcpu_item_id?: number;    // ID of the vCPU item in config
+  vcpu: number;
+  ram_item_id?: number;     // ID of the RAM item in config
+  ram: number;
+  storage_item_id?: number; // ID of the storage item in config
+  storage: number;
+  price: number;
+  quantity: number;
+  gpu?: { model: string; quantity: number };
+}
+
 export interface ApiProposalPayload {
   name: string;
   company: string;
@@ -636,16 +667,8 @@ export interface ApiProposalPayload {
   contract_duration: number;
   discount_pct: number;
   total: number;
-  addons: Array<{ code?: string; name: string; price: number; quantity: number }>;
-  servers: Array<{
-    name: string;
-    vcpu: number;
-    ram: number;
-    storage: number;
-    price: number;
-    quantity: number;
-    gpu?: { model: string; quantity: number };
-  }>;
+  addons: ApiAddonPayload[];
+  servers: ApiServerPayload[];
   due_at: string;
   proposal_status?: string;
   status?: string;
@@ -657,12 +680,28 @@ export interface ApiProposalPayload {
  * 
  * CRITICAL: This is the ONLY function that should generate the save payload.
  * All items (WinServer, Backup, GPU) are explicitly serialized.
+ * 
+ * API v12+: Requires config_id and item_id for addons and servers.
+ * If configIdStore is provided, IDs will be included for backend price calculation.
+ * 
+ * @param state - Calculator state
+ * @param channelType - CLIENTE or PARCEIRO
+ * @param grandTotal - Total value
+ * @param discountPct - Discount percentage
+ * @param configIdStore - Optional: Config ID mappings for v12+ API
  */
 export function serializeProposal(
   state: OpenCalculatorState,
   channelType: 'CLIENTE' | 'PARCEIRO',
   grandTotal: number,
-  discountPct: number = 0
+  discountPct: number = 0,
+  configIdStore?: {
+    vm?: { configId: number; items: Record<string, number> } | null;
+    addons?: { configId: number; items: Record<string, number> } | null;
+    sqlServer?: { configId: number; items: Record<string, number> } | null;
+    backup?: { configId: number; items: Record<string, number> } | null;
+    specializedServices?: { configId: number; items: Record<string, number> } | null;
+  } | null
 ): ApiProposalPayload {
   console.log('[serializeProposal] Serializing state for save...');
   
@@ -679,20 +718,47 @@ export function serializeProposal(
   const dueAt = new Date(createdAt);
   dueAt.setDate(dueAt.getDate() + validityDays);
   
+  // Helper to find item ID by label (with fuzzy matching)
+  const findItemId = (
+    mapping: { configId: number; items: Record<string, number> } | null | undefined,
+    ...labels: string[]
+  ): number | undefined => {
+    if (!mapping) return undefined;
+    for (const label of labels) {
+      if (mapping.items[label] !== undefined) return mapping.items[label];
+      // Try lowercase
+      const lower = label.toLowerCase();
+      if (mapping.items[lower] !== undefined) return mapping.items[lower];
+      // Try normalized (remove accents)
+      const normalized = lower.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+      if (mapping.items[normalized] !== undefined) return mapping.items[normalized];
+    }
+    return undefined;
+  };
+  
   // ============================================
-  // BUILD ADDONS ARRAY (with code + name for robustness)
+  // BUILD ADDONS ARRAY (with config_id + item_id for v12+)
   // ============================================
-  const addonsArray: Array<{ code?: string; name: string; price: number; quantity: number }> = [];
+  const addonsArray: ApiAddonPayload[] = [];
+  
+  // Get addons config IDs
+  const addonsConfigId = configIdStore?.addons?.configId;
+  const specializedConfigId = configIdStore?.specializedServices?.configId ?? addonsConfigId;
+  const sqlConfigId = configIdStore?.sqlServer?.configId;
+  const backupConfigId = configIdStore?.backup?.configId;
   
   // Windows Server - EXPLICIT
   if (state.addons.winserver > 0) {
+    const itemId = findItemId(configIdStore?.addons, 'WinServer(2vCPU/unid.)', 'winserver_2vcpu_unit', 'Windows Server');
     addonsArray.push({
+      config_id: addonsConfigId,
+      item_id: itemId,
       code: 'winserver_2vcpu_unit',
       name: 'WinServer(2vCPU/unid.)',
       price: 0,
       quantity: state.addons.winserver,
     });
-    console.log('[serializeProposal] Added WinServer:', state.addons.winserver);
+    console.log('[serializeProposal] Added WinServer:', state.addons.winserver, 'item_id:', itemId);
   }
   
   // Support - Using official codes from ADMIN (with both code and name for compatibility)
@@ -703,83 +769,147 @@ export function serializeProposal(
       'advanced': { code: 'support_advanced', name: 'Suporte Avançado' },
     };
     const supportData = supportCodeMap[state.addons.support.level] || supportCodeMap['basic'];
+    const itemId = findItemId(configIdStore?.specializedServices ?? configIdStore?.addons, supportData.name, supportData.code);
     addonsArray.push({
+      config_id: specializedConfigId,
+      item_id: itemId,
       code: supportData.code,
       name: supportData.name,
       price: state.addons.support.price,
       quantity: 1,
     });
-    console.log('[SERIALIZE] support=' + supportData.code + ' price=' + state.addons.support.price);
+    console.log('[SERIALIZE] support=' + supportData.code + ' price=' + state.addons.support.price + ' item_id=' + itemId);
   }
   
   // Consultoria Técnica - Using official code (with both code and name)
   if (state.addons.consulting.quantity > 0) {
+    const itemId = findItemId(configIdStore?.specializedServices ?? configIdStore?.addons, 'Consultoria Técnica', 'consulting_hours');
     addonsArray.push({
+      config_id: specializedConfigId,
+      item_id: itemId,
       code: 'consulting_hours',
       name: 'Consultoria Técnica',
       price: state.addons.consulting.unitPrice,
       quantity: state.addons.consulting.quantity,
     });
-    console.log('[SERIALIZE] consulting_hours qty=' + state.addons.consulting.quantity + ' price=' + state.addons.consulting.unitPrice);
+    console.log('[SERIALIZE] consulting_hours qty=' + state.addons.consulting.quantity + ' item_id=' + itemId);
   }
   
   // DBA - Using official code (with both code and name)
   if (state.addons.dba.quantity > 0) {
+    const itemId = findItemId(configIdStore?.specializedServices ?? configIdStore?.addons, 'DBA', 'dba_hours');
     addonsArray.push({
+      config_id: specializedConfigId,
+      item_id: itemId,
       code: 'dba_hours',
       name: 'DBA',
       price: state.addons.dba.unitPrice,
       quantity: state.addons.dba.quantity,
     });
-    console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' price=' + state.addons.dba.unitPrice);
+    console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' item_id=' + itemId);
   }
   
   // Backup - EXPLICIT
   if (state.addons.backupPlan !== 'none' && state.addons.backupGb > 0) {
+    const itemId = findItemId(configIdStore?.backup, `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`, state.addons.backupPlan);
     addonsArray.push({
+      config_id: backupConfigId,
+      item_id: itemId,
       code: `backup_${state.addons.backupPlan}`,
       name: `Backup ${state.addons.backupPlan}`,
       price: 0,
       quantity: state.addons.backupGb,
     });
-    console.log('[serializeProposal] Added Backup:', state.addons.backupPlan, state.addons.backupGb);
+    console.log('[serializeProposal] Added Backup:', state.addons.backupPlan, state.addons.backupGb, 'item_id:', itemId);
   }
   
   // Antivirus
   if (state.addons.antivirus > 0) {
-    addonsArray.push({ code: 'antivirus', name: 'Antivirus', price: 0, quantity: state.addons.antivirus });
+    const itemId = findItemId(configIdStore?.addons, 'Antivírus', 'Antivirus', 'antivirus');
+    addonsArray.push({ 
+      config_id: addonsConfigId, 
+      item_id: itemId, 
+      code: 'antivirus', 
+      name: 'Antivirus', 
+      price: 0, 
+      quantity: state.addons.antivirus 
+    });
   }
   
   // Firewall (qty) - now with quantity support
   if (state.addons.firewall > 0) {
-    addonsArray.push({ code: 'firewall', name: 'Firewall (qtd)', price: 0, quantity: state.addons.firewall });
+    const itemId = findItemId(configIdStore?.addons, 'Firewall pfSense', 'Firewall (qtd)', 'firewall');
+    addonsArray.push({ 
+      config_id: addonsConfigId, 
+      item_id: itemId, 
+      code: 'firewall', 
+      name: 'Firewall (qtd)', 
+      price: 0, 
+      quantity: state.addons.firewall 
+    });
   }
   
   // TSplus
   if (state.addons.tsplus > 0) {
-    addonsArray.push({ code: 'tsplus', name: 'TS Plus', price: 0, quantity: state.addons.tsplus });
+    const itemId = findItemId(configIdStore?.addons, 'TSplus', 'tsplus');
+    addonsArray.push({ 
+      config_id: addonsConfigId, 
+      item_id: itemId, 
+      code: 'tsplus', 
+      name: 'TS Plus', 
+      price: 0, 
+      quantity: state.addons.tsplus 
+    });
   }
   
   // CAL
   if (state.addons.cal > 0) {
-    addonsArray.push({ code: 'cal', name: 'CAL', price: 0, quantity: state.addons.cal });
+    const itemId = findItemId(configIdStore?.addons, 'CAL', 'cal');
+    addonsArray.push({ 
+      config_id: addonsConfigId, 
+      item_id: itemId, 
+      code: 'cal', 
+      name: 'CAL', 
+      price: 0, 
+      quantity: state.addons.cal 
+    });
   }
   
   // Veeam VM
   if (state.addons.veeamVm > 0) {
-    addonsArray.push({ code: 'veeam_vm', name: 'Veeam VM', price: 0, quantity: state.addons.veeamVm });
+    const itemId = findItemId(configIdStore?.addons, 'Veeam VM', 'veeam_vm');
+    addonsArray.push({ 
+      config_id: addonsConfigId, 
+      item_id: itemId, 
+      code: 'veeam_vm', 
+      name: 'Veeam VM', 
+      price: 0, 
+      quantity: state.addons.veeamVm 
+    });
   }
   
   // Veeam Agent
   if (state.addons.veeamAg > 0) {
-    addonsArray.push({ code: 'veeam_agent', name: 'Veeam Agent', price: 0, quantity: state.addons.veeamAg });
+    const itemId = findItemId(configIdStore?.addons, 'Veeam Agent', 'veeam_agent');
+    addonsArray.push({ 
+      config_id: addonsConfigId, 
+      item_id: itemId, 
+      code: 'veeam_agent', 
+      name: 'Veeam Agent', 
+      price: 0, 
+      quantity: state.addons.veeamAg 
+    });
   }
   
   // SQL
   if (state.addons.sql !== 'none' && state.addons.sqlQty > 0) {
+    const edition = state.addons.sql.toUpperCase();
+    const itemId = findItemId(configIdStore?.sqlServer, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
     addonsArray.push({
+      config_id: sqlConfigId,
+      item_id: itemId,
       code: `sql_${state.addons.sql.toLowerCase()}`,
-      name: `SQL ${state.addons.sql.toUpperCase()}`,
+      name: `SQL ${edition}`,
       price: 0,
       quantity: state.addons.sqlQty,
     });
@@ -825,17 +955,15 @@ export function serializeProposal(
   }
   
   // ============================================
-  // BUILD SERVERS ARRAY
+  // BUILD SERVERS ARRAY (with config_id + item_ids for v12+)
   // ============================================
-  const serversArray: Array<{
-    name: string;
-    vcpu: number;
-    ram: number;
-    storage: number;
-    price: number;
-    quantity: number;
-    gpu?: { model: string; quantity: number };
-  }> = [];
+  const serversArray: ApiServerPayload[] = [];
+  
+  // Get VM config IDs
+  const vmConfigId = configIdStore?.vm?.configId;
+  const vcpuItemId = findItemId(configIdStore?.vm, 'vCPU', 'vcpu');
+  const ramItemId = findItemId(configIdStore?.vm, 'RAM', 'ram');
+  const storageItemId = findItemId(configIdStore?.vm, 'NVMe', 'nvme');
 
   for (const [idx, item] of state.items.entries()) {
     const hasGpu = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU' && item.gpuQty > 0;
@@ -847,15 +975,20 @@ export function serializeProposal(
 
     if (item.type === 'vm') {
       serversArray.push({
+        config_id: vmConfigId,
         name: `VM #${idx + 1}`,
+        vcpu_item_id: vcpuItemId,
         vcpu: item.vcpu,
+        ram_item_id: ramItemId,
         ram: item.ramGb,
+        storage_item_id: storageItemId,
         storage: Math.round(item.nvmeTb * 1024),
         price: 0,
         quantity: item.qtyServers,
         gpu: gpuObj,
       });
     } else if (item.type === 'bm') {
+      // BareMetal doesn't use VM config IDs
       serversArray.push({
         name: `BareMetal #${idx + 1}`,
         vcpu: 0,
