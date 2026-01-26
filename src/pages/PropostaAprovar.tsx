@@ -26,10 +26,10 @@ import {
 } from '@/services/calculatorProposalService';
 import { persistArchitectCommission } from '@/services/proposalParticipantService';
 import { formatCurrency } from '@/lib/calculatorConfig';
-import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
+
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { downloadProposalPdfPublic } from '@/services/proposalPdfService';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -356,46 +356,34 @@ const PropostaAprovar: React.FC = () => {
     }
   };
   
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!proposal) return;
     
-    const dadosProposta = proposal.dados_proposta as any;
+    // Use the approvalToken from URL to download PDF from API
+    // The token (uuid) serves as file_access_token
+    const fileToken = approvalToken || proposal.uuid || '';
+    const numericId = proposal.id;
     
-    // Try to use existing result, or build from snapshot
-    let result = dadosProposta?.result;
-    
-    if (!result && canBuildResult(dadosProposta)) {
-      console.log('[PropostaAprovar] Building result from snapshot...');
-      result = buildResultFromSnapshot(
-        dadosProposta,
-        proposal.total || 0,
-        proposal.contract_duration || 12
-      );
+    if (!numericId || !fileToken) {
+      toast({ 
+        title: 'PDF indisponível', 
+        description: 'Token de acesso não encontrado. Entre em contato com o comercial.',
+        variant: 'destructive',
+      });
+      return;
     }
     
-    if (result) {
-      generateOpenPDF({
-        client: dadosProposta?.client || {
-          name: proposal.name,
-          company: proposal.company,
-          email: proposal.email,
-          phone: proposal.phone,
-        },
-        proposal: dadosProposta?.proposal || {
-          id: proposal.uuid || String(proposal.id),
-          createdAt: proposal.created_at,
-          validityDays: 30,
-        },
-        result,
-        selectedTerm: String(proposal.contract_duration || 12),
-        datacenter: proposal.datacenter,
-        observacao: dadosProposta?.observacao || proposal.observations,
-      });
-      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    console.log('[PropostaAprovar] Downloading PDF from API:', { numericId, tokenPreview: fileToken.substring(0, 8) + '...' });
+    
+    // Use the unified service that downloads from API using file_access_token
+    const result = await downloadProposalPdfPublic(numericId, fileToken);
+    
+    if (result.success) {
+      toast({ title: 'PDF baixado', description: 'O download do PDF foi iniciado' });
     } else {
       toast({ 
         title: 'PDF indisponível', 
-        description: 'Esta proposta não possui dados suficientes para gerar o PDF. Entre em contato com o comercial.',
+        description: result.error || 'Não foi possível baixar o PDF. Entre em contato com o comercial.',
         variant: 'destructive',
       });
     }

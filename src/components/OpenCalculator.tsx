@@ -81,7 +81,7 @@ import {
 import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/proposalNormalizer';
 import { openApi } from '@/lib/openApi';
 import { setArchitectParticipant, removeArchitectParticipant, getArchitectParticipant } from '@/services/proposalParticipantService';
-import { uploadProposalPdf } from '@/services/proposalPdfService';
+import { uploadProposalPdf, downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -1381,7 +1381,7 @@ const OpenCalculator: React.FC = () => {
     }
   };
 
-  // Generate PDF
+  // Generate/Download PDF
   const handleGeneratePDF = async () => {
     if (!hasAnyItem()) {
       toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para gerar o PDF.', variant: 'destructive' });
@@ -1393,6 +1393,22 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
+    // If proposal is saved, try to download from API first
+    if (editingProposalId) {
+      console.log('[OpenCalculator] Proposal saved, attempting API download:', editingProposalId);
+      const apiResult = await downloadProposalPdfFromApi(editingProposalId);
+      
+      if (apiResult.success) {
+        toast({ title: 'PDF baixado', description: 'O download do PDF foi iniciado' });
+        return;
+      }
+      
+      // If API download fails, fall through to local generation with a warning
+      console.warn('[OpenCalculator] API download failed, generating locally:', apiResult.error);
+    }
+
+    // Fallback: Generate PDF locally (for unsaved proposals or when API fails)
+    console.log('[OpenCalculator] Generating PDF locally');
     const { generateOpenPDF } = await import('@/lib/pdfGenerator');
     generateOpenPDF({
       client,
