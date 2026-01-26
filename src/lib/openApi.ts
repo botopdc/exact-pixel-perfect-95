@@ -822,9 +822,15 @@ class OpenApiClient {
     const formData = new FormData();
     formData.append('file', file);
     
+    // Use axios directly without default JSON headers for multipart/form-data
     const response = await this.client.post<{ url: string; filename: string }>(
       `/calculator/proposal/${proposalId}/file`,
-      formData
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
     );
     return response.data;
   }
@@ -837,9 +843,17 @@ class OpenApiClient {
     const formData = new FormData();
     formData.append('file', pdfBlob, filename);
     
+    console.log('[openApi] Uploading PDF blob:', { proposalId, filename, blobSize: pdfBlob.size, blobType: pdfBlob.type });
+    
+    // Use axios directly without default JSON headers for multipart/form-data
     const response = await this.client.post<{ url: string; filename: string }>(
       `/calculator/proposal/${proposalId}/file`,
-      formData
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
     );
     return response.data;
   }
