@@ -978,21 +978,25 @@ const OpenCalculator: React.FC = () => {
   // CRITICAL: Reset state when route changes from edit to create
   // This ensures that navigating from edit mode back to /criar starts fresh
   useEffect(() => {
-    // If we're NOT in URL edit mode (no edit=1 param), reset the initialization ref
-    // This allows the component to properly re-initialize for new proposal creation
+    // If we're NOT in URL edit mode (no edit=1 param), ALWAYS reset edit state
+    // This prevents stale edit state from causing PUT instead of POST
     if (!isUrlEditMode) {
-      // Only reset if we were previously initialized (meaning we came from edit mode)
-      if (initializedEditModeRef.current) {
-        console.log('[OpenCalculator] Resetting state for new proposal creation');
-        initializedEditModeRef.current = false;
-        setInitialized(false);
+      // Always reset edit mode flags when on create route
+      if (isEditMode || editingProposalId) {
+        console.log('[OpenCalculator] Resetting edit state for new proposal creation');
         setIsEditMode(false);
         setEditingProposalId(null);
+      }
+      // Only reset items if we were previously initialized (meaning we came from edit mode)
+      if (initializedEditModeRef.current) {
+        console.log('[OpenCalculator] Full state reset for new proposal');
+        initializedEditModeRef.current = false;
+        setInitialized(false);
         // Reset items to trigger addVM in the main initialization effect
         setItems([]);
       }
     }
-  }, [isUrlEditMode]);
+  }, [isUrlEditMode, isEditMode, editingProposalId]);
 
   // MAIN INITIALIZATION: Add initial VM OR load proposal for editing
   // CRITICAL: This effect is now URL-based (edit=1&id=...) and self-sufficient

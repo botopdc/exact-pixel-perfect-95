@@ -1081,8 +1081,8 @@ export function serializeProposal(
     addons: addonsArray,
     servers: serversArray,
     due_at: dueAt.toISOString(),
-    proposal_status: 'DRAFT',
-    status: 'DRAFT',
+    proposal_status: 'Rascunho',
+    status: 'Rascunho',
     dados_proposta: dadosProposta,
   };
 }
