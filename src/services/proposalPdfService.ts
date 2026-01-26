@@ -1,15 +1,22 @@
 /**
  * Unified Proposal PDF Service
  * 
- * Single source of truth for PDF generation.
- * ALWAYS fetches proposal from backend API before generating.
+ * Single source of truth for PDF generation and download.
+ * 
+ * PRIORITY ORDER for downloads:
+ * 1. Try to download from API if file exists (GET /calculator/proposal/{id}/file/download?token=)
+ * 2. Fallback: Generate PDF locally from proposal data
+ * 
+ * For uploads (after save):
+ * - Generate PDF locally and upload to API (POST /calculator/proposal/{id}/file)
  * 
  * Usage:
  * - Internal: downloadProposalPdf(proposalId)
  * - Public:   downloadProposalPdfPublic(proposalId, fileAccessToken)
+ * - Upload:   uploadProposalPdf(proposalId, pdfBlob, filename)
  */
 
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { generateOpenPDF, generateOpenPDFBlob } from '@/lib/pdfGenerator';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
 import { getProposalPublic, CalculatorProposal } from '@/services/calculatorProposalService';
 import { listAttachments, NormalizedAttachment } from '@/services/attachmentsService';
@@ -437,5 +444,189 @@ export async function downloadProposalPdfPublic(
       success: false, 
       error: 'Erro ao gerar PDF. Link inválido ou expirado.' 
     };
+  }
+}
+
+// ============================================================================
+// PDF UPLOAD FUNCTIONS
+// ============================================================================
+
+/**
+ * Generate PDF from proposal data and return as blob for upload
+ * Used after saving a proposal to persist the PDF to the API
+ */
+export async function generateProposalPdfBlob(proposalId: string | number): Promise<{ blob: Blob; filename: string } | null> {
+  const numericId = extractNumericId(proposalId);
+  
+  if (numericId === null) {
+    console.error('[proposalPdfService] Cannot generate PDF blob - invalid ID:', proposalId);
+    return null;
+  }
+  
+  const idStr = String(numericId);
+  
+  try {
+    // Fetch proposal from backend
+    const apiProposal = await openApi.getProposal(idStr) as CalculatorProposal;
+    
+    if (!apiProposal) {
+      console.error('[proposalPdfService] Proposal not found for PDF generation:', idStr);
+      return null;
+    }
+    
+    // Extract dados_proposta
+    let dadosProposta = apiProposal.dados_proposta as any;
+    
+    // Build from API fields if needed
+    const canUseDadosProposta = canBuildResult(dadosProposta);
+    const apiHasServers = Array.isArray(apiProposal.servers) && apiProposal.servers.length > 0;
+    const apiHasAddons = Array.isArray(apiProposal.addons) && apiProposal.addons.length > 0;
+    
+    if (!canUseDadosProposta && (apiHasServers || apiHasAddons || (apiProposal.total && apiProposal.total > 0))) {
+      dadosProposta = buildDadosPropostaFromApiFields(apiProposal);
+    }
+    
+    // Build result
+    let result = dadosProposta?.result;
+    
+    if (!result && canBuildResult(dadosProposta)) {
+      result = buildResultFromSnapshot(
+        dadosProposta,
+        apiProposal.total || 0,
+        apiProposal.contract_duration || 12
+      );
+    }
+    
+    // Fallback to minimal result
+    if ((!result || !result.rows || result.rows.length === 0) && apiProposal.total && apiProposal.total > 0) {
+      result = buildMinimalResultFromTotal(apiProposal);
+    }
+    
+    if (!result || !result.rows || result.rows.length === 0) {
+      console.error('[proposalPdfService] Insufficient data for PDF generation');
+      return null;
+    }
+    
+    // Prepare client info
+    const client = dadosProposta?.client || {
+      name: apiProposal.name,
+      company: apiProposal.company,
+      email: apiProposal.email,
+      phone: apiProposal.phone,
+    };
+    
+    // Prepare proposal meta
+    const proposalMeta = dadosProposta?.proposal || {
+      id: apiProposal.uuid || String(apiProposal.id),
+      createdAt: apiProposal.created_at,
+      validityDays: 30,
+    };
+    
+    // Fetch attachments
+    let attachments: NormalizedAttachment[] = [];
+    try {
+      attachments = await listAttachments(String(apiProposal.id));
+    } catch (attachErr) {
+      console.warn('[proposalPdfService] Failed to fetch attachments:', attachErr);
+    }
+    
+    // Generate PDF as blob
+    const { blob, filename } = await generateOpenPDFBlob({
+      client,
+      proposal: proposalMeta,
+      result,
+      selectedTerm: String(apiProposal.contract_duration || 12),
+      datacenter: apiProposal.datacenter || 'SP1',
+      observacao: dadosProposta?.observacao || apiProposal.observations,
+      attachments,
+      reseller: dadosProposta?.reseller,
+    });
+    
+    console.log('[proposalPdfService] PDF blob generated:', { filename, size: blob.size });
+    return { blob, filename };
+    
+  } catch (error) {
+    console.error('[proposalPdfService] Error generating PDF blob:', error);
+    return null;
+  }
+}
+
+/**
+ * Upload proposal PDF to API
+ * Called after saving a proposal to persist the generated PDF
+ */
+export async function uploadProposalPdf(proposalId: string | number): Promise<{ success: boolean; error?: string }> {
+  const numericId = extractNumericId(proposalId);
+  
+  if (numericId === null) {
+    return { success: false, error: 'ID inválido para upload de PDF' };
+  }
+  
+  try {
+    // Generate PDF blob
+    const pdfResult = await generateProposalPdfBlob(proposalId);
+    
+    if (!pdfResult) {
+      return { success: false, error: 'Falha ao gerar PDF para upload' };
+    }
+    
+    // Upload to API
+    const uploadResult = await openApi.uploadProposalPdfBlob(numericId, pdfResult.blob, pdfResult.filename);
+    
+    console.log('[proposalPdfService] PDF uploaded successfully:', uploadResult);
+    return { success: true };
+    
+  } catch (error: any) {
+    console.error('[proposalPdfService] Error uploading PDF:', error);
+    return { 
+      success: false, 
+      error: error.message || 'Erro ao fazer upload do PDF' 
+    };
+  }
+}
+
+/**
+ * Try to download PDF from API, fallback to local generation
+ * This is the preferred download method - uses API file if available
+ */
+export async function downloadProposalPdfFromApi(proposalId: string | number): Promise<PdfGenerationResult> {
+  const numericId = extractNumericId(proposalId);
+  
+  if (numericId === null) {
+    return { success: false, error: 'ID inválido para download de PDF' };
+  }
+  
+  try {
+    // Check if proposal has file
+    const fileInfo = await openApi.getProposalFileInfo(numericId);
+    
+    if (fileInfo?.has_file && fileInfo.file_token) {
+      // Try to download from API
+      try {
+        const blob = await openApi.downloadProposalFile(numericId, fileInfo.file_token);
+        
+        // Create download link
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `OPEN_proposta_${numericId}.pdf`;
+        link.click();
+        URL.revokeObjectURL(url);
+        
+        console.log('[proposalPdfService] PDF downloaded from API successfully');
+        return { success: true };
+      } catch (apiDownloadError) {
+        console.warn('[proposalPdfService] API download failed, falling back to local generation:', apiDownloadError);
+      }
+    }
+    
+    // Fallback: Generate locally
+    console.log('[proposalPdfService] No API file available, generating locally...');
+    return downloadProposalPdf(proposalId);
+    
+  } catch (error: any) {
+    console.error('[proposalPdfService] Error in downloadProposalPdfFromApi:', error);
+    // Fallback to local generation
+    return downloadProposalPdf(proposalId);
   }
 }

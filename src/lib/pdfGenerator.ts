@@ -245,6 +245,90 @@ const imageToPage = async (pdfDoc: PDFDocument, imageBytes: Uint8Array, mime: st
   });
 };
 
+/**
+ * Generate PDF and return as Blob (for upload to API)
+ */
+export const generateOpenPDFBlob = async ({
+  client, 
+  proposal, 
+  result, 
+  selectedTerm, 
+  datacenter,
+  reseller, 
+  includeCommission,
+  observacao,
+  attachments = [],
+}: OpenPDFParams): Promise<{ blob: Blob; filename: string }> => {
+  // Generate summary PDF bytes
+  const summaryPdfBytes = await generateSummaryPdfBytes({ 
+    client, 
+    proposal, 
+    result, 
+    selectedTerm, 
+    datacenter,
+    reseller, 
+    includeCommission,
+    observacao,
+  });
+  
+  // Load template PDF
+  let templatePdfBytes: Uint8Array;
+  try {
+    templatePdfBytes = await fetchTemplatePdf();
+  } catch (error) {
+    console.warn('Template PDF not found, generating summary only');
+    templatePdfBytes = new Uint8Array(0);
+  }
+
+  // Create merged PDF document
+  const mergedPdf = await PDFDocument.create();
+
+  // Copy template pages if available
+  if (templatePdfBytes.length > 0) {
+    const templatePdf = await PDFDocument.load(templatePdfBytes);
+    const templatePages = await mergedPdf.copyPages(templatePdf, templatePdf.getPageIndices());
+    templatePages.forEach((page) => mergedPdf.addPage(page));
+  }
+
+  // Copy summary pages
+  const summaryPdf = await PDFDocument.load(summaryPdfBytes);
+  const summaryPages = await mergedPdf.copyPages(summaryPdf, summaryPdf.getPageIndices());
+  summaryPages.forEach((page) => mergedPdf.addPage(page));
+
+  // Append attachments at the end (sorted by order)
+  const sortedAttachments = [...attachments];
+  
+  for (const attachment of sortedAttachments) {
+    try {
+      const attachmentBytes = await fetchAttachment(attachment.url);
+      
+      if (attachment.mime === 'application/pdf') {
+        // For PDFs, merge all pages
+        const attachmentPdf = await PDFDocument.load(attachmentBytes);
+        const attachmentPages = await mergedPdf.copyPages(attachmentPdf, attachmentPdf.getPageIndices());
+        attachmentPages.forEach((page) => mergedPdf.addPage(page));
+      } else if (attachment.mime.startsWith('image/')) {
+        // For images, convert to PDF page
+        await imageToPage(mergedPdf, attachmentBytes, attachment.mime);
+      }
+    } catch (attachError) {
+      console.error(`Error processing attachment ${attachment.name}:`, attachError);
+      // Continue with other attachments
+    }
+  }
+
+  // Save the merged PDF
+  const mergedPdfBytes = await mergedPdf.save();
+  const blob = new Blob([new Uint8Array(mergedPdfBytes)], { type: 'application/pdf' });
+  
+  // Generate filename with UUID pattern or sanitized ID
+  const proposalIdentifier = proposal.id.replace(/[^a-zA-Z0-9_-]/g, '');
+  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const filename = `OPEN_proposta_${proposalIdentifier}_${timestamp}.pdf`;
+  
+  return { blob, filename };
+};
+
 // Merge template PDF with summary PDF and attachments
 export const generateOpenPDF = async ({ 
   client, 
@@ -258,79 +342,23 @@ export const generateOpenPDF = async ({
   attachments = [],
 }: OpenPDFParams): Promise<void> => {
   try {
-    // Generate summary PDF bytes
-    const summaryPdfBytes = await generateSummaryPdfBytes({ 
-      client, 
-      proposal, 
-      result, 
-      selectedTerm, 
+    const { blob, filename } = await generateOpenPDFBlob({
+      client,
+      proposal,
+      result,
+      selectedTerm,
       datacenter,
-      reseller, 
+      reseller,
       includeCommission,
       observacao,
+      attachments,
     });
-    
-    // Load template PDF
-    let templatePdfBytes: Uint8Array;
-    try {
-      templatePdfBytes = await fetchTemplatePdf();
-    } catch (error) {
-      console.warn('Template PDF not found, generating summary only');
-      templatePdfBytes = new Uint8Array(0);
-    }
 
-    // Create merged PDF document
-    const mergedPdf = await PDFDocument.create();
-
-    // Copy template pages if available
-    if (templatePdfBytes.length > 0) {
-      const templatePdf = await PDFDocument.load(templatePdfBytes);
-      const templatePages = await mergedPdf.copyPages(templatePdf, templatePdf.getPageIndices());
-      templatePages.forEach((page) => mergedPdf.addPage(page));
-    }
-
-    // Copy summary pages
-    const summaryPdf = await PDFDocument.load(summaryPdfBytes);
-    const summaryPages = await mergedPdf.copyPages(summaryPdf, summaryPdf.getPageIndices());
-    summaryPages.forEach((page) => mergedPdf.addPage(page));
-
-    // Append attachments at the end (sorted by order)
-    const sortedAttachments = [...attachments];
-    
-    for (const attachment of sortedAttachments) {
-      try {
-        const attachmentBytes = await fetchAttachment(attachment.url);
-        
-        if (attachment.mime === 'application/pdf') {
-          // For PDFs, merge all pages
-          const attachmentPdf = await PDFDocument.load(attachmentBytes);
-          const attachmentPages = await mergedPdf.copyPages(attachmentPdf, attachmentPdf.getPageIndices());
-          attachmentPages.forEach((page) => mergedPdf.addPage(page));
-        } else if (attachment.mime.startsWith('image/')) {
-          // For images, convert to PDF page
-          await imageToPage(mergedPdf, attachmentBytes, attachment.mime);
-        }
-      } catch (attachError) {
-        console.error(`Error processing attachment ${attachment.name}:`, attachError);
-        // Continue with other attachments
-      }
-    }
-
-    // Save the merged PDF
-    const mergedPdfBytes = await mergedPdf.save();
-
-    // Download the merged PDF - use UUID or sanitized ID for filename
-    const blob = new Blob([new Uint8Array(mergedPdfBytes)], { type: 'application/pdf' });
+    // Download the merged PDF
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
-    // Generate filename with UUID pattern or sanitized ID
-    const proposalIdentifier = proposal.id.replace(/[^a-zA-Z0-9_-]/g, '');
-    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    link.download = `OPEN_proposta_${proposalIdentifier}_${timestamp}.pdf`;
-    link.click();
-    URL.revokeObjectURL(url);
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {
