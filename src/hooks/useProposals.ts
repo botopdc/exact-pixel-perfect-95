@@ -33,27 +33,32 @@ import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 // EXPIRED = Proposal validity has passed
 export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
 
-// Legacy status mapping - for backward compatibility (API → Internal)
+// Status mapping - API returns readable Portuguese text now
+// Maps API status values to internal ProposalStatus type
 const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
   '': 'DRAFT',
-  'S': 'DRAFT', // Legacy "Sem status" → DRAFT
-  'E': 'SENT',
+  // New API format (Portuguese readable text)
+  'Rascunho': 'DRAFT',
   'Enviado': 'SENT',
+  'Aprovado': 'APPROVED',
+  'Recusado': 'REJECTED',
+  'Expirado': 'EXPIRED',
+  // Legacy formats for backward compatibility
+  'S': 'DRAFT',
+  'E': 'SENT',
   'A': 'APPROVED',
   'Approved': 'APPROVED',
-  'Aprovado': 'APPROVED',
   'R': 'REJECTED',
   'Rejected': 'REJECTED',
-  'Recusado': 'REJECTED',
 };
 
-// Reverse mapping - Internal → API format for updates
+// Reverse mapping - Internal → API format for updates (Portuguese text)
 const STATUS_TO_API_MAP: Record<ProposalStatus, string> = {
-  'DRAFT': '',
+  'DRAFT': 'Rascunho',
   'SENT': 'Enviado',
-  'APPROVED': 'Approved',
-  'REJECTED': 'Rejected',
-  'EXPIRED': '', // Expired is computed, not set via API
+  'APPROVED': 'Aprovado',
+  'REJECTED': 'Recusado',
+  'EXPIRED': 'Expirado',
 };
 
 // Convert internal ProposalStatus to API format for updates
