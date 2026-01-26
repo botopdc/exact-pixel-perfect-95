@@ -5,7 +5,7 @@ import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2, ShieldX } from 'l
 import OpenLogo from '@/components/OpenLogo';
 import { useProposal, useSendProposalEmail, useUpdateProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
-import { downloadProposalPdf } from '@/services/proposalPdfService';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentsList } from '@/components/attachments/AttachmentsList';
@@ -188,8 +188,8 @@ const PropostaView: React.FC = () => {
     // Track PDF download using display ID for analytics
     trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
     
-    // Use unified PDF service with NUMERIC ID - always fetches from backend
-    const result = await downloadProposalPdf(numericId);
+    // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
+    const result = await downloadProposalPdfFromApi(numericId);
     
     if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });

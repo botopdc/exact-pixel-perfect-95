@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal, statusToApiFormat } from '@/hooks/useProposals';
 import { openApi } from '@/lib/openApi';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
-import { downloadProposalPdf } from '@/services/proposalPdfService';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
@@ -227,8 +227,8 @@ const SavedProposals: React.FC = () => {
       trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
     }
     
-    // Use unified PDF service with NUMERIC ID - always fetches from backend
-    const result = await downloadProposalPdf(numericId);
+    // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
+    const result = await downloadProposalPdfFromApi(numericId);
     
     if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });

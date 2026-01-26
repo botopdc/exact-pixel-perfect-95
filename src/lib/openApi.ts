@@ -829,6 +829,21 @@ class OpenApiClient {
     return response.data;
   }
 
+  /**
+   * Upload proposal PDF as blob
+   * Used after saving a proposal to persist the generated PDF
+   */
+  async uploadProposalPdfBlob(proposalId: number | string, pdfBlob: Blob, filename: string): Promise<{ url: string; filename: string }> {
+    const formData = new FormData();
+    formData.append('file', pdfBlob, filename);
+    
+    const response = await this.client.post<{ url: string; filename: string }>(
+      `/calculator/proposal/${proposalId}/file`,
+      formData
+    );
+    return response.data;
+  }
+
   async getProposalFiles(proposalId: number | string): Promise<Array<{ id: number; filename: string; url: string; created_at: string }>> {
     const response = await this.client.get(`/calculator/proposal/${proposalId}/files`);
     return response.data;
@@ -836,6 +851,41 @@ class OpenApiClient {
 
   async deleteProposalFile(proposalId: number | string, fileId: number): Promise<void> {
     await this.client.delete(`/calculator/proposal/${proposalId}/file/${fileId}`);
+  }
+
+  /**
+   * Download proposal file from API
+   * GET /api/calculator/proposal/{id}/file/download?token=
+   * Returns the file as blob
+   */
+  async downloadProposalFile(proposalId: number | string, token: string): Promise<Blob> {
+    const response = await this.client.get(
+      `/calculator/proposal/${proposalId}/file/download`,
+      {
+        params: { token },
+        responseType: 'blob',
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Check if proposal has a file attached
+   * Returns the file info or null if no file exists
+   */
+  async getProposalFileInfo(proposalId: number | string): Promise<{ has_file: boolean; file_url?: string; file_token?: string } | null> {
+    try {
+      const proposal = await this.getProposal(proposalId);
+      // Check if proposal has file info
+      const hasFile = !!(proposal as any).file_url || !!(proposal as any).file_path;
+      return {
+        has_file: hasFile,
+        file_url: (proposal as any).file_url,
+        file_token: (proposal as any).uuid, // UUID serves as file access token
+      };
+    } catch {
+      return null;
+    }
   }
 
   // ============================================================================
