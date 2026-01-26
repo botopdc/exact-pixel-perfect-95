@@ -155,8 +155,7 @@ const SavedProposals: React.FC = () => {
   // Convert internal status to API format for server-side filtering
   const getApiStatusFilter = useCallback((status: ProposalStatus | 'all'): string | undefined => {
     if (status === 'all') return undefined;
-    // Convert DRAFT to empty string for API
-    if (status === 'DRAFT') return '';
+    // Use statusToApiFormat for all statuses (returns Portuguese text like "Rascunho", "Enviado", etc.)
     return statusToApiFormat(status);
   }, []);
   
