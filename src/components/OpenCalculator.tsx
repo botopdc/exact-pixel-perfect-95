@@ -81,7 +81,7 @@ import {
 import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/proposalNormalizer';
 import { openApi } from '@/lib/openApi';
 import { setArchitectParticipant, removeArchitectParticipant, getArchitectParticipant } from '@/services/proposalParticipantService';
-import { uploadProposalPdf, downloadProposalPdfFromApi } from '@/services/proposalPdfService';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -1284,21 +1284,7 @@ const OpenCalculator: React.FC = () => {
         const saveResult = await savePartnerProposalMutation.mutateAsync(partnerProposalData);
         const partnerApiId = saveResult.data?.api_id;
         console.log('[OpenCalculator] Partner save result:', { isUpdate: saveResult.isUpdate, id: partnerApiId });
-        
-        // Upload PDF to API after successful save (partner context)
-        if (partnerApiId) {
-          try {
-            console.log('[OpenCalculator] Uploading PDF for partner proposal:', partnerApiId);
-            const uploadResult = await uploadProposalPdf(String(partnerApiId));
-            if (uploadResult.success) {
-              console.log('[OpenCalculator] Partner PDF uploaded successfully');
-            } else {
-              console.warn('[OpenCalculator] Partner PDF upload failed:', uploadResult.error);
-            }
-          } catch (pdfError) {
-            console.warn('[OpenCalculator] Failed to upload partner PDF:', pdfError);
-          }
-        }
+        // Note: Partner proposals don't include PDF in the same request yet (separate flow)
       } else {
         // Internal context: use internal proposal hook
         // For EDIT mode, pass the API numeric ID so the hook performs UPDATE
@@ -1309,9 +1295,32 @@ const OpenCalculator: React.FC = () => {
           savedAt: new Date().toISOString(),
         };
 
-        const saveResult = await saveInternalProposalMutation.mutateAsync(proposalData);
+        // Generate PDF blob to send along with the proposal data
+        let pdfBlob: Blob | undefined;
+        try {
+          console.log('[OpenCalculator] Generating PDF blob for proposal save...');
+          const { generateOpenPDFBlob } = await import('@/lib/pdfGenerator');
+          const pdfResult = await generateOpenPDFBlob({
+            client,
+            proposal,
+            result: result!,
+            selectedTerm,
+            datacenter,
+            reseller,
+            includeCommission: includeCommissionInPdf,
+            observacao: observacao.trim() || undefined,
+          });
+          pdfBlob = pdfResult.blob;
+          console.log('[OpenCalculator] PDF blob generated:', { size: pdfBlob.size });
+        } catch (pdfError) {
+          console.warn('[OpenCalculator] Failed to generate PDF blob, will save without file:', pdfError);
+          // Don't fail the save if PDF generation fails
+        }
+
+        // Save proposal with PDF file attached in the same request
+        const saveResult = await saveInternalProposalMutation.mutateAsync({ proposal: proposalData, pdfBlob });
         const savedData = saveResult.data as { id?: number } | undefined;
-        console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id });
+        console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id, hadPdf: !!pdfBlob });
         
         // After successful save, update editingProposalId with the returned ID (for new proposals)
         const savedProposalId = savedData?.id ? String(savedData.id) : editingProposalId;
@@ -1334,21 +1343,6 @@ const OpenCalculator: React.FC = () => {
           } catch (architectError) {
             console.warn('[OpenCalculator] Failed to update architect participant:', architectError);
             // Don't fail the save operation if architect linking fails
-          }
-          
-          // Upload PDF to API after successful save
-          try {
-            console.log('[OpenCalculator] Uploading PDF for proposal:', savedProposalId);
-            const uploadResult = await uploadProposalPdf(savedProposalId);
-            if (uploadResult.success) {
-              console.log('[OpenCalculator] PDF uploaded successfully');
-            } else {
-              console.warn('[OpenCalculator] PDF upload failed:', uploadResult.error);
-              // Don't fail the save - PDF upload is best-effort
-            }
-          } catch (pdfError) {
-            console.warn('[OpenCalculator] Failed to upload PDF:', pdfError);
-            // Don't fail the save operation if PDF upload fails
           }
         }
       }

@@ -592,7 +592,26 @@ class OpenApiClient {
     return response.data;
   }
 
-  async createProposal(data: unknown): Promise<unknown> {
+  /**
+   * Create a new proposal with optional file upload
+   * Uses multipart/form-data when file is provided
+   * 
+   * @param data - Proposal data
+   * @param file - Optional PDF file blob to attach
+   */
+  async createProposal(data: unknown, file?: Blob): Promise<unknown> {
+    if (file) {
+      // Use multipart/form-data to send data + file together
+      const formData = this.buildProposalFormData(data, file);
+      console.log('[openApi] Creating proposal with file:', { fileSize: file.size });
+      
+      const response = await this.client.post('/calculator/proposal', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    
+    // Standard JSON request without file
     const response = await this.client.post('/calculator/proposal', data);
     return response.data;
   }
@@ -606,9 +625,59 @@ class OpenApiClient {
     return response.data;
   }
 
-  async updateProposal(id: number, data: unknown): Promise<unknown> {
+  /**
+   * Update an existing proposal with optional file upload
+   * Uses multipart/form-data when file is provided
+   * 
+   * @param id - Proposal numeric ID
+   * @param data - Proposal data
+   * @param file - Optional PDF file blob to attach
+   */
+  async updateProposal(id: number, data: unknown, file?: Blob): Promise<unknown> {
+    if (file) {
+      // Use multipart/form-data to send data + file together
+      const formData = this.buildProposalFormData(data, file);
+      console.log('[openApi] Updating proposal with file:', { id, fileSize: file.size });
+      
+      const response = await this.client.put(`/calculator/proposal/${id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    
+    // Standard JSON request without file
     const response = await this.client.put(`/calculator/proposal/${id}`, data);
     return response.data;
+  }
+  
+  /**
+   * Build FormData from proposal data and file
+   * Flattens nested objects and adds the file
+   */
+  private buildProposalFormData(data: unknown, file: Blob): FormData {
+    const formData = new FormData();
+    const payload = data as Record<string, any>;
+    
+    // Add all top-level fields
+    for (const [key, value] of Object.entries(payload)) {
+      if (value === null || value === undefined) continue;
+      
+      if (key === 'dados_proposta' || key === 'servers' || key === 'addons') {
+        // Complex objects/arrays: serialize as JSON string
+        formData.append(key, JSON.stringify(value));
+      } else if (typeof value === 'object') {
+        // Other objects: serialize as JSON string
+        formData.append(key, JSON.stringify(value));
+      } else {
+        // Primitives: add directly
+        formData.append(key, String(value));
+      }
+    }
+    
+    // Add the file
+    formData.append('file', file, 'proposta.pdf');
+    
+    return formData;
   }
 
   async deleteProposal(id: number): Promise<void> {
