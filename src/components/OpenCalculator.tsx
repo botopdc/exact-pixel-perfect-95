@@ -975,6 +975,25 @@ const OpenCalculator: React.FC = () => {
     toast({ title: 'Proposta carregada', description: `Editando proposta ${displayId}` });
   }, [toast]);
 
+  // CRITICAL: Reset state when route changes from edit to create
+  // This ensures that navigating from edit mode back to /criar starts fresh
+  useEffect(() => {
+    // If we're NOT in URL edit mode (no edit=1 param), reset the initialization ref
+    // This allows the component to properly re-initialize for new proposal creation
+    if (!isUrlEditMode) {
+      // Only reset if we were previously initialized (meaning we came from edit mode)
+      if (initializedEditModeRef.current) {
+        console.log('[OpenCalculator] Resetting state for new proposal creation');
+        initializedEditModeRef.current = false;
+        setInitialized(false);
+        setIsEditMode(false);
+        setEditingProposalId(null);
+        // Reset items to trigger addVM in the main initialization effect
+        setItems([]);
+      }
+    }
+  }, [isUrlEditMode]);
+
   // MAIN INITIALIZATION: Add initial VM OR load proposal for editing
   // CRITICAL: This effect is now URL-based (edit=1&id=...) and self-sufficient
   useEffect(() => {
@@ -1069,8 +1088,14 @@ const OpenCalculator: React.FC = () => {
     }
     
     // CASE 2: New proposal (no edit mode)
+    // CRITICAL: Explicitly reset edit mode state when creating a new proposal
+    // This prevents residual state from previous edit sessions causing PUT instead of POST
     if (!initialized && items.length === 0) {
-      // CRITICAL: Only add default VM for NEW proposals, not edits
+      // Ensure we're in CREATE mode, not EDIT mode
+      setIsEditMode(false);
+      setEditingProposalId(null);
+      
+      // Only add default VM for NEW proposals, not edits
       // Do NOT create default BareMetal when editing proposals without servers
       addVM();
       setInitialized(true);

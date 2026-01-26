@@ -9,7 +9,6 @@ import { downloadProposalPdf } from '@/services/proposalPdfService';
 import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentsList } from '@/components/attachments/AttachmentsList';
-import { useAttachments } from '@/hooks/useAttachments';
 import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
 import { ROUTES, getDashboardRoute } from '@/config/routes';
@@ -165,8 +164,13 @@ const PropostaView: React.FC = () => {
     }
   }, [id, hasAccess]);
 
-  // Fetch attachments for PDF generation
-  const { data: attachments = [] } = useAttachments(id);
+  // UNIFIED: Attachments now come from the proposal object (via __with=files)
+  // No separate call to useAttachments needed
+  const attachments = useMemo(() => {
+    if (!proposal) return [];
+    // Files are now attached directly to the proposal by useProposal
+    return (proposal as any).files || [];
+  }, [proposal]);
 
   const handleDownloadPDF = async () => {
     // CRITICAL: Use numeric ID from proposal object, not URL param (which might be display ID)

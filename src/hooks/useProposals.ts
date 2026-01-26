@@ -2050,6 +2050,7 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
 }
 
 // Hook to fetch a single proposal by ID (numeric id or string id)
+// UNIFIED: Now fetches with __with=files,creator to get all data in a single request
 export function useProposal(proposalId: string | undefined) {
   return useQuery({
     queryKey: ['proposal', 'api', proposalId],
@@ -2060,9 +2061,20 @@ export function useProposal(proposalId: string | undefined) {
         const numericId = extractNumericId(proposalId);
         
         if (numericId !== null) {
-          console.log('[useProposal] Fetching by numeric ID:', numericId, '(original:', proposalId, ')');
+          console.log('[useProposal] Fetching by numeric ID with files,creator:', numericId, '(original:', proposalId, ')');
+          // openApi.getProposal now defaults to __with=files,creator
           const result = await openApi.getProposal(numericId);
-          return apiToLocal(result as ApiProposal);
+          
+          // Convert to local format - result now includes files and creator
+          const localProposal = apiToLocal(result as ApiProposal);
+          
+          // Attach files directly from API response if present
+          const apiResult = result as any;
+          if (apiResult.files && Array.isArray(apiResult.files)) {
+            (localProposal as any).files = apiResult.files;
+          }
+          
+          return localProposal;
         }
         
         console.warn('[useProposal] Could not extract numeric ID from:', proposalId);
