@@ -12,6 +12,7 @@ import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
+import { generateOpenPDFBlob } from '@/lib/pdfGenerator';
 import { persistArchitectCommission, getProposalsByParticipant } from '@/services/proposalParticipantService';
 import { 
   loadConfigIds, 
@@ -2171,16 +2172,19 @@ export function useProposal(proposalId: string | undefined) {
   });
 }
 
-// Hook to save a proposal (create or update)
+// Hook to save a proposal (create or update) with optional PDF file
 // CRITICAL: Decision logic for POST vs PUT:
 // 1. proposal.id as NUMBER → UPDATE (PUT) - this is the API ID from a previous save
 // 2. proposal.id undefined/null → CREATE (POST) - new proposal
 // 3. proposal.proposal.id is IGNORED for this decision (it's a local display ID like OPEN-ABC123)
+// 
+// NEW: The mutation now accepts an optional pdfBlob to send along with the proposal data
+// in the same request using multipart/form-data.
 export function useSaveProposal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (proposal: SavedProposal) => {
+    mutationFn: async ({ proposal, pdfBlob }: { proposal: SavedProposal; pdfBlob?: Blob }) => {
       // Load config IDs for API v12+ compliance
       let configIdStore: ConfigIdStore | null = null;
       try {
@@ -2215,6 +2219,8 @@ export function useSaveProposal() {
         'proposal.proposal.id': proposal.proposal?.id,
         channel_type: (apiData as any).channel_type,
         configIdsLoaded: !!configIdStore,
+        hasPdfFile: !!pdfBlob,
+        pdfFileSize: pdfBlob?.size,
         dados_proposta_summary: {
           hasProposalId: Boolean(dadosProposta?.proposalId),
           hasOwnerUserId: Boolean(dadosProposta?.created_by_user_id),
@@ -2232,12 +2238,12 @@ export function useSaveProposal() {
       
       if (numericId !== null && numericId > 0) {
         // Update existing proposal via API: PUT /api/calculator/proposal/{id}
-        console.log('[SaveProposal] ✓ UPDATING proposal via PUT:', numericId);
-        result = await openApi.updateProposal(numericId, apiData);
+        console.log('[SaveProposal] ✓ UPDATING proposal via PUT:', numericId, pdfBlob ? 'with PDF file' : 'without file');
+        result = await openApi.updateProposal(numericId, apiData, pdfBlob);
       } else {
         // Create new proposal via API: POST /api/calculator/proposal
-        console.log('[SaveProposal] ✓ CREATING new proposal via POST');
-        result = await openApi.createProposal(apiData);
+        console.log('[SaveProposal] ✓ CREATING new proposal via POST', pdfBlob ? 'with PDF file' : 'without file');
+        result = await openApi.createProposal(apiData, pdfBlob);
       }
 
       console.log('[SaveProposal] API response:', result);
