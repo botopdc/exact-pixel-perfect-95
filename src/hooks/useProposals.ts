@@ -23,6 +23,7 @@ import {
   getGpuItemId,
   getItemId,
 } from '@/services/configIdsService';
+import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -2055,18 +2056,17 @@ export function useProposal(proposalId: string | undefined) {
     queryFn: async () => {
       if (!proposalId) return null;
       try {
-        // Try to parse as numeric ID
-        const numericId = parseInt(proposalId, 10);
-        if (!isNaN(numericId)) {
+        // CRITICAL: Always extract numeric ID - handles PROP-123, OPEN-abc, etc.
+        const numericId = extractNumericId(proposalId);
+        
+        if (numericId !== null) {
+          console.log('[useProposal] Fetching by numeric ID:', numericId, '(original:', proposalId, ')');
           const result = await openApi.getProposal(numericId);
           return apiToLocal(result as ApiProposal);
         }
         
-        // Fallback: search by id string (PROP-123 format)
-        const response = await openApi.getProposals({ __perPage: 500 });
-        const apiProposals = response.data as ApiProposal[];
-        const found = apiProposals.find(p => `PROP-${p.id}` === proposalId);
-        return found ? apiToLocal(found) : null;
+        console.warn('[useProposal] Could not extract numeric ID from:', proposalId);
+        return null;
       } catch (error) {
         console.warn('[Proposal] API fetch failed:', error);
         return null;
@@ -2098,20 +2098,13 @@ export function useSaveProposal() {
 
       const apiData = localToApi(proposal, configIdStore);
 
-      // Resolve numeric ID (edit mode)
+      // Resolve numeric ID (edit mode) using centralized utility
       let numericId: number | null = null;
 
       if (proposal.id && typeof proposal.id === 'number') {
         numericId = proposal.id;
       } else if (proposal.proposal?.id) {
-        const propId = proposal.proposal.id;
-        if (propId.startsWith('PROP-')) {
-          const parsed = parseInt(propId.replace('PROP-', ''), 10);
-          if (!isNaN(parsed)) numericId = parsed;
-        } else {
-          const parsed = parseInt(propId, 10);
-          if (!isNaN(parsed)) numericId = parsed;
-        }
+        numericId = extractNumericId(proposal.proposal.id);
       }
 
       // CRITICAL: Log payload details for debugging
