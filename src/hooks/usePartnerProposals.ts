@@ -778,6 +778,9 @@ export function useSavePartnerProposal() {
           proposalData.dados_proposta?.openSaas
         ),
         due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        // STATUS: Send in API format (Portuguese readable text)
+        // API expects: 'Rascunho', 'Enviado', 'Aprovado', 'Recusado', 'Expirado', 'Cancelado'
+        status: proposalData.status_proposta || 'Rascunho',
         // CRITICAL: Save complete calculator state for perfect editing restoration
         dados_proposta: proposalData.dados_proposta,
       };
