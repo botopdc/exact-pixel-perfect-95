@@ -13,6 +13,16 @@ import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
 import { persistArchitectCommission, getProposalsByParticipant } from '@/services/proposalParticipantService';
+import { 
+  loadConfigIds, 
+  ConfigIdStore, 
+  getAddonItemId, 
+  getVmItemIds, 
+  getSqlItemId, 
+  getBackupItemId,
+  getGpuItemId,
+  getItemId,
+} from '@/services/configIdsService';
 
 // Proposal status type - STANDARDIZED to 5 canonical values
 // DRAFT = Initial state when created
@@ -1068,7 +1078,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
 }
 
 // Transform local proposal to API format - SAVES COMPLETE DATA in dados_proposta
-function localToApi(proposal: SavedProposal): Record<string, unknown> {
+// configIdStore: Optional mapping of config IDs for API v12+ compatibility
+function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | null): Record<string, unknown> {
   // ============================================
   // CRITICAL: Build price maps from result.rows FIRST
   // This is the ONLY source of truth for calculated prices
@@ -1155,11 +1166,28 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   const dueAt = new Date(createdAt);
   dueAt.setDate(dueAt.getDate() + validityDays);
   
-  // Transform addons to API format: array of {name, price, quantity}
+  // Transform addons to API format: array of {config_id, item_id, name, price, quantity}
   // Note: The full addons state is saved in dados_proposta, this is just for API compatibility
   // IMPORTANT: Storage, Kubernetes, and OPEN SaaS are INDEPENDENT products (not servers)
   // They should be added to addons array to allow proposals without VM/BM
-  const addonsArray: Array<{ name: string; price: number; quantity: number }> = [];
+  // API v12+: config_id and item_id are REQUIRED for each addon
+  const addonsArray: Array<{ 
+    config_id?: number; 
+    item_id?: number; 
+    name: string; 
+    price: number; 
+    quantity: number;
+  }> = [];
+  
+  // Helper to get addon IDs from configIdStore
+  const getAddonIds = (code: string): { config_id?: number; item_id?: number } => {
+    if (!configIdStore) return {};
+    const ids = getAddonItemId(configIdStore, code);
+    return { 
+      config_id: ids.configId, 
+      item_id: ids.itemId 
+    };
+  };
   
   // ============================================
   // INDEPENDENT PRODUCTS (don't require servers)
@@ -1183,7 +1211,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         const storageKey = `storage_${i}`;
         const storagePrice = addonPriceByKey[storageKey]?.subtotal || storage.price || 0;
         
+        const storageIds = getAddonIds('storage');
         addonsArray.push({
+          ...storageIds,
           name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
           price: storagePrice,
           quantity: 1,
@@ -1200,7 +1230,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
       || addonPriceByKey['k8s']?.subtotal 
       || k8s.price || 0;
     
+    const k8sIds = getAddonIds('kubernetes');
     addonsArray.push({
+      ...k8sIds,
       name: `Kubernetes ${k8s.plan || 'Standard'}`,
       price: k8sPrice,
       quantity: 1,
@@ -1214,7 +1246,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
       || addonPriceByKey['open_saas']?.subtotal 
       || proposal.openSaas.price || 0;
     
+    const saasIds = getAddonIds('open_saas');
     addonsArray.push({
+      ...saasIds,
       name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
       price: saasPrice,
       quantity: proposal.openSaas.users,
@@ -1229,59 +1263,86 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // ============================================
     if (typeof addons.winserver === 'number' && addons.winserver > 0) {
       const winserverPrice = addonPriceByKey['svc_winserver']?.unitPrice || 0;
-      addonsArray.push({ name: 'WinServer(2vCPU/unid.)', price: winserverPrice, quantity: addons.winserver });
+      const winIds = getAddonIds('winserver_2vcpu_unit');
+      addonsArray.push({ ...winIds, name: 'WinServer(2vCPU/unid.)', price: winserverPrice, quantity: addons.winserver });
       console.log('[localToApi] Added WinServer to payload:', addons.winserver, 'price:', winserverPrice);
     }
     
     // Standard addon mappings with proper type handling - extract prices from result rows
     if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
       const price = addonPriceByKey['svc_antivirus']?.unitPrice || 0;
-      addonsArray.push({ name: 'Antivirus', price, quantity: addons.antivirus });
+      const avIds = getAddonIds('antivirus');
+      addonsArray.push({ ...avIds, name: 'Antivirus', price, quantity: addons.antivirus });
     }
-    if (addons.firewall === true) {
+    if (addons.firewall === true || (typeof addons.firewall === 'number' && addons.firewall > 0)) {
       const price = addonPriceByKey['svc_firewall']?.unitPrice || 0;
-      addonsArray.push({ name: 'Firewall', price, quantity: 1 });
+      const fwIds = getAddonIds('firewall');
+      const fwQty = typeof addons.firewall === 'number' ? addons.firewall : 1;
+      addonsArray.push({ ...fwIds, name: 'Firewall', price, quantity: fwQty });
     }
     if (typeof addons.tsplus === 'number' && addons.tsplus > 0) {
       const price = addonPriceByKey['svc_tsplus']?.unitPrice || 0;
-      addonsArray.push({ name: 'TS Plus', price, quantity: addons.tsplus });
+      const tsIds = getAddonIds('tsplus');
+      addonsArray.push({ ...tsIds, name: 'TS Plus', price, quantity: addons.tsplus });
     }
     if (typeof addons.cal === 'number' && addons.cal > 0) {
       const price = addonPriceByKey['svc_cal']?.unitPrice || 0;
-      addonsArray.push({ name: 'CAL', price, quantity: addons.cal });
+      const calIds = getAddonIds('cal');
+      addonsArray.push({ ...calIds, name: 'CAL', price, quantity: addons.cal });
     }
     if (typeof addons.veeamVm === 'number' && addons.veeamVm > 0) {
       const price = addonPriceByKey['svc_veeam_vm']?.unitPrice || 0;
-      addonsArray.push({ name: 'Veeam VM', price, quantity: addons.veeamVm });
+      const vvmIds = getAddonIds('veeam_vm');
+      addonsArray.push({ ...vvmIds, name: 'Veeam VM', price, quantity: addons.veeamVm });
     }
     if (typeof addons.veeamAg === 'number' && addons.veeamAg > 0) {
       const price = addonPriceByKey['svc_veeam_agent']?.unitPrice || 0;
-      addonsArray.push({ name: 'Veeam Agent', price, quantity: addons.veeamAg });
+      const vagIds = getAddonIds('veeam_agent');
+      addonsArray.push({ ...vagIds, name: 'Veeam Agent', price, quantity: addons.veeamAg });
     }
     // Backup - get price from backup row
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
       const backupKey = `backup_${addons.backupPlan}`;
       const price = addonPriceByKey[backupKey]?.unitPrice || 0;
-      addonsArray.push({ name: `Backup ${addons.backupPlan}`, price, quantity: addons.backupGb });
+      // Get backup IDs using specific backup plan
+      const backupIds = configIdStore ? getBackupItemId(configIdStore, addons.backupPlan) : { configId: undefined, itemId: undefined };
+      addonsArray.push({ 
+        config_id: backupIds.configId, 
+        item_id: backupIds.itemId, 
+        name: `Backup ${addons.backupPlan}`, 
+        price, 
+        quantity: addons.backupGb 
+      });
       console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb, 'price:', price);
     }
     // SQL
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
       const sqlKey = `svc_sql_${addons.sql}`;
       const price = addonPriceByKey[sqlKey]?.unitPrice || 0;
-      addonsArray.push({ name: `SQL ${addons.sql.toUpperCase()}`, price, quantity: addons.sqlQty });
+      // Get SQL IDs using specific edition
+      const sqlIds = configIdStore ? getSqlItemId(configIdStore, addons.sql) : { configId: undefined, itemId: undefined };
+      addonsArray.push({ 
+        config_id: sqlIds.configId, 
+        item_id: sqlIds.itemId, 
+        name: `SQL ${addons.sql.toUpperCase()}`, 
+        price, 
+        quantity: addons.sqlQty 
+      });
     }
     // Support - specialized service
     if (addons.support && addons.support.level !== 'none' && addons.support.price > 0) {
-      addonsArray.push({ name: `Suporte ${addons.support.level}`, price: addons.support.price, quantity: 1 });
+      const supportIds = getAddonIds(`support_${addons.support.level}`);
+      addonsArray.push({ ...supportIds, name: `Suporte ${addons.support.level}`, price: addons.support.price, quantity: 1 });
     }
     // Consulting - specialized service
     if (addons.consulting && typeof addons.consulting.quantity === 'number' && addons.consulting.quantity > 0) {
-      addonsArray.push({ name: 'Consultoria Técnica', price: addons.consulting.unitPrice || 200, quantity: addons.consulting.quantity });
+      const consultingIds = getAddonIds('consulting_hours');
+      addonsArray.push({ ...consultingIds, name: 'Consultoria Técnica', price: addons.consulting.unitPrice || 200, quantity: addons.consulting.quantity });
     }
     // DBA - specialized service
     if (addons.dba && typeof addons.dba.quantity === 'number' && addons.dba.quantity > 0) {
-      addonsArray.push({ name: 'DBA', price: addons.dba.unitPrice || 250, quantity: addons.dba.quantity });
+      const dbaIds = getAddonIds('dba_hours');
+      addonsArray.push({ ...dbaIds, name: 'DBA', price: addons.dba.unitPrice || 250, quantity: addons.dba.quantity });
     }
     // Custom addons (legacy support)
     if (addons.customAddons && typeof addons.customAddons === 'object') {
@@ -1303,7 +1364,11 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Transform servers/items to API format
   // IMPORTANT: GPU must be persisted inside the server object (servers[].gpu)
   // CRITICAL: Use serverPriceByPrefix built at the start from result.rows
+  // API v12+: config_id and item IDs are REQUIRED for each server
   const serversArray: Array<Record<string, unknown>> = [];
+  
+  // Get VM item IDs from configIdStore
+  const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
@@ -1325,20 +1390,36 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
+          // API v12+: Required config and item IDs
+          config_id: vmItemIds?.configId,
+          vcpu_item_id: vmItemIds?.vcpuItemId,
+          ram_item_id: vmItemIds?.ramItemId,
+          storage_item_id: vmItemIds?.storageItemId,
         };
 
         if (gpuModel && gpuQty > 0) {
           vm.gpu = { model: gpuModel, quantity: gpuQty };
+          // Get GPU item ID
+          if (configIdStore) {
+            const gpuIds = getGpuItemId(configIdStore, gpuModel);
+            vm.gpu_item_id = gpuIds.itemId;
+          }
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
-        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${item.vcpu} ram=${item.ramGb}`);
+        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${item.vcpu} ram=${item.ramGb} config_id=${vm.config_id}`);
         serversArray.push(vm);
       } else if (item.type === 'bm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
           ? item.gpu
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
+
+        // Get BareMetal IDs (different from VM)
+        const bmConfigId = configIdStore?.baremetal?.cpu?.configId;
+        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, 'CPU') : undefined;
+        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, 'RAM') : undefined;
+        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, 'Disco') : undefined;
 
         const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
@@ -1347,17 +1428,26 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           storage: 0,
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
+          // API v12+: Required config and item IDs for BareMetal
+          config_id: bmConfigId,
+          vcpu_item_id: bmCpuItemId,
+          ram_item_id: bmRamItemId,
+          storage_item_id: bmDiskItemId,
         };
 
         if (gpuModel && gpuQty > 0) {
           bm.gpu = { model: gpuModel, quantity: gpuQty };
+          if (configIdStore) {
+            const gpuIds = getGpuItemId(configIdStore, gpuModel);
+            bm.gpu_item_id = gpuIds.itemId;
+          }
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
         console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix}`);
         serversArray.push(bm);
       } else {
-        // Fallback for legacy format
+        // Fallback for legacy format - still try to add config IDs
         serversArray.push({
           name: item.name || item.label || 'Server',
           vcpu: item.vcpu || item.cpu || 0,
@@ -1365,6 +1455,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
           price: item.price || item.total || item.monthlyPrice || serverPrice || 0,
           quantity: item.quantity || item.qtyServers || 1,
+          config_id: vmItemIds?.configId,
+          vcpu_item_id: vmItemIds?.vcpuItemId,
+          ram_item_id: vmItemIds?.ramItemId,
+          storage_item_id: vmItemIds?.storageItemId,
         });
       }
     }
@@ -1402,6 +1496,11 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        // Virtual servers still need config IDs for API validation
+        config_id: vmItemIds?.configId,
+        vcpu_item_id: vmItemIds?.vcpuItemId,
+        ram_item_id: vmItemIds?.ramItemId,
+        storage_item_id: vmItemIds?.storageItemId,
       });
     }
     
@@ -1416,6 +1515,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        config_id: vmItemIds?.configId,
+        vcpu_item_id: vmItemIds?.vcpuItemId,
+        ram_item_id: vmItemIds?.ramItemId,
+        storage_item_id: vmItemIds?.storageItemId,
       });
     }
     
@@ -1430,9 +1533,13 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        config_id: vmItemIds?.configId,
+        vcpu_item_id: vmItemIds?.vcpuItemId,
+        ram_item_id: vmItemIds?.ramItemId,
+        storage_item_id: vmItemIds?.storageItemId,
       });
     }
-    
+    if (serversArray.length === 0) {
     // ============================================
     // FALLBACK: If still no servers after adding independent products,
     // add a virtual placeholder to guarantee servers is never empty
@@ -1446,6 +1553,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        config_id: vmItemIds?.configId,
+        vcpu_item_id: vmItemIds?.vcpuItemId,
+        ram_item_id: vmItemIds?.ramItemId,
+        storage_item_id: vmItemIds?.storageItemId,
       });
     }
     
@@ -1948,7 +2059,16 @@ export function useSaveProposal() {
 
   return useMutation({
     mutationFn: async (proposal: SavedProposal) => {
-      const apiData = localToApi(proposal);
+      // Load config IDs for API v12+ compliance
+      let configIdStore: ConfigIdStore | null = null;
+      try {
+        configIdStore = await loadConfigIds();
+        console.log('[SaveProposal] Config IDs loaded for payload');
+      } catch (error) {
+        console.warn('[SaveProposal] Failed to load config IDs, proceeding without them:', error);
+      }
+
+      const apiData = localToApi(proposal, configIdStore);
 
       // Resolve numeric ID (edit mode)
       let numericId: number | null = null;
@@ -1972,6 +2092,7 @@ export function useSaveProposal() {
         mode: numericId ? 'UPDATE' : 'CREATE',
         numericId,
         channel_type: (apiData as any).channel_type,
+        configIdsLoaded: !!configIdStore,
         dados_proposta_summary: {
           hasProposalId: Boolean(dadosProposta?.proposalId),
           hasOwnerUserId: Boolean(dadosProposta?.created_by_user_id),
@@ -1979,6 +2100,10 @@ export function useSaveProposal() {
           hasItems: Boolean(dadosProposta?.items?.length),
           itemsCount: dadosProposta?.items?.length || 0,
         },
+        addonsCount: (apiData as any).addons?.length || 0,
+        serversCount: (apiData as any).servers?.length || 0,
+        sampleAddon: (apiData as any).addons?.[0],
+        sampleServer: (apiData as any).servers?.[0],
       });
 
       let result: any;
@@ -2011,10 +2136,18 @@ export function useUpdateProposal() {
 
   return useMutation({
     mutationFn: async ({ id, proposal }: { id: string; proposal: SavedProposal }) => {
+      // Load config IDs for API v12+ compliance
+      let configIdStore: ConfigIdStore | null = null;
+      try {
+        configIdStore = await loadConfigIds();
+      } catch (error) {
+        console.warn('[UpdateProposal] Failed to load config IDs:', error);
+      }
+
       // Parse numeric ID
       const numericId = parseInt(id, 10);
       if (!isNaN(numericId)) {
-        const apiData = localToApi(proposal);
+        const apiData = localToApi(proposal, configIdStore);
         const result = await openApi.updateProposal(numericId, apiData);
         return { success: true, data: result };
       }
@@ -2024,7 +2157,7 @@ export function useUpdateProposal() {
       const existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
       
       if (existing) {
-        const apiData = localToApi(proposal);
+        const apiData = localToApi(proposal, configIdStore);
         const result = await openApi.updateProposal(existing.id, apiData);
         return { success: true, data: result };
       }
