@@ -2166,6 +2166,10 @@ export function useProposal(proposalId: string | undefined) {
 }
 
 // Hook to save a proposal (create or update)
+// CRITICAL: Decision logic for POST vs PUT:
+// 1. proposal.id as NUMBER → UPDATE (PUT) - this is the API ID from a previous save
+// 2. proposal.id undefined/null → CREATE (POST) - new proposal
+// 3. proposal.proposal.id is IGNORED for this decision (it's a local display ID like OPEN-ABC123)
 export function useSaveProposal() {
   const queryClient = useQueryClient();
 
@@ -2182,20 +2186,27 @@ export function useSaveProposal() {
 
       const apiData = localToApi(proposal, configIdStore);
 
-      // Resolve numeric ID (edit mode) using centralized utility
+      // CRITICAL: Only use proposal.id (the API numeric ID) for update detection
+      // DO NOT use proposal.proposal.id - that's the local display ID (OPEN-ABC123)
       let numericId: number | null = null;
 
-      if (proposal.id && typeof proposal.id === 'number') {
+      // Only proposal.id as a number indicates this is an existing API record
+      if (proposal.id !== undefined && proposal.id !== null && typeof proposal.id === 'number') {
         numericId = proposal.id;
-      } else if (proposal.proposal?.id) {
-        numericId = extractNumericId(proposal.proposal.id);
+        console.log('[SaveProposal] Detected API ID from proposal.id:', numericId);
       }
+      
+      // IMPORTANT: We intentionally do NOT check proposal.proposal.id here
+      // That field contains locally generated IDs like "OPEN-E5A12345" which are NOT API IDs
 
       // CRITICAL: Log payload details for debugging
       const dadosProposta = (apiData as any).dados_proposta;
       console.log('[SaveProposal] Sending to API:', {
-        mode: numericId ? 'UPDATE' : 'CREATE',
+        mode: numericId ? 'UPDATE (PUT)' : 'CREATE (POST)',
         numericId,
+        'proposal.id': proposal.id,
+        'proposal.id type': typeof proposal.id,
+        'proposal.proposal.id': proposal.proposal?.id,
         channel_type: (apiData as any).channel_type,
         configIdsLoaded: !!configIdStore,
         dados_proposta_summary: {
@@ -2213,13 +2224,13 @@ export function useSaveProposal() {
 
       let result: any;
       
-      if (numericId) {
+      if (numericId !== null && numericId > 0) {
         // Update existing proposal via API: PUT /api/calculator/proposal/{id}
-        console.log('[SaveProposal] Updating proposal:', numericId);
+        console.log('[SaveProposal] ✓ UPDATING proposal via PUT:', numericId);
         result = await openApi.updateProposal(numericId, apiData);
       } else {
         // Create new proposal via API: POST /api/calculator/proposal
-        console.log('[SaveProposal] Creating new proposal');
+        console.log('[SaveProposal] ✓ CREATING new proposal via POST');
         result = await openApi.createProposal(apiData);
       }
 
