@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
+import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import OpenLogo from './OpenLogo';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal, statusToApiFormat } from '@/hooks/useProposals';
 import { openApi } from '@/lib/openApi';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
@@ -128,6 +129,10 @@ const SavedProposals: React.FC = () => {
   const canCopyLink = !isArchitect;
   const canSendEmail = !isArchitect;
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(15);
+  
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -137,9 +142,15 @@ const SavedProposals: React.FC = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
+      setCurrentPage(1); // Reset to page 1 on search change
     }, 400);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, perPage]);
   
   // Convert internal status to API format for server-side filtering
   const getApiStatusFilter = useCallback((status: ProposalStatus | 'all'): string | undefined => {
@@ -149,11 +160,18 @@ const SavedProposals: React.FC = () => {
     return statusToApiFormat(status);
   }, []);
   
-  // Local storage hooks - now with server-side filtering
-  const { data: proposals = [], isLoading } = useProposals(1, {
+  // Fetch proposals with pagination and filters
+  const { data, isLoading } = useProposals(currentPage, {
     status: getApiStatusFilter(statusFilter),
     search: debouncedSearch || undefined,
+    perPage,
   });
+  
+  // Extract proposals and pagination from response (handle both formats for type safety)
+  const paginatedData = data && 'proposals' in data ? data : null;
+  const proposals = paginatedData?.proposals || [];
+  const pagination = paginatedData?.pagination || { currentPage: 1, lastPage: 1, total: 0 };
+  
   const updateStatusMutation = useUpdateProposalStatus();
   const deleteProposalMutation = useDeleteProposal();
   const trackEvent = useTrackEvent();
@@ -709,9 +727,82 @@ const SavedProposals: React.FC = () => {
             )}
           </div>
 
-          {filteredProposals.length > 0 && (
-            <div className="text-center mt-6 text-muted-foreground">
-              {filteredProposals.length} de {proposals.length} {proposals.length === 1 ? 'proposta' : 'propostas'}
+          {/* Pagination Controls */}
+          {pagination.total > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
+              {/* Items per page selector */}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Exibir</span>
+                <Select 
+                  value={String(perPage)} 
+                  onValueChange={(value) => setPerPage(Number(value))}
+                >
+                  <SelectTrigger className="w-[70px] h-8 bg-card">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="15">15</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span>por página</span>
+              </div>
+              
+              {/* Page info and navigation */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Página {pagination.currentPage} de {pagination.lastPage} ({pagination.total} {pagination.total === 1 ? 'proposta' : 'propostas'})
+                </span>
+                
+                <div className="flex items-center gap-1">
+                  {/* First page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={pagination.currentPage <= 1 || isLoading}
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Previous page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={pagination.currentPage <= 1 || isLoading}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Next page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(p => Math.min(pagination.lastPage, p + 1))}
+                    disabled={pagination.currentPage >= pagination.lastPage || isLoading}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Last page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(pagination.lastPage)}
+                    disabled={pagination.currentPage >= pagination.lastPage || isLoading}
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </div>
