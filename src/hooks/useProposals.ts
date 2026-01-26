@@ -1539,7 +1539,6 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         storage_item_id: vmItemIds?.storageItemId,
       });
     }
-    if (serversArray.length === 0) {
     // ============================================
     // FALLBACK: If still no servers after adding independent products,
     // add a virtual placeholder to guarantee servers is never empty
