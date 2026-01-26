@@ -592,8 +592,12 @@ class OpenApiClient {
     return response.data;
   }
 
-  async getProposal(idOrUuid: number | string): Promise<unknown> {
-    const response = await this.client.get(`/calculator/proposal/${idOrUuid}`);
+  async getProposal(idOrUuid: number | string, params?: { __with?: string }): Promise<unknown> {
+    // Default to including files and creator for complete data in a single request
+    const enrichedParams = {
+      __with: params?.__with || 'files,creator',
+    };
+    const response = await this.client.get(`/calculator/proposal/${idOrUuid}`, { params: enrichedParams });
     return response.data;
   }
 
