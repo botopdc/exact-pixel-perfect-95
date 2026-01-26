@@ -21,6 +21,134 @@ interface PdfGenerationResult {
 }
 
 /**
+ * Build dados_proposta from API fields when snapshot is missing
+ * This handles proposals saved with servers/addons arrays but no dados_proposta
+ */
+function buildDadosPropostaFromApiFields(apiProposal: CalculatorProposal): any {
+  const dadosProposta: any = {
+    items: [],
+    addons: {},
+  };
+  
+  // Convert API servers array to items format
+  if (Array.isArray(apiProposal.servers)) {
+    apiProposal.servers.forEach((server: any, idx: number) => {
+      const item: any = {
+        type: server.type === 'vm' ? 'VM' : 'BareMetal',
+        name: server.name || `Servidor ${idx + 1}`,
+        qty: server.qty || 1,
+        unitPrice: server.unit_price || server.unitPrice || 0,
+        totalPrice: server.total_price || server.totalPrice || 0,
+      };
+      
+      if (server.type === 'vm') {
+        item.vcpu = server.vcpu || 0;
+        item.ram = server.ram_gb || server.ram || 0;
+        item.nvme = server.nvme_tb ? server.nvme_tb * 1024 : (server.nvme_gb || server.nvme || 0);
+        item.ipQty = server.ips || 0;
+        item.gpu = server.gpu || 'Sem GPU';
+        item.gpuQty = server.gpu_qty || 0;
+      } else {
+        item.cpu = server.cpu || '';
+        item.ramTier = server.ram_tier || '';
+        item.disks = server.disks || [];
+        item.ipQty = server.ips || 0;
+      }
+      
+      dadosProposta.items.push(item);
+    });
+  }
+  
+  // Convert API addons array to addons object
+  if (Array.isArray(apiProposal.addons)) {
+    apiProposal.addons.forEach((addon: any) => {
+      const name = addon.name?.toLowerCase() || '';
+      const qty = addon.qty || 1;
+      const price = addon.unit_price || addon.price || 0;
+      const totalPrice = addon.total_price || (price * qty);
+      
+      if (name.includes('antivirus') || name.includes('antivírus')) {
+        dadosProposta.addons.antivirus = qty;
+        dadosProposta.addons.antivirusPrice = price;
+      } else if (name.includes('firewall')) {
+        dadosProposta.addons.firewall = qty;
+        dadosProposta.addons.firewallPrice = price;
+      } else if (name.includes('tsplus')) {
+        dadosProposta.addons.tsplus = qty;
+        dadosProposta.addons.tsplusPrice = price;
+      } else if (name.includes('cal')) {
+        dadosProposta.addons.cal = qty;
+        dadosProposta.addons.calPrice = price;
+      } else if (name.includes('winserver') || name.includes('windows')) {
+        dadosProposta.addons.winserver = qty;
+        dadosProposta.addons.winserverPrice = price;
+      } else if (name.includes('sql')) {
+        dadosProposta.addons.sql = name.includes('web') ? 'web' : 'std';
+        dadosProposta.addons.sqlPrice = totalPrice;
+      } else if (name.includes('veeam') && name.includes('vm')) {
+        dadosProposta.addons.veeamVm = qty;
+        dadosProposta.addons.veeamVmPrice = price;
+      } else if (name.includes('veeam') && name.includes('agent')) {
+        dadosProposta.addons.veeamAgent = qty;
+        dadosProposta.addons.veeamAgentPrice = price;
+      } else if (name.includes('backup')) {
+        dadosProposta.addons.backupPlan = '7';
+        dadosProposta.addons.backupGb = qty;
+        dadosProposta.addons.backupPrice = totalPrice;
+      }
+    });
+  }
+  
+  console.log('[buildDadosPropostaFromApiFields] Built from API:', {
+    itemsCount: dadosProposta.items.length,
+    addonsKeys: Object.keys(dadosProposta.addons),
+  });
+  
+  return dadosProposta;
+}
+
+/**
+ * Build minimal result when we only have total (legacy or minimal proposals)
+ * This ensures PDF can be generated even for proposals without detailed items
+ */
+function buildMinimalResultFromTotal(apiProposal: CalculatorProposal): any {
+  const total = apiProposal.total || 0;
+  const duration = apiProposal.contract_duration || 12;
+  
+  // Create a single summary row with the total
+  const rows = [{
+    label: `Proposta ${apiProposal.company || apiProposal.name || '#' + apiProposal.id}`,
+    qty: 1,
+    unitPrice: total,
+    subtotal: total,
+    finalTotal: total,
+  }];
+  
+  console.log('[buildMinimalResultFromTotal] Built minimal result:', { total, duration, rowsCount: rows.length });
+  
+  return {
+    rows,
+    subRec: total,
+    subIps: 0,
+    subServices: 0,
+    subBackup: 0,
+    subKubernetes: 0,
+    subStorage: 0,
+    subOpenSaas: 0,
+    discountPct: 0,
+    discountValue: 0,
+    grandTotal: total,
+    totalServers: 0,
+    gpuUsdTotal: 0,
+    gpuBrlTotal: 0,
+    subtotalPriceList: total,
+    overValue: 0,
+    overPercent: 0,
+    totalWithOver: total,
+  };
+}
+
+/**
  * Fetch proposal from API and generate PDF
  * Used for internal (authenticated) access
  */
@@ -83,8 +211,8 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       status: apiProposal.status,
     });
     
-    // 2. Extract dados_proposta
-    const dadosProposta = apiProposal.dados_proposta as any;
+    // 2. Extract dados_proposta (or build fallback from API fields)
+    let dadosProposta = apiProposal.dados_proposta as any;
     
     console.log('[proposalPdfService] dados_proposta check:', {
       hasDadosProposta: !!dadosProposta,
@@ -95,7 +223,21 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       hasOpenSaas: !!dadosProposta?.openSaas?.enabled,
       hasResult: !!dadosProposta?.result,
       hasResultRows: dadosProposta?.result?.rows?.length || 0,
+      // API fallback fields
+      apiServersCount: Array.isArray(apiProposal.servers) ? apiProposal.servers.length : 0,
+      apiAddonsCount: Array.isArray(apiProposal.addons) ? apiProposal.addons.length : 0,
+      apiTotal: apiProposal.total,
     });
+    
+    // CRITICAL FIX: If dados_proposta is empty/missing but API has servers/addons, build from those
+    const canUseDadosProposta = canBuildResult(dadosProposta);
+    const apiHasServers = Array.isArray(apiProposal.servers) && apiProposal.servers.length > 0;
+    const apiHasAddons = Array.isArray(apiProposal.addons) && apiProposal.addons.length > 0;
+    
+    if (!canUseDadosProposta && (apiHasServers || apiHasAddons || (apiProposal.total && apiProposal.total > 0))) {
+      console.log('[proposalPdfService] dados_proposta empty, reconstructing from API fields...');
+      dadosProposta = buildDadosPropostaFromApiFields(apiProposal);
+    }
     
     // 3. Build result from snapshot or use existing
     let result = dadosProposta?.result;
@@ -109,6 +251,12 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       );
     }
     
+    // ULTIMATE FALLBACK: Build minimal result if we have total but no items
+    if ((!result || !result.rows || result.rows.length === 0) && apiProposal.total && apiProposal.total > 0) {
+      console.log('[proposalPdfService] Using fallback: minimal result from API total');
+      result = buildMinimalResultFromTotal(apiProposal);
+    }
+    
     // Log the result state
     console.log('[proposalPdfService] Result state:', {
       hasResult: !!result,
@@ -119,10 +267,13 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
     if (!result || !result.rows || result.rows.length === 0) {
       console.error('[proposalPdfService] Insufficient data. Cannot generate PDF.', {
         dadosProposta: dadosProposta ? JSON.stringify(dadosProposta).substring(0, 500) : 'null',
+        apiServers: apiProposal.servers ? JSON.stringify(apiProposal.servers).substring(0, 300) : 'null',
+        apiTotal: apiProposal.total,
+        errorCode: 'PDF_ERR_NO_DATA',
       });
       return { 
         success: false, 
-        error: 'Dados da proposta insuficientes para gerar PDF' 
+        error: `Dados da proposta insuficientes para gerar PDF (PDF_ERR_NO_DATA)` 
       };
     }
     
@@ -231,8 +382,18 @@ export async function downloadProposalPdfPublic(
       total: apiProposal.total,
     });
     
-    // 3. Extract and build result (same as internal)
-    const dadosProposta = apiProposal.dados_proposta as any;
+    // 3. Extract and build result (same as internal) with fallback support
+    let dadosProposta = apiProposal.dados_proposta as any;
+    
+    // CRITICAL FIX: If dados_proposta is empty but API has servers/addons, build from those
+    const canUseDadosProposta = canBuildResult(dadosProposta);
+    const apiHasServers = Array.isArray((apiProposal as any).servers) && (apiProposal as any).servers.length > 0;
+    const apiHasAddons = Array.isArray((apiProposal as any).addons) && (apiProposal as any).addons.length > 0;
+    
+    if (!canUseDadosProposta && (apiHasServers || apiHasAddons || (apiProposal.total && apiProposal.total > 0))) {
+      console.log('[proposalPdfService] Public: dados_proposta empty, reconstructing from API fields...');
+      dadosProposta = buildDadosPropostaFromApiFields(apiProposal);
+    }
     
     let result = dadosProposta?.result;
     
@@ -245,10 +406,16 @@ export async function downloadProposalPdfPublic(
       );
     }
     
+    // ULTIMATE FALLBACK: Build minimal result if we have total but no items
+    if ((!result || !result.rows || result.rows.length === 0) && apiProposal.total && apiProposal.total > 0) {
+      console.log('[proposalPdfService] Public: Using fallback minimal result');
+      result = buildMinimalResultFromTotal(apiProposal);
+    }
+    
     if (!result || !result.rows || result.rows.length === 0) {
       return { 
         success: false, 
-        error: 'Dados da proposta insuficientes para gerar PDF' 
+        error: 'Dados da proposta insuficientes para gerar PDF (PDF_ERR_NO_DATA)' 
       };
     }
     
