@@ -574,14 +574,19 @@ class OpenApiClient {
   async getProposals(params?: {
     channel_type?: 'PARCEIRO' | 'CLIENTE';
     email?: string;
+    status?: string;
     __page?: number;
     __perPage?: number;
     __with?: string;
-  }): Promise<{ data: unknown[]; total: number }> {
+    __order?: string;
+    __q?: string;
+  }): Promise<{ data: unknown[]; total: number; current_page?: number; last_page?: number }> {
     // Always include creator for RBAC and executive column display
+    // Always order by id:DESC for newest first
     const enrichedParams = {
       ...params,
       __with: params?.__with || 'creator',
+      __order: params?.__order || 'id:DESC',
     };
     const response = await this.client.get('/calculator/proposal', { params: enrichedParams });
     return response.data;

@@ -1853,12 +1853,12 @@ export function filterProposalsByOwnership(
 
 // Hook to fetch proposals for architects (level 690)
 // Fetches only proposals where the user is a participant with role=ARCHITECT
-export function useArchitectProposals(page = 1, perPage = 100) {
+export function useArchitectProposals(page = 1) {
   const session = authService.getSession();
   const userId = session?.userId || null;
   
   return useQuery({
-    queryKey: ['proposals', 'api', 'architect', page, perPage, userId],
+    queryKey: ['proposals', 'api', 'architect', page, userId],
     queryFn: async () => {
       if (!userId) {
         console.warn('[useArchitectProposals] No userId available');
@@ -1881,11 +1881,10 @@ export function useArchitectProposals(page = 1, perPage = 100) {
         const participantProposalIds = participations.map(p => p.proposal_id);
         console.log('[useArchitectProposals] Found architect participations:', participantProposalIds);
         
-        // 2. Fetch all proposals (paginated) and filter by participation
+        // 2. Fetch proposals with __order=id:DESC (default) - no perPage override, uses API default
         const response = await openApi.getProposals({
           channel_type: 'CLIENTE',
           __page: page,
-          __perPage: 500, // Fetch more to ensure we have all architect proposals
         });
         
         const apiProposals = (response.data || []) as ApiProposal[];
@@ -1918,17 +1917,23 @@ export function useArchitectProposals(page = 1, perPage = 100) {
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
 // For architects (690), use useArchitectProposals instead
-export function useProposals(page = 1, perPage = 100) {
+// NOW SUPPORTS: server-side filtering via status, __q, __order
+export interface ProposalFilters {
+  status?: string; // API format: 'Enviado', 'Approved', 'Rejected', ''
+  search?: string; // __q parameter for text search
+}
+
+export function useProposals(page = 1, filters?: ProposalFilters) {
   // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
   
-  // For architects, delegate to useArchitectProposals
-  const architectQuery = useArchitectProposals(page, perPage);
+  // For architects, delegate to useArchitectProposals (they don't use filters)
+  const architectQuery = useArchitectProposals(page);
   
   const regularQuery = useQuery({
-    queryKey: ['proposals', 'api', 'executive', page, perPage, userLevel, userId],
+    queryKey: ['proposals', 'api', 'executive', page, userLevel, userId, filters?.status, filters?.search],
     queryFn: async () => {
       // Don't fetch for architects - they use the architect query
       if (userLevel === 690) {
@@ -1936,12 +1941,25 @@ export function useProposals(page = 1, perPage = 100) {
       }
       
       try {
-        // Call API directly: GET /api/calculator/proposal
-        const response = await openApi.getProposals({
+        // Build params with server-side filters
+        const params: Record<string, any> = {
           channel_type: 'CLIENTE',
           __page: page,
-          __perPage: perPage,
-        });
+          // __order=id:DESC is now default in openApi.getProposals
+        };
+        
+        // Add status filter if provided (not 'all')
+        if (filters?.status && filters.status !== 'all') {
+          params.status = filters.status;
+        }
+        
+        // Add search filter if provided
+        if (filters?.search && filters.search.trim()) {
+          params.__q = filters.search.trim();
+        }
+        
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals(params);
 
         const apiProposals = (response.data || []) as ApiProposal[];
         
@@ -1960,6 +1978,7 @@ export function useProposals(page = 1, perPage = 100) {
           afterRBAC: filtered.length,
           userLevel,
           userId,
+          filters,
         });
 
         return filtered;
@@ -1987,22 +2006,35 @@ export function useProposals(page = 1, perPage = 100) {
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
-export function useProposalsPaginated(page = 1, perPage = 20) {
+export function useProposalsPaginated(page = 1, filters?: ProposalFilters) {
   // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
 
   return useQuery({
-    queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage, userLevel, userId],
+    queryKey: ['proposals', 'api', 'executive', 'paginated', page, userLevel, userId, filters?.status, filters?.search],
     queryFn: async () => {
       try {
-        // Call API directly: GET /api/calculator/proposal
-        const response = await openApi.getProposals({
+        // Build params with server-side filters
+        const params: Record<string, any> = {
           channel_type: 'CLIENTE',
           __page: page,
-          __perPage: perPage,
-        });
+          // __order=id:DESC is now default in openApi.getProposals
+        };
+        
+        // Add status filter if provided (not 'all')
+        if (filters?.status && filters.status !== 'all') {
+          params.status = filters.status;
+        }
+        
+        // Add search filter if provided
+        if (filters?.search && filters.search.trim()) {
+          params.__q = filters.search.trim();
+        }
+        
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals(params);
 
         const apiProposals = (response.data || []) as ApiProposal[];
         
@@ -2021,15 +2053,14 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
           afterRBAC: filtered.length,
           userLevel,
           userId,
+          filters,
         });
 
         return {
           proposals: filtered,
           pagination: {
-            currentPage: page,
-            // Note: pagination total might be incorrect after client-side filter
-            // but this is acceptable as security measure
-            lastPage: Math.ceil((response.total || 0) / perPage) || 1,
+            currentPage: response.current_page || page,
+            lastPage: response.last_page || Math.ceil((response.total || 0) / 15) || 1,
             total: response.total || 0,
           },
         };

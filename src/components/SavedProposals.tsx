@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
 import OpenLogo from './OpenLogo';
-import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal } from '@/hooks/useProposals';
+import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal, statusToApiFormat } from '@/hooks/useProposals';
 import { openApi } from '@/lib/openApi';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
 import { downloadProposalPdf } from '@/services/proposalPdfService';
@@ -128,8 +128,32 @@ const SavedProposals: React.FC = () => {
   const canCopyLink = !isArchitect;
   const canSendEmail = !isArchitect;
   
-  // Local storage hooks
-  const { data: proposals = [], isLoading } = useProposals();
+  // Filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ProposalStatus | 'all'>('all');
+  
+  // Debounce search input for server-side filtering
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+  
+  // Convert internal status to API format for server-side filtering
+  const getApiStatusFilter = useCallback((status: ProposalStatus | 'all'): string | undefined => {
+    if (status === 'all') return undefined;
+    // Convert DRAFT to empty string for API
+    if (status === 'DRAFT') return '';
+    return statusToApiFormat(status);
+  }, []);
+  
+  // Local storage hooks - now with server-side filtering
+  const { data: proposals = [], isLoading } = useProposals(1, {
+    status: getApiStatusFilter(statusFilter),
+    search: debouncedSearch || undefined,
+  });
   const updateStatusMutation = useUpdateProposalStatus();
   const deleteProposalMutation = useDeleteProposal();
   const trackEvent = useTrackEvent();
@@ -141,10 +165,6 @@ const SavedProposals: React.FC = () => {
   const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ProposalStatus | 'all'>('all');
 
   // Helper to get executive name from proposal with multiple fallbacks
   const getExecutiveName = (proposal: SavedProposal): string => {
@@ -158,34 +178,8 @@ const SavedProposals: React.FC = () => {
     return '—';
   };
 
-  // Filtered proposals
-  const filteredProposals = useMemo(() => {
-    return proposals.filter((p) => {
-      // Filter by status
-      if (statusFilter !== 'all') {
-        const proposalStatus = p.status || 'DRAFT'; // Default to DRAFT
-        if (proposalStatus !== statusFilter) return false;
-      }
-      
-      // Filter by search query (client name, company, ID, or executive name)
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const clientName = (p.client?.name || '').toLowerCase();
-        const companyName = (p.client?.company || '').toLowerCase();
-        const proposalId = (p.proposal?.id || '').toLowerCase();
-        const executiveName = getExecutiveName(p).toLowerCase();
-        
-        // Include executive name in search when user can see it
-        const matchesExecutive = canSeeExecutive && executiveName.includes(query);
-        
-        if (!clientName.includes(query) && !companyName.includes(query) && !proposalId.includes(query) && !matchesExecutive) {
-          return false;
-        }
-      }
-      
-      return true;
-    });
-  }, [proposals, statusFilter, searchQuery, canSeeExecutive]);
+  // With server-side filtering, we use proposals directly (already filtered by API)
+  const filteredProposals = proposals;
 
   const handleDownloadPDF = async (proposal: SavedProposal) => {
     // CRITICAL: Always use numeric ID (proposal.id), never display ID (proposal.proposal?.id = "OPEN-xxxx")
