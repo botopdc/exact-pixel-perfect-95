@@ -52,6 +52,8 @@ export interface CalculatorProposal {
   servers?: unknown;
   dados_proposta?: unknown;
   due_at: string;
+  file_path?: string | null;
+  file_access_token?: string | null;
   created_by?: number | null;
   creator?: unknown;
   created_at: string;
