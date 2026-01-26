@@ -133,6 +133,13 @@ export async function getProposalsByParticipant(
  * Uses upsert to handle both create and update in one operation
  */
 export async function upsertParticipant(input: CreateParticipantInput): Promise<ProposalParticipant> {
+  console.log('[proposalParticipantService] Upserting participant:', {
+    proposal_id: input.proposal_id,
+    external_user_id: input.external_user_id,
+    role: input.role,
+    commission_pct: input.commission_pct,
+  });
+  
   const { data, error } = await (supabase as any)
     .from('proposal_participants')
     .upsert(
@@ -155,6 +162,7 @@ export async function upsertParticipant(input: CreateParticipantInput): Promise<
     throw error;
   }
 
+  console.log('[proposalParticipantService] Participant upserted successfully:', data);
   return data as ProposalParticipant;
 }
 

@@ -59,28 +59,18 @@ export function useProposalSearch(options: UseProposalSearchOptions = {}) {
       if (!shouldSearch) return [];
       
       try {
-        // Buscar propostas da API
+        // Buscar propostas da API com __q para server-side search
         const response = await openApi.getProposals({
           __page: 1,
-          __perPage: perPage,
+          __q: debouncedTerm, // Server-side search
+          ...(onlyApproved && { status: 'Approved' }), // Server-side status filter
         });
         
-        // Mapear e filtrar resultados
+        // Mapear resultados (já filtrados pelo servidor)
         const proposals = (response.data || []) as any[];
-        
-        // Filtrar por termo de busca (ID, empresa, nome, email)
-        const filtered = proposals.filter((p) => {
-          const searchLower = debouncedTerm.toLowerCase();
-          return (
-            String(p.id).includes(debouncedTerm) ||
-            (p.company?.toLowerCase() || '').includes(searchLower) ||
-            (p.name?.toLowerCase() || '').includes(searchLower) ||
-            (p.email?.toLowerCase() || '').includes(searchLower)
-          );
-        });
 
         // Mapear para o formato de resultado
-        const mapped: ProposalSearchResult[] = filtered.map((p) => ({
+        const mapped: ProposalSearchResult[] = proposals.map((p) => ({
           id: p.id,
           uuid: p.uuid || null,
           company: p.company || '',
@@ -94,11 +84,6 @@ export function useProposalSearch(options: UseProposalSearchOptions = {}) {
           created_at: p.created_at || '',
           due_at: p.due_at || '',
         }));
-
-        // Se onlyApproved, filtrar apenas propostas aprovadas
-        if (onlyApproved) {
-          return mapped.filter((p) => p.normalizedStatus === 'APPROVED');
-        }
 
         return mapped;
       } catch (err) {

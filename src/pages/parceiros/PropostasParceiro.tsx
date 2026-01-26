@@ -22,7 +22,7 @@ import {
 } from '@/hooks/usePartnerProposals';
 import { partnerAuthService } from '@/services/partnersService';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { ROUTES } from '@/config/routes';
 import { openApi } from '@/lib/openApi';
 import { apiToLocal } from '@/hooks/useProposals';
@@ -166,21 +166,21 @@ export default function PropostasParceiro() {
     }
   };
 
-  const handleDownloadPDF = (proposal: PartnerProposal) => {
-    const data = proposal.dados_proposta;
-    if (!data?.result) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos', variant: 'destructive' });
+  const handleDownloadPDF = async (proposal: PartnerProposal) => {
+    // Use numeric api_id for API calls
+    const numericId = proposal.api_id;
+    if (!numericId) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
       return;
     }
 
-    generateOpenPDF({
-      client: data.client,
-      proposal: data.proposal,
-      result: data.result,
-      selectedTerm: data.selectedTerm,
-      datacenter: data.datacenter || 'SP1',
-    });
-    toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    // Use downloadProposalPdfFromApi which prioritizes API download with file_access_token
+    const result = await downloadProposalPdfFromApi(numericId);
+    if (result.success) {
+      toast({ title: 'PDF baixado', description: 'O download do PDF foi iniciado' });
+    } else {
+      toast({ title: 'Erro', description: result.error || 'Erro ao baixar PDF', variant: 'destructive' });
+    }
   };
 
   const formatDate = (isoDate: string) => {

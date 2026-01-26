@@ -35,10 +35,15 @@ apiClient.interceptors.request.use((config) => {
 // ============================================================================
 
 /**
- * Config item structure for PUT requests
+ * Config item structure for GET/PUT requests
  * Based on CalculatorConfig schema from API docs
+ * 
+ * IMPORTANT (API v12+): Each item now has a unique `id` for identification.
+ * When updating, send the item `id` to update by ID.
+ * When creating proposals, use `config_id` (entry ID) + `item_id` for pricing.
  */
 export interface ConfigItem {
+  id?: number;         // Unique ID of the config item (API v12+)
   label: string;
   by?: string;         // e.g., "unit", "GB", "TB", "month", "hour"
   type?: string;       // e.g., "BRL", "USD", "percentage"

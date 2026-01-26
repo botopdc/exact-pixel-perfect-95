@@ -12,29 +12,65 @@ import { openApi } from '@/lib/openApi';
 import type { SummaryRow } from '@/lib/calculatorConfig';
 import { authService } from '@/services/authService';
 import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBuilder';
+import { generateOpenPDFBlob } from '@/lib/pdfGenerator';
 import { persistArchitectCommission, getProposalsByParticipant } from '@/services/proposalParticipantService';
+import { 
+  loadConfigIds, 
+  ConfigIdStore, 
+  getAddonItemId, 
+  getVmItemIds, 
+  getSqlItemId, 
+  getBackupItemId,
+  getGpuItemId,
+  getItemId,
+} from '@/services/configIdsService';
+import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 
-// Proposal status type - STANDARDIZED to 5 canonical values
-// DRAFT = Initial state when created
-// SENT = Proposal sent to client
-// APPROVED = Client accepted the proposal
-// REJECTED = Client rejected the proposal
-// EXPIRED = Proposal validity has passed
-export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+// Proposal status type - STANDARDIZED to 6 canonical values matching API
+// DRAFT = Initial state when created (API: Rascunho)
+// SENT = Proposal sent to client (API: Enviado)
+// APPROVED = Client accepted the proposal (API: Aprovado)
+// REJECTED = Client rejected the proposal (API: Recusado)
+// EXPIRED = Proposal validity has passed (API: Expirado)
+// CANCELLED = Proposal was cancelled (API: Cancelado)
+export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
 
-// Legacy status mapping - for backward compatibility
+// Status mapping - API returns readable Portuguese text
+// Maps API status values to internal ProposalStatus type
 const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
   '': 'DRAFT',
-  'S': 'DRAFT', // Legacy "Sem status" → DRAFT
-  'E': 'SENT',
+  // New API format (Portuguese readable text)
+  'Rascunho': 'DRAFT',
   'Enviado': 'SENT',
+  'Aprovado': 'APPROVED',
+  'Recusado': 'REJECTED',
+  'Expirado': 'EXPIRED',
+  'Cancelado': 'CANCELLED',
+  // Legacy formats for backward compatibility
+  'S': 'DRAFT',
+  'E': 'SENT',
   'A': 'APPROVED',
   'Approved': 'APPROVED',
-  'Aprovado': 'APPROVED',
   'R': 'REJECTED',
   'Rejected': 'REJECTED',
-  'Recusado': 'REJECTED',
 };
+
+// Reverse mapping - Internal → API format for updates (Portuguese text)
+const STATUS_TO_API_MAP: Record<ProposalStatus, string> = {
+  'DRAFT': 'Rascunho',
+  'SENT': 'Enviado',
+  'APPROVED': 'Aprovado',
+  'REJECTED': 'Recusado',
+  'EXPIRED': 'Expirado',
+  'CANCELLED': 'Cancelado',
+};
+
+// Convert internal ProposalStatus to API format for updates
+// Returns 'Rascunho' as default if status is undefined or not mapped
+export function statusToApiFormat(status: ProposalStatus | undefined | null): string {
+  if (!status) return 'Rascunho';
+  return STATUS_TO_API_MAP[status] || 'Rascunho';
+}
 
 // Normalize any status value to canonical ProposalStatus
 export function normalizeStatus(rawStatus: string | undefined | null): ProposalStatus {
@@ -42,7 +78,7 @@ export function normalizeStatus(rawStatus: string | undefined | null): ProposalS
   const normalized = LEGACY_STATUS_MAP[rawStatus];
   if (normalized) return normalized;
   // If it's already a valid canonical status, return it
-  if (['DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'].includes(rawStatus)) {
+  if (['DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED'].includes(rawStatus)) {
     return rawStatus as ProposalStatus;
   }
   // Default to DRAFT for unknown values
@@ -251,7 +287,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       backupPlan: rawAddons.backupPlan || 'none',
       backupGb: toNum(rawAddons.backupGb, 0),
       antivirus: toNum(rawAddons.antivirus, 0),
-      firewall: Boolean(rawAddons.firewall),
+      // Firewall: convert old boolean to number
+      firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
       tsplus: toNum(rawAddons.tsplus, 0),
       cal: toNum(rawAddons.cal, 0),
       sql: rawAddons.sql || 'none',
@@ -508,7 +545,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     backupPlan: 'none',
     backupGb: 0,
     antivirus: 0,
-    firewall: false,
+    firewall: 0, // Changed from false to 0
     tsplus: 0,
     cal: 0,
     sql: 'none',
@@ -627,8 +664,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         reconstructedAddonsState.antivirus = addonQty;
         console.log('[EDIT] Antivirus restored:', addonQty);
       } else if (addonNameLower.includes('firewall')) {
-        reconstructedAddonsState.firewall = true;
-        console.log('[EDIT] Firewall restored: true');
+        reconstructedAddonsState.firewall = addonQty > 0 ? addonQty : 1; // Convert old boolean to qty
+        console.log('[EDIT] Firewall restored: qty=' + reconstructedAddonsState.firewall);
       } else if (addonNameLower.includes('tsplus') || addonNameLower.includes('ts plus')) {
         reconstructedAddonsState.tsplus = addonQty;
         console.log('[EDIT] TSPlus restored:', addonQty);
@@ -1053,7 +1090,66 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
 }
 
 // Transform local proposal to API format - SAVES COMPLETE DATA in dados_proposta
-function localToApi(proposal: SavedProposal): Record<string, unknown> {
+// configIdStore: Optional mapping of config IDs for API v12+ compatibility
+function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | null): Record<string, unknown> {
+  // ============================================
+  // CRITICAL: Build price maps from result.rows FIRST
+  // This is the ONLY source of truth for calculated prices
+  // ============================================
+  const resultRows = (proposal.result?.rows || []) as Array<{
+    label?: string;
+    rowKey?: string;
+    key?: string; // legacy fallback
+    qty?: string | number;
+    unitPrice?: number;
+    subtotal?: number;
+    finalTotal?: number;
+  }>;
+  
+  // Log the source data for debugging
+  console.log('[localToApi] RESUMO USADO NO PAYLOAD:', {
+    rowCount: resultRows.length,
+    rows: resultRows.map(r => ({
+      rowKey: r.rowKey || r.key,
+      label: r.label,
+      unitPrice: r.unitPrice,
+      finalTotal: r.finalTotal,
+      subtotal: r.subtotal,
+    })),
+    grandTotal: proposal.result?.grandTotal,
+  });
+  
+  // Build price map for SERVERS: aggregate by prefix (vm_0, bm_1, etc.)
+  // Each server may have multiple rows (cpu, ram, disk, gpu, ips, traffic)
+  const serverPriceByPrefix: Record<string, number> = {};
+  
+  // Build price map for ADDONS: exact rowKey match
+  const addonPriceByKey: Record<string, { unitPrice: number; subtotal: number }> = {};
+  
+  for (const row of resultRows) {
+    const rowKey = row.rowKey || row.key;
+    if (!rowKey) continue;
+    
+    const rowTotal = toNum(row.finalTotal, toNum(row.subtotal, 0));
+    const rowUnitPrice = toNum(row.unitPrice, 0);
+    
+    // Check if this is a server row (vm_X_* or bm_X_*)
+    const serverMatch = rowKey.match(/^(vm|bm)_(\d+)_/);
+    if (serverMatch) {
+      const prefix = `${serverMatch[1]}_${serverMatch[2]}`; // e.g., "vm_0" or "bm_1"
+      serverPriceByPrefix[prefix] = (serverPriceByPrefix[prefix] || 0) + rowTotal;
+    }
+    
+    // Also store in addon lookup (for services like svc_*, backup_*, etc.)
+    addonPriceByKey[rowKey] = {
+      unitPrice: rowUnitPrice,
+      subtotal: rowTotal,
+    };
+  }
+  
+  console.log('[localToApi] Server price aggregation by prefix:', serverPriceByPrefix);
+  console.log('[localToApi] Addon price lookup keys:', Object.keys(addonPriceByKey));
+  
   // Map selectedTerm to contract_duration (MUST include all valid plans: 1, 12, 24, 36, 48)
   // Use centralized validation
   const termAsNumber = parseInt(proposal.selectedTerm, 10);
@@ -1082,34 +1178,65 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   const dueAt = new Date(createdAt);
   dueAt.setDate(dueAt.getDate() + validityDays);
   
-  // Transform addons to API format: array of {name, price, quantity}
+  // Transform addons to API format: array of {config_id, item_id, name, price, quantity}
   // Note: The full addons state is saved in dados_proposta, this is just for API compatibility
   // IMPORTANT: Storage, Kubernetes, and OPEN SaaS are INDEPENDENT products (not servers)
   // They should be added to addons array to allow proposals without VM/BM
-  const addonsArray: Array<{ name: string; price: number; quantity: number }> = [];
+  // API v12+: config_id and item_id are REQUIRED for each addon
+  const addonsArray: Array<{ 
+    config_id: number; 
+    item_id: number; 
+    name: string; 
+    price: number; 
+    quantity: number;
+  }> = [];
+  
+  // KNOWN CONFIG IDS (fallback when API doesn't return item IDs)
+  // These match the database IDs from calculator_configs table
+  const FALLBACK_ADDONS_CONFIG_ID = 6;
+  const FALLBACK_ITEM_ID = 1; // Default item ID when not found
+  
+  // Helper to get addon IDs from configIdStore with mandatory fallbacks
+  // API v12+ requires config_id and item_id to be integers, never undefined
+  const getAddonIds = (code: string): { config_id: number; item_id: number } => {
+    if (!configIdStore) {
+      console.warn('[localToApi] No configIdStore, using fallback IDs for:', code);
+      return { config_id: FALLBACK_ADDONS_CONFIG_ID, item_id: FALLBACK_ITEM_ID };
+    }
+    const ids = getAddonItemId(configIdStore, code);
+    return { 
+      config_id: ids.configId ?? FALLBACK_ADDONS_CONFIG_ID, 
+      item_id: ids.itemId ?? FALLBACK_ITEM_ID 
+    };
+  };
   
   // ============================================
   // INDEPENDENT PRODUCTS (don't require servers)
-  // FIX: Removed volumeTB >= 1 restriction - use any volume > 0 (TB or GB)
-  // FIX: Removed users >= 5 restriction - allow any users > 0
+  // Extract prices from result.rows using appropriate keys
   // ============================================
   
   // Storage items - add each storage configuration as an addon
-  // Accept if volumeTB > 0 OR volumeGB > 0
   if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
-    for (const storage of proposal.storageItems) {
+    for (let i = 0; i < proposal.storageItems.length; i++) {
+      const storage = proposal.storageItems[i];
       const volumeTB = toNum(storage.volumeTB, 0);
       const volumeGB = toNum(storage.volumeGB, 0);
-      // Calculate effective TB for display (if only GB is set, convert)
       const effectiveTB = volumeTB > 0 ? volumeTB : (volumeGB > 0 ? volumeGB / 1024 : 0);
       
       if (volumeTB > 0 || volumeGB > 0) {
         const displaySize = effectiveTB >= 1 
           ? `${effectiveTB.toFixed(effectiveTB % 1 === 0 ? 0 : 2)}TB`
           : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
+        
+        // Try to find price from result rows (storage_0, storage_1, etc.)
+        const storageKey = `storage_${i}`;
+        const storagePrice = addonPriceByKey[storageKey]?.subtotal || storage.price || 0;
+        
+        const storageIds = getAddonIds('storage');
         addonsArray.push({
+          ...storageIds,
           name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
-          price: storage.price || 0,
+          price: storagePrice,
           quantity: 1,
         });
       }
@@ -1119,26 +1246,36 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   // Kubernetes - add as addon if enabled
   if (proposal.kubernetes && proposal.kubernetes.enabled) {
     const k8s = proposal.kubernetes;
+    // Try to find Kubernetes price from result rows
+    const k8sPrice = addonPriceByKey['kubernetes']?.subtotal 
+      || addonPriceByKey['k8s']?.subtotal 
+      || k8s.price || 0;
+    
+    const k8sIds = getAddonIds('kubernetes');
     addonsArray.push({
+      ...k8sIds,
       name: `Kubernetes ${k8s.plan || 'Standard'}`,
-      price: k8s.price || 0,
+      price: k8sPrice,
       quantity: 1,
     });
   }
   
   // OPEN SaaS - add as addon if enabled with ANY users > 0
-  // FIX: Removed users >= 5 restriction
   if (proposal.openSaas && proposal.openSaas.enabled && proposal.openSaas.users > 0) {
+    // Try to find OpenSaaS price from result rows
+    const saasPrice = addonPriceByKey['opensaas']?.subtotal 
+      || addonPriceByKey['open_saas']?.subtotal 
+      || proposal.openSaas.price || 0;
+    
+    const saasIds = getAddonIds('open_saas');
     addonsArray.push({
+      ...saasIds,
       name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
-      price: proposal.openSaas.price || 0,
+      price: saasPrice,
       quantity: proposal.openSaas.users,
     });
   }
   
-  // ============================================
-  // STANDARD ADDONS (services/extras)
-  // ============================================
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
@@ -1146,48 +1283,101 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // WINSERVER - EXPLICIT (CRITICAL FOR PERSISTENCE)
     // ============================================
     if (typeof addons.winserver === 'number' && addons.winserver > 0) {
-      addonsArray.push({ name: 'WinServer(2vCPU/unid.)', price: 0, quantity: addons.winserver });
-      console.log('[localToApi] Added WinServer to payload:', addons.winserver);
+      const winserverPrice = addonPriceByKey['svc_winserver']?.unitPrice || 0;
+      const winIds = getAddonIds('winserver_2vcpu_unit');
+      addonsArray.push({ ...winIds, name: 'WinServer(2vCPU/unid.)', price: winserverPrice, quantity: addons.winserver });
+      console.log('[localToApi] Added WinServer to payload:', addons.winserver, 'price:', winserverPrice);
     }
     
-    // Standard addon mappings with proper type handling
+    // Standard addon mappings with proper type handling - extract prices from result rows
     if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
-      addonsArray.push({ name: 'Antivirus', price: 0, quantity: addons.antivirus });
+      const price = addonPriceByKey['svc_antivirus']?.unitPrice || 0;
+      const avIds = getAddonIds('antivirus');
+      addonsArray.push({ ...avIds, name: 'Antivirus', price, quantity: addons.antivirus });
     }
-    if (addons.firewall === true) {
-      addonsArray.push({ name: 'Firewall', price: 0, quantity: 1 });
+    if (addons.firewall === true || (typeof addons.firewall === 'number' && addons.firewall > 0)) {
+      const price = addonPriceByKey['svc_firewall']?.unitPrice || 0;
+      const fwIds = getAddonIds('firewall');
+      const fwQty = typeof addons.firewall === 'number' ? addons.firewall : 1;
+      addonsArray.push({ ...fwIds, name: 'Firewall', price, quantity: fwQty });
     }
     if (typeof addons.tsplus === 'number' && addons.tsplus > 0) {
-      addonsArray.push({ name: 'TS Plus', price: 0, quantity: addons.tsplus });
+      const price = addonPriceByKey['svc_tsplus']?.unitPrice || 0;
+      const tsIds = getAddonIds('tsplus');
+      addonsArray.push({ ...tsIds, name: 'TS Plus', price, quantity: addons.tsplus });
     }
     if (typeof addons.cal === 'number' && addons.cal > 0) {
-      addonsArray.push({ name: 'CAL', price: 0, quantity: addons.cal });
+      const price = addonPriceByKey['svc_cal']?.unitPrice || 0;
+      const calIds = getAddonIds('cal');
+      addonsArray.push({ ...calIds, name: 'CAL', price, quantity: addons.cal });
     }
     if (typeof addons.veeamVm === 'number' && addons.veeamVm > 0) {
-      addonsArray.push({ name: 'Veeam VM', price: 0, quantity: addons.veeamVm });
+      const price = addonPriceByKey['svc_veeam_vm']?.unitPrice || 0;
+      const vvmIds = getAddonIds('veeam_vm');
+      addonsArray.push({ ...vvmIds, name: 'Veeam VM', price, quantity: addons.veeamVm });
     }
     if (typeof addons.veeamAg === 'number' && addons.veeamAg > 0) {
-      addonsArray.push({ name: 'Veeam Agent', price: 0, quantity: addons.veeamAg });
+      const price = addonPriceByKey['svc_veeam_agent']?.unitPrice || 0;
+      const vagIds = getAddonIds('veeam_agent');
+      addonsArray.push({ ...vagIds, name: 'Veeam Agent', price, quantity: addons.veeamAg });
     }
-    // Backup
+    // Backup - get price from backup row
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
-      addonsArray.push({ name: `Backup ${addons.backupPlan}`, price: 0, quantity: addons.backupGb });
-      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb);
+      const backupKey = `backup_${addons.backupPlan}`;
+      const price = addonPriceByKey[backupKey]?.unitPrice || 0;
+      // Get backup IDs using specific backup plan
+      const backupIds = configIdStore ? getBackupItemId(configIdStore, addons.backupPlan) : { configId: undefined, itemId: undefined };
+      addonsArray.push({ 
+        config_id: backupIds.configId, 
+        item_id: backupIds.itemId, 
+        name: `Backup ${addons.backupPlan}`, 
+        price, 
+        quantity: addons.backupGb 
+      });
+      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb, 'price:', price);
     }
     // SQL
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
-      addonsArray.push({ name: `SQL ${addons.sql.toUpperCase()}`, price: 0, quantity: addons.sqlQty });
+      const sqlKey = `svc_sql_${addons.sql}`;
+      const price = addonPriceByKey[sqlKey]?.unitPrice || 0;
+      // Get SQL IDs using specific edition
+      const sqlIds = configIdStore ? getSqlItemId(configIdStore, addons.sql) : { configId: undefined, itemId: undefined };
+      addonsArray.push({ 
+        config_id: sqlIds.configId, 
+        item_id: sqlIds.itemId, 
+        name: `SQL ${addons.sql.toUpperCase()}`, 
+        price, 
+        quantity: addons.sqlQty 
+      });
     }
-    // Custom addons (legacy support)
+    // Support - specialized service
+    if (addons.support && addons.support.level !== 'none' && addons.support.price > 0) {
+      const supportIds = getAddonIds(`support_${addons.support.level}`);
+      addonsArray.push({ ...supportIds, name: `Suporte ${addons.support.level}`, price: addons.support.price, quantity: 1 });
+    }
+    // Consulting - specialized service
+    if (addons.consulting && typeof addons.consulting.quantity === 'number' && addons.consulting.quantity > 0) {
+      const consultingIds = getAddonIds('consulting_hours');
+      addonsArray.push({ ...consultingIds, name: 'Consultoria Técnica', price: addons.consulting.unitPrice || 200, quantity: addons.consulting.quantity });
+    }
+    // DBA - specialized service
+    if (addons.dba && typeof addons.dba.quantity === 'number' && addons.dba.quantity > 0) {
+      const dbaIds = getAddonIds('dba_hours');
+      addonsArray.push({ ...dbaIds, name: 'DBA', price: addons.dba.unitPrice || 250, quantity: addons.dba.quantity });
+    }
+    // Custom addons (legacy support) - use fallback IDs
     if (addons.customAddons && typeof addons.customAddons === 'object') {
       for (const [key, value] of Object.entries(addons.customAddons)) {
+        const customIds = getAddonIds(key);
         if (typeof value === 'object' && value !== null) {
           const addon = value as { enabled?: boolean; price?: number; quantity?: number };
           if (addon.enabled) {
-            addonsArray.push({ name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
+            addonsArray.push({ ...customIds, name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
           }
         } else if (typeof value === 'number' && value > 0) {
-          addonsArray.push({ name: key, price: 0, quantity: value });
+          const customKey = `svc_custom_${key}`;
+          const price = addonPriceByKey[customKey]?.unitPrice || 0;
+          addonsArray.push({ ...customIds, name: key, price, quantity: value });
         }
       }
     }
@@ -1195,9 +1385,31 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
   
   // Transform servers/items to API format
   // IMPORTANT: GPU must be persisted inside the server object (servers[].gpu)
+  // CRITICAL: Use serverPriceByPrefix built at the start from result.rows
+  // API v12+: config_id and item IDs are REQUIRED for each server
   const serversArray: Array<Record<string, unknown>> = [];
+  
+  // KNOWN CONFIG IDS for VM (fallback when API doesn't return item IDs)
+  const FALLBACK_VM_CONFIG_ID = 1;
+  const FALLBACK_VCPU_ITEM_ID = 1;
+  const FALLBACK_RAM_ITEM_ID = 2;
+  const FALLBACK_STORAGE_ITEM_ID = 3;
+  
+  // Get VM item IDs from configIdStore with fallbacks
+  const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
+  const vmConfigId = vmItemIds?.configId ?? FALLBACK_VM_CONFIG_ID;
+  const vcpuItemId = vmItemIds?.vcpuItemId ?? FALLBACK_VCPU_ITEM_ID;
+  const ramItemId = vmItemIds?.ramItemId ?? FALLBACK_RAM_ITEM_ID;
+  const storageItemId = vmItemIds?.storageItemId ?? FALLBACK_STORAGE_ITEM_ID;
+  
+  console.log('[localToApi] VM IDs:', { vmConfigId, vcpuItemId, ramItemId, storageItemId, fromStore: !!vmItemIds });
+  
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
+      // Get total price for this server from pre-built price map
+      const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
+      const serverPrice = serverPriceByPrefix[itemPrefix] || 0;
+      
       // Handle VM/BM format from calculator
       if (item.type === 'vm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
@@ -1210,15 +1422,26 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           vcpu: item.vcpu || 0,
           ram: item.ramGb || 0,
           storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
-          price: 0,
+          price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
+          // API v12+: Required config and item IDs (with fallbacks)
+          config_id: vmConfigId,
+          vcpu_item_id: vcpuItemId,
+          ram_item_id: ramItemId,
+          storage_item_id: storageItemId,
         };
 
         if (gpuModel && gpuQty > 0) {
           vm.gpu = { model: gpuModel, quantity: gpuQty };
+          // Get GPU item ID
+          if (configIdStore) {
+            const gpuIds = getGpuItemId(configIdStore, gpuModel);
+            vm.gpu_item_id = gpuIds.itemId;
+          }
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
-
+        
+        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${item.vcpu} ram=${item.ramGb} config_id=${vm.config_id}`);
         serversArray.push(vm);
       } else if (item.type === 'bm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
@@ -1226,30 +1449,54 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
+        // Get BareMetal IDs (different from VM) - with fallbacks
+        const FALLBACK_BM_CPU_CONFIG_ID = 2;
+        const FALLBACK_BM_RAM_CONFIG_ID = 3;
+        const FALLBACK_BM_DISK_CONFIG_ID = 4;
+        
+        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId ?? FALLBACK_BM_CPU_CONFIG_ID;
+        const bmCpuItemId = configIdStore?.baremetal?.cpu ? (getItemId(configIdStore.baremetal.cpu, 'CPU') ?? 1) : 1;
+        const bmRamItemId = configIdStore?.baremetal?.ram ? (getItemId(configIdStore.baremetal.ram, 'RAM') ?? 1) : 1;
+        const bmDiskItemId = configIdStore?.baremetal?.disk ? (getItemId(configIdStore.baremetal.disk, 'Disco') ?? 1) : 1;
+
         const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
           vcpu: 0,
           ram: 0,
           storage: 0,
-          price: 0,
+          price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
+          // API v12+: Required config and item IDs for BareMetal (with fallbacks)
+          config_id: bmCpuConfigId,
+          vcpu_item_id: bmCpuItemId,
+          ram_item_id: bmRamItemId,
+          storage_item_id: bmDiskItemId,
         };
 
         if (gpuModel && gpuQty > 0) {
           bm.gpu = { model: gpuModel, quantity: gpuQty };
+          if (configIdStore) {
+            const gpuIds = getGpuItemId(configIdStore, gpuModel);
+            bm.gpu_item_id = gpuIds.itemId;
+          }
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
-
+        
+        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix}`);
         serversArray.push(bm);
       } else {
-        // Fallback for legacy format
+        // Fallback for legacy format - use VM config IDs with fallbacks
         serversArray.push({
           name: item.name || item.label || 'Server',
           vcpu: item.vcpu || item.cpu || 0,
           ram: item.ram || item.memory || item.ramGb || 0,
           storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
-          price: item.price || item.total || item.monthlyPrice || 0,
+          price: item.price || item.total || item.monthlyPrice || serverPrice || 0,
           quantity: item.quantity || item.qtyServers || 1,
+          config_id: vmConfigId,
+          vcpu_item_id: vcpuItemId,
+          ram_item_id: ramItemId,
+          storage_item_id: storageItemId,
         });
       }
     }
@@ -1287,6 +1534,11 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        // Virtual servers still need config IDs for API validation (with fallbacks)
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     
@@ -1301,6 +1553,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     
@@ -1315,9 +1571,12 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
-    
     // ============================================
     // FALLBACK: If still no servers after adding independent products,
     // add a virtual placeholder to guarantee servers is never empty
@@ -1331,6 +1590,10 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
         storage: 0,
         price: 0,
         quantity: 1,
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     
@@ -1420,13 +1683,18 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     observacao: proposal.observacao,
     
     // Status fields (persisted in dados_proposta as fallback)
-    status: proposal.status || '',
+    // Store in API format for consistency
+    status: statusToApiFormat(proposal.status as ProposalStatus) || 'Rascunho',
     acceptance: proposal.acceptance,
   };
   
   // IMPORTANT: This hook is used by EXECUTIVES (level 700+), so channel_type is always CLIENTE
   // Partner proposals use useSavePartnerProposal which sets channel_type: PARCEIRO
-  return {
+  
+  // ============================================
+  // FINAL VALIDATION: Log payload before returning
+  // ============================================
+  const finalPayload = {
     name: proposal.client?.name || '',
     company: proposal.client?.company || '',
     phone: proposal.client?.phone || '',
@@ -1436,7 +1704,7 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     commission_value: proposal.reseller?.overValue || null,
     commission_reason: proposal.reseller?.overReason || null,
     observations: proposal.observacao || null,
-    fx: proposal.fx || 5,
+    fx: proposal.fx || 1, // Fixed at 1 for BRL
     datacenter: datacenterNames[proposal.datacenter || 'SP1'] || 'São Paulo',
     contract_duration: contractDuration,
     discount_pct: discountPct,
@@ -1447,9 +1715,9 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     servers: serversArray, // Always an array, even if empty []
     due_at: dueAt.toISOString(),
     // STATUS FIELDS - persisted at API level for proper filtering
-    // status is the CANONICAL source of truth: 'DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'
-    proposal_status: proposal.status || 'DRAFT',
-    status: proposal.status || 'DRAFT',
+    // API expects Portuguese readable status: 'Rascunho', 'Enviado', 'Aprovado', 'Recusado', 'Expirado', 'Cancelado'
+    // Convert internal status to API format (statusToApiFormat already handles undefined → 'Rascunho')
+    status: statusToApiFormat(proposal.status),
     // Only set status_sent_at on first send transition
     status_sent_at: proposal.acceptance?.acceptedAt 
       ? undefined 
@@ -1466,6 +1734,44 @@ function localToApi(proposal: SavedProposal): Record<string, unknown> {
     // CRITICAL: Save complete calculator state for perfect editing restoration
     dados_proposta: dadosProposta,
   };
+  
+  // ============================================
+  // FINAL VALIDATION AND LOGGING
+  // ============================================
+  console.log('[localToApi] PAYLOAD FINAL:', {
+    total: finalPayload.total,
+    discount_pct: finalPayload.discount_pct,
+    fx: finalPayload.fx,
+    servers: serversArray.map((s: any) => ({ 
+      name: s.name, price: s.price, qty: s.quantity, 
+      config_id: s.config_id, vcpu_item_id: s.vcpu_item_id, ram_item_id: s.ram_item_id, storage_item_id: s.storage_item_id 
+    })),
+    addons: addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity, config_id: a.config_id, item_id: a.item_id })),
+  });
+  
+  // Validate: warn if servers have price = 0 but have resources
+  let hasZeroPriceWarning = false;
+  for (const server of serversArray) {
+    const hasResources = (server.vcpu as number) > 0 || (server.ram as number) > 0 || (server.storage as number) > 0;
+    if (hasResources && server.price === 0) {
+      console.warn('[localToApi] ⚠️ Server has resources but price=0:', server);
+      hasZeroPriceWarning = true;
+    }
+  }
+  
+  // Validate addons
+  for (const addon of addonsArray) {
+    if ((addon.quantity as number) > 0 && addon.price === 0) {
+      console.warn('[localToApi] ⚠️ Addon has quantity but price=0:', addon);
+      hasZeroPriceWarning = true;
+    }
+  }
+  
+  if (hasZeroPriceWarning) {
+    console.error('[localToApi] ❌ CRITICAL: Some items have price=0. Check result.rows mapping.');
+  }
+  
+  return finalPayload;
 }
 
 // ============================================================================
@@ -1559,43 +1865,52 @@ export function filterProposalsByOwnership(
 
 // Hook to fetch proposals for architects (level 690)
 // Fetches only proposals where the user is a participant with role=ARCHITECT
-export function useArchitectProposals(page = 1, perPage = 100) {
+// Returns paginated format for consistency with useProposals
+export function useArchitectProposals(page = 1) {
   const session = authService.getSession();
   const userId = session?.userId || null;
   
   return useQuery({
-    queryKey: ['proposals', 'api', 'architect', page, perPage, userId],
+    queryKey: ['proposals', 'api', 'architect', page, userId],
     queryFn: async () => {
       if (!userId) {
         console.warn('[useArchitectProposals] No userId available');
-        return [];
+        return {
+          proposals: [] as SavedProposal[],
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
+        };
       }
       
       const numericUserId = Number(userId);
       
       try {
         // 1. Get all proposal IDs where this user is an ARCHITECT participant
+        console.log('[useArchitectProposals] Fetching participations for user:', numericUserId);
         const participations = await getProposalsByParticipant(numericUserId, 'ARCHITECT');
         
         if (participations.length === 0) {
           console.log('[useArchitectProposals] No architect participations found for user:', numericUserId);
-          return [];
+          return {
+            proposals: [] as SavedProposal[],
+            pagination: { currentPage: 1, lastPage: 1, total: 0 },
+          };
         }
         
+        // proposal_id in Supabase is stored as string of the numeric API ID
         const participantProposalIds = participations.map(p => p.proposal_id);
-        console.log('[useArchitectProposals] Found architect participations:', participantProposalIds.length);
+        console.log('[useArchitectProposals] Found architect participations:', participantProposalIds);
         
-        // 2. Fetch all proposals (paginated) and filter by participation
+        // 2. Fetch proposals with __order=id:DESC (default) - no perPage override, uses API default
         const response = await openApi.getProposals({
           channel_type: 'CLIENTE',
           __page: page,
-          __perPage: 500, // Fetch more to ensure we have all architect proposals
         });
         
         const apiProposals = (response.data || []) as ApiProposal[];
         const localProposals = apiProposals.map(apiToLocal);
         
         // 3. Filter to only proposals where user is architect participant
+        // Note: compare as strings since proposal_id in Supabase is stored as string
         const filtered = localProposals.filter(p => {
           const proposalApiId = p.id ? String(p.id) : null;
           return proposalApiId && participantProposalIds.includes(proposalApiId);
@@ -1603,10 +1918,16 @@ export function useArchitectProposals(page = 1, perPage = 100) {
         
         console.log('[useArchitectProposals] Filtered proposals:', filtered.length, 'of', localProposals.length);
         
-        return filtered;
+        return {
+          proposals: filtered,
+          pagination: { currentPage: page, lastPage: 1, total: filtered.length },
+        };
       } catch (error) {
         console.warn('[useArchitectProposals] Error fetching proposals:', error);
-        return [];
+        return {
+          proposals: [] as SavedProposal[],
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
+        };
       }
     },
     staleTime: 0,
@@ -1621,17 +1942,24 @@ export function useArchitectProposals(page = 1, perPage = 100) {
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
 // For architects (690), use useArchitectProposals instead
-export function useProposals(page = 1, perPage = 100) {
+// NOW SUPPORTS: server-side filtering via status, __q, __order
+export interface ProposalFilters {
+  status?: string; // API format: 'Enviado', 'Approved', 'Rejected', ''
+  search?: string; // __q parameter for text search
+  perPage?: number; // __perPage parameter for pagination
+}
+
+export function useProposals(page = 1, filters?: ProposalFilters) {
   // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
   
-  // For architects, delegate to useArchitectProposals
-  const architectQuery = useArchitectProposals(page, perPage);
+  // For architects, delegate to useArchitectProposals (they don't use filters)
+  const architectQuery = useArchitectProposals(page);
   
   const regularQuery = useQuery({
-    queryKey: ['proposals', 'api', 'executive', page, perPage, userLevel, userId],
+    queryKey: ['proposals', 'api', 'executive', page, userLevel, userId, filters?.status, filters?.search, filters?.perPage],
     queryFn: async () => {
       // Don't fetch for architects - they use the architect query
       if (userLevel === 690) {
@@ -1639,12 +1967,30 @@ export function useProposals(page = 1, perPage = 100) {
       }
       
       try {
-        // Call API directly: GET /api/calculator/proposal
-        const response = await openApi.getProposals({
+        // Build params with server-side filters
+        const params: Record<string, any> = {
           channel_type: 'CLIENTE',
           __page: page,
-          __perPage: perPage,
-        });
+          // __order=id:DESC is now default in openApi.getProposals
+        };
+        
+        // Add perPage if provided
+        if (filters?.perPage) {
+          params.__perPage = filters.perPage;
+        }
+        
+        // Add status filter if provided (not 'all')
+        if (filters?.status && filters.status !== 'all') {
+          params.status = filters.status;
+        }
+        
+        // Add search filter if provided
+        if (filters?.search && filters.search.trim()) {
+          params.__q = filters.search.trim();
+        }
+        
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals(params);
 
         const apiProposals = (response.data || []) as ApiProposal[];
         
@@ -1663,12 +2009,24 @@ export function useProposals(page = 1, perPage = 100) {
           afterRBAC: filtered.length,
           userLevel,
           userId,
+          filters,
+          pagination: { current: response.current_page, last: response.last_page, total: response.total },
         });
 
-        return filtered;
+        return {
+          proposals: filtered,
+          pagination: {
+            currentPage: response.current_page || page,
+            lastPage: response.last_page || 1,
+            total: response.total || 0,
+          },
+        };
       } catch (error) {
         console.warn('[Proposals] API fetch failed, returning empty:', error);
-        return [];
+        return {
+          proposals: [],
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
+        };
       }
     },
     // NO CACHE - Always fetch fresh data from API
@@ -1681,6 +2039,7 @@ export function useProposals(page = 1, perPage = 100) {
   
   // Return architect query for level 690, regular query otherwise
   if (userLevel === 690) {
+    // Architect query already returns paginated format
     return architectQuery;
   }
   
@@ -1690,22 +2049,40 @@ export function useProposals(page = 1, perPage = 100) {
 // Hook to fetch executive proposals with pagination info (excludes partner proposals)
 // Uses GET /api/calculator/proposal with channel_type=CLIENTE filter
 // RBAC: Filters proposals based on user level and ownership
-export function useProposalsPaginated(page = 1, perPage = 20) {
+export function useProposalsPaginated(page = 1, filters?: ProposalFilters) {
   // Get user session for RBAC filtering
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const userId = session?.userId || null;
 
   return useQuery({
-    queryKey: ['proposals', 'api', 'executive', 'paginated', page, perPage, userLevel, userId],
+    queryKey: ['proposals', 'api', 'executive', 'paginated', page, userLevel, userId, filters?.status, filters?.search, filters?.perPage],
     queryFn: async () => {
       try {
-        // Call API directly: GET /api/calculator/proposal
-        const response = await openApi.getProposals({
+        // Build params with server-side filters
+        const params: Record<string, any> = {
           channel_type: 'CLIENTE',
           __page: page,
-          __perPage: perPage,
-        });
+          // __order=id:DESC is now default in openApi.getProposals
+        };
+        
+        // Add perPage if provided
+        if (filters?.perPage) {
+          params.__perPage = filters.perPage;
+        }
+        
+        // Add status filter if provided (not 'all')
+        if (filters?.status && filters.status !== 'all') {
+          params.status = filters.status;
+        }
+        
+        // Add search filter if provided
+        if (filters?.search && filters.search.trim()) {
+          params.__q = filters.search.trim();
+        }
+        
+        // Call API directly: GET /api/calculator/proposal
+        const response = await openApi.getProposals(params);
 
         const apiProposals = (response.data || []) as ApiProposal[];
         
@@ -1724,15 +2101,14 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
           afterRBAC: filtered.length,
           userLevel,
           userId,
+          filters,
         });
 
         return {
           proposals: filtered,
           pagination: {
-            currentPage: page,
-            // Note: pagination total might be incorrect after client-side filter
-            // but this is acceptable as security measure
-            lastPage: Math.ceil((response.total || 0) / perPage) || 1,
+            currentPage: response.current_page || page,
+            lastPage: response.last_page || Math.ceil((response.total || 0) / 15) || 1,
             total: response.total || 0,
           },
         };
@@ -1753,24 +2129,35 @@ export function useProposalsPaginated(page = 1, perPage = 20) {
 }
 
 // Hook to fetch a single proposal by ID (numeric id or string id)
+// UNIFIED: Now fetches with __with=files,creator to get all data in a single request
 export function useProposal(proposalId: string | undefined) {
   return useQuery({
     queryKey: ['proposal', 'api', proposalId],
     queryFn: async () => {
       if (!proposalId) return null;
       try {
-        // Try to parse as numeric ID
-        const numericId = parseInt(proposalId, 10);
-        if (!isNaN(numericId)) {
+        // CRITICAL: Always extract numeric ID - handles PROP-123, OPEN-abc, etc.
+        const numericId = extractNumericId(proposalId);
+        
+        if (numericId !== null) {
+          console.log('[useProposal] Fetching by numeric ID with files,creator:', numericId, '(original:', proposalId, ')');
+          // openApi.getProposal now defaults to __with=files,creator
           const result = await openApi.getProposal(numericId);
-          return apiToLocal(result as ApiProposal);
+          
+          // Convert to local format - result now includes files and creator
+          const localProposal = apiToLocal(result as ApiProposal);
+          
+          // Attach files directly from API response if present
+          const apiResult = result as any;
+          if (apiResult.files && Array.isArray(apiResult.files)) {
+            (localProposal as any).files = apiResult.files;
+          }
+          
+          return localProposal;
         }
         
-        // Fallback: search by id string (PROP-123 format)
-        const response = await openApi.getProposals({ __perPage: 500 });
-        const apiProposals = response.data as ApiProposal[];
-        const found = apiProposals.find(p => `PROP-${p.id}` === proposalId);
-        return found ? apiToLocal(found) : null;
+        console.warn('[useProposal] Could not extract numeric ID from:', proposalId);
+        return null;
       } catch (error) {
         console.warn('[Proposal] API fetch failed:', error);
         return null;
@@ -1785,36 +2172,55 @@ export function useProposal(proposalId: string | undefined) {
   });
 }
 
-// Hook to save a proposal (create or update)
+// Hook to save a proposal (create or update) with optional PDF file
+// CRITICAL: Decision logic for POST vs PUT:
+// 1. proposal.id as NUMBER → UPDATE (PUT) - this is the API ID from a previous save
+// 2. proposal.id undefined/null → CREATE (POST) - new proposal
+// 3. proposal.proposal.id is IGNORED for this decision (it's a local display ID like OPEN-ABC123)
+// 
+// NEW: The mutation now accepts an optional pdfBlob to send along with the proposal data
+// in the same request using multipart/form-data.
 export function useSaveProposal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (proposal: SavedProposal) => {
-      const apiData = localToApi(proposal);
+    mutationFn: async ({ proposal, pdfBlob }: { proposal: SavedProposal; pdfBlob?: Blob }) => {
+      // Load config IDs for API v12+ compliance
+      let configIdStore: ConfigIdStore | null = null;
+      try {
+        configIdStore = await loadConfigIds();
+        console.log('[SaveProposal] Config IDs loaded for payload');
+      } catch (error) {
+        console.warn('[SaveProposal] Failed to load config IDs, proceeding without them:', error);
+      }
 
-      // Resolve numeric ID (edit mode)
+      const apiData = localToApi(proposal, configIdStore);
+
+      // CRITICAL: Only use proposal.id (the API numeric ID) for update detection
+      // DO NOT use proposal.proposal.id - that's the local display ID (OPEN-ABC123)
       let numericId: number | null = null;
 
-      if (proposal.id && typeof proposal.id === 'number') {
+      // Only proposal.id as a number indicates this is an existing API record
+      if (proposal.id !== undefined && proposal.id !== null && typeof proposal.id === 'number') {
         numericId = proposal.id;
-      } else if (proposal.proposal?.id) {
-        const propId = proposal.proposal.id;
-        if (propId.startsWith('PROP-')) {
-          const parsed = parseInt(propId.replace('PROP-', ''), 10);
-          if (!isNaN(parsed)) numericId = parsed;
-        } else {
-          const parsed = parseInt(propId, 10);
-          if (!isNaN(parsed)) numericId = parsed;
-        }
+        console.log('[SaveProposal] Detected API ID from proposal.id:', numericId);
       }
+      
+      // IMPORTANT: We intentionally do NOT check proposal.proposal.id here
+      // That field contains locally generated IDs like "OPEN-E5A12345" which are NOT API IDs
 
       // CRITICAL: Log payload details for debugging
       const dadosProposta = (apiData as any).dados_proposta;
       console.log('[SaveProposal] Sending to API:', {
-        mode: numericId ? 'UPDATE' : 'CREATE',
+        mode: numericId ? 'UPDATE (PUT)' : 'CREATE (POST)',
         numericId,
+        'proposal.id': proposal.id,
+        'proposal.id type': typeof proposal.id,
+        'proposal.proposal.id': proposal.proposal?.id,
         channel_type: (apiData as any).channel_type,
+        configIdsLoaded: !!configIdStore,
+        hasPdfFile: !!pdfBlob,
+        pdfFileSize: pdfBlob?.size,
         dados_proposta_summary: {
           hasProposalId: Boolean(dadosProposta?.proposalId),
           hasOwnerUserId: Boolean(dadosProposta?.created_by_user_id),
@@ -1822,18 +2228,22 @@ export function useSaveProposal() {
           hasItems: Boolean(dadosProposta?.items?.length),
           itemsCount: dadosProposta?.items?.length || 0,
         },
+        addonsCount: (apiData as any).addons?.length || 0,
+        serversCount: (apiData as any).servers?.length || 0,
+        sampleAddon: (apiData as any).addons?.[0],
+        sampleServer: (apiData as any).servers?.[0],
       });
 
       let result: any;
       
-      if (numericId) {
+      if (numericId !== null && numericId > 0) {
         // Update existing proposal via API: PUT /api/calculator/proposal/{id}
-        console.log('[SaveProposal] Updating proposal:', numericId);
-        result = await openApi.updateProposal(numericId, apiData);
+        console.log('[SaveProposal] ✓ UPDATING proposal via PUT:', numericId, pdfBlob ? 'with PDF file' : 'without file');
+        result = await openApi.updateProposal(numericId, apiData, pdfBlob);
       } else {
         // Create new proposal via API: POST /api/calculator/proposal
-        console.log('[SaveProposal] Creating new proposal');
-        result = await openApi.createProposal(apiData);
+        console.log('[SaveProposal] ✓ CREATING new proposal via POST', pdfBlob ? 'with PDF file' : 'without file');
+        result = await openApi.createProposal(apiData, pdfBlob);
       }
 
       console.log('[SaveProposal] API response:', result);
@@ -1854,10 +2264,18 @@ export function useUpdateProposal() {
 
   return useMutation({
     mutationFn: async ({ id, proposal }: { id: string; proposal: SavedProposal }) => {
+      // Load config IDs for API v12+ compliance
+      let configIdStore: ConfigIdStore | null = null;
+      try {
+        configIdStore = await loadConfigIds();
+      } catch (error) {
+        console.warn('[UpdateProposal] Failed to load config IDs:', error);
+      }
+
       // Parse numeric ID
       const numericId = parseInt(id, 10);
       if (!isNaN(numericId)) {
-        const apiData = localToApi(proposal);
+        const apiData = localToApi(proposal, configIdStore);
         const result = await openApi.updateProposal(numericId, apiData);
         return { success: true, data: result };
       }
@@ -1867,7 +2285,7 @@ export function useUpdateProposal() {
       const existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
       
       if (existing) {
-        const apiData = localToApi(proposal);
+        const apiData = localToApi(proposal, configIdStore);
         const result = await openApi.updateProposal(existing.id, apiData);
         return { success: true, data: result };
       }
@@ -1938,12 +2356,12 @@ export function useUpdateProposalStatus() {
         servers: existing.servers,
         addons: existing.addons,
         dados_proposta: existing.dados_proposta,
-        // STATUS FIELD - the ONLY field needed per API spec
-        // Using the official API format: "Approved", "Rejected", "Enviado"
-        status: status,
+        // STATUS FIELD - Convert internal status to API format
+        // Internal: APPROVED, REJECTED, SENT → API: Approved, Rejected, Enviado
+        status: statusToApiFormat(status),
       };
       
-      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status);
+      console.log('[useUpdateProposalStatus] Updating proposal', numericId, 'with status:', status, '→ API:', statusToApiFormat(status));
       
       const result = await openApi.updateProposal(numericId, updatePayload);
       console.log('[useUpdateProposalStatus] Update result:', result);

@@ -81,6 +81,7 @@ import {
 import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/proposalNormalizer';
 import { openApi } from '@/lib/openApi';
 import { setArchitectParticipant, removeArchitectParticipant, getArchitectParticipant } from '@/services/proposalParticipantService';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -193,6 +194,31 @@ const OpenCalculator: React.FC = () => {
       navigate('/modulos/comercial/propostas');
     }
   }, [isArchitect, isUrlEditMode, navigate, toast]);
+  
+  // =========================================================================
+  // CRITICAL: Route-based state reset for CREATE mode
+  // When navigating to /criar, MUST reset all edit-related state to prevent
+  // accidentally sending PUT instead of POST for new proposals.
+  // This runs on EVERY pathname change to ensure clean state transitions.
+  // =========================================================================
+  useEffect(() => {
+    const isCreateRoute = location.pathname.includes('/criar') || 
+                          location.pathname.endsWith('/calculadora');
+    const hasEditParams = urlEditParam === '1' && !!urlIdParam;
+    
+    // If we're on a create route WITHOUT edit params, force reset edit state
+    if (isCreateRoute && !hasEditParams) {
+      console.log('[OpenCalculator] CREATE_ROUTE_DETECTED - Resetting edit state');
+      
+      // Reset edit mode flags
+      setIsEditMode(false);
+      setEditingProposalId(null);
+      initializedEditModeRef.current = false;
+      
+      // Reset initialized flag to allow fresh VM creation
+      setInitialized(false);
+    }
+  }, [location.pathname, urlEditParam, urlIdParam]);
 
   // Determine if this is a partner context for saving
   const isPartnerContext = userContext.userLevel === 200;
@@ -255,7 +281,7 @@ const OpenCalculator: React.FC = () => {
     backupPlan: 'none',
     backupGb: 0,
     antivirus: 0,
-    firewall: false,
+    firewall: 0, // Changed from false to 0
     tsplus: 0,
     cal: 0,
     sql: 'none',
@@ -589,9 +615,11 @@ const OpenCalculator: React.FC = () => {
       const st = unitPrice * antivirusQty;
       subServices += addRow('Antivirus', antivirusQty, unitPrice, st, 'svc_antivirus');
     }
-    if (addons.firewall) {
+    const firewallQty = toNum(addons.firewall, 0);
+    if (firewallQty > 0) {
       const unitPrice = toNum(config.addons_brl.firewall_pfsense, 0);
-      subServices += addRow('Firewall PFsense', 1, unitPrice, unitPrice, 'svc_firewall');
+      const st = unitPrice * firewallQty;
+      subServices += addRow('Firewall (qtd)', firewallQty, unitPrice, st, 'svc_firewall');
     }
     const tsplusQty = toNum(addons.tsplus, 0);
     if (tsplusQty > 0) {
@@ -973,6 +1001,29 @@ const OpenCalculator: React.FC = () => {
     toast({ title: 'Proposta carregada', description: `Editando proposta ${displayId}` });
   }, [toast]);
 
+  // CRITICAL: Reset state when route changes from edit to create
+  // This ensures that navigating from edit mode back to /criar starts fresh
+  useEffect(() => {
+    // If we're NOT in URL edit mode (no edit=1 param), ALWAYS reset edit state
+    // This prevents stale edit state from causing PUT instead of POST
+    if (!isUrlEditMode) {
+      // Always reset edit mode flags when on create route
+      if (isEditMode || editingProposalId) {
+        console.log('[OpenCalculator] Resetting edit state for new proposal creation');
+        setIsEditMode(false);
+        setEditingProposalId(null);
+      }
+      // Only reset items if we were previously initialized (meaning we came from edit mode)
+      if (initializedEditModeRef.current) {
+        console.log('[OpenCalculator] Full state reset for new proposal');
+        initializedEditModeRef.current = false;
+        setInitialized(false);
+        // Reset items to trigger addVM in the main initialization effect
+        setItems([]);
+      }
+    }
+  }, [isUrlEditMode, isEditMode, editingProposalId]);
+
   // MAIN INITIALIZATION: Add initial VM OR load proposal for editing
   // CRITICAL: This effect is now URL-based (edit=1&id=...) and self-sufficient
   useEffect(() => {
@@ -1067,8 +1118,14 @@ const OpenCalculator: React.FC = () => {
     }
     
     // CASE 2: New proposal (no edit mode)
+    // CRITICAL: Explicitly reset edit mode state when creating a new proposal
+    // This prevents residual state from previous edit sessions causing PUT instead of POST
     if (!initialized && items.length === 0) {
-      // CRITICAL: Only add default VM for NEW proposals, not edits
+      // Ensure we're in CREATE mode, not EDIT mode
+      setIsEditMode(false);
+      setEditingProposalId(null);
+      
+      // Only add default VM for NEW proposals, not edits
       // Do NOT create default BareMetal when editing proposals without servers
       addVM();
       setInitialized(true);
@@ -1078,11 +1135,33 @@ const OpenCalculator: React.FC = () => {
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
 
+  // Check if a VM item has at least one resource defined (not completely empty)
+  // A VM is valid if it has: vCPU > 0 OR RAM > 0 OR NVMe > 0 OR IPs > 0 OR GPU selected OR trafficTb > 0
+  const isVMValid = useCallback((item: ServerItem): boolean => {
+    if (item.type !== 'vm') return true; // Non-VM items are always valid here
+    const vm = item as VMItem;
+    const hasVcpu = (vm.vcpu ?? 0) > 0;
+    const hasRam = (vm.ramGb ?? 0) > 0;
+    const hasNvme = (vm.nvmeTb ?? 0) > 0;
+    const hasIps = (vm.ips ?? 0) > 0;
+    const hasTraffic = (vm.trafficTb ?? 0) > 0;
+    const hasGpu = vm.gpu && vm.gpu !== 'Sem GPU';
+    return hasVcpu || hasRam || hasNvme || hasIps || hasTraffic || hasGpu;
+  }, []);
+
+  // Get list of empty VM items (for validation error messages)
+  const getEmptyVMItems = useCallback((): { index: number; id: string }[] => {
+    return items
+      .map((item, index) => ({ item, index, id: item.id }))
+      .filter(({ item }) => item.type === 'vm' && !isVMValid(item))
+      .map(({ index, id }) => ({ index: index + 1, id })); // 1-indexed for display
+  }, [items, isVMValid]);
+
   // Check if there's at least one sellable item (servers OR any product/addon)
   // IMPORTANT: Storage, Kubernetes, OPEN SaaS are now independent products that DON'T require VM/BM
   const hasAnyItem = useCallback(() => {
-    // Core products (servers)
-    const hasVM = items.some(i => i.type === 'vm');
+    // Core products (servers) - VMs must be valid (not empty)
+    const hasValidVM = items.some(i => i.type === 'vm' && isVMValid(i));
     const hasBareMetal = items.some(i => i.type === 'bm');
     
     // Independent products (don't require servers)
@@ -1101,8 +1180,8 @@ const OpenCalculator: React.FC = () => {
       addons.veeamVm > 0 || 
       addons.veeamAg > 0;
     
-    return hasVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS || hasAddons;
-  }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users, addons]);
+    return hasValidVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS || hasAddons;
+  }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users, addons, isVMValid]);
 
   // Save proposal via API
   const handleSave = async () => {
@@ -1110,6 +1189,18 @@ const OpenCalculator: React.FC = () => {
       toast({ title: 'Erro', description: 'Informe o nome do cliente ou empresa', variant: 'destructive' });
       return;
     }
+    // Validate: check for empty VM items first
+    const emptyVMs = getEmptyVMItems();
+    if (emptyVMs.length > 0) {
+      const vmNumbers = emptyVMs.map(v => `#${v.index}`).join(', ');
+      toast({ 
+        title: 'VM sem recursos', 
+        description: `VM ${vmNumbers} está sem nenhum recurso selecionado. Defina pelo menos um upgrade (vCPU, RAM, disco, IP ou GPU) ou remova o item.`, 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
     // Validate: at least one item (server, product, or addon) must exist
     if (!hasAnyItem()) {
       toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para salvar a proposta.', variant: 'destructive' });
@@ -1191,7 +1282,9 @@ const OpenCalculator: React.FC = () => {
         };
 
         const saveResult = await savePartnerProposalMutation.mutateAsync(partnerProposalData);
-        console.log('[OpenCalculator] Partner save result:', { isUpdate: saveResult.isUpdate, id: saveResult.data?.api_id });
+        const partnerApiId = saveResult.data?.api_id;
+        console.log('[OpenCalculator] Partner save result:', { isUpdate: saveResult.isUpdate, id: partnerApiId });
+        // Note: Partner proposals don't include PDF in the same request yet (separate flow)
       } else {
         // Internal context: use internal proposal hook
         // For EDIT mode, pass the API numeric ID so the hook performs UPDATE
@@ -1202,9 +1295,32 @@ const OpenCalculator: React.FC = () => {
           savedAt: new Date().toISOString(),
         };
 
-        const saveResult = await saveInternalProposalMutation.mutateAsync(proposalData);
+        // Generate PDF blob to send along with the proposal data
+        let pdfBlob: Blob | undefined;
+        try {
+          console.log('[OpenCalculator] Generating PDF blob for proposal save...');
+          const { generateOpenPDFBlob } = await import('@/lib/pdfGenerator');
+          const pdfResult = await generateOpenPDFBlob({
+            client,
+            proposal,
+            result: result!,
+            selectedTerm,
+            datacenter,
+            reseller,
+            includeCommission: includeCommissionInPdf,
+            observacao: observacao.trim() || undefined,
+          });
+          pdfBlob = pdfResult.blob;
+          console.log('[OpenCalculator] PDF blob generated:', { size: pdfBlob.size });
+        } catch (pdfError) {
+          console.warn('[OpenCalculator] Failed to generate PDF blob, will save without file:', pdfError);
+          // Don't fail the save if PDF generation fails
+        }
+
+        // Save proposal with PDF file attached in the same request
+        const saveResult = await saveInternalProposalMutation.mutateAsync({ proposal: proposalData, pdfBlob });
         const savedData = saveResult.data as { id?: number } | undefined;
-        console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id });
+        console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id, hadPdf: !!pdfBlob });
         
         // After successful save, update editingProposalId with the returned ID (for new proposals)
         const savedProposalId = savedData?.id ? String(savedData.id) : editingProposalId;
@@ -1259,7 +1375,7 @@ const OpenCalculator: React.FC = () => {
     }
   };
 
-  // Generate PDF
+  // Generate/Download PDF
   const handleGeneratePDF = async () => {
     if (!hasAnyItem()) {
       toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para gerar o PDF.', variant: 'destructive' });
@@ -1271,6 +1387,22 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
+    // If proposal is saved, try to download from API first
+    if (editingProposalId) {
+      console.log('[OpenCalculator] Proposal saved, attempting API download:', editingProposalId);
+      const apiResult = await downloadProposalPdfFromApi(editingProposalId);
+      
+      if (apiResult.success) {
+        toast({ title: 'PDF baixado', description: 'O download do PDF foi iniciado' });
+        return;
+      }
+      
+      // If API download fails, fall through to local generation with a warning
+      console.warn('[OpenCalculator] API download failed, generating locally:', apiResult.error);
+    }
+
+    // Fallback: Generate PDF locally (for unsaved proposals or when API fails)
+    console.log('[OpenCalculator] Generating PDF locally');
     const { generateOpenPDF } = await import('@/lib/pdfGenerator');
     generateOpenPDF({
       client,
@@ -1385,7 +1517,7 @@ const OpenCalculator: React.FC = () => {
     setProposal({ id: generateProposalId(), validityDays: 7, createdAt: new Date().toISOString() });
     setItems([]);
     setAddons({
-      backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: false,
+      backupPlan: 'none', backupGb: 0, antivirus: 0, firewall: 0,
       tsplus: 0, cal: 0, sql: 'none', sqlQty: 0, veeamVm: 0, veeamAg: 0, winserver: 0,
       support: { level: 'none', price: 0 },
       consulting: { quantity: 0, unitPrice: 200 },
@@ -1812,22 +1944,37 @@ const OpenCalculator: React.FC = () => {
                 {items.map((item, idx) => {
                   const isExpanded = expandedItems.has(item.id);
                   const gpuOptions = Object.keys(config.gpu_usd);
+                  const isEmptyVM = item.type === 'vm' && !isVMValid(item);
 
                   return (
-                    <div key={item.id} className="border border-border rounded-lg overflow-hidden bg-card/50">
+                    <div 
+                      key={item.id} 
+                      className={`border rounded-lg overflow-hidden bg-card/50 ${
+                        isEmptyVM ? 'border-destructive border-2' : 'border-border'
+                      }`}
+                    >
                       {/* Header */}
                       <div
-                        className="flex items-center justify-between px-4 py-3 bg-muted/30 cursor-pointer"
+                        className={`flex items-center justify-between px-4 py-3 cursor-pointer ${
+                          isEmptyVM ? 'bg-destructive/10' : 'bg-muted/30'
+                        }`}
                         onClick={() => toggleExpand(item.id)}
                       >
                         <div className="flex items-center gap-3">
-                          <ProductIcon type={item.type === 'vm' ? 'vm' : 'baremetal'} size={18} className="text-emerald-400" />
-                          <span className="bg-emerald-500 text-white text-xs font-bold uppercase px-2 py-1 rounded-full">
+                          <ProductIcon type={item.type === 'vm' ? 'vm' : 'baremetal'} size={18} className={isEmptyVM ? 'text-destructive' : 'text-emerald-400'} />
+                          <span className={`text-white text-xs font-bold uppercase px-2 py-1 rounded-full ${
+                            isEmptyVM ? 'bg-destructive' : 'bg-emerald-500'
+                          }`}>
                             {item.type === 'vm' ? 'VM' : 'BAREMETAL'}
                           </span>
                           <span className="font-medium text-foreground">
                             {item.type === 'vm' ? `VM #${idx + 1}` : `BareMetal #${idx + 1}`}
                           </span>
+                          {isEmptyVM && (
+                            <span className="text-xs text-destructive font-medium">
+                              (Sem recursos definidos)
+                            </span>
+                          )}
                           <span className="text-xs text-muted-foreground">
                             {item.qtyServers}x servidor(es)
                           </span>
@@ -1906,8 +2053,11 @@ const OpenCalculator: React.FC = () => {
                                 <Input
                                   type="number"
                                   value={item.vcpu}
-                                  onChange={(e) => updateItem(item.id, { vcpu: parseInt(e.target.value) || 1 })}
-                                  min={1}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    updateItem(item.id, { vcpu: Number.isNaN(val) || val < 0 ? 0 : val });
+                                  }}
+                                  min={0}
                                   className="bg-input border-border"
                                 />
                               </div>
@@ -1916,8 +2066,11 @@ const OpenCalculator: React.FC = () => {
                                 <Input
                                   type="number"
                                   value={item.ramGb}
-                                  onChange={(e) => updateItem(item.id, { ramGb: parseInt(e.target.value) || 1 })}
-                                  min={1}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    updateItem(item.id, { ramGb: Number.isNaN(val) || val < 0 ? 0 : val });
+                                  }}
+                                  min={0}
                                   className="bg-input border-border"
                                 />
                               </div>
@@ -2562,18 +2715,17 @@ const OpenCalculator: React.FC = () => {
                   <span className="text-xs text-muted-foreground">R$ {config.addons_brl.cal_unit}/unid.</span>
                 </div>
 
-                {/* Firewall */}
+                {/* Firewall (qtd) */}
                 <div className="relative">
-                  <label className="block text-xs text-muted-foreground mb-1">Firewall pfSense</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={addons.firewall}
-                      onChange={(e) => setAddons(prev => ({ ...prev, firewall: e.target.checked }))}
-                      className="rounded border-border h-4 w-4"
-                    />
-                    <span className="text-xs text-muted-foreground">Ativar — R$ {config.addons_brl.firewall_pfsense}/mês</span>
-                  </div>
+                  <label className="block text-xs text-muted-foreground mb-1">Firewall (qtd)</label>
+                  <Input
+                    type="number"
+                    value={addons.firewall}
+                    onChange={(e) => setAddons(prev => ({ ...prev, firewall: parseInt(e.target.value) || 0 }))}
+                    min={0}
+                    className="bg-input border-border"
+                  />
+                  <span className="text-xs text-muted-foreground">R$ {config.addons_brl.firewall_pfsense}/unid.</span>
                 </div>
               </div>
 

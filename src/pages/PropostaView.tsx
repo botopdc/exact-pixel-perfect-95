@@ -5,18 +5,17 @@ import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2, ShieldX } from 'l
 import OpenLogo from '@/components/OpenLogo';
 import { useProposal, useSendProposalEmail, useUpdateProposalStatus } from '@/hooks/useProposals';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentsList } from '@/components/attachments/AttachmentsList';
-import { useAttachments } from '@/hooks/useAttachments';
 import { partnerAuthService } from '@/services/partnersService';
 import { authService } from '@/services/authService';
 import { ROUTES, getDashboardRoute } from '@/config/routes';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
 import { copyToClipboard } from '@/lib/clipboard';
 import { LinkCopyModal } from '@/components/LinkCopyModal';
-
+import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 // ============================================================================
 // RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS (BASED ON API FIELDS)
 // ============================================================================
@@ -91,7 +90,7 @@ function canAccessProposal(proposal: any, userLevel: number, userId: number | st
 }
 
 const PropostaView: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id: urlId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
@@ -100,6 +99,10 @@ const PropostaView: React.FC = () => {
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkModalUrl, setLinkModalUrl] = useState('');
   const { getApprovalLink } = useApprovalLink();
+  
+  // CRITICAL: Extract numeric ID from URL param - strips PROP- prefix if present
+  const numericId = useMemo(() => extractNumericId(urlId), [urlId]);
+  const id = numericId !== null ? String(numericId) : urlId;
   
   // Get current user info for RBAC
   const internalSession = authService.getSession();
@@ -161,59 +164,62 @@ const PropostaView: React.FC = () => {
     }
   }, [id, hasAccess]);
 
-  // Fetch attachments for PDF generation
-  const { data: attachments = [] } = useAttachments(id);
+  // UNIFIED: Attachments now come from the proposal object (via __with=files)
+  // No separate call to useAttachments needed
+  const attachments = useMemo(() => {
+    if (!proposal) return [];
+    // Files are now attached directly to the proposal by useProposal
+    return (proposal as any).files || [];
+  }, [proposal]);
 
   const handleDownloadPDF = async () => {
-    // Check if we have a valid result to generate PDF
-    const hasValidResult = proposal?.result && 
-      proposal.result.rows && 
-      proposal.result.rows.length > 0;
+    // CRITICAL: Use numeric ID from proposal object, not URL param (which might be display ID)
+    const numericId = proposal?.id;
+    const displayId = id || proposal?.proposal?.id || '';
     
-    if (!hasValidResult) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos para gerar PDF', variant: 'destructive' });
+    if (!numericId) {
+      console.error('[PropostaView] No numeric ID available for PDF download:', { urlParam: id, displayId });
+      toast({ title: 'Erro', description: 'ID numérico da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
-    // Track PDF download
-    if (id) {
-      trackEvent.mutate({ proposalId: id, type: 'pdf_download', channel: 'ui' });
-    }
+    console.log('[PropostaView] Download PDF using numeric ID:', numericId, '(display:', displayId, ')');
     
-    try {
-      await generateOpenPDF({
-        client: proposal.client,
-        proposal: proposal.proposal,
-        result: proposal.result,
-        selectedTerm: proposal.selectedTerm,
-        datacenter: proposal.datacenter || 'SP1',
-        observacao: proposal.observacao,
-        attachments: attachments,
-        reseller: proposal.reseller,
-      });
+    // Track PDF download using display ID for analytics
+    trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
+    
+    // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
+    const result = await downloadProposalPdfFromApi(numericId);
+    
+    if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
-    } catch (error) {
-      toast({ title: 'Erro ao gerar PDF', description: 'Não foi possível gerar o PDF', variant: 'destructive' });
+    } else {
+      toast({ title: 'Erro ao gerar PDF', description: result.error || 'Não foi possível gerar o PDF', variant: 'destructive' });
     }
   };
 
   const handleCopyLink = async () => {
-    if (!id) return;
+    // CRITICAL: Use numeric ID from proposal object, not URL param
+    const apiId = proposal?.id || numericId;
+    if (!apiId) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
+      return;
+    }
     
     setIsCopyingLink(true);
     try {
-      // Fetch approval token and generate link with it
-      const approvalLink = await getApprovalLink(id);
+      // Fetch approval token and generate link with numeric ID
+      const approvalLink = await getApprovalLink(apiId);
       
       // Try to copy to clipboard (with Safari fallback)
       const copySuccess = await copyToClipboard(approvalLink);
       
-      // Track link copy
-      trackEvent.mutate({ proposalId: id, type: 'link_copy', channel: 'ui' });
+      // Track link copy with numeric ID
+      trackEvent.mutate({ proposalId: String(apiId), type: 'link_copy', channel: 'ui' });
       
       // Update status to SENT if still DRAFT
       if (!proposal?.status || proposal?.status === 'DRAFT') {
-        await updateStatusMutation.mutateAsync({ id, status: 'SENT' });
+        await updateStatusMutation.mutateAsync({ id: String(apiId), status: 'SENT' });
       }
       
       if (copySuccess) {
@@ -240,7 +246,9 @@ const PropostaView: React.FC = () => {
       return;
     }
 
-    const proposalId = proposal.proposal?.id || '';
+    // CRITICAL: Use numeric ID from proposal object
+    const apiId = proposal?.id || numericId;
+    const displayId = toDisplayId(apiId || '');
     const validityDateStr = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
       ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
       : '-';
@@ -248,12 +256,12 @@ const PropostaView: React.FC = () => {
     setIsSendingEmail(true);
     
     try {
-      // CRITICAL: First fetch approval token and build tokenized link
-      console.log('[PropostaView] Fetching approval link for email send:', id);
+      // CRITICAL: First fetch approval token and build tokenized link using numeric ID
+      console.log('[PropostaView] Fetching approval link for email send:', apiId);
       let proposalLink: string;
       
       try {
-        proposalLink = await getApprovalLink(id!);
+        proposalLink = await getApprovalLink(apiId!);
         console.log('[PropostaView] Got tokenized approval link for email');
       } catch (linkError: any) {
         console.error('[PropostaView] Failed to get approval link:', linkError);
@@ -269,19 +277,19 @@ const PropostaView: React.FC = () => {
       await sendEmailMutation.mutateAsync({
         clientName: proposal.client.name || proposal.client.company || 'Cliente',
         clientEmail: proposal.client.email,
-        proposalId,
+        proposalId: displayId,
         proposalLink, // Now uses tokenized link
         totalValue: `R$ ${formatCurrency(proposal.result?.grandTotal || 0)}`,
         validityDate: validityDateStr,
       });
       
-      // Track email send
-      if (id) {
-        trackEvent.mutate({ proposalId: id, type: 'email_send', channel: 'ui' });
+      // Track email send with numeric ID
+      if (apiId) {
+        trackEvent.mutate({ proposalId: String(apiId), type: 'email_send', channel: 'ui' });
         
         // Update status to SENT if still DRAFT
         if (!proposal.status || proposal.status === 'DRAFT') {
-          await updateStatusMutation.mutateAsync({ id, status: 'SENT' });
+          await updateStatusMutation.mutateAsync({ id: String(apiId), status: 'SENT' });
         }
       }
       

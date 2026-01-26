@@ -574,32 +574,110 @@ class OpenApiClient {
   async getProposals(params?: {
     channel_type?: 'PARCEIRO' | 'CLIENTE';
     email?: string;
+    status?: string;
     __page?: number;
     __perPage?: number;
     __with?: string;
-  }): Promise<{ data: unknown[]; total: number }> {
+    __order?: string;
+    __q?: string;
+  }): Promise<{ data: unknown[]; total: number; current_page?: number; last_page?: number }> {
     // Always include creator for RBAC and executive column display
+    // Always order by id:DESC for newest first
     const enrichedParams = {
       ...params,
       __with: params?.__with || 'creator',
+      __order: params?.__order || 'id:DESC',
     };
     const response = await this.client.get('/calculator/proposal', { params: enrichedParams });
     return response.data;
   }
 
-  async createProposal(data: unknown): Promise<unknown> {
+  /**
+   * Create a new proposal with optional file upload
+   * Uses multipart/form-data when file is provided
+   * 
+   * @param data - Proposal data
+   * @param file - Optional PDF file blob to attach
+   */
+  async createProposal(data: unknown, file?: Blob): Promise<unknown> {
+    if (file) {
+      // Use multipart/form-data to send data + file together
+      const formData = this.buildProposalFormData(data, file);
+      console.log('[openApi] Creating proposal with file:', { fileSize: file.size });
+      
+      const response = await this.client.post('/calculator/proposal', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    
+    // Standard JSON request without file
     const response = await this.client.post('/calculator/proposal', data);
     return response.data;
   }
 
-  async getProposal(idOrUuid: number | string): Promise<unknown> {
-    const response = await this.client.get(`/calculator/proposal/${idOrUuid}`);
+  async getProposal(idOrUuid: number | string, params?: { __with?: string }): Promise<unknown> {
+    // Default to including files and creator for complete data in a single request
+    const enrichedParams = {
+      __with: params?.__with || 'files,creator',
+    };
+    const response = await this.client.get(`/calculator/proposal/${idOrUuid}`, { params: enrichedParams });
     return response.data;
   }
 
-  async updateProposal(id: number, data: unknown): Promise<unknown> {
+  /**
+   * Update an existing proposal with optional file upload
+   * Uses multipart/form-data when file is provided
+   * 
+   * @param id - Proposal numeric ID
+   * @param data - Proposal data
+   * @param file - Optional PDF file blob to attach
+   */
+  async updateProposal(id: number, data: unknown, file?: Blob): Promise<unknown> {
+    if (file) {
+      // Use multipart/form-data to send data + file together
+      const formData = this.buildProposalFormData(data, file);
+      console.log('[openApi] Updating proposal with file:', { id, fileSize: file.size });
+      
+      const response = await this.client.put(`/calculator/proposal/${id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    
+    // Standard JSON request without file
     const response = await this.client.put(`/calculator/proposal/${id}`, data);
     return response.data;
+  }
+  
+  /**
+   * Build FormData from proposal data and file
+   * Flattens nested objects and adds the file
+   */
+  private buildProposalFormData(data: unknown, file: Blob): FormData {
+    const formData = new FormData();
+    const payload = data as Record<string, any>;
+    
+    // Add all top-level fields
+    for (const [key, value] of Object.entries(payload)) {
+      if (value === null || value === undefined) continue;
+      
+      if (key === 'dados_proposta' || key === 'servers' || key === 'addons') {
+        // Complex objects/arrays: serialize as JSON string
+        formData.append(key, JSON.stringify(value));
+      } else if (typeof value === 'object') {
+        // Other objects: serialize as JSON string
+        formData.append(key, JSON.stringify(value));
+      } else {
+        // Primitives: add directly
+        formData.append(key, String(value));
+      }
+    }
+    
+    // Add the file
+    formData.append('file', file, 'proposta.pdf');
+    
+    return formData;
   }
 
   async deleteProposal(id: number): Promise<void> {
@@ -813,9 +891,38 @@ class OpenApiClient {
     const formData = new FormData();
     formData.append('file', file);
     
+    // Use axios directly without default JSON headers for multipart/form-data
     const response = await this.client.post<{ url: string; filename: string }>(
       `/calculator/proposal/${proposalId}/file`,
-      formData
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Upload proposal PDF as blob
+   * Used after saving a proposal to persist the generated PDF
+   */
+  async uploadProposalPdfBlob(proposalId: number | string, pdfBlob: Blob, filename: string): Promise<{ url: string; filename: string }> {
+    const formData = new FormData();
+    formData.append('file', pdfBlob, filename);
+    
+    console.log('[openApi] Uploading PDF blob:', { proposalId, filename, blobSize: pdfBlob.size, blobType: pdfBlob.type });
+    
+    // Use axios directly without default JSON headers for multipart/form-data
+    const response = await this.client.post<{ url: string; filename: string }>(
+      `/calculator/proposal/${proposalId}/file`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
     );
     return response.data;
   }
@@ -827,6 +934,41 @@ class OpenApiClient {
 
   async deleteProposalFile(proposalId: number | string, fileId: number): Promise<void> {
     await this.client.delete(`/calculator/proposal/${proposalId}/file/${fileId}`);
+  }
+
+  /**
+   * Download proposal file from API
+   * GET /api/calculator/proposal/{id}/file/download?token=
+   * Returns the file as blob
+   */
+  async downloadProposalFile(proposalId: number | string, token: string): Promise<Blob> {
+    const response = await this.client.get(
+      `/calculator/proposal/${proposalId}/file/download`,
+      {
+        params: { token },
+        responseType: 'blob',
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Check if proposal has a file attached
+   * Returns the file info or null if no file exists
+   */
+  async getProposalFileInfo(proposalId: number | string): Promise<{ has_file: boolean; file_url?: string; file_token?: string } | null> {
+    try {
+      const proposal = await this.getProposal(proposalId);
+      // Check if proposal has file info
+      const hasFile = !!(proposal as any).file_url || !!(proposal as any).file_path;
+      return {
+        has_file: hasFile,
+        file_url: (proposal as any).file_url,
+        file_token: (proposal as any).uuid, // UUID serves as file access token
+      };
+    } catch {
+      return null;
+    }
   }
 
   // ============================================================================

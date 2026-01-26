@@ -9,9 +9,12 @@ export const ROUTES = {
     login: '/login',
     proposalView: (id: string) => `/proposta/${id}`,
     proposalAccept: (id: string) => `/proposta/${id}/aceite`,
-    // New token-based approval route
+    // Token-based approval route
     proposalApprove: (proposalId: string, token: string) => 
       `/proposta/aprovar?proposalId=${encodeURIComponent(proposalId)}&token=${encodeURIComponent(token)}`,
+    // Public PDF download route (for email links)
+    proposalPdf: (proposalId: string, token: string) =>
+      `/proposta/pdf?proposalId=${encodeURIComponent(proposalId)}&token=${encodeURIComponent(token)}`,
   },
   
   // NEW MODULAR ROUTES - Main navigation system
@@ -21,6 +24,7 @@ export const ROUTES = {
       home: '/modulos/comercial',
       proposals: '/modulos/comercial/propostas',
       proposalNew: '/modulos/comercial/propostas/criar',
+      proposalView: (id: string | number) => `/modulos/comercial/propostas/${id}`,
       proposalEdit: (id: string | number) => `/modulos/comercial/propostas/criar?edit=1&id=${id}`,
       executivos: '/modulos/comercial/executivos',
       metas: '/modulos/comercial/metas',
@@ -123,6 +127,19 @@ export function getProposalEditRoute(proposalId: string | number, isPartner: boo
   
   // ALL internal users use modular edit route
   return ROUTES.modulos.comercial.proposalEdit(proposalId);
+}
+
+/**
+ * Get the correct proposal view route with ID
+ */
+export function getProposalViewRoute(proposalId: string | number, isPartner: boolean): string {
+  if (isPartner) {
+    // Partners view in their own proposals page
+    return ROUTES.parceiro.proposals;
+  }
+  
+  // ALL internal users use modular view route
+  return ROUTES.modulos.comercial.proposalView(proposalId);
 }
 
 /**

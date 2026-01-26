@@ -1,14 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2 } from 'lucide-react';
+import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import OpenLogo from './OpenLogo';
-import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal } from '@/hooks/useProposals';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal, statusToApiFormat } from '@/hooks/useProposals';
 import { openApi } from '@/lib/openApi';
 import { useTrackEvent } from '@/hooks/useProposalEvents';
-import { generateOpenPDF } from '@/lib/pdfGenerator';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import ProposalAccessModal from './ProposalAccessModal';
 import { Badge } from '@/components/ui/badge';
@@ -85,6 +86,15 @@ function getStatusBadge(status: ProposalStatus | undefined) {
           <TooltipContent>Proposta expirada - validade vencida</TooltipContent>
         </Tooltip>
       );
+    case 'CANCELLED':
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-gray-500/20 text-gray-600 border-gray-500/30 hover:bg-gray-500/30 font-medium text-xs px-2">Cancelado</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Proposta cancelada</TooltipContent>
+        </Tooltip>
+      );
     default:
       return (
         <Tooltip>
@@ -106,6 +116,8 @@ function getIdColorClass(status: ProposalStatus | undefined): string {
       return 'text-red-600';
     case 'EXPIRED':
       return 'text-orange-600';
+    case 'CANCELLED':
+      return 'text-gray-600';
     default:
       return 'text-primary';
   }
@@ -128,8 +140,48 @@ const SavedProposals: React.FC = () => {
   const canCopyLink = !isArchitect;
   const canSendEmail = !isArchitect;
   
-  // Local storage hooks
-  const { data: proposals = [], isLoading } = useProposals();
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(15);
+  
+  // Filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ProposalStatus | 'all'>('all');
+  
+  // Debounce search input for server-side filtering
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1); // Reset to page 1 on search change
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, perPage]);
+  
+  // Convert internal status to API format for server-side filtering
+  const getApiStatusFilter = useCallback((status: ProposalStatus | 'all'): string | undefined => {
+    if (status === 'all') return undefined;
+    // Use statusToApiFormat for all statuses (returns Portuguese text like "Rascunho", "Enviado", etc.)
+    return statusToApiFormat(status);
+  }, []);
+  
+  // Fetch proposals with pagination and filters
+  const { data, isLoading } = useProposals(currentPage, {
+    status: getApiStatusFilter(statusFilter),
+    search: debouncedSearch || undefined,
+    perPage,
+  });
+  
+  // Extract proposals and pagination from response (handle both formats for type safety)
+  const paginatedData = data && 'proposals' in data ? data : null;
+  const proposals = paginatedData?.proposals || [];
+  const pagination = paginatedData?.pagination || { currentPage: 1, lastPage: 1, total: 0 };
+  
   const updateStatusMutation = useUpdateProposalStatus();
   const deleteProposalMutation = useDeleteProposal();
   const trackEvent = useTrackEvent();
@@ -141,10 +193,6 @@ const SavedProposals: React.FC = () => {
   const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ProposalStatus | 'all'>('all');
 
   // Helper to get executive name from proposal with multiple fallbacks
   const getExecutiveName = (proposal: SavedProposal): string => {
@@ -158,62 +206,35 @@ const SavedProposals: React.FC = () => {
     return '—';
   };
 
-  // Filtered proposals
-  const filteredProposals = useMemo(() => {
-    return proposals.filter((p) => {
-      // Filter by status
-      if (statusFilter !== 'all') {
-        const proposalStatus = p.status || 'DRAFT'; // Default to DRAFT
-        if (proposalStatus !== statusFilter) return false;
-      }
-      
-      // Filter by search query (client name, company, ID, or executive name)
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const clientName = (p.client?.name || '').toLowerCase();
-        const companyName = (p.client?.company || '').toLowerCase();
-        const proposalId = (p.proposal?.id || '').toLowerCase();
-        const executiveName = getExecutiveName(p).toLowerCase();
-        
-        // Include executive name in search when user can see it
-        const matchesExecutive = canSeeExecutive && executiveName.includes(query);
-        
-        if (!clientName.includes(query) && !companyName.includes(query) && !proposalId.includes(query) && !matchesExecutive) {
-          return false;
-        }
-      }
-      
-      return true;
-    });
-  }, [proposals, statusFilter, searchQuery, canSeeExecutive]);
+  // With server-side filtering, we use proposals directly (already filtered by API)
+  const filteredProposals = proposals;
 
-  const handleDownloadPDF = (proposal: SavedProposal) => {
-    // Check if we have a valid result to generate PDF
-    const hasValidResult = proposal.result && 
-      proposal.result.rows && 
-      proposal.result.rows.length > 0;
+  const handleDownloadPDF = async (proposal: SavedProposal) => {
+    // CRITICAL: Always use numeric ID (proposal.id), never display ID (proposal.proposal?.id = "OPEN-xxxx")
+    const numericId = proposal.id;
+    const displayId = proposal.proposal?.id || '';
     
-    if (!hasValidResult) {
-      toast({ title: 'Erro', description: 'Dados da proposta incompletos para gerar PDF', variant: 'destructive' });
+    if (!numericId) {
+      console.error('[SavedProposals] No numeric ID available for PDF download:', { displayId });
+      toast({ title: 'Erro', description: 'ID numérico da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
-    const proposalId = proposal.proposal?.id || '';
+    console.log('[SavedProposals] Download PDF using numeric ID:', numericId, '(display:', displayId, ')');
     
-    // Track PDF download
-    if (proposalId) {
-      trackEvent.mutate({ proposalId, type: 'pdf_download', channel: 'ui' });
+    // Track PDF download using display ID for analytics
+    if (displayId) {
+      trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
     }
     
-    generateOpenPDF({
-      client: proposal.client,
-      proposal: proposal.proposal,
-      result: proposal.result,
-      selectedTerm: proposal.selectedTerm,
-      datacenter: proposal.datacenter || 'SP1',
-      observacao: proposal.observacao,
-    });
-    toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
+    const result = await downloadProposalPdfFromApi(numericId);
+    
+    if (result.success) {
+      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+    } else {
+      toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+    }
   };
 
   // State for Safari fallback modal
@@ -716,9 +737,82 @@ const SavedProposals: React.FC = () => {
             )}
           </div>
 
-          {filteredProposals.length > 0 && (
-            <div className="text-center mt-6 text-muted-foreground">
-              {filteredProposals.length} de {proposals.length} {proposals.length === 1 ? 'proposta' : 'propostas'}
+          {/* Pagination Controls */}
+          {pagination.total > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
+              {/* Items per page selector */}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Exibir</span>
+                <Select 
+                  value={String(perPage)} 
+                  onValueChange={(value) => setPerPage(Number(value))}
+                >
+                  <SelectTrigger className="w-[70px] h-8 bg-card">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="15">15</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span>por página</span>
+              </div>
+              
+              {/* Page info and navigation */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Página {pagination.currentPage} de {pagination.lastPage} ({pagination.total} {pagination.total === 1 ? 'proposta' : 'propostas'})
+                </span>
+                
+                <div className="flex items-center gap-1">
+                  {/* First page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={pagination.currentPage <= 1 || isLoading}
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Previous page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={pagination.currentPage <= 1 || isLoading}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Next page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(p => Math.min(pagination.lastPage, p + 1))}
+                    disabled={pagination.currentPage >= pagination.lastPage || isLoading}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Last page */}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(pagination.lastPage)}
+                    disabled={pagination.currentPage >= pagination.lastPage || isLoading}
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </div>

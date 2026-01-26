@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, MapPin, Building2, Clock, Briefcase, ExternalLink, Calendar } from 'lucide-react';
+import { ArrowLeft, MapPin, Building2, Clock, Briefcase, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Job } from '@/types/job';
 import { jobsService } from '@/services/jobsService';
 import OpenLogo from '@/components/OpenLogo';
+import { JobApplicationForm } from '@/components/jobs/JobApplicationForm';
 
 export default function VagaDetalhe() {
   const { slug } = useParams<{ slug: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     loadJob();
@@ -161,11 +163,34 @@ export default function VagaDetalhe() {
                 </div>
               </div>
             )}
+
+            {/* Application Form - Mobile */}
+            <div className="lg:hidden pt-6 border-t border-border">
+              <button
+                onClick={() => setShowForm(!showForm)}
+                className="flex items-center justify-between w-full text-lg font-semibold text-foreground mb-4"
+              >
+                <span>Candidatar-se</span>
+                {showForm ? (
+                  <ChevronUp className="h-5 w-5" />
+                ) : (
+                  <ChevronDown className="h-5 w-5" />
+                )}
+              </button>
+              {showForm && (
+                <JobApplicationForm
+                  jobId={job.id}
+                  jobSlug={job.slug}
+                  jobTitle={job.titlePt}
+                />
+              )}
+            </div>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
-            <div className="p-6 rounded-lg border border-border bg-card sticky top-6">
+            {/* Job Details Card */}
+            <div className="p-6 rounded-lg border border-border bg-card">
               <div className="space-y-4 mb-6">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Função</span>
@@ -190,13 +215,16 @@ export default function VagaDetalhe() {
                   </div>
                 )}
               </div>
+            </div>
 
-              <Button asChild className="w-full" size="lg">
-                <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Candidatar-se
-                </a>
-              </Button>
+            {/* Application Form Card - Desktop */}
+            <div className="hidden lg:block p-6 rounded-lg border border-border bg-card sticky top-6">
+              <h3 className="text-lg font-semibold text-foreground mb-4">Candidatar-se</h3>
+              <JobApplicationForm
+                jobId={job.id}
+                jobSlug={job.slug}
+                jobTitle={job.titlePt}
+              />
             </div>
           </div>
         </div>

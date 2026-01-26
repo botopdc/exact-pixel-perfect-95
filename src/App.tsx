@@ -22,6 +22,7 @@ import Calculadora from '@/pages/Calculadora';
 import PropostaView from '@/pages/PropostaView';
 import PropostaAceite from '@/pages/PropostaAceite';
 import PropostaAprovar from '@/pages/PropostaAprovar';
+import PropostaPdfPublic from '@/pages/PropostaPdfPublic';
 import Propostas from '@/pages/Propostas';
 import Precos from '@/pages/Precos';
 import Artigos from '@/pages/Artigos';
@@ -84,6 +85,7 @@ import EstruturaPage from '@/pages/modules/gente/EstruturaPage';
 import MetasInternasPage from '@/pages/modules/gente/MetasInternasPage';
 import AvaliacoesPage from '@/pages/modules/gente/AvaliacoesPage';
 import AcademyPage from '@/pages/modules/gente/AcademyPage';
+import VagasPage from '@/pages/modules/gente/VagasPage';
 
 // Academy Pages (external users)
 import AcademyLogin from '@/pages/academy/AcademyLogin';
@@ -115,6 +117,14 @@ import InternalTicketDetailPage from '@/pages/modules/atendimento-interno/Intern
 import SupportQueuePage from '@/pages/modules/atendimento-interno/SupportQueuePage';
 import AnalistasPage from '@/pages/modules/atendimento-interno/AnalistasPage';
 
+// Support Tickets Module (Client-facing)
+import SupportTicketQueuePage from '@/pages/modules/atendimentos/SupportQueuePage';
+import SupportTicketDetailPage from '@/pages/modules/atendimentos/SupportTicketDetailPage';
+import MeusTicketsPage from '@/pages/modules/atendimentos/MeusTicketsPage';
+import AnalistasSuportePage from '@/pages/modules/atendimentos/AnalistasSuportePage';
+import SLAPoliciesPage from '@/pages/modules/atendimentos/SLAPoliciesPage';
+import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
+
 // Birth Certificate (Certidão de Nascimento) Pages
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
 import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
@@ -140,6 +150,7 @@ const App = () => (
           <Route path="/proposta/:id" element={<PropostaView />} />
           <Route path="/proposta/:id/aceite" element={<PropostaAceite />} />
           <Route path="/proposta/aprovar" element={<PropostaAprovar />} />
+          <Route path="/proposta/pdf" element={<PropostaPdfPublic />} />
           
           {/* Public job routes */}
           <Route path="/vagas" element={<VagasPublic />} />
@@ -196,6 +207,8 @@ const App = () => (
             <Route path="/modulos/comercial/gestao-executivos" element={<GestaoExecutivos />} />
             <Route path="/modulos/comercial/propostas" element={<PropostasExecutivos />} />
             <Route path="/modulos/comercial/propostas/criar" element={<Calculadora />} />
+            {/* Rota de edição: /modulos/comercial/propostas/:id redireciona para calculadora com params */}
+            <Route path="/modulos/comercial/propostas/:id" element={<PropostaView />} />
             <Route path="/modulos/comercial/propostas/templates" element={<PropostasTemplatesPage />} />
             <Route path="/modulos/comercial/propostas/aprovacoes" element={<PropostasAprovacoesPage />} />
             <Route path="/modulos/comercial/metas" element={<MetasComerciais />} />
@@ -219,11 +232,19 @@ const App = () => (
             <Route path="/modulos/atendimentos/interno/novo" element={<CreateInternalTicketPage />} />
             <Route path="/modulos/atendimentos/interno/:id" element={<InternalTicketDetailPage />} />
             
-            {/* Analistas (Gestão do time de suporte - 950+) */}
+            {/* Analistas (Gestão do time de suporte interno - 950+) */}
             <Route path="/modulos/atendimentos/analistas" element={<AnalistasPage />} />
             
-            {/* Support Queue (Fila de Suporte - para técnicos 900+) */}
+            {/* Support Queue Interno (Fila de Suporte - para técnicos 900+) */}
             <Route path="/modulos/atendimentos/suporte" element={<SupportQueuePage />} />
+            
+            {/* Support Tickets (Chamados de Clientes - 900/1000) */}
+            <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
+            <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
+            <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
+            <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
+            <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />
+            <Route path="/modulos/atendimentos/relatorios" element={<TicketReportsPage />} />
 
             {/* Suporte Técnico (Centro de Operações) - Wrapped with Error Boundary */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />
@@ -270,7 +291,7 @@ const App = () => (
             
             {/* Gente & Gestão Module */}
             <Route path="/modulos/gente" element={<GenteModuleHome />} />
-            <Route path="/modulos/gente/vagas" element={<VagasRH />} />
+            <Route path="/modulos/gente/vagas" element={<VagasPage />} />
             <Route path="/modulos/gente/vagas/nova" element={<JobForm />} />
             <Route path="/modulos/gente/vagas/:id" element={<VagaDetalhe />} />
             <Route path="/modulos/gente/vagas/:id/editar" element={<JobForm isEdit />} />

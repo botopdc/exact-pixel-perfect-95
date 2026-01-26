@@ -201,11 +201,39 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: 'ATENDIMENTOS',
     items: [
       {
-        id: 'atendimentos-suporte',
-        title: 'Suporte',
-        url: '/modulos/atendimentos/suporte',
+        id: 'chamados-fila',
+        title: 'Visão Geral',
+        url: '/modulos/atendimentos/chamados',
         icon: Wrench,
         allowedLevels: [900, 950, 1000],
+      },
+      {
+        id: 'meus-chamados',
+        title: 'Meus Chamados',
+        url: '/modulos/atendimentos/meus-chamados',
+        icon: Wrench,
+        allowedLevels: [900, 950, 1000],
+      },
+      {
+        id: 'analistas-suporte',
+        title: 'Analistas',
+        url: '/modulos/atendimentos/analistas-suporte',
+        icon: Users,
+        allowedLevels: [900, 950, 1000],
+      },
+      {
+        id: 'chamados-slas',
+        title: 'SLAs',
+        url: '/modulos/atendimentos/slas',
+        icon: Shield,
+        allowedLevels: [1000], // Admin only
+      },
+      {
+        id: 'chamados-relatorios',
+        title: 'Relatórios',
+        url: '/modulos/atendimentos/relatorios',
+        icon: BarChart3,
+        allowedLevels: [1000], // Admin only
       },
       {
         id: 'atendimentos-cs',

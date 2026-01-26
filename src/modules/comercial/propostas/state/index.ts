@@ -47,6 +47,8 @@ export {
   serializeProposal,
   stateToLegacyFormat,
   type ApiProposalPayload,
+  type ApiAddonPayload,
+  type ApiServerPayload,
 } from './proposalMappers';
 
 export {
