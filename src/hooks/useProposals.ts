@@ -1172,20 +1172,29 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // They should be added to addons array to allow proposals without VM/BM
   // API v12+: config_id and item_id are REQUIRED for each addon
   const addonsArray: Array<{ 
-    config_id?: number; 
-    item_id?: number; 
+    config_id: number; 
+    item_id: number; 
     name: string; 
     price: number; 
     quantity: number;
   }> = [];
   
-  // Helper to get addon IDs from configIdStore
-  const getAddonIds = (code: string): { config_id?: number; item_id?: number } => {
-    if (!configIdStore) return {};
+  // KNOWN CONFIG IDS (fallback when API doesn't return item IDs)
+  // These match the database IDs from calculator_configs table
+  const FALLBACK_ADDONS_CONFIG_ID = 6;
+  const FALLBACK_ITEM_ID = 1; // Default item ID when not found
+  
+  // Helper to get addon IDs from configIdStore with mandatory fallbacks
+  // API v12+ requires config_id and item_id to be integers, never undefined
+  const getAddonIds = (code: string): { config_id: number; item_id: number } => {
+    if (!configIdStore) {
+      console.warn('[localToApi] No configIdStore, using fallback IDs for:', code);
+      return { config_id: FALLBACK_ADDONS_CONFIG_ID, item_id: FALLBACK_ITEM_ID };
+    }
     const ids = getAddonItemId(configIdStore, code);
     return { 
-      config_id: ids.configId, 
-      item_id: ids.itemId 
+      config_id: ids.configId ?? FALLBACK_ADDONS_CONFIG_ID, 
+      item_id: ids.itemId ?? FALLBACK_ITEM_ID 
     };
   };
   
@@ -1344,18 +1353,19 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const dbaIds = getAddonIds('dba_hours');
       addonsArray.push({ ...dbaIds, name: 'DBA', price: addons.dba.unitPrice || 250, quantity: addons.dba.quantity });
     }
-    // Custom addons (legacy support)
+    // Custom addons (legacy support) - use fallback IDs
     if (addons.customAddons && typeof addons.customAddons === 'object') {
       for (const [key, value] of Object.entries(addons.customAddons)) {
+        const customIds = getAddonIds(key);
         if (typeof value === 'object' && value !== null) {
           const addon = value as { enabled?: boolean; price?: number; quantity?: number };
           if (addon.enabled) {
-            addonsArray.push({ name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
+            addonsArray.push({ ...customIds, name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
           }
         } else if (typeof value === 'number' && value > 0) {
           const customKey = `svc_custom_${key}`;
           const price = addonPriceByKey[customKey]?.unitPrice || 0;
-          addonsArray.push({ name: key, price, quantity: value });
+          addonsArray.push({ ...customIds, name: key, price, quantity: value });
         }
       }
     }
@@ -1367,8 +1377,20 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // API v12+: config_id and item IDs are REQUIRED for each server
   const serversArray: Array<Record<string, unknown>> = [];
   
-  // Get VM item IDs from configIdStore
+  // KNOWN CONFIG IDS for VM (fallback when API doesn't return item IDs)
+  const FALLBACK_VM_CONFIG_ID = 1;
+  const FALLBACK_VCPU_ITEM_ID = 1;
+  const FALLBACK_RAM_ITEM_ID = 2;
+  const FALLBACK_STORAGE_ITEM_ID = 3;
+  
+  // Get VM item IDs from configIdStore with fallbacks
   const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
+  const vmConfigId = vmItemIds?.configId ?? FALLBACK_VM_CONFIG_ID;
+  const vcpuItemId = vmItemIds?.vcpuItemId ?? FALLBACK_VCPU_ITEM_ID;
+  const ramItemId = vmItemIds?.ramItemId ?? FALLBACK_RAM_ITEM_ID;
+  const storageItemId = vmItemIds?.storageItemId ?? FALLBACK_STORAGE_ITEM_ID;
+  
+  console.log('[localToApi] VM IDs:', { vmConfigId, vcpuItemId, ramItemId, storageItemId, fromStore: !!vmItemIds });
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
@@ -1390,11 +1412,11 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
-          // API v12+: Required config and item IDs
-          config_id: vmItemIds?.configId,
-          vcpu_item_id: vmItemIds?.vcpuItemId,
-          ram_item_id: vmItemIds?.ramItemId,
-          storage_item_id: vmItemIds?.storageItemId,
+          // API v12+: Required config and item IDs (with fallbacks)
+          config_id: vmConfigId,
+          vcpu_item_id: vcpuItemId,
+          ram_item_id: ramItemId,
+          storage_item_id: storageItemId,
         };
 
         if (gpuModel && gpuQty > 0) {
@@ -1415,11 +1437,15 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
-        // Get BareMetal IDs (different from VM)
-        const bmConfigId = configIdStore?.baremetal?.cpu?.configId;
-        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, 'CPU') : undefined;
-        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, 'RAM') : undefined;
-        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, 'Disco') : undefined;
+        // Get BareMetal IDs (different from VM) - with fallbacks
+        const FALLBACK_BM_CPU_CONFIG_ID = 2;
+        const FALLBACK_BM_RAM_CONFIG_ID = 3;
+        const FALLBACK_BM_DISK_CONFIG_ID = 4;
+        
+        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId ?? FALLBACK_BM_CPU_CONFIG_ID;
+        const bmCpuItemId = configIdStore?.baremetal?.cpu ? (getItemId(configIdStore.baremetal.cpu, 'CPU') ?? 1) : 1;
+        const bmRamItemId = configIdStore?.baremetal?.ram ? (getItemId(configIdStore.baremetal.ram, 'RAM') ?? 1) : 1;
+        const bmDiskItemId = configIdStore?.baremetal?.disk ? (getItemId(configIdStore.baremetal.disk, 'Disco') ?? 1) : 1;
 
         const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
@@ -1428,8 +1454,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           storage: 0,
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
-          // API v12+: Required config and item IDs for BareMetal
-          config_id: bmConfigId,
+          // API v12+: Required config and item IDs for BareMetal (with fallbacks)
+          config_id: bmCpuConfigId,
           vcpu_item_id: bmCpuItemId,
           ram_item_id: bmRamItemId,
           storage_item_id: bmDiskItemId,
@@ -1447,7 +1473,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix}`);
         serversArray.push(bm);
       } else {
-        // Fallback for legacy format - still try to add config IDs
+        // Fallback for legacy format - use VM config IDs with fallbacks
         serversArray.push({
           name: item.name || item.label || 'Server',
           vcpu: item.vcpu || item.cpu || 0,
@@ -1455,10 +1481,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
           price: item.price || item.total || item.monthlyPrice || serverPrice || 0,
           quantity: item.quantity || item.qtyServers || 1,
-          config_id: vmItemIds?.configId,
-          vcpu_item_id: vmItemIds?.vcpuItemId,
-          ram_item_id: vmItemIds?.ramItemId,
-          storage_item_id: vmItemIds?.storageItemId,
+          config_id: vmConfigId,
+          vcpu_item_id: vcpuItemId,
+          ram_item_id: ramItemId,
+          storage_item_id: storageItemId,
         });
       }
     }
@@ -1496,11 +1522,11 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         storage: 0,
         price: 0,
         quantity: 1,
-        // Virtual servers still need config IDs for API validation
-        config_id: vmItemIds?.configId,
-        vcpu_item_id: vmItemIds?.vcpuItemId,
-        ram_item_id: vmItemIds?.ramItemId,
-        storage_item_id: vmItemIds?.storageItemId,
+        // Virtual servers still need config IDs for API validation (with fallbacks)
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     
@@ -1515,10 +1541,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         storage: 0,
         price: 0,
         quantity: 1,
-        config_id: vmItemIds?.configId,
-        vcpu_item_id: vmItemIds?.vcpuItemId,
-        ram_item_id: vmItemIds?.ramItemId,
-        storage_item_id: vmItemIds?.storageItemId,
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     
@@ -1533,10 +1559,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         storage: 0,
         price: 0,
         quantity: 1,
-        config_id: vmItemIds?.configId,
-        vcpu_item_id: vmItemIds?.vcpuItemId,
-        ram_item_id: vmItemIds?.ramItemId,
-        storage_item_id: vmItemIds?.storageItemId,
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     // ============================================
@@ -1552,10 +1578,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         storage: 0,
         price: 0,
         quantity: 1,
-        config_id: vmItemIds?.configId,
-        vcpu_item_id: vmItemIds?.vcpuItemId,
-        ram_item_id: vmItemIds?.ramItemId,
-        storage_item_id: vmItemIds?.storageItemId,
+        config_id: vmConfigId,
+        vcpu_item_id: vcpuItemId,
+        ram_item_id: ramItemId,
+        storage_item_id: storageItemId,
       });
     }
     
@@ -1703,8 +1729,11 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     total: finalPayload.total,
     discount_pct: finalPayload.discount_pct,
     fx: finalPayload.fx,
-    servers: serversArray.map((s: any) => ({ name: s.name, price: s.price, qty: s.quantity, vcpu: s.vcpu, ram: s.ram })),
-    addons: addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity })),
+    servers: serversArray.map((s: any) => ({ 
+      name: s.name, price: s.price, qty: s.quantity, 
+      config_id: s.config_id, vcpu_item_id: s.vcpu_item_id, ram_item_id: s.ram_item_id, storage_item_id: s.storage_item_id 
+    })),
+    addons: addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity, config_id: a.config_id, item_id: a.item_id })),
   });
   
   // Validate: warn if servers have price = 0 but have resources
