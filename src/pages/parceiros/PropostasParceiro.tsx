@@ -22,7 +22,7 @@ import {
 } from '@/hooks/usePartnerProposals';
 import { partnerAuthService } from '@/services/partnersService';
 import { formatCurrencyBRL } from '@/lib/calculatorConfig';
-import { downloadProposalPdf } from '@/services/proposalPdfService';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { ROUTES } from '@/config/routes';
 import { openApi } from '@/lib/openApi';
 import { apiToLocal } from '@/hooks/useProposals';
@@ -167,17 +167,19 @@ export default function PropostasParceiro() {
   };
 
   const handleDownloadPDF = async (proposal: PartnerProposal) => {
-    const proposalId = proposal.api_id ? String(proposal.api_id) : '';
-    if (!proposalId) {
+    // Use numeric api_id for API calls
+    const numericId = proposal.api_id;
+    if (!numericId) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
       return;
     }
 
-    const result = await downloadProposalPdf(proposalId);
+    // Use downloadProposalPdfFromApi which prioritizes API download with file_access_token
+    const result = await downloadProposalPdfFromApi(numericId);
     if (result.success) {
-      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+      toast({ title: 'PDF baixado', description: 'O download do PDF foi iniciado' });
     } else {
-      toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+      toast({ title: 'Erro', description: result.error || 'Erro ao baixar PDF', variant: 'destructive' });
     }
   };
 

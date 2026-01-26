@@ -314,17 +314,22 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
 }
 
 /**
- * Fetch proposal from API (public endpoint) and generate PDF
+ * Download proposal PDF from API using file_access_token
  * Used for public access via email link with token
  * 
- * Note: Token validation is done by the backend when we call getProposalPublic
- * For PDF access via email, we use a simple file_access_token parameter
+ * Flow:
+ * 1. Use the file_access_token provided in the URL
+ * 2. Call GET /calculator/proposal/{id}/file/download?token={file_access_token}
+ * 3. API returns the stored PDF file
+ * 
+ * This is the ONLY method for public PDF access - no fallback to local generation
+ * since public users should only access officially saved PDFs.
  */
 export async function downloadProposalPdfPublic(
   proposalId: string | number, 
   fileAccessToken: string
 ): Promise<PdfGenerationResult> {
-  // Extract numeric ID (same logic as internal)
+  // Extract numeric ID
   const numericId = extractNumericId(proposalId);
   
   if (numericId === null) {
@@ -335,114 +340,53 @@ export async function downloadProposalPdfPublic(
     };
   }
   
-  console.log('[proposalPdfService] Public PDF download:', numericId, '(original:', proposalId, ')');
+  if (!fileAccessToken) {
+    console.error('[proposalPdfService] Public: Missing file_access_token');
+    return { 
+      success: false, 
+      error: 'Token de acesso não fornecido' 
+    };
+  }
+  
+  console.log('[proposalPdfService] Public PDF download via API:', numericId, '(token:', fileAccessToken.substring(0, 8) + '...)');
   
   try {
-    // 1. Fetch proposal using public endpoint
-    // The public endpoint doesn't require auth but we validate token matches
-    const apiProposal = await getProposalPublic(String(numericId));
+    // Download file directly from API using the file_access_token
+    const blob = await openApi.downloadProposalFile(numericId, fileAccessToken);
     
-    if (!apiProposal) {
-      return { success: false, error: 'Proposta não encontrada' };
-    }
-    
-    // 2. Validate file_access_token if API provides one
-    // For now, we trust that if the proposal loads, access is valid
-    // The token in URL serves as a basic access control
-    const proposalUuid = apiProposal.uuid || '';
-    
-    // Simple validation: token should match proposal UUID or be a valid hash
-    // This prevents random guessing of proposal IDs
-    if (!fileAccessToken || (fileAccessToken !== proposalUuid && fileAccessToken.length < 8)) {
-      console.warn('[proposalPdfService] Invalid file access token');
-      return { success: false, error: 'Link de acesso inválido' };
-    }
-    
-    console.log('[proposalPdfService] Public API response:', {
-      id: apiProposal.id,
-      total: apiProposal.total,
-    });
-    
-    // 3. Extract and build result (same as internal) with fallback support
-    let dadosProposta = apiProposal.dados_proposta as any;
-    
-    // CRITICAL FIX: If dados_proposta is empty but API has servers/addons, build from those
-    const canUseDadosProposta = canBuildResult(dadosProposta);
-    const apiHasServers = Array.isArray((apiProposal as any).servers) && (apiProposal as any).servers.length > 0;
-    const apiHasAddons = Array.isArray((apiProposal as any).addons) && (apiProposal as any).addons.length > 0;
-    
-    if (!canUseDadosProposta && (apiHasServers || apiHasAddons || (apiProposal.total && apiProposal.total > 0))) {
-      console.log('[proposalPdfService] Public: dados_proposta empty, reconstructing from API fields...');
-      dadosProposta = buildDadosPropostaFromApiFields(apiProposal);
-    }
-    
-    let result = dadosProposta?.result;
-    
-    if (!result && canBuildResult(dadosProposta)) {
-      console.log('[proposalPdfService] Building result from snapshot (public)...');
-      result = buildResultFromSnapshot(
-        dadosProposta,
-        apiProposal.total || 0,
-        apiProposal.contract_duration || 12
-      );
-    }
-    
-    // ULTIMATE FALLBACK: Build minimal result if we have total but no items
-    if ((!result || !result.rows || result.rows.length === 0) && apiProposal.total && apiProposal.total > 0) {
-      console.log('[proposalPdfService] Public: Using fallback minimal result');
-      result = buildMinimalResultFromTotal(apiProposal);
-    }
-    
-    if (!result || !result.rows || result.rows.length === 0) {
+    if (!blob || blob.size === 0) {
+      console.error('[proposalPdfService] Public: Empty blob received from API');
       return { 
         success: false, 
-        error: 'Dados da proposta insuficientes para gerar PDF (PDF_ERR_NO_DATA)' 
+        error: 'Arquivo PDF não encontrado. O PDF pode ainda não ter sido gerado.' 
       };
     }
     
-    // 4. Prepare client info
-    const client = dadosProposta?.client || {
-      name: apiProposal.name,
-      company: apiProposal.company,
-      email: apiProposal.email,
-      phone: apiProposal.phone,
-    };
+    // Create download link
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `OPEN_proposta_${numericId}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
     
-    // 5. Prepare proposal meta
-    const proposalMeta = dadosProposta?.proposal || {
-      id: apiProposal.uuid || String(apiProposal.id),
-      createdAt: apiProposal.created_at,
-      validityDays: 30,
-    };
-    
-    // 6. Generate PDF (no attachments for public access to reduce API calls)
-    await generateOpenPDF({
-      client,
-      proposal: proposalMeta,
-      result,
-      selectedTerm: String(apiProposal.contract_duration || 12),
-      datacenter: apiProposal.datacenter || 'SP1',
-      observacao: dadosProposta?.observacao || apiProposal.observations,
-      // No attachments for public to avoid auth issues
-      attachments: [],
-      // No reseller info for public (confidential)
-      reseller: undefined,
-      includeCommission: false,
-    });
-    
-    console.log('[proposalPdfService] Public PDF generated successfully');
+    console.log('[proposalPdfService] Public PDF downloaded from API successfully');
     return { success: true };
     
   } catch (error: any) {
-    console.error('[proposalPdfService] Public PDF error:', error);
+    console.error('[proposalPdfService] Public PDF download error:', error);
     
     if (error.response?.status === 404) {
-      return { success: false, error: 'Proposta não encontrada' };
+      return { success: false, error: 'Proposta não encontrada ou PDF não disponível' };
+    }
+    
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      return { success: false, error: 'Token de acesso inválido ou expirado' };
     }
     
     return { 
       success: false, 
-      error: 'Erro ao gerar PDF. Link inválido ou expirado.' 
+      error: 'Erro ao baixar PDF. Link inválido ou expirado.' 
     };
   }
 }
