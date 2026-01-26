@@ -86,6 +86,15 @@ function getStatusBadge(status: ProposalStatus | undefined) {
           <TooltipContent>Proposta expirada - validade vencida</TooltipContent>
         </Tooltip>
       );
+    case 'CANCELLED':
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-gray-500/20 text-gray-600 border-gray-500/30 hover:bg-gray-500/30 font-medium text-xs px-2">Cancelado</Badge>
+          </TooltipTrigger>
+          <TooltipContent>Proposta cancelada</TooltipContent>
+        </Tooltip>
+      );
     default:
       return (
         <Tooltip>
@@ -107,6 +116,8 @@ function getIdColorClass(status: ProposalStatus | undefined): string {
       return 'text-red-600';
     case 'EXPIRED':
       return 'text-orange-600';
+    case 'CANCELLED':
+      return 'text-gray-600';
     default:
       return 'text-primary';
   }

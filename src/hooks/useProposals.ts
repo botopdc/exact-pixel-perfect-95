@@ -25,15 +25,16 @@ import {
 } from '@/services/configIdsService';
 import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 
-// Proposal status type - STANDARDIZED to 5 canonical values
-// DRAFT = Initial state when created
-// SENT = Proposal sent to client
-// APPROVED = Client accepted the proposal
-// REJECTED = Client rejected the proposal
-// EXPIRED = Proposal validity has passed
-export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+// Proposal status type - STANDARDIZED to 6 canonical values matching API
+// DRAFT = Initial state when created (API: Rascunho)
+// SENT = Proposal sent to client (API: Enviado)
+// APPROVED = Client accepted the proposal (API: Aprovado)
+// REJECTED = Client rejected the proposal (API: Recusado)
+// EXPIRED = Proposal validity has passed (API: Expirado)
+// CANCELLED = Proposal was cancelled (API: Cancelado)
+export type ProposalStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
 
-// Status mapping - API returns readable Portuguese text now
+// Status mapping - API returns readable Portuguese text
 // Maps API status values to internal ProposalStatus type
 const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
   '': 'DRAFT',
@@ -43,6 +44,7 @@ const LEGACY_STATUS_MAP: Record<string, ProposalStatus> = {
   'Aprovado': 'APPROVED',
   'Recusado': 'REJECTED',
   'Expirado': 'EXPIRED',
+  'Cancelado': 'CANCELLED',
   // Legacy formats for backward compatibility
   'S': 'DRAFT',
   'E': 'SENT',
@@ -59,11 +61,14 @@ const STATUS_TO_API_MAP: Record<ProposalStatus, string> = {
   'APPROVED': 'Aprovado',
   'REJECTED': 'Recusado',
   'EXPIRED': 'Expirado',
+  'CANCELLED': 'Cancelado',
 };
 
 // Convert internal ProposalStatus to API format for updates
-export function statusToApiFormat(status: ProposalStatus): string {
-  return STATUS_TO_API_MAP[status] || '';
+// Returns 'Rascunho' as default if status is undefined or not mapped
+export function statusToApiFormat(status: ProposalStatus | undefined | null): string {
+  if (!status) return 'Rascunho';
+  return STATUS_TO_API_MAP[status] || 'Rascunho';
 }
 
 // Normalize any status value to canonical ProposalStatus
@@ -72,7 +77,7 @@ export function normalizeStatus(rawStatus: string | undefined | null): ProposalS
   const normalized = LEGACY_STATUS_MAP[rawStatus];
   if (normalized) return normalized;
   // If it's already a valid canonical status, return it
-  if (['DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'].includes(rawStatus)) {
+  if (['DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED'].includes(rawStatus)) {
     return rawStatus as ProposalStatus;
   }
   // Default to DRAFT for unknown values
@@ -1677,7 +1682,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     observacao: proposal.observacao,
     
     // Status fields (persisted in dados_proposta as fallback)
-    status: proposal.status || '',
+    // Store in API format for consistency
+    status: statusToApiFormat(proposal.status as ProposalStatus) || 'Rascunho',
     acceptance: proposal.acceptance,
   };
   
@@ -1708,9 +1714,9 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     servers: serversArray, // Always an array, even if empty []
     due_at: dueAt.toISOString(),
     // STATUS FIELDS - persisted at API level for proper filtering
-    // status is the CANONICAL source of truth: 'DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED'
-    proposal_status: proposal.status || 'DRAFT',
-    status: proposal.status || 'DRAFT',
+    // API expects Portuguese readable status: 'Rascunho', 'Enviado', 'Aprovado', 'Recusado', 'Expirado', 'Cancelado'
+    // Convert internal status to API format (statusToApiFormat already handles undefined → 'Rascunho')
+    status: statusToApiFormat(proposal.status),
     // Only set status_sent_at on first send transition
     status_sent_at: proposal.acceptance?.acceptedAt 
       ? undefined 
