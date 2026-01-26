@@ -359,15 +359,16 @@ const PropostaAprovar: React.FC = () => {
   const handleDownloadPDF = async () => {
     if (!proposal) return;
     
-    // Use the approvalToken from URL to download PDF from API
-    // The token (uuid) serves as file_access_token
-    const fileToken = approvalToken || proposal.uuid || '';
+    // CRITICAL: Use the file_access_token from the proposal, NOT the approval token
+    // The approval token is ONLY for approving/rejecting proposals
+    // The file_access_token is ONLY for downloading the proposal file
+    const fileToken = proposal.file_access_token;
     const numericId = proposal.id;
     
     if (!numericId || !fileToken) {
       toast({ 
         title: 'PDF indisponível', 
-        description: 'Token de acesso não encontrado. Entre em contato com o comercial.',
+        description: 'Arquivo não disponível para download. Entre em contato com o comercial.',
         variant: 'destructive',
       });
       return;
