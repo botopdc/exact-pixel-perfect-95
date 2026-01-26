@@ -1853,6 +1853,7 @@ export function filterProposalsByOwnership(
 
 // Hook to fetch proposals for architects (level 690)
 // Fetches only proposals where the user is a participant with role=ARCHITECT
+// Returns paginated format for consistency with useProposals
 export function useArchitectProposals(page = 1) {
   const session = authService.getSession();
   const userId = session?.userId || null;
@@ -1862,7 +1863,10 @@ export function useArchitectProposals(page = 1) {
     queryFn: async () => {
       if (!userId) {
         console.warn('[useArchitectProposals] No userId available');
-        return [];
+        return {
+          proposals: [] as SavedProposal[],
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
+        };
       }
       
       const numericUserId = Number(userId);
@@ -1874,7 +1878,10 @@ export function useArchitectProposals(page = 1) {
         
         if (participations.length === 0) {
           console.log('[useArchitectProposals] No architect participations found for user:', numericUserId);
-          return [];
+          return {
+            proposals: [] as SavedProposal[],
+            pagination: { currentPage: 1, lastPage: 1, total: 0 },
+          };
         }
         
         // proposal_id in Supabase is stored as string of the numeric API ID
@@ -1899,10 +1906,16 @@ export function useArchitectProposals(page = 1) {
         
         console.log('[useArchitectProposals] Filtered proposals:', filtered.length, 'of', localProposals.length);
         
-        return filtered;
+        return {
+          proposals: filtered,
+          pagination: { currentPage: page, lastPage: 1, total: filtered.length },
+        };
       } catch (error) {
         console.warn('[useArchitectProposals] Error fetching proposals:', error);
-        return [];
+        return {
+          proposals: [] as SavedProposal[],
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
+        };
       }
     },
     staleTime: 0,
@@ -1921,6 +1934,7 @@ export function useArchitectProposals(page = 1) {
 export interface ProposalFilters {
   status?: string; // API format: 'Enviado', 'Approved', 'Rejected', ''
   search?: string; // __q parameter for text search
+  perPage?: number; // __perPage parameter for pagination
 }
 
 export function useProposals(page = 1, filters?: ProposalFilters) {
@@ -1933,7 +1947,7 @@ export function useProposals(page = 1, filters?: ProposalFilters) {
   const architectQuery = useArchitectProposals(page);
   
   const regularQuery = useQuery({
-    queryKey: ['proposals', 'api', 'executive', page, userLevel, userId, filters?.status, filters?.search],
+    queryKey: ['proposals', 'api', 'executive', page, userLevel, userId, filters?.status, filters?.search, filters?.perPage],
     queryFn: async () => {
       // Don't fetch for architects - they use the architect query
       if (userLevel === 690) {
@@ -1947,6 +1961,11 @@ export function useProposals(page = 1, filters?: ProposalFilters) {
           __page: page,
           // __order=id:DESC is now default in openApi.getProposals
         };
+        
+        // Add perPage if provided
+        if (filters?.perPage) {
+          params.__perPage = filters.perPage;
+        }
         
         // Add status filter if provided (not 'all')
         if (filters?.status && filters.status !== 'all') {
@@ -1979,12 +1998,23 @@ export function useProposals(page = 1, filters?: ProposalFilters) {
           userLevel,
           userId,
           filters,
+          pagination: { current: response.current_page, last: response.last_page, total: response.total },
         });
 
-        return filtered;
+        return {
+          proposals: filtered,
+          pagination: {
+            currentPage: response.current_page || page,
+            lastPage: response.last_page || 1,
+            total: response.total || 0,
+          },
+        };
       } catch (error) {
         console.warn('[Proposals] API fetch failed, returning empty:', error);
-        return [];
+        return {
+          proposals: [],
+          pagination: { currentPage: 1, lastPage: 1, total: 0 },
+        };
       }
     },
     // NO CACHE - Always fetch fresh data from API
@@ -1997,6 +2027,7 @@ export function useProposals(page = 1, filters?: ProposalFilters) {
   
   // Return architect query for level 690, regular query otherwise
   if (userLevel === 690) {
+    // Architect query already returns paginated format
     return architectQuery;
   }
   
@@ -2013,7 +2044,7 @@ export function useProposalsPaginated(page = 1, filters?: ProposalFilters) {
   const userId = session?.userId || null;
 
   return useQuery({
-    queryKey: ['proposals', 'api', 'executive', 'paginated', page, userLevel, userId, filters?.status, filters?.search],
+    queryKey: ['proposals', 'api', 'executive', 'paginated', page, userLevel, userId, filters?.status, filters?.search, filters?.perPage],
     queryFn: async () => {
       try {
         // Build params with server-side filters
@@ -2022,6 +2053,11 @@ export function useProposalsPaginated(page = 1, filters?: ProposalFilters) {
           __page: page,
           // __order=id:DESC is now default in openApi.getProposals
         };
+        
+        // Add perPage if provided
+        if (filters?.perPage) {
+          params.__perPage = filters.perPage;
+        }
         
         // Add status filter if provided (not 'all')
         if (filters?.status && filters.status !== 'all') {
