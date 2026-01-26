@@ -119,7 +119,7 @@ export function ProposalLinkCard({ link, assetId, customerId, onRefresh }: Propo
           <div>
             <p className="text-sm text-muted-foreground">Status</p>
             <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30">
-              {link.proposal_status || 'Aprovada'}
+              {link.proposal_status || 'Aprovado'}
             </Badge>
           </div>
           <div>

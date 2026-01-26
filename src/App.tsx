@@ -207,6 +207,8 @@ const App = () => (
             <Route path="/modulos/comercial/gestao-executivos" element={<GestaoExecutivos />} />
             <Route path="/modulos/comercial/propostas" element={<PropostasExecutivos />} />
             <Route path="/modulos/comercial/propostas/criar" element={<Calculadora />} />
+            {/* Rota de edição: /modulos/comercial/propostas/:id redireciona para calculadora com params */}
+            <Route path="/modulos/comercial/propostas/:id" element={<PropostaView />} />
             <Route path="/modulos/comercial/propostas/templates" element={<PropostasTemplatesPage />} />
             <Route path="/modulos/comercial/propostas/aprovacoes" element={<PropostasAprovacoesPage />} />
             <Route path="/modulos/comercial/metas" element={<MetasComerciais />} />
