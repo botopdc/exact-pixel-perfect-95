@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import { toast } from 'sonner';
+import { extractNumericId as extractId } from '@/lib/proposalIdUtils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
 const AUTH_TOKEN_KEY = 'open_access_token';
@@ -85,13 +86,16 @@ const handleAuthError = () => {
   }
 };
 
-// Extract numeric ID from proposal ID string (e.g., "PROP-32" -> 32, "OPEN-1234" -> 1234)
+/**
+ * Extract numeric ID from proposal ID string (e.g., "PROP-32" -> 32, "OPEN-1234" -> 1234)
+ * Uses centralized utility from proposalIdUtils
+ */
 const extractNumericId = (proposalId: string): number => {
-  const match = proposalId.match(/\d+/);
-  if (!match) {
+  const numericId = extractId(proposalId);
+  if (numericId === null) {
     throw new Error('ID de proposta inválido');
   }
-  return parseInt(match[0], 10);
+  return numericId;
 };
 
 /**

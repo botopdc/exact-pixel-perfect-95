@@ -14,6 +14,7 @@ import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBui
 import { getProposalPublic, CalculatorProposal } from '@/services/calculatorProposalService';
 import { listAttachments, NormalizedAttachment } from '@/services/attachmentsService';
 import { openApi } from '@/lib/openApi';
+import { extractNumericId } from '@/lib/proposalIdUtils';
 
 interface PdfGenerationResult {
   success: boolean;
@@ -152,33 +153,6 @@ function buildMinimalResultFromTotal(apiProposal: CalculatorProposal): any {
  * Fetch proposal from API and generate PDF
  * Used for internal (authenticated) access
  */
-/**
- * Extract numeric ID from various formats
- * Handles: 49, "49", "PROP-49", "OPEN-123", etc.
- */
-function extractNumericId(value: string | number): number | null {
-  // Already a number
-  if (typeof value === 'number' && !isNaN(value)) {
-    return value;
-  }
-  
-  const str = String(value).trim();
-  
-  // Pure numeric string
-  if (/^\d+$/.test(str)) {
-    return Number(str);
-  }
-  
-  // Extract number from prefixed format (PROP-49, OPEN-123, etc.)
-  const match = str.match(/\d+/);
-  if (match) {
-    const extracted = Number(match[0]);
-    console.warn('[proposalPdfService] Extracted numeric ID from prefixed format:', str, '→', extracted);
-    return extracted;
-  }
-  
-  return null;
-}
 
 export async function downloadProposalPdf(proposalId: string | number): Promise<PdfGenerationResult> {
   // CRITICAL: Extract and validate numeric ID
