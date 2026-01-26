@@ -78,7 +78,7 @@ export interface ApiOpdcJob {
   seniority: string | null;
   work_regime: string | null;
   contract_type: string | null;
-  benefits: Record<string, unknown> | string[] | null;
+  benefits: string | null; // JSON string from API
   salary_range: number | string | null;
   created_by: number | null;
   created_at: string;
@@ -102,7 +102,7 @@ export interface ApiOpdcJobStoreRequest {
   seniority?: string | null;
   work_regime?: string | null;
   contract_type?: string | null;
-  benefits?: Record<string, unknown> | string[] | null;
+  benefits?: string | null; // Must be JSON string
   salary_range?: number | null;
 }
 
@@ -123,7 +123,7 @@ export interface ApiOpdcJobUpdateRequest {
   seniority?: string | null;
   work_regime?: string | null;
   contract_type?: string | null;
-  benefits?: Record<string, unknown> | string[] | null;
+  benefits?: string | null; // Must be JSON string
   salary_range?: number | null;
 }
 
@@ -159,13 +159,21 @@ export interface JobFilters {
 
 // Mappers - API to Frontend
 export function mapApiJobToFrontend(apiJob: ApiOpdcJob): Job {
-  // Parse benefits
+  // Parse benefits from JSON string
   let benefits: string[] = [];
   if (apiJob.benefits) {
-    if (Array.isArray(apiJob.benefits)) {
-      benefits = apiJob.benefits.map(String);
-    } else if (typeof apiJob.benefits === 'object') {
-      benefits = Object.values(apiJob.benefits).map(String);
+    try {
+      if (typeof apiJob.benefits === 'string') {
+        const parsed = JSON.parse(apiJob.benefits);
+        if (Array.isArray(parsed)) {
+          benefits = parsed.map(String);
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          benefits = Object.values(parsed).map(String);
+        }
+      }
+    } catch {
+      // If JSON parse fails, treat as empty
+      benefits = [];
     }
   }
 
@@ -258,7 +266,7 @@ export function mapFrontendToApiStore(form: JobFormData): ApiOpdcJobStoreRequest
     seniority: form.seniority,
     work_regime: form.employmentType,
     contract_type: form.workModel,
-    benefits: form.benefits,
+    benefits: JSON.stringify(form.benefits || []),
     salary_range: form.salaryRange ? parseSalaryToNumber(form.salaryRange) : null,
   };
 }
@@ -282,7 +290,7 @@ export function mapFrontendToApiUpdate(form: Partial<JobFormData>): ApiOpdcJobUp
   if (form.seniority !== undefined) update.seniority = form.seniority;
   if (form.employmentType !== undefined) update.work_regime = form.employmentType;
   if (form.workModel !== undefined) update.contract_type = form.workModel;
-  if (form.benefits !== undefined) update.benefits = form.benefits;
+  if (form.benefits !== undefined) update.benefits = JSON.stringify(form.benefits || []);
   if (form.salaryRange !== undefined) update.salary_range = form.salaryRange ? parseSalaryToNumber(form.salaryRange) : null;
 
   return update;
