@@ -201,8 +201,14 @@ export const CONFIG_MAPPINGS = {
   KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Preços Base dos Planos' },
   KUBERNETES_ADDONS: { category: 'Kubernetes', section: 'Add-ons Kubernetes' },
   
-  // Backup pricing by retention (7/15/30 days)
-  BACKUP: { category: 'Backup', section: 'Tabela de Preços' },
+  // Backup pricing by retention (ID 15 - 7/15/30 days)
+  BACKUP: { category: 'Backup', section: 'Backup por Retenção' },
+  
+  // Serviços Especializados (ID 16)
+  SPECIALIZED_SERVICES: { category: 'Add-ons', section: 'Serviços Especializados' },
+  
+  // Windows Server (ID 17) - Note: Also duplicated in ADDONS (ID 6) for compatibility
+  WINDOWS_SERVER: { category: 'Add-ons', section: 'Windows Server' },
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;

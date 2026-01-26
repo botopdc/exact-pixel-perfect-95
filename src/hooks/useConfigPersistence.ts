@@ -347,7 +347,7 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     }
   }
 
-  // 14. Backup pricing table (7/15/30 days with volume ranges)
+  // 14. Backup pricing table (7/15/30 days with volume ranges) - ID 15
   if (config.backup_tables_brl_per_gb) {
     // Transform backup_tables_brl_per_gb to API format
     // Each retention period becomes an item with nested ranges
@@ -356,12 +356,14 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     for (const [retention, ranges] of Object.entries(config.backup_tables_brl_per_gb)) {
       // Create one config item per range in each retention period
       for (const range of ranges) {
+        // Use "_plus" suffix for unlimited ranges (max >= 999999)
+        const maxLabel = range.max >= 999999 ? 'plus' : String(range.max);
         backupItems.push({
-          label: `${retention}_dias_${range.min}_${range.max}`,
+          label: `${retention}_dias_${range.min}_${maxLabel}`,
           by: 'GB',
           type: 'BRL',
           value: Number(range.price) || 0,
-          description: `Retenção ${retention} dias, ${range.min}-${range.max} GB`,
+          description: `Retenção ${retention} dias, ${range.min}-${range.max >= 999999 ? '∞' : range.max} GB`,
         });
       }
     }
@@ -374,6 +376,33 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
         config: backupItems,
       });
     }
+  }
+
+  // 15. Serviços Especializados (ID 16)
+  const specializedItems: ConfigItem[] = [];
+  if (typeof config.addons_brl.support_basic === 'number') {
+    specializedItems.push({ label: 'support_basic', description: 'Suporte Básico', type: 'BRL', by: 'month', value: config.addons_brl.support_basic });
+  }
+  if (typeof config.addons_brl.support_intermediate === 'number') {
+    specializedItems.push({ label: 'support_intermediate', description: 'Suporte Intermediário', type: 'BRL', by: 'month', value: config.addons_brl.support_intermediate });
+  }
+  if (typeof config.addons_brl.support_advanced === 'number') {
+    specializedItems.push({ label: 'support_advanced', description: 'Suporte Avançado', type: 'BRL', by: 'month', value: config.addons_brl.support_advanced });
+  }
+  if (typeof config.addons_brl.consulting_hours === 'number') {
+    specializedItems.push({ label: 'consulting_hours', description: 'Consultoria Técnica', type: 'BRL', by: 'hour', value: config.addons_brl.consulting_hours });
+  }
+  if (typeof config.addons_brl.dba_hours === 'number') {
+    specializedItems.push({ label: 'dba_hours', description: 'DBA', type: 'BRL', by: 'hour', value: config.addons_brl.dba_hours });
+  }
+  
+  if (specializedItems.length > 0) {
+    payloads.push({
+      category: CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category,
+      section: CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section,
+      configKey: makeConfigKey(CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category, CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section),
+      config: specializedItems,
+    });
   }
 
   return payloads;
@@ -453,6 +482,7 @@ export function useConfigPersistence() {
     makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section),
     makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section),
     makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section),
+    makeConfigKey(CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category, CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section),
   ];
 
   // Helper to mark a section as modified
@@ -558,6 +588,12 @@ export function useConfigPersistence() {
   // Wrapper to update Backup and mark section modified
   const updateBackup = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
     const key = makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section);
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
+
+  // Wrapper to update Serviços Especializados and mark section modified
+  const updateSpecializedServices = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
+    const key = makeConfigKey(CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category, CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section);
     updateConfig(updater, [key]);
   }, [updateConfig]);
 
@@ -837,6 +873,7 @@ export function useConfigPersistence() {
     updateKubernetes,
     updateGeneral,
     updateBackup,
+    updateSpecializedServices,
     // API operations
     saveToApi,
     resetToApi,

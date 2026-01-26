@@ -454,14 +454,39 @@ class OpenApiClient {
           break;
           
         case 'add-ons':
-          // Use technical keys, not visual labels
-          // NOTE: Preserve the sql object when adding other addons
-          for (const entry of configData || []) {
-            if (entry.label) {
-              const technicalKey = ADDON_LABEL_TO_KEY[entry.label] || entry.label;
-              // Don't overwrite sql object with a scalar
-              if (technicalKey !== 'sql') {
-                config.addons_brl[technicalKey] = getValue(entry);
+          // Handle different Add-ons sections
+          if (section === 'serviços especializados') {
+            // ID 16 - Serviços Especializados
+            // Labels from API: support_basic, support_intermediate, support_advanced, consulting_hours, dba_hours
+            for (const entry of configData || []) {
+              if (entry.label) {
+                const v = getValue(entry);
+                // Map API labels directly to addons_brl keys
+                if (entry.label === 'support_basic') config.addons_brl.support_basic = v;
+                else if (entry.label === 'support_intermediate') config.addons_brl.support_intermediate = v;
+                else if (entry.label === 'support_advanced') config.addons_brl.support_advanced = v;
+                else if (entry.label === 'consulting_hours') config.addons_brl.consulting_hours = v;
+                else if (entry.label === 'dba_hours') config.addons_brl.dba_hours = v;
+              }
+            }
+          } else if (section === 'windows server') {
+            // ID 17 - Windows Server (standalone config)
+            for (const entry of configData || []) {
+              if (entry.label === 'winserver_2vcpu_unit') {
+                config.addons_brl.winserver_2vcpu_unit = getValue(entry);
+              }
+            }
+          } else {
+            // ID 6 - Standard Add-ons
+            // Use technical keys, not visual labels
+            // NOTE: Preserve the sql object when adding other addons
+            for (const entry of configData || []) {
+              if (entry.label) {
+                const technicalKey = ADDON_LABEL_TO_KEY[entry.label] || entry.label;
+                // Don't overwrite sql object with a scalar
+                if (technicalKey !== 'sql') {
+                  config.addons_brl[technicalKey] = getValue(entry);
+                }
               }
             }
           }
@@ -536,16 +561,30 @@ class OpenApiClient {
           
         case 'backup':
           // Parse backup pricing table from API format
-          // Format: label = "7_dias_1_100", value = 0.5
+          // Format: label = "7_dias_1_100" or "7_dias_501_plus", value = 0.5
           for (const entry of configData || []) {
             if (!entry.label) continue;
             
             // Parse label like "7_dias_1_100" → retention=7, min=1, max=100
-            const match = entry.label.match(/^(\d+)_dias_(\d+)_(\d+)$/);
-            if (match) {
-              const retention = match[1]; // "7", "15", "30"
-              const min = parseInt(match[2], 10);
-              const max = parseInt(match[3], 10);
+            // Also handle "7_dias_501_plus" → retention=7, min=501, max=999999
+            const matchStandard = entry.label.match(/^(\d+)_dias_(\d+)_(\d+)$/);
+            const matchPlus = entry.label.match(/^(\d+)_dias_(\d+)_plus$/);
+            
+            let retention: string | null = null;
+            let min = 0;
+            let max = 0;
+            
+            if (matchStandard) {
+              retention = matchStandard[1];
+              min = parseInt(matchStandard[2], 10);
+              max = parseInt(matchStandard[3], 10);
+            } else if (matchPlus) {
+              retention = matchPlus[1];
+              min = parseInt(matchPlus[2], 10);
+              max = 999999; // "plus" means unlimited
+            }
+            
+            if (retention) {
               const price = getValue(entry);
               
               if (!config.backup_tables_brl_per_gb[retention]) {

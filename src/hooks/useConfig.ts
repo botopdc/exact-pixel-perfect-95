@@ -22,6 +22,12 @@ const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorC
     sql: (typeof addons_brl.sql === 'object' && addons_brl.sql !== null) 
       ? addons_brl.sql as Record<string, number>
       : {},
+    // Serviços Especializados (ID 16) - mapped from API
+    support_basic: typeof addons_brl.support_basic === 'number' ? addons_brl.support_basic : undefined,
+    support_intermediate: typeof addons_brl.support_intermediate === 'number' ? addons_brl.support_intermediate : undefined,
+    support_advanced: typeof addons_brl.support_advanced === 'number' ? addons_brl.support_advanced : undefined,
+    consulting_hours: typeof addons_brl.consulting_hours === 'number' ? addons_brl.consulting_hours : undefined,
+    dba_hours: typeof addons_brl.dba_hours === 'number' ? addons_brl.dba_hours : undefined,
   };
 
   return {
