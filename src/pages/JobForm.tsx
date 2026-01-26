@@ -89,11 +89,11 @@ export default function JobForm({ isEdit = false }: Props) {
         });
       } else {
         toast.error('Vaga não encontrada');
-        navigate('/rh/vagas');
+        navigate('/modulos/gente/vagas');
       }
     } catch (error) {
       toast.error('Erro ao carregar vaga');
-      navigate('/rh/vagas');
+      navigate('/modulos/gente/vagas');
     } finally {
       setLoading(false);
     }
@@ -112,6 +112,20 @@ export default function JobForm({ isEdit = false }: Props) {
     }
   };
 
+  // Check slug uniqueness onBlur
+  const checkSlugUniqueness = async () => {
+    if (!form.slug.trim()) return;
+    
+    try {
+      const isUnique = await jobsService.isSlugUnique(form.slug, isEdit ? id : undefined);
+      if (!isUnique) {
+        setErrors((prev) => ({ ...prev, slug: 'Este slug já está em uso' }));
+      }
+    } catch {
+      // Ignore errors on slug check
+    }
+  };
+
   const addBenefit = () => {
     if (benefitInput.trim()) {
       updateField('benefits', [...form.benefits, benefitInput.trim()]);
@@ -123,7 +137,7 @@ export default function JobForm({ isEdit = false }: Props) {
     updateField('benefits', form.benefits.filter((_, i) => i !== index));
   };
 
-  const validate = async (): Promise<boolean> => {
+  const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (form.titlePt.length < 6) {
@@ -140,11 +154,6 @@ export default function JobForm({ isEdit = false }: Props) {
     }
     if (!form.slug.trim()) {
       newErrors.slug = 'Slug é obrigatório';
-    } else {
-      const isUnique = await jobsService.isSlugUnique(form.slug, id);
-      if (!isUnique) {
-        newErrors.slug = 'Este slug já está em uso';
-      }
     }
     if (form.totalAmount <= 0) {
       newErrors.totalAmount = 'Quantidade deve ser maior que 0';
@@ -166,8 +175,47 @@ export default function JobForm({ isEdit = false }: Props) {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Parse API 422 validation errors
+  const parseApiValidationErrors = (error: any): Record<string, string> => {
+    const apiErrors: Record<string, string> = {};
+    
+    if (error?.response?.status === 422 && error?.response?.data?.errors) {
+      const validationErrors = error.response.data.errors;
+      
+      // Map API field names to frontend field names
+      const fieldMap: Record<string, string> = {
+        title: 'titlePt',
+        title_en: 'titleEn',
+        description: 'descriptionPt',
+        description_en: 'descriptionEn',
+        role: 'functionPt',
+        role_en: 'functionEn',
+        slug: 'slug',
+        quantity: 'totalAmount',
+        address: 'address',
+        subscription_url: 'applyUrl',
+        department: 'department',
+        seniority: 'seniority',
+        work_regime: 'employmentType',
+        contract_type: 'workModel',
+        benefits: 'benefits',
+        salary_range: 'salaryRange',
+        status: 'status',
+      };
+      
+      for (const [apiField, messages] of Object.entries(validationErrors)) {
+        const frontendField = fieldMap[apiField] || apiField;
+        const message = Array.isArray(messages) ? messages[0] : String(messages);
+        apiErrors[frontendField] = message;
+      }
+    }
+    
+    return apiErrors;
+  };
+
   const handleSave = async (status?: JobStatus) => {
-    const isValid = await validate();
+    // Client-side validation first
+    const isValid = validate();
     if (!isValid) {
       toast.error('Corrija os erros no formulário');
       return;
@@ -181,15 +229,24 @@ export default function JobForm({ isEdit = false }: Props) {
       }
 
       if (isEdit && id) {
+        // PUT /api/opdc-job/{id}
         await jobsService.update(id, dataToSave);
         toast.success('Vaga atualizada com sucesso');
       } else {
+        // POST /api/opdc-job
         await jobsService.create(dataToSave);
         toast.success('Vaga criada com sucesso');
       }
-      navigate('/rh/vagas');
-    } catch (error) {
-      toast.error('Erro ao salvar vaga');
+      navigate('/modulos/gente/vagas');
+    } catch (error: any) {
+      // Handle 422 validation errors
+      const apiErrors = parseApiValidationErrors(error);
+      if (Object.keys(apiErrors).length > 0) {
+        setErrors(apiErrors);
+        toast.error('Corrija os erros de validação');
+      } else {
+        toast.error(error?.response?.data?.message || 'Erro ao salvar vaga');
+      }
     } finally {
       setSaving(false);
     }
@@ -219,7 +276,7 @@ export default function JobForm({ isEdit = false }: Props) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/rh/vagas')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/modulos/gente/vagas')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
@@ -366,6 +423,7 @@ export default function JobForm({ isEdit = false }: Props) {
                 id="slug"
                 value={form.slug}
                 onChange={(e) => updateField('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                onBlur={checkSlugUniqueness}
                 placeholder="engenheiro-cloud-senior"
                 className={errors.slug ? 'border-destructive' : ''}
               />
@@ -533,7 +591,7 @@ export default function JobForm({ isEdit = false }: Props) {
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
-        <Button variant="destructive" onClick={() => navigate('/rh/vagas')}>
+        <Button variant="destructive" onClick={() => navigate('/modulos/gente/vagas')}>
           Cancelar
         </Button>
         <Button variant="outline" onClick={() => handleSave('draft')} disabled={saving}>
