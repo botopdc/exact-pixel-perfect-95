@@ -193,6 +193,31 @@ const OpenCalculator: React.FC = () => {
       navigate('/modulos/comercial/propostas');
     }
   }, [isArchitect, isUrlEditMode, navigate, toast]);
+  
+  // =========================================================================
+  // CRITICAL: Route-based state reset for CREATE mode
+  // When navigating to /criar, MUST reset all edit-related state to prevent
+  // accidentally sending PUT instead of POST for new proposals.
+  // This runs on EVERY pathname change to ensure clean state transitions.
+  // =========================================================================
+  useEffect(() => {
+    const isCreateRoute = location.pathname.includes('/criar') || 
+                          location.pathname.endsWith('/calculadora');
+    const hasEditParams = urlEditParam === '1' && !!urlIdParam;
+    
+    // If we're on a create route WITHOUT edit params, force reset edit state
+    if (isCreateRoute && !hasEditParams) {
+      console.log('[OpenCalculator] CREATE_ROUTE_DETECTED - Resetting edit state');
+      
+      // Reset edit mode flags
+      setIsEditMode(false);
+      setEditingProposalId(null);
+      initializedEditModeRef.current = false;
+      
+      // Reset initialized flag to allow fresh VM creation
+      setInitialized(false);
+    }
+  }, [location.pathname, urlEditParam, urlIdParam]);
 
   // Determine if this is a partner context for saving
   const isPartnerContext = userContext.userLevel === 200;
