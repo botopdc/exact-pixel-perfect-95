@@ -101,10 +101,10 @@ export interface CalculatorConfigUpdateRequest {
 
 /**
  * Fetch all calculator configurations from API
- * GET /api/calculator-configs
+ * GET /api/calculator-config
  */
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
-  const response = await apiClient.get<PaginatedConfigResponse>('/calculator-configs', {
+  const response = await apiClient.get<PaginatedConfigResponse>('/calculator-config', {
     params: { __perPage: 200 }
   });
   return response.data.data || [];
@@ -112,16 +112,16 @@ export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
 
 /**
  * Fetch a single config by ID
- * GET /api/calculator-configs/{id}
+ * GET /api/calculator-config/{id}
  */
 export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.get<CalculatorConfigEntry>(`/calculator-configs/${id}`);
+  const response = await apiClient.get<CalculatorConfigEntry>(`/calculator-config/${id}`);
   return response.data;
 }
 
 /**
  * Update an existing calculator configuration
- * PUT /api/calculator-configs/{id}
+ * PUT /api/calculator-config/{id}
  * 
  * CRUD rules for config array (backend enforced):
  * - CREATE: items WITHOUT `id` field → backend generates id automatically
@@ -135,7 +135,7 @@ export async function updateCalculatorConfig(
   id: number,
   payload: CalculatorConfigUpdateRequest
 ): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.put<CalculatorConfigEntry>(`/calculator-configs/${id}`, payload);
+  const response = await apiClient.put<CalculatorConfigEntry>(`/calculator-config/${id}`, payload);
   return response.data;
 }
 
