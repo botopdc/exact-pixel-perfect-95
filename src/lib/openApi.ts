@@ -325,7 +325,7 @@ class OpenApiClient {
 
   async getCalculatorConfig(): Promise<CalculatorConfigApiResponse> {
     // API returns paginated response with 'data' array
-    const response = await this.client.get<{ data: Array<{ category: string; section: string; config: unknown }> }>('/calculator-config', {
+    const response = await this.client.get<{ data: Array<{ category: string; section: string; config: unknown }> }>('/calculator/config', {
       params: { __perPage: 100 }
     });
     
