@@ -14,6 +14,7 @@ import {
   ConfigItem,
   CONFIG_MAPPINGS,
 } from '@/services/calculatorConfigService';
+import { normalizeConfigValues, validateConfigValues } from '@/lib/parseBRNumber';
 
 // ============================================================================
 // TYPES
@@ -701,13 +702,31 @@ export function useConfigPersistence() {
 
         if (existingId) {
           const entry = apiEntries.find((e) => e.id === existingId);
+          
+          // CRITICAL: Normalize all value fields to numbers before sending
+          const normalizedConfig = normalizeConfigValues(payload.config);
+          
+          // Validate normalized values
+          const validation = validateConfigValues(normalizedConfig, ctx);
+          if (!validation.isValid) {
+            console.error('[ConfigPersistence] Validation failed:', validation.errors);
+            throw new Error(`Valor inválido. Use apenas números. ${validation.errors[0]}`);
+          }
+          
           const requestBody = {
             category: entry?.category ?? payload.category,
             section: entry?.section ?? payload.section,
-            config: payload.config,
+            config: normalizedConfig,
           };
 
-          console.log('[ConfigPersistence] PUT payload:', { id: existingId, ...requestBody });
+          // Debug log before PUT
+          console.log('[ConfigPersistence] payloadNormalized:', { id: existingId, ...requestBody });
+          console.log('[ConfigPersistence] config values types:', 
+            Array.isArray(normalizedConfig) 
+              ? normalizedConfig.map(i => ({ label: i.label, value: i.value, type: typeof i.value }))
+              : 'nested object'
+          );
+          
           const updated = await updateCalculatorConfig(existingId, requestBody);
           console.log('[ConfigPersistence] PUT response:', updated);
           savedCount++;
@@ -782,6 +801,25 @@ export function useConfigPersistence() {
           description: errorDetails,
           variant: 'destructive',
         });
+        return false;
+      }
+
+      // Handle 500 server error (often type mismatch)
+      if (err?.response?.status === 500) {
+        const serverMessage = err?.response?.data?.message || '';
+        if (serverMessage.includes('operand') || serverMessage.includes('string')) {
+          toast({
+            title: 'Erro de tipo de dado',
+            description: 'Valor inválido. Use apenas números (ex: 1650 ou 1650.00).',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Erro no servidor',
+            description: serverMessage || 'Erro interno ao salvar configuração.',
+            variant: 'destructive',
+          });
+        }
         return false;
       }
 
