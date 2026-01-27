@@ -97,6 +97,8 @@ import ParametrosPage from '@/pages/modules/admin/ParametrosPage';
 import LogsPage from '@/pages/modules/admin/LogsPage';
 import PropostasTemplatesPage from '@/pages/modules/comercial/PropostasTemplatesPage';
 import PropostasAprovacoesPage from '@/pages/modules/comercial/PropostasAprovacoesPage';
+import ContratosListPage from '@/pages/modules/comercial/ContratosListPage';
+import ContratoDetailPage from '@/pages/modules/comercial/ContratoDetailPage';
 
 // TechOps (Centro de Operações Técnicas) Pages
 import NOCHomePage from '@/pages/modules/techops/NOCHomePage';
@@ -211,6 +213,12 @@ const App = () => (
             <Route path="/modulos/comercial/propostas/:id" element={<PropostaView />} />
             <Route path="/modulos/comercial/propostas/templates" element={<PropostasTemplatesPage />} />
             <Route path="/modulos/comercial/propostas/aprovacoes" element={<PropostasAprovacoesPage />} />
+            
+            {/* Contratos Module */}
+            <Route path="/modulos/comercial/contratos" element={<ContratosListPage />} />
+            <Route path="/modulos/comercial/contratos/novo" element={<ContratoDetailPage />} />
+            <Route path="/modulos/comercial/contratos/:id" element={<ContratoDetailPage />} />
+            
             <Route path="/modulos/comercial/metas" element={<MetasComerciais />} />
             <Route path="/modulos/comercial/comissoes" element={<ComissoesExecutivos />} />
             <Route path="/modulos/comercial/meu-potencial" element={<MeuPotencial />} />
