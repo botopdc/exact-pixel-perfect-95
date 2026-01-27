@@ -230,6 +230,12 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         ],
       },
       {
+        id: 'contratos',
+        title: 'Contratos',
+        url: '/modulos/comercial/contratos',
+        allowedLevels: [700, 750, 1000],
+      },
+      {
         id: 'metas',
         title: 'Metas',
         url: '/modulos/comercial/metas',
