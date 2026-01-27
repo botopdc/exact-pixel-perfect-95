@@ -753,15 +753,28 @@ export function useConfigPersistence() {
       }
 
       const validateArrayItems = (items: ConfigItem[], ctx: string) => {
+        const seenLabels = new Set<string>();
+        
         for (const it of items) {
           if (!it || typeof it !== 'object') {
             throw new Error(`Item inválido em ${ctx}`);
           }
-          if (!it.label || String(it.label).trim().length === 0) {
+          
+          const label = String(it.label || '').trim();
+          
+          if (label.length === 0) {
             throw new Error(`Item sem label em ${ctx}`);
           }
+          
+          // Check for duplicate labels (case-insensitive)
+          const labelKey = label.toLowerCase();
+          if (seenLabels.has(labelKey)) {
+            throw new Error(`Label duplicado "${label}" em ${ctx}`);
+          }
+          seenLabels.add(labelKey);
+          
           if (typeof it.value !== 'number' || !Number.isFinite(it.value)) {
-            throw new Error(`Valor inválido (NaN/undefined) em ${ctx}: ${it.label}`);
+            throw new Error(`Valor inválido (NaN/undefined) em ${ctx}: ${label}`);
           }
         }
       };
@@ -810,24 +823,23 @@ export function useConfigPersistence() {
             config: normalizedConfig,
           };
 
-          // Debug log before PUT - show CRUD semantics
-          console.log('[ConfigPersistence] payloadNormalized:', { 
-            entryId: existingId, 
-            category: requestBody.category,
-            section: requestBody.section,
-            itemCount: Array.isArray(normalizedConfig) ? normalizedConfig.length : 'nested',
-          });
-          console.log('[ConfigPersistence] CRUD details:', 
-            Array.isArray(normalizedConfig) 
-              ? normalizedConfig.map(i => ({ 
-                  id: i.id ?? 'NEW', 
-                  label: i.label, 
-                  value: i.value, 
-                  valueType: typeof i.value,
-                  operation: i.id ? 'UPDATE' : 'CREATE'
-                }))
-              : 'nested object (Storage SAS format)'
-          );
+          // CRITICAL: Log payloadFinal immediately before PUT
+          // This MUST match what goes to Network tab
+          const payloadFinal = { config: normalizedConfig };
+          
+          console.log('='.repeat(60));
+          console.log('[ConfigPersistence] payloadFinal BEFORE PUT:');
+          console.log(`  Endpoint: PUT /api/calculator/config/${existingId}`);
+          console.log('  Body:', JSON.stringify(payloadFinal, null, 2));
+          console.log('  Items breakdown:');
+          if (Array.isArray(normalizedConfig)) {
+            normalizedConfig.forEach((item, idx) => {
+              console.log(`    [${idx}] ${item.id !== undefined ? `id:${item.id} (UPDATE)` : '(CREATE)'} | label: "${item.label}" | value: ${item.value} (${typeof item.value})`);
+            });
+          } else {
+            console.log('    (nested object format)');
+          }
+          console.log('='.repeat(60));
           
           const updated = await updateCalculatorConfig(existingId, requestBody);
           console.log('[ConfigPersistence] PUT response:', updated);
