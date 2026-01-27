@@ -96,7 +96,7 @@ export default function VagasRH() {
             Gerencie as vagas de emprego da OPEN Datacenter
           </p>
         </div>
-        <Button onClick={() => navigate('/rh/vagas/nova')}>
+        <Button onClick={() => navigate('/modulos/gente/vagas/nova')}>
           <Plus className="h-4 w-4 mr-2" />
           Criar vaga
         </Button>
@@ -202,7 +202,7 @@ export default function VagasRH() {
           </div>
           <h3 className="text-lg font-medium text-foreground mb-2">Nenhuma vaga cadastrada</h3>
           <p className="text-sm text-muted-foreground mb-4">Comece criando sua primeira vaga</p>
-          <Button onClick={() => navigate('/rh/vagas/nova')}>
+          <Button onClick={() => navigate('/modulos/gente/vagas/nova')}>
             <Plus className="h-4 w-4 mr-2" />
             Criar vaga
           </Button>
@@ -235,7 +235,7 @@ export default function VagasRH() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => navigate(`/rh/vagas/${job.id}/editar`)}
+                          onClick={() => navigate(`/modulos/gente/vagas/${job.id}/editar`)}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>

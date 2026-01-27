@@ -123,8 +123,13 @@ export async function getCalculatorConfigById(id: number): Promise<CalculatorCon
  * Update an existing calculator configuration
  * PUT /api/calculator/config/{id}
  * 
- * NOTE: API only supports updating existing configs. 
- * There is NO POST endpoint to create new configs.
+ * CRUD rules for config array (backend enforced):
+ * - CREATE: items WITHOUT `id` field → backend generates id automatically
+ * - UPDATE: items WITH existing `id` field → backend updates
+ * - DELETE: items NOT included in array → backend removes automatically
+ * 
+ * @param id - The config entry ID (e.g., 1 for VM, 5 for GPU)
+ * @param payload - Must contain `config` array with proper CRUD semantics
  */
 export async function updateCalculatorConfig(
   id: number,
@@ -201,8 +206,14 @@ export const CONFIG_MAPPINGS = {
   KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Preços Base dos Planos' },
   KUBERNETES_ADDONS: { category: 'Kubernetes', section: 'Add-ons Kubernetes' },
   
-  // Backup pricing by retention (7/15/30 days)
-  BACKUP: { category: 'Backup', section: 'Tabela de Preços' },
+  // Backup pricing by retention (ID 15 - 7/15/30 days)
+  BACKUP: { category: 'Backup', section: 'Backup por Retenção' },
+  
+  // Serviços Especializados (ID 16)
+  SPECIALIZED_SERVICES: { category: 'Add-ons', section: 'Serviços Especializados' },
+  
+  // Windows Server (ID 17) - Note: Also duplicated in ADDONS (ID 6) for compatibility
+  WINDOWS_SERVER: { category: 'Add-ons', section: 'Windows Server' },
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;

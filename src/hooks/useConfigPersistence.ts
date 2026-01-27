@@ -14,6 +14,7 @@ import {
   ConfigItem,
   CONFIG_MAPPINGS,
 } from '@/services/calculatorConfigService';
+import { normalizeConfigValues, validateConfigValues } from '@/lib/parseBRNumber';
 
 // ============================================================================
 // TYPES
@@ -56,10 +57,57 @@ function makeConfigKey(category: string, section: string): ConfigKey {
 // ============================================================================
 
 /**
+ * Find existing item ID from API entries by matching label
+ * Used for CRUD: items with ID = UPDATE, without ID = CREATE
+ * 
+ * Supports both flat arrays and nested objects (like Storage SAS: {Brasil: [...], ...})
+ */
+function findItemId(
+  apiEntries: CalculatorConfigEntry[],
+  category: string,
+  section: string,
+  label: string
+): number | undefined {
+  const entry = apiEntries.find(
+    e => e.category === category && e.section === section
+  );
+  if (!entry) return undefined;
+  
+  // Handle flat array format
+  if (Array.isArray(entry.config)) {
+    const item = entry.config.find(i => i.label === label);
+    return item?.id;
+  }
+  
+  // Handle nested object format (e.g., Storage SAS: {Brasil: [...], Estados Unidos: [...]})
+  if (typeof entry.config === 'object' && entry.config !== null) {
+    for (const groupItems of Object.values(entry.config)) {
+      if (Array.isArray(groupItems)) {
+        const item = groupItems.find((i: ConfigItem) => i.label === label);
+        if (item?.id !== undefined) return item.id;
+      }
+    }
+  }
+  
+  return undefined;
+}
+
+/**
  * Transform local CalculatorConfig back to API format for saving
  * CRITICAL: All items MUST have `value` field (not `price`)
+ * 
+ * CRUD RULES (backend enforced):
+ * - CREATE: items WITHOUT `id` field → backend generates id automatically
+ * - UPDATE: items WITH existing `id` field → backend updates
+ * - DELETE: items NOT included in array → backend removes automatically
+ * 
+ * @param config - Local config state
+ * @param apiEntries - Current API entries (to lookup existing item IDs)
  */
-function configToApiPayloads(config: CalculatorConfig): Array<{
+function configToApiPayloads(
+  config: CalculatorConfig,
+  apiEntries: CalculatorConfigEntry[]
+): Array<{
   category: string;
   section: string;
   config: ConfigItem[];
@@ -72,156 +120,188 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     configKey: ConfigKey;
   }> = [];
 
+  // Helper to add item ID if it exists in backend
+  const withItemId = (
+    category: string,
+    section: string,
+    item: Omit<ConfigItem, 'id'>
+  ): ConfigItem => {
+    const existingId = findItemId(apiEntries, category, section, item.label);
+    if (existingId !== undefined) {
+      return { ...item, id: existingId };
+    }
+    // New item - no ID, backend will create
+    return item as ConfigItem;
+  };
+
   // 1. Geral - Taxa de Câmbio (ID 12)
   const fxValue = Number(config.fx_default) || 0;
+  const fxCategory = CONFIG_MAPPINGS.GERAL_FX.category;
+  const fxSection = CONFIG_MAPPINGS.GERAL_FX.section;
   payloads.push({
-    category: CONFIG_MAPPINGS.GERAL_FX.category,
-    section: CONFIG_MAPPINGS.GERAL_FX.section,
-    configKey: makeConfigKey(CONFIG_MAPPINGS.GERAL_FX.category, CONFIG_MAPPINGS.GERAL_FX.section),
+    category: fxCategory,
+    section: fxSection,
+    configKey: makeConfigKey(fxCategory, fxSection),
     config: [
-      { label: 'Cotação Padrão', type: 'BRL', value: fxValue },
+      withItemId(fxCategory, fxSection, { label: 'Cotação Padrão', type: 'BRL', value: fxValue }),
     ],
   });
 
   // 2. Geral - Descontos por Vigência (ID 13)
+  const descCategory = CONFIG_MAPPINGS.GERAL_DESCONTO.category;
+  const descSection = CONFIG_MAPPINGS.GERAL_DESCONTO.section;
   const discountItems: ConfigItem[] = Object.entries(config.discount || {}).map(([months, rate]) => {
     const discountValue = Number((rate as number) * 100) || 0;
-    return {
+    return withItemId(descCategory, descSection, {
       label: months === '1' ? '1 mês' : `${months} meses`,
       type: 'percentage',
       value: discountValue,
-    };
+    });
   });
   if (discountItems.length > 0) {
     payloads.push({
-      category: CONFIG_MAPPINGS.GERAL_DESCONTO.category,
-      section: CONFIG_MAPPINGS.GERAL_DESCONTO.section,
-      configKey: makeConfigKey(CONFIG_MAPPINGS.GERAL_DESCONTO.category, CONFIG_MAPPINGS.GERAL_DESCONTO.section),
+      category: descCategory,
+      section: descSection,
+      configKey: makeConfigKey(descCategory, descSection),
       config: discountItems,
     });
   }
 
   // 3. VM Prices (ID 1) - Labels must match CSV exactly
+  const vmCategory = CONFIG_MAPPINGS.VM_PRICES.category;
+  const vmSection = CONFIG_MAPPINGS.VM_PRICES.section;
   payloads.push({
-    category: CONFIG_MAPPINGS.VM_PRICES.category,
-    section: CONFIG_MAPPINGS.VM_PRICES.section,
-    configKey: makeConfigKey(CONFIG_MAPPINGS.VM_PRICES.category, CONFIG_MAPPINGS.VM_PRICES.section),
+    category: vmCategory,
+    section: vmSection,
+    configKey: makeConfigKey(vmCategory, vmSection),
     config: [
-      { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0 },
-      { label: 'RAM', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0 },
-      { label: 'NVMe', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0 },
-      { label: 'IP Público', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.ip_public) || 0 },
+      withItemId(vmCategory, vmSection, { label: 'vCPU', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.vcpu) || 0 }),
+      withItemId(vmCategory, vmSection, { label: 'RAM', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.ram_per_gb) || 0 }),
+      withItemId(vmCategory, vmSection, { label: 'NVMe', by: 'GB', type: 'BRL', value: Number(config.vm_prices_brl.nvme_per_gb) || 0 }),
+      withItemId(vmCategory, vmSection, { label: 'IP Público', by: 'unit', type: 'BRL', value: Number(config.vm_prices_brl.ip_public) || 0 }),
     ],
   });
 
   // 4. GPU Prices (ID 5) - NOW BRL (removed USD)
+  const gpuCategory = CONFIG_MAPPINGS.GPU_PRICES.category;
+  const gpuSection = CONFIG_MAPPINGS.GPU_PRICES.section;
   const gpuItems: ConfigItem[] = Object.entries(config.gpu_usd || {})
     .map(([name, price]) => {
       const v = Number(price);
-      return {
+      return withItemId(gpuCategory, gpuSection, {
         label: String(name).trim(),
         type: 'BRL',
         value: v,
-      };
+      });
     })
     .filter((i) => i.label && Number.isFinite(i.value ?? NaN));
 
   // Always include GPU payload (even if empty) so the API can persist clears
   payloads.push({
-    category: CONFIG_MAPPINGS.GPU_PRICES.category,
-    section: CONFIG_MAPPINGS.GPU_PRICES.section,
-    configKey: makeConfigKey(CONFIG_MAPPINGS.GPU_PRICES.category, CONFIG_MAPPINGS.GPU_PRICES.section),
+    category: gpuCategory,
+    section: gpuSection,
+    configKey: makeConfigKey(gpuCategory, gpuSection),
     config: gpuItems,
   });
 
   // 5. BareMetal - CPU Models (ID 2) - no 'by' field in CSV
+  const cpuCategory = CONFIG_MAPPINGS.BAREMETAL_CPU.category;
+  const cpuSection = CONFIG_MAPPINGS.BAREMETAL_CPU.section;
   const cpuItems: ConfigItem[] = config.baremetal.cpu_models.map((cpu) => {
-    return {
+    return withItemId(cpuCategory, cpuSection, {
       label: cpu.label,
       type: 'BRL',
       value: Number(cpu.price) || 0,
-    };
+    });
   });
   if (cpuItems.length > 0) {
     payloads.push({
-      category: CONFIG_MAPPINGS.BAREMETAL_CPU.category,
-      section: CONFIG_MAPPINGS.BAREMETAL_CPU.section,
-      configKey: makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_CPU.category, CONFIG_MAPPINGS.BAREMETAL_CPU.section),
+      category: cpuCategory,
+      section: cpuSection,
+      configKey: makeConfigKey(cpuCategory, cpuSection),
       config: cpuItems,
     });
   }
 
   // 6. BareMetal - RAM Options (ID 3) - no 'by' field in CSV
+  const ramCategory = CONFIG_MAPPINGS.BAREMETAL_RAM.category;
+  const ramSection = CONFIG_MAPPINGS.BAREMETAL_RAM.section;
   const ramItems: ConfigItem[] = config.baremetal.ram_tiers.map((ram) => {
-    return {
+    return withItemId(ramCategory, ramSection, {
       label: ram.label,
       type: 'BRL',
       value: Number(ram.price) || 0,
-    };
+    });
   });
   if (ramItems.length > 0) {
     payloads.push({
-      category: CONFIG_MAPPINGS.BAREMETAL_RAM.category,
-      section: CONFIG_MAPPINGS.BAREMETAL_RAM.section,
-      configKey: makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_RAM.category, CONFIG_MAPPINGS.BAREMETAL_RAM.section),
+      category: ramCategory,
+      section: ramSection,
+      configKey: makeConfigKey(ramCategory, ramSection),
       config: ramItems,
     });
   }
 
   // 7. BareMetal - Disk Options (ID 4) - has 'by: unit' in CSV
+  const diskCategory = CONFIG_MAPPINGS.BAREMETAL_DISK.category;
+  const diskSection = CONFIG_MAPPINGS.BAREMETAL_DISK.section;
   const diskItems: ConfigItem[] = config.baremetal.disks.map((disk) => {
-    return {
+    return withItemId(diskCategory, diskSection, {
       label: disk.label,
       by: 'unit',
       type: 'BRL',
       value: Number(disk.price) || 0,
-    };
+    });
   });
   if (diskItems.length > 0) {
     payloads.push({
-      category: CONFIG_MAPPINGS.BAREMETAL_DISK.category,
-      section: CONFIG_MAPPINGS.BAREMETAL_DISK.section,
-      configKey: makeConfigKey(CONFIG_MAPPINGS.BAREMETAL_DISK.category, CONFIG_MAPPINGS.BAREMETAL_DISK.section),
+      category: diskCategory,
+      section: diskSection,
+      configKey: makeConfigKey(diskCategory, diskSection),
       config: diskItems,
     });
   }
 
   // 8. Add-ons (ID 6) - Labels must match CSV exactly: "Antivirus", "Firewall pfSense", etc.
+  const addonCategory = CONFIG_MAPPINGS.ADDONS.category;
+  const addonSection = CONFIG_MAPPINGS.ADDONS.section;
   const addonItems: ConfigItem[] = [];
   const addons = config.addons_brl;
   
   if (typeof addons.antivirus_unit === 'number') {
-    addonItems.push({ label: 'Antivirus', by: 'unit', type: 'BRL', value: Number(addons.antivirus_unit) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'Antivirus', by: 'unit', type: 'BRL', value: Number(addons.antivirus_unit) || 0 }));
   }
   if (typeof addons.firewall_pfsense === 'number') {
-    addonItems.push({ label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'Firewall pfSense', by: 'unit', type: 'BRL', value: Number(addons.firewall_pfsense) || 0 }));
   }
   if (typeof addons.tsplus_unit === 'number') {
-    addonItems.push({ label: 'TSplus', by: 'unit', type: 'BRL', value: Number(addons.tsplus_unit) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'TSplus', by: 'unit', type: 'BRL', value: Number(addons.tsplus_unit) || 0 }));
   }
   if (typeof addons.cal_unit === 'number') {
-    addonItems.push({ label: 'CAL', by: 'unit', type: 'BRL', value: Number(addons.cal_unit) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'CAL', by: 'unit', type: 'BRL', value: Number(addons.cal_unit) || 0 }));
   }
   if (typeof addons.veeam_vm_unit === 'number') {
-    addonItems.push({ label: 'Veeam VM', by: 'unit', type: 'BRL', value: Number(addons.veeam_vm_unit) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'Veeam VM', by: 'unit', type: 'BRL', value: Number(addons.veeam_vm_unit) || 0 }));
   }
   if (typeof addons.veeam_agent_unit === 'number') {
-    addonItems.push({ label: 'Veeam Agent', by: 'unit', type: 'BRL', value: Number(addons.veeam_agent_unit) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'Veeam Agent', by: 'unit', type: 'BRL', value: Number(addons.veeam_agent_unit) || 0 }));
   }
   if (typeof addons.winserver_2vcpu_unit === 'number') {
-    addonItems.push({ label: 'WinServer(2vCPU/unid.)', by: 'unit', type: 'BRL', value: Number(addons.winserver_2vcpu_unit) || 0 });
+    addonItems.push(withItemId(addonCategory, addonSection, { label: 'WinServer(2vCPU/unid.)', by: 'unit', type: 'BRL', value: Number(addons.winserver_2vcpu_unit) || 0 }));
   }
   
   if (addonItems.length > 0) {
     payloads.push({
-      category: CONFIG_MAPPINGS.ADDONS.category,
-      section: CONFIG_MAPPINGS.ADDONS.section,
-      configKey: makeConfigKey(CONFIG_MAPPINGS.ADDONS.category, CONFIG_MAPPINGS.ADDONS.section),
+      category: addonCategory,
+      section: addonSection,
+      configKey: makeConfigKey(addonCategory, addonSection),
       config: addonItems,
     });
   }
 
   // 9. SQL Server prices (ID 7) - Labels: "Nenhum", "WEB", "STD"
+  const sqlCategory = CONFIG_MAPPINGS.SQL_SERVER.category;
+  const sqlSection = CONFIG_MAPPINGS.SQL_SERVER.section;
   if (addons.sql && typeof addons.sql === 'object') {
     const sqlItems: ConfigItem[] = Object.entries(addons.sql)
       .filter(([edition]) => edition !== 'we') // Remove WE if present
@@ -233,17 +313,17 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       else if (edition === 'std') label = 'STD';
       else label = edition.toUpperCase();
       
-      return {
+      return withItemId(sqlCategory, sqlSection, {
         label,
         type: 'BRL',
         value: Number(price) || 0,
-      };
+      });
     });
     if (sqlItems.length > 0) {
       payloads.push({
-        category: CONFIG_MAPPINGS.SQL_SERVER.category,
-        section: CONFIG_MAPPINGS.SQL_SERVER.section,
-        configKey: makeConfigKey(CONFIG_MAPPINGS.SQL_SERVER.category, CONFIG_MAPPINGS.SQL_SERVER.section),
+        category: sqlCategory,
+        section: sqlSection,
+        configKey: makeConfigKey(sqlCategory, sqlSection),
         config: sqlItems,
       });
     }
@@ -255,26 +335,27 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     const sp = config.storage_pricing;
     
     // Storage SAS - Build the nested object format as per CSV
+    // Note: SAS uses nested format which requires special handling for IDs
     if (sp.sas?.br || sp.sas?.usa) {
       const sasConfig: any = {};
       
       if (sp.sas?.br) {
         sasConfig['Brasil'] = [
-          { label: '1-10 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_1_10) || 0 },
-          { label: '11-100 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_11_100) || 0 },
-          { label: '101-500 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_101_500) || 0 },
-          { label: '501-1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_501_1024) || 0 },
-          { label: '>1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_gt_1024) || 0 },
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '1-10 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_1_10) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '11-100 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_11_100) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '101-500 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_101_500) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '501-1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_501_1024) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '>1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.br.pricePerTB_gt_1024) || 0 }),
         ];
       }
       
       if (sp.sas?.usa) {
         sasConfig['Estados Unidos'] = [
-          { label: '1-10 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_1_10) || 0 },
-          { label: '11-100 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_11_100) || 0 },
-          { label: '101-500 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_101_500) || 0 },
-          { label: '501-1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_501_1024) || 0 },
-          { label: '>1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_gt_1024) || 0 },
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '1-10 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_1_10) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '11-100 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_11_100) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '101-500 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_101_500) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '501-1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_501_1024) || 0 }),
+          withItemId(STORAGE_SAS_MAPPING.category, STORAGE_SAS_MAPPING.section, { label: '>1024 TB', by: 'TB', type: 'BRL', value: Number(sp.sas.usa.pricePerTB_gt_1024) || 0 }),
         ];
       }
       
@@ -289,40 +370,46 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     
     // Storage NVMe (ID 9) - Standard array format
     if (sp.nvme) {
+      const nvmeCategory = STORAGE_NVME_MAPPING.category;
+      const nvmeSection = STORAGE_NVME_MAPPING.section;
       payloads.push({
-        category: STORAGE_NVME_MAPPING.category,
-        section: STORAGE_NVME_MAPPING.section,
-        configKey: makeConfigKey(STORAGE_NVME_MAPPING.category, STORAGE_NVME_MAPPING.section),
+        category: nvmeCategory,
+        section: nvmeSection,
+        configKey: makeConfigKey(nvmeCategory, nvmeSection),
         config: [
-          { label: 'Preço por GB', by: 'GB', type: 'BRL', value: Number(sp.nvme.pricePerGB) || 0 },
+          withItemId(nvmeCategory, nvmeSection, { label: 'Preço por GB', by: 'GB', type: 'BRL', value: Number(sp.nvme.pricePerGB) || 0 }),
         ],
       });
     }
   }
 
   // 12. Kubernetes plans (ID 10) - Format: {label, description, type, by, value}
+  const k8sCategory = CONFIG_MAPPINGS.KUBERNETES_PLANS.category;
+  const k8sSection = CONFIG_MAPPINGS.KUBERNETES_PLANS.section;
   if (config.kubernetes_pricing) {
     const k8sItems: ConfigItem[] = Object.entries(config.kubernetes_pricing).map(([plan, data]) => {
       const planData = data as any;
-      return {
+      return withItemId(k8sCategory, k8sSection, {
         label: plan,
         description: planData?.description || '',
         type: 'BRL',
         by: 'month',
         value: Number(planData?.basePriceMonthly) || 0,
-      };
+      });
     });
     if (k8sItems.length > 0) {
       payloads.push({
-        category: CONFIG_MAPPINGS.KUBERNETES_PLANS.category,
-        section: CONFIG_MAPPINGS.KUBERNETES_PLANS.section,
-        configKey: makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section),
+        category: k8sCategory,
+        section: k8sSection,
+        configKey: makeConfigKey(k8sCategory, k8sSection),
         config: k8sItems,
       });
     }
   }
 
   // 13. Kubernetes add-ons (ID 11) - Format: {label, type, by, value}
+  const k8sAddonCategory = CONFIG_MAPPINGS.KUBERNETES_ADDONS.category;
+  const k8sAddonSection = CONFIG_MAPPINGS.KUBERNETES_ADDONS.section;
   if (config.kubernetes_addons_pricing) {
     const k8sAddonItems: ConfigItem[] = Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => {
       // Determine the 'by' field based on addon type
@@ -330,24 +417,26 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
       if (addon.toLowerCase().includes('horas') || addon.toLowerCase().includes('devops')) {
         by = 'hour';
       }
-      return {
+      return withItemId(k8sAddonCategory, k8sAddonSection, {
         label: addon,
         type: 'BRL',
         by,
         value: Number(price) || 0,
-      };
+      });
     });
     if (k8sAddonItems.length > 0) {
       payloads.push({
-        category: CONFIG_MAPPINGS.KUBERNETES_ADDONS.category,
-        section: CONFIG_MAPPINGS.KUBERNETES_ADDONS.section,
-        configKey: makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section),
+        category: k8sAddonCategory,
+        section: k8sAddonSection,
+        configKey: makeConfigKey(k8sAddonCategory, k8sAddonSection),
         config: k8sAddonItems,
       });
     }
   }
 
-  // 14. Backup pricing table (7/15/30 days with volume ranges)
+  // 14. Backup pricing table (7/15/30 days with volume ranges) - ID 15
+  const backupCategory = CONFIG_MAPPINGS.BACKUP.category;
+  const backupSection = CONFIG_MAPPINGS.BACKUP.section;
   if (config.backup_tables_brl_per_gb) {
     // Transform backup_tables_brl_per_gb to API format
     // Each retention period becomes an item with nested ranges
@@ -356,25 +445,57 @@ function configToApiPayloads(config: CalculatorConfig): Array<{
     for (const [retention, ranges] of Object.entries(config.backup_tables_brl_per_gb)) {
       // Create one config item per range in each retention period
       for (const range of ranges) {
-        backupItems.push({
-          label: `${retention}_dias_${range.min}_${range.max}`,
+        // Use "_plus" suffix for unlimited ranges (max >= 999999)
+        const maxLabel = range.max >= 999999 ? 'plus' : String(range.max);
+        backupItems.push(withItemId(backupCategory, backupSection, {
+          label: `${retention}_dias_${range.min}_${maxLabel}`,
           by: 'GB',
           type: 'BRL',
           value: Number(range.price) || 0,
-          description: `Retenção ${retention} dias, ${range.min}-${range.max} GB`,
-        });
+          description: `Retenção ${retention} dias, ${range.min}-${range.max >= 999999 ? '∞' : range.max} GB`,
+        }));
       }
     }
     
     if (backupItems.length > 0) {
       payloads.push({
-        category: CONFIG_MAPPINGS.BACKUP.category,
-        section: CONFIG_MAPPINGS.BACKUP.section,
-        configKey: makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section),
+        category: backupCategory,
+        section: backupSection,
+        configKey: makeConfigKey(backupCategory, backupSection),
         config: backupItems,
       });
     }
   }
+
+  // 15. Serviços Especializados (ID 16)
+  const specCategory = CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category;
+  const specSection = CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section;
+  const specializedItems: ConfigItem[] = [];
+  if (typeof config.addons_brl.support_basic === 'number') {
+    specializedItems.push(withItemId(specCategory, specSection, { label: 'support_basic', description: 'Suporte Básico', type: 'BRL', by: 'month', value: config.addons_brl.support_basic }));
+  }
+  if (typeof config.addons_brl.support_intermediate === 'number') {
+    specializedItems.push(withItemId(specCategory, specSection, { label: 'support_intermediate', description: 'Suporte Intermediário', type: 'BRL', by: 'month', value: config.addons_brl.support_intermediate }));
+  }
+  if (typeof config.addons_brl.support_advanced === 'number') {
+    specializedItems.push(withItemId(specCategory, specSection, { label: 'support_advanced', description: 'Suporte Avançado', type: 'BRL', by: 'month', value: config.addons_brl.support_advanced }));
+  }
+  if (typeof config.addons_brl.consulting_hours === 'number') {
+    specializedItems.push(withItemId(specCategory, specSection, { label: 'consulting_hours', description: 'Consultoria Técnica', type: 'BRL', by: 'hour', value: config.addons_brl.consulting_hours }));
+  }
+  if (typeof config.addons_brl.dba_hours === 'number') {
+    specializedItems.push(withItemId(specCategory, specSection, { label: 'dba_hours', description: 'DBA', type: 'BRL', by: 'hour', value: config.addons_brl.dba_hours }));
+  }
+  
+  if (specializedItems.length > 0) {
+    payloads.push({
+      category: specCategory,
+      section: specSection,
+      configKey: makeConfigKey(specCategory, specSection),
+      config: specializedItems,
+    });
+  }
+
 
   return payloads;
 }
@@ -453,6 +574,7 @@ export function useConfigPersistence() {
     makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_PLANS.category, CONFIG_MAPPINGS.KUBERNETES_PLANS.section),
     makeConfigKey(CONFIG_MAPPINGS.KUBERNETES_ADDONS.category, CONFIG_MAPPINGS.KUBERNETES_ADDONS.section),
     makeConfigKey(CONFIG_MAPPINGS.BACKUP.category, CONFIG_MAPPINGS.BACKUP.section),
+    makeConfigKey(CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category, CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section),
   ];
 
   // Helper to mark a section as modified
@@ -561,6 +683,12 @@ export function useConfigPersistence() {
     updateConfig(updater, [key]);
   }, [updateConfig]);
 
+  // Wrapper to update Serviços Especializados and mark section modified
+  const updateSpecializedServices = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
+    const key = makeConfigKey(CONFIG_MAPPINGS.SPECIALIZED_SERVICES.category, CONFIG_MAPPINGS.SPECIALIZED_SERVICES.section);
+    updateConfig(updater, [key]);
+  }, [updateConfig]);
+
   // Find existing entry ID by category/section (case-insensitive)
   const findEntryId = useCallback((category: string, section: string): number | undefined => {
     const c = String(category).trim().toLowerCase();
@@ -604,8 +732,8 @@ export function useConfigPersistence() {
     console.log('[ConfigPersistence] Sections modified:', modifiedKeys);
 
     try {
-      // Convert local config to API payloads
-      const allPayloads = configToApiPayloads(localConfig);
+      // Convert local config to API payloads (pass apiEntries for ID lookup)
+      const allPayloads = configToApiPayloads(localConfig, apiEntries);
       
       // Filter only modified payloads
       const payloadsToSave = allPayloads.filter(p => modifiedKeys.includes(p.configKey));
@@ -625,15 +753,28 @@ export function useConfigPersistence() {
       }
 
       const validateArrayItems = (items: ConfigItem[], ctx: string) => {
+        const seenLabels = new Set<string>();
+        
         for (const it of items) {
           if (!it || typeof it !== 'object') {
             throw new Error(`Item inválido em ${ctx}`);
           }
-          if (!it.label || String(it.label).trim().length === 0) {
+          
+          const label = String(it.label || '').trim();
+          
+          if (label.length === 0) {
             throw new Error(`Item sem label em ${ctx}`);
           }
+          
+          // Check for duplicate labels (case-insensitive)
+          const labelKey = label.toLowerCase();
+          if (seenLabels.has(labelKey)) {
+            throw new Error(`Label duplicado "${label}" em ${ctx}`);
+          }
+          seenLabels.add(labelKey);
+          
           if (typeof it.value !== 'number' || !Number.isFinite(it.value)) {
-            throw new Error(`Valor inválido (NaN/undefined) em ${ctx}: ${it.label}`);
+            throw new Error(`Valor inválido (NaN/undefined) em ${ctx}: ${label}`);
           }
         }
       };
@@ -665,13 +806,41 @@ export function useConfigPersistence() {
 
         if (existingId) {
           const entry = apiEntries.find((e) => e.id === existingId);
+          
+          // CRITICAL: Normalize all value fields to numbers before sending
+          const normalizedConfig = normalizeConfigValues(payload.config);
+          
+          // Validate normalized values
+          const validation = validateConfigValues(normalizedConfig, ctx);
+          if (!validation.isValid) {
+            console.error('[ConfigPersistence] Validation failed:', validation.errors);
+            throw new Error(`Valor inválido. Use apenas números. ${validation.errors[0]}`);
+          }
+          
           const requestBody = {
             category: entry?.category ?? payload.category,
             section: entry?.section ?? payload.section,
-            config: payload.config,
+            config: normalizedConfig,
           };
 
-          console.log('[ConfigPersistence] PUT payload:', { id: existingId, ...requestBody });
+          // CRITICAL: Log payloadFinal immediately before PUT
+          // This MUST match what goes to Network tab
+          const payloadFinal = { config: normalizedConfig };
+          
+          console.log('='.repeat(60));
+          console.log('[ConfigPersistence] payloadFinal BEFORE PUT:');
+          console.log(`  Endpoint: PUT /api/calculator/config/${existingId}`);
+          console.log('  Body:', JSON.stringify(payloadFinal, null, 2));
+          console.log('  Items breakdown:');
+          if (Array.isArray(normalizedConfig)) {
+            normalizedConfig.forEach((item, idx) => {
+              console.log(`    [${idx}] ${item.id !== undefined ? `id:${item.id} (UPDATE)` : '(CREATE)'} | label: "${item.label}" | value: ${item.value} (${typeof item.value})`);
+            });
+          } else {
+            console.log('    (nested object format)');
+          }
+          console.log('='.repeat(60));
+          
           const updated = await updateCalculatorConfig(existingId, requestBody);
           console.log('[ConfigPersistence] PUT response:', updated);
           savedCount++;
@@ -746,6 +915,25 @@ export function useConfigPersistence() {
           description: errorDetails,
           variant: 'destructive',
         });
+        return false;
+      }
+
+      // Handle 500 server error (often type mismatch)
+      if (err?.response?.status === 500) {
+        const serverMessage = err?.response?.data?.message || '';
+        if (serverMessage.includes('operand') || serverMessage.includes('string')) {
+          toast({
+            title: 'Erro de tipo de dado',
+            description: 'Valor inválido. Use apenas números (ex: 1650 ou 1650.00).',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Erro no servidor',
+            description: serverMessage || 'Erro interno ao salvar configuração.',
+            variant: 'destructive',
+          });
+        }
         return false;
       }
 
@@ -837,6 +1025,7 @@ export function useConfigPersistence() {
     updateKubernetes,
     updateGeneral,
     updateBackup,
+    updateSpecializedServices,
     // API operations
     saveToApi,
     resetToApi,

@@ -1,164 +1,66 @@
-import { Job, JobFormData, JobFilters, JobStatus } from '@/types/job';
+import axios from 'axios';
+import {
+  Job,
+  JobFormData,
+  JobFilters,
+  JobStatus,
+  ApiOpdcJob,
+  mapApiJobToFrontend,
+  mapFrontendToApiStore,
+  mapFrontendToApiUpdate,
+  STATUS_TO_API,
+} from '@/types/job';
 
-const STORAGE_KEY = 'open_jobs_v1';
-const DATA_SOURCE: 'localstorage' | 'api' = 'localstorage';
-
-// Seed data
-const seedJobs: Job[] = [
-  {
-    id: '1',
-    slug: 'engenheiro-cloud-senior',
-    titlePt: 'Engenheiro de Cloud Sênior',
-    descriptionPt: `## Sobre a vaga\n\nBuscamos um Engenheiro de Cloud Sênior para liderar projetos de infraestrutura crítica em nosso datacenter.\n\n### Responsabilidades\n\n- Projetar e implementar soluções de cloud híbrida\n- Gerenciar ambientes Kubernetes em produção\n- Automatizar processos com Terraform e Ansible\n- Mentoria técnica para equipe júnior\n\n### Requisitos\n\n- 5+ anos de experiência com cloud (AWS, Azure, GCP)\n- Certificações relevantes (CKA, AWS Solutions Architect)\n- Experiência com containers e orquestração`,
-    functionPt: 'Engenharia de Cloud',
-    titleEn: 'Senior Cloud Engineer',
-    descriptionEn: `## About the role\n\nWe are looking for a Senior Cloud Engineer to lead critical infrastructure projects in our datacenter.\n\n### Responsibilities\n\n- Design and implement hybrid cloud solutions\n- Manage Kubernetes environments in production\n- Automate processes with Terraform and Ansible\n- Technical mentorship for junior team\n\n### Requirements\n\n- 5+ years of cloud experience (AWS, Azure, GCP)\n- Relevant certifications (CKA, AWS Solutions Architect)\n- Experience with containers and orchestration`,
-    functionEn: 'Cloud Engineering',
-    address: 'São Paulo, SP',
-    totalAmount: 1,
-    applyUrl: 'https://open.com.br/carreiras/apply/cloud-senior',
-    department: 'TI',
-    seniority: 'Senior',
-    workModel: 'Híbrido',
-    employmentType: 'CLT',
-    salaryRange: 'R$ 18.000 - R$ 25.000',
-    benefits: ['Vale Refeição', 'Plano de Saúde', 'PLR', 'Home Office 3x/semana', 'Gympass'],
-    status: 'published',
-    createdAt: '2024-01-10T10:00:00Z',
-    updatedAt: '2024-01-15T14:30:00Z',
-  },
-  {
-    id: '2',
-    slug: 'analista-suporte-n2',
-    titlePt: 'Analista de Suporte N2',
-    descriptionPt: `## Sobre a vaga\n\nProcuramos um Analista de Suporte N2 para atuar no atendimento técnico avançado aos nossos clientes enterprise.\n\n### Responsabilidades\n\n- Atendimento de chamados escalados do N1\n- Troubleshooting de redes e sistemas\n- Documentação de procedimentos\n- Participação em projetos de melhoria\n\n### Requisitos\n\n- 2+ anos em suporte técnico\n- Conhecimento em Linux e Windows Server\n- Certificação ITIL (desejável)`,
-    functionPt: 'Suporte Técnico',
-    titleEn: 'N2 Support Analyst',
-    descriptionEn: `## About the role\n\nWe are looking for an N2 Support Analyst to provide advanced technical support to our enterprise customers.\n\n### Responsibilities\n\n- Handle escalated tickets from N1\n- Network and systems troubleshooting\n- Documentation of procedures\n- Participation in improvement projects\n\n### Requirements\n\n- 2+ years in technical support\n- Knowledge of Linux and Windows Server\n- ITIL certification (desirable)`,
-    functionEn: 'Technical Support',
-    address: 'São Paulo, SP',
-    totalAmount: 2,
-    applyUrl: 'https://open.com.br/carreiras/apply/suporte-n2',
-    department: 'Operações',
-    seniority: 'Pleno',
-    workModel: 'Presencial',
-    employmentType: 'CLT',
-    salaryRange: 'R$ 5.000 - R$ 7.000',
-    benefits: ['Vale Refeição', 'Plano de Saúde', 'Vale Transporte'],
-    status: 'draft',
-    createdAt: '2024-01-12T09:00:00Z',
-    updatedAt: '2024-01-12T09:00:00Z',
-  },
-];
-
-// Repository Interface (for future API implementation)
-interface JobsRepository {
-  getAll(): Promise<Job[]>;
-  getById(id: string): Promise<Job | null>;
-  getBySlug(slug: string): Promise<Job | null>;
-  save(job: Job): Promise<Job>;
-  remove(id: string): Promise<void>;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+if (!API_BASE_URL) {
+  throw new Error('VITE_API_BASE_URL não está definida.');
 }
 
-// LocalStorage Implementation
-class LocalStorageJobsRepository implements JobsRepository {
-  private getJobs(): Job[] {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (!data) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(seedJobs));
-      return seedJobs;
-    }
-    return JSON.parse(data);
-  }
+const AUTH_TOKEN_KEY = 'open_access_token';
 
-  private saveJobs(jobs: Job[]): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs));
-  }
-
-  async getAll(): Promise<Job[]> {
-    return this.getJobs().filter(j => !j.deletedAt);
-  }
-
-  async getById(id: string): Promise<Job | null> {
-    const jobs = this.getJobs();
-    return jobs.find(j => j.id === id && !j.deletedAt) || null;
-  }
-
-  async getBySlug(slug: string): Promise<Job | null> {
-    const jobs = this.getJobs();
-    return jobs.find(j => j.slug === slug && !j.deletedAt) || null;
-  }
-
-  async save(job: Job): Promise<Job> {
-    const jobs = this.getJobs();
-    const index = jobs.findIndex(j => j.id === job.id);
-    if (index >= 0) {
-      jobs[index] = job;
-    } else {
-      jobs.push(job);
-    }
-    this.saveJobs(jobs);
-    return job;
-  }
-
-  async remove(id: string): Promise<void> {
-    const jobs = this.getJobs();
-    const index = jobs.findIndex(j => j.id === id);
-    if (index >= 0) {
-      jobs[index].deletedAt = new Date().toISOString();
-      this.saveJobs(jobs);
-    }
-  }
-}
-
-// API Implementation (stub for future WordPress integration)
-class ApiJobsRepository implements JobsRepository {
-  private baseUrl = '/api/jobs';
-
-  async getAll(): Promise<Job[]> {
-    // TODO: Implement WordPress API call
-    // const response = await fetch(this.baseUrl);
-    // return response.json();
-    throw new Error('API not implemented');
-  }
-
-  async getById(id: string): Promise<Job | null> {
-    // TODO: Implement WordPress API call
-    throw new Error('API not implemented');
-  }
-
-  async getBySlug(slug: string): Promise<Job | null> {
-    // TODO: Implement WordPress API call
-    throw new Error('API not implemented');
-  }
-
-  async save(job: Job): Promise<Job> {
-    // TODO: Implement WordPress API call
-    throw new Error('API not implemented');
-  }
-
-  async remove(id: string): Promise<void> {
-    // TODO: Implement WordPress API call
-    throw new Error('API not implemented');
-  }
-}
-
-// Get repository based on config
-const getRepository = (): JobsRepository => {
-  const source: string = DATA_SOURCE;
-  if (source === 'api') {
-    return new ApiJobsRepository();
-  }
-  return new LocalStorageJobsRepository();
+const getToken = (): string | null => {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
 };
 
-const repository = getRepository();
+// Axios instance for authenticated requests
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  },
+});
 
-// Utility functions
-const generateId = (): string => {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
-};
+apiClient.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
+// Axios instance for public requests (no auth)
+const publicClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  },
+});
+
+interface PaginatedResponse<T> {
+  current_page: number;
+  data: T[];
+  from: number | null;
+  last_page: number;
+  per_page: number;
+  to: number | null;
+  total: number;
+}
+
+// Helper to generate slug
 const generateSlug = (title: string): string => {
   return title
     .toLowerCase()
@@ -168,122 +70,206 @@ const generateSlug = (title: string): string => {
     .replace(/(^-|-$)/g, '');
 };
 
-// Service Functions
+// Helper to build query params from filters
+const buildQueryParams = (filters?: JobFilters): Record<string, string> => {
+  const params: Record<string, string> = {};
+  
+  if (filters?.search) {
+    params.__q = filters.search;
+  }
+  if (filters?.status && filters.status !== 'all') {
+    params.status = STATUS_TO_API[filters.status] || filters.status;
+  }
+  if (filters?.department && filters.department !== 'all') {
+    params.department = filters.department;
+  }
+  if (filters?.seniority && filters.seniority !== 'all') {
+    params.seniority = filters.seniority;
+  }
+  if (filters?.address) {
+    params.address = filters.address;
+  }
+  
+  return params;
+};
+
 export const jobsService = {
+  /**
+   * Lista todas as vagas (autenticado)
+   * GET /api/opdc-job
+   */
   async list(filters?: JobFilters): Promise<Job[]> {
-    let jobs = await repository.getAll();
+    const params = buildQueryParams(filters);
+    params.per_page = '100'; // Get all jobs
+    
+    const response = await apiClient.get<PaginatedResponse<ApiOpdcJob>>('/opdc-job', { params });
+    
+    return response.data.data.map(mapApiJobToFrontend);
+  },
 
-    if (filters) {
-      if (filters.search) {
-        const search = filters.search.toLowerCase();
-        jobs = jobs.filter(j =>
-          j.titlePt.toLowerCase().includes(search) ||
-          j.titleEn.toLowerCase().includes(search) ||
-          j.descriptionPt.toLowerCase().includes(search) ||
-          j.descriptionEn.toLowerCase().includes(search)
-        );
+  /**
+   * Lista vagas publicadas (público, sem auth)
+   * GET /api/opdc-job - retorna apenas status=Publicada
+   */
+  async listPublished(): Promise<Job[]> {
+    try {
+      const params: Record<string, string> = {
+        status: 'Publicada',
+        per_page: '100',
+      };
+      
+      const response = await publicClient.get<PaginatedResponse<ApiOpdcJob>>('/opdc-job', { params });
+      
+      return response.data.data.map(mapApiJobToFrontend);
+    } catch (error) {
+      console.error('Error fetching published jobs:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Busca vaga por ID
+   * GET /api/opdc-job/{id}
+   */
+  async getById(id: string): Promise<Job | null> {
+    try {
+      const response = await apiClient.get<{ data: ApiOpdcJob }>(`/opdc-job/${id}`);
+      return mapApiJobToFrontend(response.data.data);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
       }
+      throw error;
+    }
+  },
 
-      if (filters.status && filters.status !== 'all') {
-        jobs = jobs.filter(j => j.status === filters.status);
+  /**
+   * Busca vaga por slug (público)
+   * GET /api/opdc-job/{slug}
+   */
+  async getBySlug(slug: string): Promise<Job | null> {
+    try {
+      // Try public client first (for public pages)
+      const response = await publicClient.get<{ data: ApiOpdcJob }>(`/opdc-job/${slug}`);
+      return mapApiJobToFrontend(response.data.data);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
       }
-
-      if (filters.department && filters.department !== 'all') {
-        jobs = jobs.filter(j => j.department === filters.department);
-      }
-
-      if (filters.address) {
-        jobs = jobs.filter(j => j.address.toLowerCase().includes(filters.address!.toLowerCase()));
-      }
-
-      if (filters.seniority && filters.seniority !== 'all') {
-        jobs = jobs.filter(j => j.seniority === filters.seniority);
+      // Try with auth if public fails
+      try {
+        const authResponse = await apiClient.get<{ data: ApiOpdcJob }>(`/opdc-job/${slug}`);
+        return mapApiJobToFrontend(authResponse.data.data);
+      } catch {
+        return null;
       }
     }
-
-    return jobs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   },
 
-  async listPublished(): Promise<Job[]> {
-    const jobs = await repository.getAll();
-    return jobs
-      .filter(j => j.status === 'published')
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  },
-
-  async getById(id: string): Promise<Job | null> {
-    return repository.getById(id);
-  },
-
-  async getBySlug(slug: string): Promise<Job | null> {
-    return repository.getBySlug(slug);
-  },
-
+  /**
+   * Cria uma nova vaga
+   * POST /api/opdc-job
+   */
   async create(data: JobFormData): Promise<Job> {
-    const now = new Date().toISOString();
-    const job: Job = {
-      ...data,
-      id: generateId(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    return repository.save(job);
+    const payload = mapFrontendToApiStore(data);
+    const response = await apiClient.post<{ data: ApiOpdcJob }>('/opdc-job', payload);
+    return mapApiJobToFrontend(response.data.data);
   },
 
+  /**
+   * Atualiza uma vaga
+   * PUT /api/opdc-job/{id}
+   */
   async update(id: string, data: Partial<JobFormData>): Promise<Job | null> {
-    const existing = await repository.getById(id);
-    if (!existing) return null;
-
-    const updated: Job = {
-      ...existing,
-      ...data,
-      updatedAt: new Date().toISOString(),
-    };
-    return repository.save(updated);
+    try {
+      const payload = mapFrontendToApiUpdate(data);
+      const response = await apiClient.put<{ data: ApiOpdcJob }>(`/opdc-job/${id}`, payload);
+      return mapApiJobToFrontend(response.data.data);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   },
 
+  /**
+   * Exclui uma vaga
+   * DELETE /api/opdc-job/{id}
+   */
   async remove(id: string): Promise<void> {
-    return repository.remove(id);
+    await apiClient.delete(`/opdc-job/${id}`);
   },
 
+  /**
+   * Duplica uma vaga
+   */
   async duplicate(id: string): Promise<Job | null> {
-    const existing = await repository.getById(id);
+    const existing = await this.getById(id);
     if (!existing) return null;
 
-    const now = new Date().toISOString();
-    const duplicated: Job = {
-      ...existing,
-      id: generateId(),
-      slug: `${existing.slug}-copy-${Date.now().toString(36)}`,
+    const duplicatedData: JobFormData = {
       titlePt: `${existing.titlePt} (Cópia)`,
       titleEn: `${existing.titleEn} (Copy)`,
+      descriptionPt: existing.descriptionPt,
+      descriptionEn: existing.descriptionEn,
+      functionPt: existing.functionPt,
+      functionEn: existing.functionEn,
+      slug: `${existing.slug}-copy-${Date.now().toString(36)}`,
+      address: existing.address,
+      totalAmount: existing.totalAmount,
+      applyUrl: existing.applyUrl,
+      department: existing.department,
+      seniority: existing.seniority,
+      workModel: existing.workModel,
+      employmentType: existing.employmentType,
+      salaryRange: existing.salaryRange,
+      benefits: existing.benefits,
       status: 'draft',
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: undefined,
     };
-    return repository.save(duplicated);
+
+    return this.create(duplicatedData);
   },
 
+  /**
+   * Publica uma vaga
+   */
   async publish(id: string): Promise<Job | null> {
     return this.update(id, { status: 'published' });
   },
 
+  /**
+   * Despublica uma vaga
+   */
   async unpublish(id: string): Promise<Job | null> {
     return this.update(id, { status: 'draft' });
   },
 
+  /**
+   * Encerra uma vaga
+   */
   async close(id: string): Promise<Job | null> {
     return this.update(id, { status: 'closed' });
   },
 
+  /**
+   * Verifica se slug é único
+   */
   async isSlugUnique(slug: string, excludeId?: string): Promise<boolean> {
-    const jobs = await repository.getAll();
-    return !jobs.some(j => j.slug === slug && j.id !== excludeId);
+    try {
+      const existingJob = await this.getBySlug(slug);
+      if (!existingJob) return true;
+      return existingJob.id === excludeId;
+    } catch {
+      return true;
+    }
   },
 
   generateSlug,
 
+  /**
+   * Retorna JSON público das vagas (para integração externa)
+   */
   async getPublicJson(): Promise<object[]> {
     const jobs = await this.listPublished();
     return jobs.map(job => ({
