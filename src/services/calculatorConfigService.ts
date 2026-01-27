@@ -101,10 +101,10 @@ export interface CalculatorConfigUpdateRequest {
 
 /**
  * Fetch all calculator configurations from API
- * GET /api/calculator/config
+ * GET /api/calculator-configs
  */
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
-  const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
+  const response = await apiClient.get<PaginatedConfigResponse>('/calculator-configs', {
     params: { __perPage: 200 }
   });
   return response.data.data || [];
@@ -112,25 +112,30 @@ export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
 
 /**
  * Fetch a single config by ID
- * GET /api/calculator/config/{id}
+ * GET /api/calculator-configs/{id}
  */
 export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.get<CalculatorConfigEntry>(`/calculator/config/${id}`);
+  const response = await apiClient.get<CalculatorConfigEntry>(`/calculator-configs/${id}`);
   return response.data;
 }
 
 /**
  * Update an existing calculator configuration
- * PUT /api/calculator/config/{id}
+ * PUT /api/calculator-configs/{id}
  * 
- * NOTE: API only supports updating existing configs. 
- * There is NO POST endpoint to create new configs.
+ * CRUD rules for config array (backend enforced):
+ * - CREATE: items WITHOUT `id` field → backend generates id automatically
+ * - UPDATE: items WITH existing `id` field → backend updates
+ * - DELETE: items NOT included in array → backend removes automatically
+ * 
+ * @param id - The config entry ID (e.g., 1 for VM, 5 for GPU)
+ * @param payload - Must contain `config` array with proper CRUD semantics
  */
 export async function updateCalculatorConfig(
   id: number,
   payload: CalculatorConfigUpdateRequest
 ): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.put<CalculatorConfigEntry>(`/calculator/config/${id}`, payload);
+  const response = await apiClient.put<CalculatorConfigEntry>(`/calculator-configs/${id}`, payload);
   return response.data;
 }
 
