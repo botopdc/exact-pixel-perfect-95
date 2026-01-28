@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Plus, FileDown, Eye, Link as LinkIcon, Mail, Loader2, Pencil, BarChart3, Search, X, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText } from 'lucide-react';
 import OpenLogo from './OpenLogo';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal, statusToApiFormat } from '@/hooks/useProposals';
@@ -635,7 +635,7 @@ const SavedProposals: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="text-left py-3 px-4 text-muted-foreground font-medium">Cliente</th>
+                      <th className="text-left py-3 px-4 text-muted-foreground font-medium">Empresa</th>
                       {canSeeExecutive && (
                         <th className="text-left py-3 px-4 text-muted-foreground font-medium">Executivo</th>
                       )}
@@ -649,7 +649,7 @@ const SavedProposals: React.FC = () => {
                   </thead>
                   <tbody>
                     {filteredProposals.map((p) => {
-                      const clientName = p.client?.name || p.client?.company || 'Sem nome';
+                      const companyName = p.client?.company || 'Sem empresa';
                       const proposalId = p.proposal?.id || '-';
                       const createdAt = p.proposal?.createdAt ? formatDateBR(p.proposal.createdAt) : '-';
                       const validityDate = p.proposal?.createdAt && p.proposal?.validityDays 
@@ -660,7 +660,7 @@ const SavedProposals: React.FC = () => {
 
                       return (
                         <tr key={proposalId} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                          <td className="py-4 px-4 font-medium text-foreground">{clientName}</td>
+                          <td className="py-4 px-4 font-medium text-foreground">{companyName}</td>
                           {canSeeExecutive && (
                             <td className="py-4 px-4 text-muted-foreground">{getExecutiveName(p)}</td>
                           )}
@@ -714,6 +714,18 @@ const SavedProposals: React.FC = () => {
                               <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Baixar PDF">
                                 <FileDown className="w-4 h-4" />
                               </Button>
+                              {/* Create Contract - Only for approved proposals, non-architects */}
+                              {p.status === 'APPROVED' && canEditProposal && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => navigate(`/modulos/comercial/contratos/novo?proposalId=${proposalId}`)}
+                                  className="text-green-600 hover:text-green-700 hover:bg-green-500/10" 
+                                  title="Criar contrato"
+                                >
+                                  <FileText className="w-4 h-4" />
+                                </Button>
+                              )}
                               {/* Delete button - Admin only */}
                               {isAdmin && (
                                 <Button 
