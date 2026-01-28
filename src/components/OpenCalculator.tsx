@@ -168,27 +168,16 @@ const OpenCalculator: React.FC = () => {
     };
   }, [location.pathname]);
 
-  // SECURITY: Architects (level 690) cannot create or edit proposals
+  // Track if user is Architect (level 690) - they CAN create/save proposals but CANNOT edit prices
   const isArchitect = userContext.userLevel === 690;
   
-  // Block architects from accessing calculator in edit mode
+  // Architects can create proposals but cannot EDIT existing ones
+  // (they can only view proposals linked to them via architect_user_id)
   useEffect(() => {
     if (isArchitect && isUrlEditMode) {
       toast({
         title: 'Acesso restrito',
-        description: 'Arquitetos não podem editar propostas',
-        variant: 'destructive',
-      });
-      navigate('/modulos/comercial/propostas');
-    }
-  }, [isArchitect, isUrlEditMode, navigate, toast]);
-  
-  // Block architects from creating new proposals
-  useEffect(() => {
-    if (isArchitect && !isUrlEditMode) {
-      toast({
-        title: 'Acesso restrito',
-        description: 'Arquitetos não podem criar propostas',
+        description: 'Arquitetos não podem editar propostas existentes',
         variant: 'destructive',
       });
       navigate('/modulos/comercial/propostas');
