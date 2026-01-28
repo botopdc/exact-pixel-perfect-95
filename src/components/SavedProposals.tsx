@@ -635,7 +635,7 @@ const SavedProposals: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="text-left py-3 px-4 text-muted-foreground font-medium">Cliente</th>
+                      <th className="text-left py-3 px-4 text-muted-foreground font-medium">Empresa</th>
                       {canSeeExecutive && (
                         <th className="text-left py-3 px-4 text-muted-foreground font-medium">Executivo</th>
                       )}
@@ -649,7 +649,7 @@ const SavedProposals: React.FC = () => {
                   </thead>
                   <tbody>
                     {filteredProposals.map((p) => {
-                      const clientName = p.client?.name || p.client?.company || 'Sem nome';
+                      const companyName = p.client?.company || 'Sem empresa';
                       const proposalId = p.proposal?.id || '-';
                       const createdAt = p.proposal?.createdAt ? formatDateBR(p.proposal.createdAt) : '-';
                       const validityDate = p.proposal?.createdAt && p.proposal?.validityDays 
@@ -660,7 +660,7 @@ const SavedProposals: React.FC = () => {
 
                       return (
                         <tr key={proposalId} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                          <td className="py-4 px-4 font-medium text-foreground">{clientName}</td>
+                          <td className="py-4 px-4 font-medium text-foreground">{companyName}</td>
                           {canSeeExecutive && (
                             <td className="py-4 px-4 text-muted-foreground">{getExecutiveName(p)}</td>
                           )}
