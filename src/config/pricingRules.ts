@@ -37,6 +37,15 @@ export const PRICING_RULES_BY_LEVEL: Record<number, PricingRules> = {
     canSendProposalEmail: true,
   },
   
+  // Arquiteto de Soluções (690)
+  690: {
+    maxDiscountPercent: 10,
+    canApplyPartnerDiscounts: false,
+    canOverridePrice: false,
+    canAccessSettings: false,
+    canSendProposalEmail: true,
+  },
+  
   // Comercial / Executivos Internos (700)
   700: {
     maxDiscountPercent: 10,
@@ -157,8 +166,8 @@ export function getPartnerTypeDiscount(partnerType: string | null): number {
 export function canAccessCalculator(userLevel: number | null): boolean {
   if (userLevel === null) return false;
   
-  // Níveis permitidos: 200 (Parceiro), 700 (Comercial), 750 (Gerente Comercial), 1000 (Admin)
-  const allowedLevels = [200, 700, 750, 1000];
+  // Níveis permitidos: 200 (Parceiro), 690 (Arquiteto), 700 (Comercial), 750 (Gerente Comercial), 1000 (Admin)
+  const allowedLevels = [200, 690, 700, 750, 1000];
   
   // Admin sempre tem acesso
   if (userLevel >= USER_LEVELS.ADMIN) return true;
@@ -169,12 +178,13 @@ export function canAccessCalculator(userLevel: number | null): boolean {
 /**
  * Verifica se o usuário pode editar preços (Markup) no Resumo
  * Níveis permitidos: 200 (Parceiro), 700 (Comercial), 750 (Gerente Comercial), 775 (CS), 1000 (Admin)
- * Níveis bloqueados: 1 (Cliente), 600 (RH), 900 (Suporte), 950 (Gerente Suporte)
+ * Níveis bloqueados: 1 (Cliente), 600 (RH), 690 (Arquiteto), 900 (Suporte), 950 (Gerente Suporte)
+ * Arquitetos podem criar propostas mas NÃO podem editar preços
  */
 export function canEditPriceMarkup(userLevel: number | null): boolean {
   if (userLevel === null) return false;
   
-  // Níveis permitidos para edição de markup
+  // Níveis permitidos para edição de markup (690 excluído intencionalmente)
   const allowedLevels = [200, 700, 750, 775, 1000];
   
   // Admin sempre tem acesso
