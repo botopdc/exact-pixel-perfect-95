@@ -17,76 +17,43 @@ import { copyToClipboard } from '@/lib/clipboard';
 import { LinkCopyModal } from '@/components/LinkCopyModal';
 import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 import normalizeProposal, { NormalizedProposal } from '@/lib/normalizeProposal';
+
 // ============================================================================
 // RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS (BASED ON API FIELDS)
 // ============================================================================
-// Source of truth: proposal.created_by (integer, nullable) from API
-// Fallback: proposal.creator?.id (from __with=creator expansion)
-//
-// Level 1000 (Admin): Can access any proposal
-// Level 750 (Gerente Comercial): Can access any proposal
-// Level 775 (CS): Can access only OWN proposals (created_by === user.id)
-// Level 700 (Executivo): Can access only OWN proposals (created_by === user.id)
-// Level 200 (Parceiro): Can access only OWN proposals (created_by === user.id)
-// Level 1 (Cliente): Can access only proposals where proposal.email === user.email
-//
-// IMPORTANT: Never show proposals with created_by=null to non-managers
-// ============================================================================
-
-// Helper to get owner ID from proposal - uses API fields only
 function getProposalOwnerId(proposal: any): number | null {
-  // The proposal comes from useProposal hook which now preserves API fields
-  
-  // Primary: created_by field from API (integer, nullable)
   if (proposal?.created_by !== undefined && proposal?.created_by !== null) {
     return Number(proposal.created_by);
   }
-  
-  // Fallback: creator object from __with=creator expansion
   if (proposal?.creator?.id !== undefined && proposal?.creator?.id !== null) {
     return Number(proposal.creator.id);
   }
-  
-  // Also check dados_proposta for saved ownership info (legacy from gateway)
   if (proposal?.dados_proposta?.created_by_user_id !== undefined && 
       proposal?.dados_proposta?.created_by_user_id !== null) {
     return Number(proposal.dados_proposta.created_by_user_id);
   }
-  
-  // No owner info available
   return null;
 }
 
 function canAccessProposal(proposal: any, userLevel: number, userId: number | string | null, userEmail: string | null): boolean {
-  // Admin (1000) and Gerente Comercial (750) can access any
   if (userLevel === 1000 || userLevel === 750) {
     return true;
   }
-  
-  // Client (1): Must match email
   if (userLevel === 1) {
     const clientEmail = (proposal?.client?.email || '').toLowerCase();
     return userEmail ? clientEmail === userEmail.toLowerCase() : false;
   }
-  
-  // Partner (200), Executives (700), CS (775): Must be the creator
   if (userLevel === 200 || userLevel === 700 || userLevel === 775) {
     const ownerId = getProposalOwnerId(proposal);
-    
-    // If no owner info, deny access (security - never show proposals without owner)
     if (ownerId === null) {
       console.warn('[PropostaView] Proposal without owner info - access denied for security');
       return false;
     }
-    
     if (userId === null) {
       return false;
     }
-    
     return ownerId === Number(userId);
   }
-  
-  // Other levels (600, 900, 950): No access
   return false;
 }
 
@@ -95,13 +62,19 @@ const PropostaView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  
+  // ============================================
+  // ALL HOOKS MUST BE DECLARED AT TOP LEVEL
+  // No conditional calls - React Rules of Hooks
+  // ============================================
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isCopyingLink, setIsCopyingLink] = useState(false);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkModalUrl, setLinkModalUrl] = useState('');
+  
   const { getApprovalLink } = useApprovalLink();
   
-  // CRITICAL: Extract numeric ID from URL param - strips PROP- prefix if present
+  // Extract numeric ID from URL param
   const numericId = useMemo(() => extractNumericId(urlId), [urlId]);
   const id = numericId !== null ? String(numericId) : urlId;
   
@@ -112,49 +85,59 @@ const PropostaView: React.FC = () => {
   const userId = internalSession?.userId || partnerSession?.partnerId || null;
   const userEmail = internalSession?.email || partnerSession?.email || null;
   
-  // Determine dashboard route based on user context
-  // CRITICAL: Check internal session FIRST to prevent partner session from overriding executive context
+  // Dashboard route based on user context
   const dashboardRoute = useMemo(() => {
-    // First check if this is an internal user (executive or admin)
     if (internalSession) {
       const level = internalSession.level || 0;
-      
-      // Executives (700/750) ALWAYS go to executive dashboard
       if (level === 700 || level === 750) {
         return ROUTES.executivo.dashboard;
       }
-      
-      // Admin and other internal users go to admin dashboard
       if (level >= 900 || level === 1000) {
         return ROUTES.admin.dashboard;
       }
-      
-      // Fallback for other authenticated internal users
       return ROUTES.admin.dashboard;
     }
-    
-    // Only check partner session if there's no valid internal session
     if (partnerSession) {
       return ROUTES.parceiro.dashboard;
     }
-    
-    // Default fallback
     return ROUTES.admin.dashboard;
   }, [internalSession, partnerSession]);
   
-  // Local storage hook
+  // Data fetching hooks - ALWAYS called
   const { data: proposal, isLoading } = useProposal(id);
   const sendEmailMutation = useSendProposalEmail();
   const updateStatusMutation = useUpdateProposalStatus();
   const trackEvent = useTrackEvent();
   
-  // Check access permission
+  // Check access permission - ALWAYS called
   const hasAccess = useMemo(() => {
     if (!proposal) return true; // Don't block while loading
     return canAccessProposal(proposal, userLevel, userId, userEmail);
   }, [proposal, userLevel, userId, userEmail]);
 
-  // Track internal view on mount
+  // ============================================
+  // NORMALIZE PROPOSAL DATA - ALWAYS CALLED
+  // Single source of truth for display
+  // ============================================
+  const normalizedProposal = useMemo((): NormalizedProposal | null => {
+    if (!proposal) return null;
+    return normalizeProposal(proposal as any);
+  }, [proposal]);
+  
+  // Derived values from normalized data - simple computations, no hooks
+  const clientName = normalizedProposal?.client.name || normalizedProposal?.client.company || 'Sem nome';
+  const clientCompany = normalizedProposal?.client.company || '';
+  const clientEmail = normalizedProposal?.client.email || '';
+  const clientPhone = normalizedProposal?.client.phone || '';
+  const proposalDisplayId = normalizedProposal?.displayId || '-';
+  const createdAt = normalizedProposal?.createdAt ? formatDateBR(normalizedProposal.createdAt) : '-';
+  const validityDate = normalizedProposal?.validUntil 
+    ? normalizedProposal.validUntil.toLocaleDateString('pt-BR')
+    : '-';
+  const result = normalizedProposal?.result;
+  const proposalId = proposalDisplayId;
+
+  // Track internal view on mount - ALWAYS called
   useEffect(() => {
     if (id && hasAccess) {
       trackEvent.mutate({ 
@@ -165,32 +148,29 @@ const PropostaView: React.FC = () => {
     }
   }, [id, hasAccess]);
 
-  // UNIFIED: Attachments now come from the proposal object (via __with=files)
-  // No separate call to useAttachments needed
+  // Attachments from proposal - ALWAYS called
   const attachments = useMemo(() => {
     if (!proposal) return [];
-    // Files are now attached directly to the proposal by useProposal
     return (proposal as any).files || [];
   }, [proposal]);
 
+  // ============================================
+  // EVENT HANDLERS - defined after all hooks
+  // ============================================
   const handleDownloadPDF = async () => {
-    // CRITICAL: Use numeric ID from proposal object, not URL param (which might be display ID)
-    const numericId = proposal?.id;
+    const pdfNumericId = proposal?.id;
     const displayId = id || proposal?.proposal?.id || '';
     
-    if (!numericId) {
+    if (!pdfNumericId) {
       console.error('[PropostaView] No numeric ID available for PDF download:', { urlParam: id, displayId });
       toast({ title: 'Erro', description: 'ID numérico da proposta não encontrado', variant: 'destructive' });
       return;
     }
     
-    console.log('[PropostaView] Download PDF using numeric ID:', numericId, '(display:', displayId, ')');
-    
-    // Track PDF download using display ID for analytics
+    console.log('[PropostaView] Download PDF using numeric ID:', pdfNumericId, '(display:', displayId, ')');
     trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
     
-    // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
-    const result = await downloadProposalPdfFromApi(numericId);
+    const result = await downloadProposalPdfFromApi(pdfNumericId);
     
     if (result.success) {
       toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
@@ -200,7 +180,6 @@ const PropostaView: React.FC = () => {
   };
 
   const handleCopyLink = async () => {
-    // CRITICAL: Use numeric ID from proposal object, not URL param
     const apiId = proposal?.id || numericId;
     if (!apiId) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -209,16 +188,11 @@ const PropostaView: React.FC = () => {
     
     setIsCopyingLink(true);
     try {
-      // Fetch approval token and generate link with numeric ID
       const approvalLink = await getApprovalLink(apiId);
-      
-      // Try to copy to clipboard (with Safari fallback)
       const copySuccess = await copyToClipboard(approvalLink);
       
-      // Track link copy with numeric ID
       trackEvent.mutate({ proposalId: String(apiId), type: 'link_copy', channel: 'ui' });
       
-      // Update status to SENT if still DRAFT
       if (!proposal?.status || proposal?.status === 'DRAFT') {
         await updateStatusMutation.mutateAsync({ id: String(apiId), status: 'SENT' });
       }
@@ -226,7 +200,6 @@ const PropostaView: React.FC = () => {
       if (copySuccess) {
         toast({ title: 'Link copiado!', description: 'O link de aprovação com token foi copiado' });
       } else {
-        // Safari blocked copy - show modal with selectable link
         setLinkModalUrl(approvalLink);
         setLinkModalOpen(true);
         toast({ 
@@ -242,22 +215,20 @@ const PropostaView: React.FC = () => {
   };
 
   const handleSendEmail = async () => {
-    if (!proposal?.client?.email?.trim()) {
+    if (!clientEmail?.trim()) {
       toast({ title: 'Erro', description: 'Esta proposta não possui e-mail do cliente', variant: 'destructive' });
       return;
     }
 
-    // CRITICAL: Use numeric ID from proposal object
     const apiId = proposal?.id || numericId;
-    const displayId = toDisplayId(apiId || '');
-    const validityDateStr = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
+    const displayIdForEmail = toDisplayId(apiId || '');
+    const validityDateStr = proposal?.proposal?.createdAt && proposal?.proposal?.validityDays 
       ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
       : '-';
     
     setIsSendingEmail(true);
     
     try {
-      // CRITICAL: First fetch approval token and build tokenized link using numeric ID
       console.log('[PropostaView] Fetching approval link for email send:', apiId);
       let proposalLink: string;
       
@@ -272,29 +243,27 @@ const PropostaView: React.FC = () => {
           variant: 'destructive' 
         });
         setIsSendingEmail(false);
-        return; // Block email send if we can't get token
+        return;
       }
       
       await sendEmailMutation.mutateAsync({
-        clientName: proposal.client.name || proposal.client.company || 'Cliente',
-        clientEmail: proposal.client.email,
-        proposalId: displayId,
-        proposalLink, // Now uses tokenized link
-        totalValue: `R$ ${formatCurrency(proposal.result?.grandTotal || 0)}`,
+        clientName: proposal?.client?.name || proposal?.client?.company || 'Cliente',
+        clientEmail: clientEmail,
+        proposalId: displayIdForEmail,
+        proposalLink,
+        totalValue: `R$ ${formatCurrency(normalizedProposal?.result?.grandTotal || 0)}`,
         validityDate: validityDateStr,
       });
       
-      // Track email send with numeric ID
       if (apiId) {
         trackEvent.mutate({ proposalId: String(apiId), type: 'email_send', channel: 'ui' });
         
-        // Update status to SENT if still DRAFT
-        if (!proposal.status || proposal.status === 'DRAFT') {
+        if (!proposal?.status || proposal?.status === 'DRAFT') {
           await updateStatusMutation.mutateAsync({ id: String(apiId), status: 'SENT' });
         }
       }
       
-      toast({ title: 'Email enviado!', description: `Proposta enviada para ${proposal.client.email}` });
+      toast({ title: 'Email enviado!', description: `Proposta enviada para ${clientEmail}` });
     } catch (error: any) {
       toast({ 
         title: 'Erro ao enviar email', 
@@ -306,6 +275,9 @@ const PropostaView: React.FC = () => {
     }
   };
 
+  // ============================================
+  // EARLY RETURNS - AFTER all hooks are declared
+  // ============================================
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
@@ -380,27 +352,8 @@ const PropostaView: React.FC = () => {
   }
 
   // ============================================
-  // NORMALIZE PROPOSAL DATA - Single source of truth
+  // MAIN RENDER - proposal is guaranteed to exist here
   // ============================================
-  const normalizedProposal = useMemo(() => {
-    if (!proposal) return null;
-    // Pass raw proposal data to normalizer
-    return normalizeProposal(proposal as any);
-  }, [proposal]);
-  
-  // Use normalized data for display
-  const clientName = normalizedProposal?.client.name || normalizedProposal?.client.company || 'Sem nome';
-  const clientCompany = normalizedProposal?.client.company || '';
-  const clientEmail = normalizedProposal?.client.email || '';
-  const clientPhone = normalizedProposal?.client.phone || '';
-  const proposalDisplayId = normalizedProposal?.displayId || '-';
-  const createdAt = normalizedProposal?.createdAt ? formatDateBR(normalizedProposal.createdAt) : '-';
-  const validityDate = normalizedProposal?.validUntil 
-    ? normalizedProposal.validUntil.toLocaleDateString('pt-BR')
-    : '-';
-  const result = normalizedProposal?.result;
-  const proposalId = proposalDisplayId;
-
   return (
     <div className="min-h-screen proposal-page-wrapper">
       {/* Action bar - fixed at top */}
