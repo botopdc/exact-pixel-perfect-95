@@ -1191,23 +1191,44 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     quantity: number;
   }> = [];
   
-  // KNOWN CONFIG IDS (fallback when API doesn't return item IDs)
-  // These match the database IDs from calculator_configs table
-  const FALLBACK_ADDONS_CONFIG_ID = 6;
-  const FALLBACK_ITEM_ID = 1; // Default item ID when not found
-  
-  // Helper to get addon IDs from configIdStore with mandatory fallbacks
-  // API v12+ requires config_id and item_id to be integers, never undefined
-  const getAddonIds = (code: string): { config_id: number; item_id: number } => {
+  // Helper to get addon IDs from configIdStore - NO FALLBACKS
+  // API v12+ requires config_id and item_id to be valid integers from the API
+  // CRITICAL: Returns null if IDs are not found - addon MUST be skipped
+  const getAddonIds = (code: string): { config_id: number; item_id: number } | null => {
     if (!configIdStore) {
-      console.warn('[localToApi] No configIdStore, using fallback IDs for:', code);
-      return { config_id: FALLBACK_ADDONS_CONFIG_ID, item_id: FALLBACK_ITEM_ID };
+      console.error('[localToApi] No configIdStore available - addon will be skipped:', code);
+      return null;
     }
     const ids = getAddonItemId(configIdStore, code);
+    if (!ids.configId || !ids.itemId) {
+      console.error('[localToApi] SKIPPING addon - missing IDs:', code, 'configId:', ids.configId, 'itemId:', ids.itemId);
+      console.error('[localToApi] Available addons in store:', configIdStore.addons?.items);
+      console.error('[localToApi] Available specialized services:', configIdStore.specializedServices?.items);
+      return null;
+    }
+    console.log('[localToApi] Found IDs for addon:', code, '→ config_id:', ids.configId, 'item_id:', ids.itemId);
     return { 
-      config_id: ids.configId ?? FALLBACK_ADDONS_CONFIG_ID, 
-      item_id: ids.itemId ?? FALLBACK_ITEM_ID 
+      config_id: ids.configId, 
+      item_id: ids.itemId 
     };
+  };
+  
+  // Helper to safely add addon to array - only if IDs are valid
+  const addAddon = (code: string, name: string, price: number, quantity: number): boolean => {
+    const ids = getAddonIds(code);
+    if (!ids) {
+      console.error(`[localToApi] ADDON NOT ADDED: ${name} (code: ${code}) - missing item_id from API`);
+      return false;
+    }
+    addonsArray.push({
+      config_id: ids.config_id,
+      item_id: ids.item_id,
+      name,
+      price,
+      quantity,
+    });
+    console.log(`[localToApi] Added addon: ${name} (config_id: ${ids.config_id}, item_id: ${ids.item_id})`);
+    return true;
   };
   
   // ============================================
@@ -1232,13 +1253,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         const storageKey = `storage_${i}`;
         const storagePrice = addonPriceByKey[storageKey]?.subtotal || storage.price || 0;
         
-        const storageIds = getAddonIds('storage');
-        addonsArray.push({
-          ...storageIds,
-          name: `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`,
-          price: storagePrice,
-          quantity: 1,
-        });
+        addAddon('storage', `Storage ${storage.type || storage.storageType || 'SAN'} ${displaySize}`, storagePrice, 1);
       }
     }
   }
@@ -1251,13 +1266,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       || addonPriceByKey['k8s']?.subtotal 
       || k8s.price || 0;
     
-    const k8sIds = getAddonIds('kubernetes');
-    addonsArray.push({
-      ...k8sIds,
-      name: `Kubernetes ${k8s.plan || 'Standard'}`,
-      price: k8sPrice,
-      quantity: 1,
-    });
+    addAddon('kubernetes', `Kubernetes ${k8s.plan || 'Standard'}`, k8sPrice, 1);
   }
   
   // OPEN SaaS - add as addon if enabled with ANY users > 0
@@ -1267,13 +1276,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       || addonPriceByKey['open_saas']?.subtotal 
       || proposal.openSaas.price || 0;
     
-    const saasIds = getAddonIds('open_saas');
-    addonsArray.push({
-      ...saasIds,
-      name: `OPEN SaaS ${proposal.openSaas.users} usuários`,
-      price: saasPrice,
-      quantity: proposal.openSaas.users,
-    });
+    addAddon('open_saas', `OPEN SaaS ${proposal.openSaas.users} usuários`, saasPrice, proposal.openSaas.users);
   }
   
   if (proposal.addons && typeof proposal.addons === 'object') {
@@ -1284,100 +1287,97 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     // ============================================
     if (typeof addons.winserver === 'number' && addons.winserver > 0) {
       const winserverPrice = addonPriceByKey['svc_winserver']?.unitPrice || 0;
-      const winIds = getAddonIds('winserver_2vcpu_unit');
-      addonsArray.push({ ...winIds, name: 'WinServer(2vCPU/unid.)', price: winserverPrice, quantity: addons.winserver });
-      console.log('[localToApi] Added WinServer to payload:', addons.winserver, 'price:', winserverPrice);
+      addAddon('winserver_2vcpu_unit', 'WinServer(2vCPU/unid.)', winserverPrice, addons.winserver);
     }
     
     // Standard addon mappings with proper type handling - extract prices from result rows
     if (typeof addons.antivirus === 'number' && addons.antivirus > 0) {
       const price = addonPriceByKey['svc_antivirus']?.unitPrice || 0;
-      const avIds = getAddonIds('antivirus');
-      addonsArray.push({ ...avIds, name: 'Antivirus', price, quantity: addons.antivirus });
+      addAddon('antivirus', 'Antivirus', price, addons.antivirus);
     }
     if (addons.firewall === true || (typeof addons.firewall === 'number' && addons.firewall > 0)) {
       const price = addonPriceByKey['svc_firewall']?.unitPrice || 0;
-      const fwIds = getAddonIds('firewall');
       const fwQty = typeof addons.firewall === 'number' ? addons.firewall : 1;
-      addonsArray.push({ ...fwIds, name: 'Firewall', price, quantity: fwQty });
+      addAddon('firewall', 'Firewall', price, fwQty);
     }
     if (typeof addons.tsplus === 'number' && addons.tsplus > 0) {
       const price = addonPriceByKey['svc_tsplus']?.unitPrice || 0;
-      const tsIds = getAddonIds('tsplus');
-      addonsArray.push({ ...tsIds, name: 'TS Plus', price, quantity: addons.tsplus });
+      addAddon('tsplus', 'TS Plus', price, addons.tsplus);
     }
     if (typeof addons.cal === 'number' && addons.cal > 0) {
       const price = addonPriceByKey['svc_cal']?.unitPrice || 0;
-      const calIds = getAddonIds('cal');
-      addonsArray.push({ ...calIds, name: 'CAL', price, quantity: addons.cal });
+      addAddon('cal', 'CAL', price, addons.cal);
     }
     if (typeof addons.veeamVm === 'number' && addons.veeamVm > 0) {
       const price = addonPriceByKey['svc_veeam_vm']?.unitPrice || 0;
-      const vvmIds = getAddonIds('veeam_vm');
-      addonsArray.push({ ...vvmIds, name: 'Veeam VM', price, quantity: addons.veeamVm });
+      addAddon('veeam_vm', 'Veeam VM', price, addons.veeamVm);
     }
     if (typeof addons.veeamAg === 'number' && addons.veeamAg > 0) {
       const price = addonPriceByKey['svc_veeam_agent']?.unitPrice || 0;
-      const vagIds = getAddonIds('veeam_agent');
-      addonsArray.push({ ...vagIds, name: 'Veeam Agent', price, quantity: addons.veeamAg });
+      addAddon('veeam_agent', 'Veeam Agent', price, addons.veeamAg);
     }
-    // Backup - get price from backup row
+    // Backup - get price from backup row (uses dedicated function for ID lookup)
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
       const backupKey = `backup_${addons.backupPlan}`;
       const price = addonPriceByKey[backupKey]?.unitPrice || 0;
       // Get backup IDs using specific backup plan
       const backupIds = configIdStore ? getBackupItemId(configIdStore, addons.backupPlan) : { configId: undefined, itemId: undefined };
-      addonsArray.push({ 
-        config_id: backupIds.configId, 
-        item_id: backupIds.itemId, 
-        name: `Backup ${addons.backupPlan}`, 
-        price, 
-        quantity: addons.backupGb 
-      });
-      console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb, 'price:', price);
+      if (backupIds.configId && backupIds.itemId) {
+        addonsArray.push({ 
+          config_id: backupIds.configId, 
+          item_id: backupIds.itemId, 
+          name: `Backup ${addons.backupPlan}`, 
+          price, 
+          quantity: addons.backupGb 
+        });
+        console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb, 'price:', price);
+      } else {
+        console.error('[localToApi] SKIPPING Backup - missing IDs:', backupIds);
+      }
     }
-    // SQL
+    // SQL (uses dedicated function for ID lookup)
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
       const sqlKey = `svc_sql_${addons.sql}`;
       const price = addonPriceByKey[sqlKey]?.unitPrice || 0;
       // Get SQL IDs using specific edition
       const sqlIds = configIdStore ? getSqlItemId(configIdStore, addons.sql) : { configId: undefined, itemId: undefined };
-      addonsArray.push({ 
-        config_id: sqlIds.configId, 
-        item_id: sqlIds.itemId, 
-        name: `SQL ${addons.sql.toUpperCase()}`, 
-        price, 
-        quantity: addons.sqlQty 
-      });
+      if (sqlIds.configId && sqlIds.itemId) {
+        addonsArray.push({ 
+          config_id: sqlIds.configId, 
+          item_id: sqlIds.itemId, 
+          name: `SQL ${addons.sql.toUpperCase()}`, 
+          price, 
+          quantity: addons.sqlQty 
+        });
+        console.log('[localToApi] Added SQL to payload:', addons.sql, addons.sqlQty, 'price:', price);
+      } else {
+        console.error('[localToApi] SKIPPING SQL - missing IDs:', sqlIds);
+      }
     }
     // Support - specialized service
     if (addons.support && addons.support.level !== 'none' && addons.support.price > 0) {
-      const supportIds = getAddonIds(`support_${addons.support.level}`);
-      addonsArray.push({ ...supportIds, name: `Suporte ${addons.support.level}`, price: addons.support.price, quantity: 1 });
+      addAddon(`support_${addons.support.level}`, `Suporte ${addons.support.level}`, addons.support.price, 1);
     }
     // Consulting - specialized service
     if (addons.consulting && typeof addons.consulting.quantity === 'number' && addons.consulting.quantity > 0) {
-      const consultingIds = getAddonIds('consulting_hours');
-      addonsArray.push({ ...consultingIds, name: 'Consultoria Técnica', price: addons.consulting.unitPrice || 200, quantity: addons.consulting.quantity });
+      addAddon('consulting_hours', 'Consultoria Técnica', addons.consulting.unitPrice || 200, addons.consulting.quantity);
     }
     // DBA - specialized service
     if (addons.dba && typeof addons.dba.quantity === 'number' && addons.dba.quantity > 0) {
-      const dbaIds = getAddonIds('dba_hours');
-      addonsArray.push({ ...dbaIds, name: 'DBA', price: addons.dba.unitPrice || 250, quantity: addons.dba.quantity });
+      addAddon('dba_hours', 'DBA', addons.dba.unitPrice || 250, addons.dba.quantity);
     }
-    // Custom addons (legacy support) - use fallback IDs
+    // Custom addons (legacy support)
     if (addons.customAddons && typeof addons.customAddons === 'object') {
       for (const [key, value] of Object.entries(addons.customAddons)) {
-        const customIds = getAddonIds(key);
         if (typeof value === 'object' && value !== null) {
           const addon = value as { enabled?: boolean; price?: number; quantity?: number };
           if (addon.enabled) {
-            addonsArray.push({ ...customIds, name: key, price: addon.price || 0, quantity: addon.quantity || 1 });
+            addAddon(key, key, addon.price || 0, addon.quantity || 1);
           }
         } else if (typeof value === 'number' && value > 0) {
           const customKey = `svc_custom_${key}`;
           const price = addonPriceByKey[customKey]?.unitPrice || 0;
-          addonsArray.push({ ...customIds, name: key, price, quantity: value });
+          addAddon(key, key, price, value);
         }
       }
     }
@@ -1389,20 +1389,22 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // API v12+: config_id and item IDs are REQUIRED for each server
   const serversArray: Array<Record<string, unknown>> = [];
   
-  // KNOWN CONFIG IDS for VM (fallback when API doesn't return item IDs)
-  const FALLBACK_VM_CONFIG_ID = 1;
-  const FALLBACK_VCPU_ITEM_ID = 1;
-  const FALLBACK_RAM_ITEM_ID = 2;
-  const FALLBACK_STORAGE_ITEM_ID = 3;
-  
-  // Get VM item IDs from configIdStore with fallbacks
+  // Get VM item IDs from configIdStore - NO FALLBACKS, VALIDATION REQUIRED
+  // API v12+ requires valid config_id and item_ids from the API
   const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
-  const vmConfigId = vmItemIds?.configId ?? FALLBACK_VM_CONFIG_ID;
-  const vcpuItemId = vmItemIds?.vcpuItemId ?? FALLBACK_VCPU_ITEM_ID;
-  const ramItemId = vmItemIds?.ramItemId ?? FALLBACK_RAM_ITEM_ID;
-  const storageItemId = vmItemIds?.storageItemId ?? FALLBACK_STORAGE_ITEM_ID;
+  const vmConfigId = vmItemIds?.configId;
+  const vcpuItemId = vmItemIds?.vcpuItemId;
+  const ramItemId = vmItemIds?.ramItemId;
+  const storageItemId = vmItemIds?.storageItemId;
   
-  console.log('[localToApi] VM IDs:', { vmConfigId, vcpuItemId, ramItemId, storageItemId, fromStore: !!vmItemIds });
+  // CRITICAL: Log available config items for debugging if IDs are missing
+  if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
+    console.error('[localToApi] ❌ CRITICAL: Missing VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
+    console.error('[localToApi] Available VM items:', configIdStore?.vm?.items);
+    console.error('[localToApi] This will cause API 422 error - IDs must exist in the API');
+  }
+  
+  console.log('[localToApi] VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
@@ -1449,15 +1451,15 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
-        // Get BareMetal IDs (different from VM) - with fallbacks
-        const FALLBACK_BM_CPU_CONFIG_ID = 2;
-        const FALLBACK_BM_RAM_CONFIG_ID = 3;
-        const FALLBACK_BM_DISK_CONFIG_ID = 4;
-        
-        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId ?? FALLBACK_BM_CPU_CONFIG_ID;
-        const bmCpuItemId = configIdStore?.baremetal?.cpu ? (getItemId(configIdStore.baremetal.cpu, 'CPU') ?? 1) : 1;
-        const bmRamItemId = configIdStore?.baremetal?.ram ? (getItemId(configIdStore.baremetal.ram, 'RAM') ?? 1) : 1;
-        const bmDiskItemId = configIdStore?.baremetal?.disk ? (getItemId(configIdStore.baremetal.disk, 'Disco') ?? 1) : 1;
+        // Get BareMetal IDs (different from VM) - NO FALLBACKS
+        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId;
+        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, item.cpu) : undefined;
+        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, item.ram) : undefined;
+        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, 'Disco') : undefined;
+
+        if (!bmCpuConfigId) {
+          console.error('[localToApi] Missing BareMetal CPU config ID from API');
+        }
 
         const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
@@ -1466,7 +1468,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           storage: 0,
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
-          // API v12+: Required config and item IDs for BareMetal (with fallbacks)
+          // API v12+: Required config and item IDs for BareMetal (from API)
           config_id: bmCpuConfigId,
           vcpu_item_id: bmCpuItemId,
           ram_item_id: bmRamItemId,
@@ -1736,7 +1738,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   };
   
   // ============================================
-  // FINAL VALIDATION AND LOGGING
+  // FINAL VALIDATION AND LOGGING - BLOCK IF IDs ARE MISSING
   // ============================================
   console.log('[localToApi] PAYLOAD FINAL:', {
     total: finalPayload.total,
@@ -1748,6 +1750,52 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     })),
     addons: addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity, config_id: a.config_id, item_id: a.item_id })),
   });
+  
+  // ============================================
+  // CRITICAL VALIDATION: Check for missing IDs that will cause API 422 errors
+  // ============================================
+  const validationErrors: string[] = [];
+  
+  // Validate servers have all required IDs
+  for (const server of serversArray) {
+    const serverName = server.name as string;
+    // Skip validation for virtual/placeholder servers
+    if (serverName?.startsWith('__VIRTUAL__')) continue;
+    
+    if (!server.config_id) {
+      validationErrors.push(`Server "${serverName}" missing config_id`);
+    }
+    if (!server.vcpu_item_id) {
+      validationErrors.push(`Server "${serverName}" missing vcpu_item_id`);
+    }
+    if (!server.ram_item_id) {
+      validationErrors.push(`Server "${serverName}" missing ram_item_id`);
+    }
+    if (!server.storage_item_id) {
+      validationErrors.push(`Server "${serverName}" missing storage_item_id`);
+    }
+  }
+  
+  // Validate addons have all required IDs
+  for (const addon of addonsArray) {
+    if (!addon.config_id) {
+      validationErrors.push(`Addon "${addon.name}" missing config_id`);
+    }
+    if (!addon.item_id) {
+      validationErrors.push(`Addon "${addon.name}" missing item_id`);
+    }
+  }
+  
+  // If there are validation errors, throw to prevent API request
+  if (validationErrors.length > 0) {
+    console.error('[localToApi] ❌ VALIDATION FAILED - Missing IDs:', validationErrors);
+    console.error('[localToApi] Available config store:', {
+      vmItems: configIdStore?.vm?.items,
+      addonsItems: configIdStore?.addons?.items,
+      sqlServerItems: configIdStore?.sqlServer?.items,
+    });
+    throw new Error(`IDs obrigatórios ausentes na configuração da API. Verifique o console para detalhes. Erros: ${validationErrors.join('; ')}`);
+  }
   
   // Validate: warn if servers have price = 0 but have resources
   let hasZeroPriceWarning = false;
