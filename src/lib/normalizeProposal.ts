@@ -234,21 +234,27 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   if (dadosProposta?.items && Array.isArray(dadosProposta.items)) {
     rawServers = dadosProposta.items.filter((item: any) => {
       const itemType = toStr(item.type).toLowerCase();
+      // CRITICAL FIX: Support both 'vm'/'bm' (snapshot) and 'VM'/'BareMetal' (legacy)
       return itemType === 'vm' || itemType === 'bm' || itemType === 'baremetal';
     });
   } else {
     rawServers = ensureArray(rawProposal.servers);
   }
   
+  console.log('[normalizeProposal] Raw servers from snapshot:', rawServers.length, rawServers.map((s: any) => ({ type: s.type, name: s.name })));
+  
   const servers: NormalizedServer[] = rawServers.map((server: any, idx: number) => {
-    const type = toStr(server.type).toLowerCase() === 'bm' || 
-                 toStr(server.type).toLowerCase() === 'baremetal' ? 'bm' : 'vm';
+    const typeRaw = toStr(server.type).toLowerCase();
+    const type = typeRaw === 'bm' || typeRaw === 'baremetal' ? 'bm' : 'vm';
     const name = toStr(server.name, `${type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1}`);
+    
+    // CRITICAL: Support multiple field naming conventions from different snapshots
     const vcpu = toNum(server.vcpu);
     const ram = toNum(server.ram) || toNum(server.ram_gb) || toNum(server.ramGb);
-    const storage = toNum(server.storage) || toNum(server.nvme_gb) || Math.round(toNum(server.nvmeTb) * 1024);
-    const quantity = toNum(server.quantity ?? server.qtyServers, 1);
-    const ips = toNum(server.ips ?? server.ipQty);
+    const nvmeTb = toNum(server.nvmeTb) || toNum(server.nvme) || toNum(server.nvme_tb);
+    const storage = toNum(server.storage) || toNum(server.nvme_gb) || Math.round(nvmeTb * 1024);
+    const quantity = toNum(server.quantity ?? server.qtyServers ?? server.qty, 1);
+    const ips = toNum(server.ips ?? server.ipQty ?? server.ip_qty);
     const gpu = toStr(server.gpu, 'Sem GPU');
     const gpuQty = toNum(server.gpuQty ?? server.gpu_qty);
     
@@ -256,7 +262,11 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
     const unitPrice = toNum(server.price ?? server.unitPrice ?? server.unit_price);
     const subtotal = toNum(server.subtotal ?? server.totalPrice ?? server.total_price, unitPrice * quantity);
     
-    const description = buildServerDescription(server);
+    // Build description matching calculator summary format
+    const storageDisplay = nvmeTb >= 1 ? `${nvmeTb.toFixed(2)}TB` : `${storage || 0}GB`;
+    const description = vcpu > 0 || ram > 0 || storage > 0 
+      ? `(${vcpu} vCPU, ${ram}GB RAM, ${storageDisplay})`
+      : buildServerDescription(server);
     
     return {
       name,

@@ -11,23 +11,39 @@ interface DadosPropostaSnapshot {
   items?: Array<{
     type: string;
     name?: string;
+    // VM fields
     vcpu?: number;
     ram?: number;
+    ramGb?: number;
+    ram_gb?: number;
     nvme?: number;
+    nvmeTb?: number;
+    storage?: number;
     qty?: number;
+    qtyServers?: number;
     ipQty?: number;
+    ips?: number;
+    ip_qty?: number;
     gpu?: string;
     gpuQty?: number;
+    gpu_qty?: number;
+    // BM fields
     cpu?: string;
+    bmCpu?: string;
+    bmRam?: string;
     ramTier?: string;
     disks?: Array<{ label: string; tb: number }>;
+    // Pricing
     unitPrice?: number;
+    price?: number;
+    unit_price?: number;
     totalPrice?: number;
+    total_price?: number;
   }>;
   addons?: {
     antivirus?: number;
     antivirusPrice?: number;
-    firewall?: boolean;
+    firewall?: boolean | number;
     firewallPrice?: number;
     tsplus?: number;
     tsplusPrice?: number;
@@ -36,6 +52,7 @@ interface DadosPropostaSnapshot {
     winserver?: number;
     winserverPrice?: number;
     sql?: string;
+    sqlQty?: number;
     sqlPrice?: number;
     veeamVm?: number;
     veeamVmPrice?: number;
@@ -51,6 +68,20 @@ interface DadosPropostaSnapshot {
     consultingPrice?: number;
     dbaHours?: number;
     dbaPrice?: number;
+    // Structured add-ons (new format)
+    support?: {
+      level?: string;
+      price?: number;
+    };
+    consulting?: {
+      quantity?: number;
+      unitPrice?: number;
+    };
+    dba?: {
+      quantity?: number;
+      unitPrice?: number;
+    };
+    customAddons?: Record<string, unknown>;
   };
   kubernetes?: {
     enabled?: boolean;
@@ -58,12 +89,17 @@ interface DadosPropostaSnapshot {
     nodeVcpu?: number;
     nodeRam?: number;
     totalPrice?: number;
+    plan?: string;
+    price?: number;
   };
   storageItems?: Array<{
-    type: string;
-    region: string;
-    size: number;
+    type?: string;
+    storageType?: string;
+    region?: string;
+    size?: number;
+    volumeTB?: number;
     totalPrice?: number;
+    price?: number;
   }>;
   openSaas?: {
     enabled?: boolean;
@@ -110,25 +146,31 @@ export function buildResultFromSnapshot(
   const priceOverrides = dadosProposta.priceOverrides || {};
 
   // Process server items
+  // CRITICAL FIX: Support both lowercase ('vm', 'bm') and uppercase ('VM', 'BareMetal') types
   if (dadosProposta.items && Array.isArray(dadosProposta.items)) {
     dadosProposta.items.forEach((item, idx) => {
-      const qty = item.qty || 1;
+      const qty = item.qty || item.qtyServers || 1;
       totalServers += qty;
       
-      if (item.type === 'VM') {
+      // Normalize type to lowercase for comparison
+      const itemType = (item.type || '').toString().toLowerCase();
+      
+      if (itemType === 'vm') {
         // CRITICAL: Use stored unitPrice and totalPrice from snapshot
-        const unitPrice = item.unitPrice ?? 0;
-        const total = item.totalPrice ?? (unitPrice * qty);
+        const unitPrice = item.unitPrice ?? item.price ?? item.unit_price ?? 0;
+        const total = item.totalPrice ?? item.total_price ?? (unitPrice * qty);
         const rowKey = `vm_${idx}`;
         const overrideTotal = priceOverrides[rowKey];
         const finalTotal = overrideTotal ?? total;
         
-        // Log if prices are missing for debugging
-        if (unitPrice === 0 && total === 0) {
-          console.warn('[proposalResultBuilder] VM item has zero prices:', item.name || `VM ${idx}`);
-        }
+        // Build VM label matching calculator summary format
+        const vcpu = item.vcpu || 0;
+        const ramGb = item.ramGb || item.ram || item.ram_gb || 0;
+        const nvmeTb = item.nvmeTb || item.nvme || item.storage || 0;
+        const storageDisplay = nvmeTb >= 1 ? `${nvmeTb.toFixed(2)}TB` : `${Math.round(nvmeTb * 1024) || 0}GB`;
         
-        const label = item.name || `VM ${item.vcpu || 0}vCPU / ${item.ram || 0}GB RAM / ${item.nvme || 0}GB NVMe`;
+        const label = item.name || `VM #${idx + 1} (${vcpu} vCPU, ${ramGb}GB RAM, ${storageDisplay})`;
+        
         rows.push({
           label,
           qty,
@@ -142,36 +184,38 @@ export function buildResultFromSnapshot(
         subRec += finalTotal;
         
         // GPU
-        if (item.gpu && item.gpu !== 'Sem GPU' && item.gpuQty) {
-          // GPU pricing would need config - estimate from total if available
+        if (item.gpu && item.gpu !== 'Sem GPU' && (item.gpuQty || item.gpu_qty)) {
+          const gpuQty = item.gpuQty || item.gpu_qty || 0;
+          // GPU pricing would need config - for now just document the GPU exists
+          console.log(`[proposalResultBuilder] VM has GPU: ${item.gpu} x${gpuQty}`);
         }
         
         // IPs
-        if (item.ipQty && item.ipQty > 0) {
-          const ipPrice = 30 * item.ipQty * qty; // Default IP price
+        const ipQty = item.ipQty || item.ips || item.ip_qty || 0;
+        if (ipQty > 0) {
+          const ipPrice = 30 * ipQty * qty; // Default IP price
           subIps += ipPrice;
           rows.push({
-            label: `IPs Públicos (${item.ipQty}/servidor)`,
-            qty: item.ipQty * qty,
+            label: `IPs Públicos (${ipQty}/servidor)`,
+            qty: ipQty * qty,
             unitPrice: 30,
             subtotal: ipPrice,
             finalTotal: ipPrice,
           });
         }
-      } else if (item.type === 'BareMetal') {
+      } else if (itemType === 'bm' || itemType === 'baremetal') {
         // CRITICAL: Use stored unitPrice and totalPrice from snapshot
-        const unitPrice = item.unitPrice ?? 0;
-        const total = item.totalPrice ?? (unitPrice * qty);
+        const unitPrice = item.unitPrice ?? item.price ?? item.unit_price ?? 0;
+        const total = item.totalPrice ?? item.total_price ?? (unitPrice * qty);
         const rowKey = `bm_${idx}`;
         const overrideTotal = priceOverrides[rowKey];
         const finalTotal = overrideTotal ?? total;
         
-        // Log if prices are missing for debugging
-        if (unitPrice === 0 && total === 0) {
-          console.warn('[proposalResultBuilder] BareMetal item has zero prices:', item.name || `BM ${idx}`);
-        }
+        // Build BareMetal label
+        const cpu = item.bmCpu || item.cpu || '';
+        const ram = item.bmRam || item.ramTier || '';
+        const label = item.name || `BareMetal #${idx + 1} (${cpu}, ${ram})`;
         
-        const label = item.name || `BareMetal ${item.cpu || ''} / ${item.ramTier || ''}`;
         rows.push({
           label,
           qty,
@@ -183,6 +227,20 @@ export function buildResultFromSnapshot(
           rowKey,
         });
         subRec += finalTotal;
+        
+        // IPs for BareMetal
+        const ipQty = item.ips || item.ipQty || 0;
+        if (ipQty > 0) {
+          const ipPrice = 30 * ipQty * qty;
+          subIps += ipPrice;
+          rows.push({
+            label: `IPs Públicos (${ipQty}/servidor)`,
+            qty: ipQty * qty,
+            unitPrice: 30,
+            subtotal: ipPrice,
+            finalTotal: ipPrice,
+          });
+        }
       }
     });
   }
@@ -228,14 +286,26 @@ export function buildResultFromSnapshot(
       subServices += price;
     }
     
-    if (addons.sql && addons.sql !== 'none') {
-      const sqlPrices: Record<string, number> = { web: 265, std: 2240 };
-      const sqlLabels: Record<string, string> = { web: 'WEB (2vCPU)', std: 'STD (8vCPU)' };
-      const unitPrice = addons.sqlPrice ?? sqlPrices[addons.sql] ?? 0;
-      const label = sqlLabels[addons.sql] || addons.sql.toUpperCase();
+    // SQL Server - CRITICAL: Support sqlQty for quantity
+    const sqlType = addons.sql;
+    const sqlQty = addons.sqlQty ?? 1;
+    if (sqlType && sqlType !== 'none' && sqlQty > 0) {
+      const sqlPrices: Record<string, number> = { web: 265, std: 2240, standard: 2240 };
+      const sqlLabels: Record<string, string> = { web: 'WEB (2vCPU)', std: 'STD (8vCPU)', standard: 'STD (8vCPU)' };
+      // Normalize SQL type
+      const normalizedSqlType = sqlType.toLowerCase() === 'standard' ? 'std' : sqlType.toLowerCase();
+      const unitPrice = addons.sqlPrice ?? sqlPrices[normalizedSqlType] ?? 0;
+      const label = sqlLabels[normalizedSqlType] || sqlType.toUpperCase();
       if (unitPrice > 0) {
-        rows.push({ label: `SQL Server ${label}`, qty: 1, unitPrice, subtotal: unitPrice, finalTotal: unitPrice });
-        subServices += unitPrice;
+        const totalPrice = unitPrice * sqlQty;
+        rows.push({ 
+          label: `SQL Server ${label}`, 
+          qty: sqlQty, 
+          unitPrice, 
+          subtotal: totalPrice, 
+          finalTotal: totalPrice 
+        });
+        subServices += totalPrice;
       }
     }
     
@@ -253,11 +323,17 @@ export function buildResultFromSnapshot(
       subServices += price;
     }
     
-    // Backup - use snapshot price or default to 0.5/GB
-    if (addons.backupPlan && addons.backupPlan !== 'none' && addons.backupGb) {
-      const price = addons.backupPrice ?? (0.5 * addons.backupGb);
+    // Backup - CRITICAL: Properly handle backup plan and GB
+    const backupPlan = addons.backupPlan;
+    const backupGb = addons.backupGb ?? 0;
+    if (backupPlan && backupPlan !== 'none' && backupGb > 0) {
+      // Normalize backup plan to retention days
+      const retentionDays = backupPlan === '7' || backupPlan === '7_dias' ? '7' :
+                            backupPlan === '15' || backupPlan === '15_dias' ? '15' :
+                            backupPlan === '30' || backupPlan === '30_dias' ? '30' : backupPlan;
+      const price = addons.backupPrice ?? (0.5 * backupGb);
       rows.push({ 
-        label: `Backup ${addons.backupRetention || addons.backupPlan || '7'} dias (${addons.backupGb}GB)`, 
+        label: `Backup ${retentionDays} dias (${backupGb}GB)`, 
         qty: 1, 
         unitPrice: price, 
         subtotal: price,
@@ -266,29 +342,35 @@ export function buildResultFromSnapshot(
       subBackup += price;
     }
     
-    // Specialized services - use snapshot prices when available
-    if (addons.supportLevel && addons.supportLevel !== 'none') {
-      const supportPrices: Record<string, number> = { basic: 1, intermediate: 500, advanced: 900 };
-      const price = addons.supportPrice ?? supportPrices[addons.supportLevel] ?? 0;
+    // Specialized services - Support
+    const support = addons.support;
+    if (support && typeof support === 'object' && support.level && support.level !== 'none') {
+      const price = support.price ?? addons.supportPrice ?? 0;
       if (price > 0) {
-        const label = addons.supportLevel === 'basic' ? 'Suporte Básico' :
-                      addons.supportLevel === 'intermediate' ? 'Suporte Intermediário' : 'Suporte Avançado';
+        const label = support.level === 'basic' ? 'Suporte Básico' :
+                      support.level === 'intermediate' ? 'Suporte Intermediário' : 'Suporte Avançado';
         rows.push({ label, qty: 1, unitPrice: price, subtotal: price, finalTotal: price });
         subServices += price;
       }
     }
     
-    if (addons.consultingHours && addons.consultingHours > 0) {
-      const unitPrice = addons.consultingPrice ? (addons.consultingPrice / addons.consultingHours) : 200;
-      const price = addons.consultingPrice ?? (200 * addons.consultingHours);
-      rows.push({ label: 'Consultoria Técnica', qty: addons.consultingHours, unitPrice, subtotal: price, finalTotal: price });
+    // Consulting
+    const consulting = addons.consulting;
+    if (consulting && typeof consulting === 'object' && consulting.quantity > 0) {
+      const qty = consulting.quantity;
+      const unitPrice = consulting.unitPrice ?? 200;
+      const price = unitPrice * qty;
+      rows.push({ label: 'Consultoria Técnica', qty, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
-    if (addons.dbaHours && addons.dbaHours > 0) {
-      const unitPrice = addons.dbaPrice ? (addons.dbaPrice / addons.dbaHours) : 250;
-      const price = addons.dbaPrice ?? (250 * addons.dbaHours);
-      rows.push({ label: 'DBA', qty: addons.dbaHours, unitPrice, subtotal: price, finalTotal: price });
+    // DBA
+    const dba = addons.dba;
+    if (dba && typeof dba === 'object' && dba.quantity > 0) {
+      const qty = dba.quantity;
+      const unitPrice = dba.unitPrice ?? 250;
+      const price = unitPrice * qty;
+      rows.push({ label: 'DBA', qty, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
   }
@@ -296,9 +378,10 @@ export function buildResultFromSnapshot(
   // Kubernetes
   if (dadosProposta.kubernetes?.enabled) {
     const k8s = dadosProposta.kubernetes;
-    const price = k8s.totalPrice || 0;
+    const price = k8s.totalPrice || k8s.price || 0;
+    const planLabel = k8s.plan || `${k8s.workerNodes || 0} nodes`;
     rows.push({
-      label: `Kubernetes Gerenciado (${k8s.workerNodes || 0} nodes)`,
+      label: `Kubernetes Gerenciado (${planLabel})`,
       qty: 1,
       unitPrice: price,
       subtotal: price,
@@ -310,11 +393,13 @@ export function buildResultFromSnapshot(
   // Storage
   if (dadosProposta.storageItems && Array.isArray(dadosProposta.storageItems)) {
     dadosProposta.storageItems.forEach((storage) => {
-      const price = storage.totalPrice || 0;
-      const typeLabel = storage.type === 'sas' ? 'Storage SAS' : 
-                        storage.type === 's3' ? 'Bucket S3' : 'SSD NVMe';
+      const price = storage.totalPrice || storage.price || 0;
+      const storageType = storage.storageType || storage.type;
+      const typeLabel = storageType === 'sas' ? 'Storage SAS' : 
+                        storageType === 's3' ? 'Bucket S3' : 'SSD NVMe';
+      const size = storage.volumeTB || storage.size || 0;
       rows.push({
-        label: `${typeLabel} (${storage.size}TB)`,
+        label: `${typeLabel} (${size}TB)`,
         qty: 1,
         unitPrice: price,
         subtotal: price,
