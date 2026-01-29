@@ -16,6 +16,7 @@ import { useApprovalLink } from '@/hooks/useApprovalLink';
 import { copyToClipboard } from '@/lib/clipboard';
 import { LinkCopyModal } from '@/components/LinkCopyModal';
 import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
+import normalizeProposal, { NormalizedProposal } from '@/lib/normalizeProposal';
 // ============================================================================
 // RBAC RULES FOR INDIVIDUAL PROPOSAL ACCESS (BASED ON API FIELDS)
 // ============================================================================
@@ -378,16 +379,27 @@ const PropostaView: React.FC = () => {
     );
   }
 
-  const clientName = proposal.client?.name || proposal.client?.company || 'Sem nome';
-  const clientCompany = proposal.client?.company || '';
-  const clientEmail = proposal.client?.email || '';
-  const clientPhone = proposal.client?.phone || '';
-  const proposalId = proposal.proposal?.id || '-';
-  const createdAt = proposal.proposal?.createdAt ? formatDateBR(proposal.proposal.createdAt) : '-';
-  const validityDate = proposal.proposal?.createdAt && proposal.proposal?.validityDays 
-    ? getValidityDate(proposal.proposal.createdAt, proposal.proposal.validityDays).toLocaleDateString('pt-BR')
+  // ============================================
+  // NORMALIZE PROPOSAL DATA - Single source of truth
+  // ============================================
+  const normalizedProposal = useMemo(() => {
+    if (!proposal) return null;
+    // Pass raw proposal data to normalizer
+    return normalizeProposal(proposal as any);
+  }, [proposal]);
+  
+  // Use normalized data for display
+  const clientName = normalizedProposal?.client.name || normalizedProposal?.client.company || 'Sem nome';
+  const clientCompany = normalizedProposal?.client.company || '';
+  const clientEmail = normalizedProposal?.client.email || '';
+  const clientPhone = normalizedProposal?.client.phone || '';
+  const proposalDisplayId = normalizedProposal?.displayId || '-';
+  const createdAt = normalizedProposal?.createdAt ? formatDateBR(normalizedProposal.createdAt) : '-';
+  const validityDate = normalizedProposal?.validUntil 
+    ? normalizedProposal.validUntil.toLocaleDateString('pt-BR')
     : '-';
-  const result = proposal.result;
+  const result = normalizedProposal?.result;
+  const proposalId = proposalDisplayId;
 
   return (
     <div className="min-h-screen proposal-page-wrapper">
@@ -434,10 +446,10 @@ const PropostaView: React.FC = () => {
                   Válida até: <span className="proposal-meta-value">{validityDate}</span>
                 </p>
                 <p className="proposal-meta-label">
-                  Vigência: <span className="proposal-meta-value">{proposal.selectedTerm || '1'} {parseInt(proposal.selectedTerm || '1') === 1 ? 'mês' : 'meses'}</span>
+                  Vigência: <span className="proposal-meta-value">{normalizedProposal?.selectedTerm || '1'} {parseInt(normalizedProposal?.selectedTerm || '1') === 1 ? 'mês' : 'meses'}</span>
                 </p>
                 <p className="proposal-meta-label">
-                  Datacenter: <span className="proposal-meta-value">{proposal.datacenter || 'SP1'}</span>
+                  Datacenter: <span className="proposal-meta-value">{normalizedProposal?.datacenter || 'SP1'}</span>
                 </p>
               </div>
             </div>
@@ -544,21 +556,21 @@ const PropostaView: React.FC = () => {
                 <p className="text-muted-foreground">
                   Itens da proposta não encontrados. Verifique se a proposta foi salva corretamente.
                 </p>
-                {proposal.total > 0 && (
+                {normalizedProposal && normalizedProposal.apiTotal > 0 && (
                   <p className="text-lg font-semibold mt-4">
-                    Total: R$ {formatCurrency(proposal.total)}
+                    Total: R$ {formatCurrency(normalizedProposal.apiTotal)}
                   </p>
                 )}
               </div>
             )}
 
             {/* Observações section - only if present */}
-            {proposal.observacao && (
+            {normalizedProposal?.observacao && (
               <div className="pt-6 border-t proposal-divider">
                 <h2 className="proposal-section-title text-base mb-4 uppercase tracking-wide">
                   Observações
                 </h2>
-                <p className="proposal-value text-sm whitespace-pre-wrap">{proposal.observacao}</p>
+                <p className="proposal-value text-sm whitespace-pre-wrap">{normalizedProposal.observacao}</p>
               </div>
             )}
           </div>

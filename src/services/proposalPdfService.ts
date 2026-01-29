@@ -2,10 +2,11 @@
  * Unified Proposal PDF Service
  * 
  * Single source of truth for PDF generation and download.
+ * Uses normalizeProposal for consistent data across all views.
  * 
  * PRIORITY ORDER for downloads:
  * 1. Try to download from API if file exists (GET /calculator/proposal/{id}/file/download?token=)
- * 2. Fallback: Generate PDF locally from proposal data
+ * 2. Fallback: Generate PDF locally from normalized proposal data
  * 
  * For uploads (after save):
  * - Generate PDF locally and upload to API (POST /calculator/proposal/{id}/file)
@@ -22,6 +23,7 @@ import { getProposalPublic, CalculatorProposal } from '@/services/calculatorProp
 import { listAttachments, NormalizedAttachment } from '@/services/attachmentsService';
 import { openApi } from '@/lib/openApi';
 import { extractNumericId } from '@/lib/proposalIdUtils';
+import normalizeProposal from '@/lib/normalizeProposal';
 
 interface PdfGenerationResult {
   success: boolean;
@@ -158,9 +160,8 @@ function buildMinimalResultFromTotal(apiProposal: CalculatorProposal): any {
 
 /**
  * Fetch proposal from API and generate PDF
- * Used for internal (authenticated) access
+ * Uses normalizeProposal for consistent data
  */
-
 export async function downloadProposalPdf(proposalId: string | number): Promise<PdfGenerationResult> {
   // CRITICAL: Extract and validate numeric ID
   const numericId = extractNumericId(proposalId);
@@ -173,9 +174,7 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
     };
   }
   
-  // Use the extracted numeric ID for all API calls
   const idStr = String(numericId);
-  
   console.log('[proposalPdfService] Fetching proposal from API:', idStr, '(original input:', proposalId, ')');
   
   try {
@@ -192,64 +191,26 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       status: apiProposal.status,
     });
     
-    // 2. Extract dados_proposta (or build fallback from API fields)
-    let dadosProposta = apiProposal.dados_proposta as any;
+    // 2. NORMALIZE PROPOSAL DATA - Single source of truth
+    const normalized = normalizeProposal(apiProposal as any);
     
-    console.log('[proposalPdfService] dados_proposta check:', {
-      hasDadosProposta: !!dadosProposta,
-      hasItems: dadosProposta?.items?.length || 0,
-      hasAddons: dadosProposta?.addons ? Object.keys(dadosProposta.addons).length : 0,
-      hasKubernetes: !!dadosProposta?.kubernetes?.enabled,
-      hasStorage: dadosProposta?.storageItems?.length || 0,
-      hasOpenSaas: !!dadosProposta?.openSaas?.enabled,
-      hasResult: !!dadosProposta?.result,
-      hasResultRows: dadosProposta?.result?.rows?.length || 0,
-      // API fallback fields
-      apiServersCount: Array.isArray(apiProposal.servers) ? apiProposal.servers.length : 0,
-      apiAddonsCount: Array.isArray(apiProposal.addons) ? apiProposal.addons.length : 0,
-      apiTotal: apiProposal.total,
+    console.log('[proposalPdfService] Normalized proposal:', {
+      displayId: normalized.displayId,
+      serversCount: normalized.servers.length,
+      addonsCount: normalized.addons.length,
+      totalMensal: normalized.totals.totalMensal,
+      hasDivergence: normalized.hasDivergence,
     });
     
-    // CRITICAL FIX: If dados_proposta is empty/missing but API has servers/addons, build from those
-    const canUseDadosProposta = canBuildResult(dadosProposta);
-    const apiHasServers = Array.isArray(apiProposal.servers) && apiProposal.servers.length > 0;
-    const apiHasAddons = Array.isArray(apiProposal.addons) && apiProposal.addons.length > 0;
+    // 3. Check if we have enough data
+    const hasItems = normalized.servers.length > 0 || normalized.addons.length > 0;
+    const hasResult = normalized.result && normalized.result.rows && normalized.result.rows.length > 0;
     
-    if (!canUseDadosProposta && (apiHasServers || apiHasAddons || (apiProposal.total && apiProposal.total > 0))) {
-      console.log('[proposalPdfService] dados_proposta empty, reconstructing from API fields...');
-      dadosProposta = buildDadosPropostaFromApiFields(apiProposal);
-    }
-    
-    // 3. Build result from snapshot or use existing
-    let result = dadosProposta?.result;
-    
-    if (!result && canBuildResult(dadosProposta)) {
-      console.log('[proposalPdfService] Building result from snapshot...');
-      result = buildResultFromSnapshot(
-        dadosProposta,
-        apiProposal.total || 0,
-        apiProposal.contract_duration || 12
-      );
-    }
-    
-    // ULTIMATE FALLBACK: Build minimal result if we have total but no items
-    if ((!result || !result.rows || result.rows.length === 0) && apiProposal.total && apiProposal.total > 0) {
-      console.log('[proposalPdfService] Using fallback: minimal result from API total');
-      result = buildMinimalResultFromTotal(apiProposal);
-    }
-    
-    // Log the result state
-    console.log('[proposalPdfService] Result state:', {
-      hasResult: !!result,
-      rowsCount: result?.rows?.length || 0,
-      grandTotal: result?.grandTotal,
-    });
-    
-    if (!result || !result.rows || result.rows.length === 0) {
+    if (!hasResult && !hasItems && normalized.apiTotal <= 0) {
       console.error('[proposalPdfService] Insufficient data. Cannot generate PDF.', {
-        dadosProposta: dadosProposta ? JSON.stringify(dadosProposta).substring(0, 500) : 'null',
-        apiServers: apiProposal.servers ? JSON.stringify(apiProposal.servers).substring(0, 300) : 'null',
-        apiTotal: apiProposal.total,
+        serversCount: normalized.servers.length,
+        addonsCount: normalized.addons.length,
+        apiTotal: normalized.apiTotal,
         errorCode: 'PDF_ERR_NO_DATA',
       });
       return { 
@@ -258,22 +219,15 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       };
     }
     
-    // 4. Prepare client info (prefer snapshot, fallback to API fields)
-    const client = dadosProposta?.client || {
-      name: apiProposal.name,
-      company: apiProposal.company,
-      email: apiProposal.email,
-      phone: apiProposal.phone,
-    };
+    // 4. Use normalized result or build minimal fallback
+    let result = normalized.result;
     
-    // 5. Prepare proposal meta
-    const proposalMeta = dadosProposta?.proposal || {
-      id: apiProposal.uuid || String(apiProposal.id),
-      createdAt: apiProposal.created_at,
-      validityDays: 30,
-    };
+    if ((!result || !result.rows || result.rows.length === 0) && normalized.apiTotal > 0) {
+      console.log('[proposalPdfService] Using fallback: minimal result from API total');
+      result = buildMinimalResultFromTotal(apiProposal);
+    }
     
-    // 6. Fetch attachments (best effort, don't fail if unavailable)
+    // 5. Fetch attachments (best effort)
     let attachments: NormalizedAttachment[] = [];
     try {
       attachments = await listAttachments(String(apiProposal.id));
@@ -281,16 +235,20 @@ export async function downloadProposalPdf(proposalId: string | number): Promise<
       console.warn('[proposalPdfService] Failed to fetch attachments:', attachErr);
     }
     
-    // 7. Generate and download PDF
+    // 6. Generate and download PDF using normalized data
     await generateOpenPDF({
-      client,
-      proposal: proposalMeta,
+      client: normalized.client,
+      proposal: {
+        id: normalized.displayId,
+        createdAt: normalized.createdAt,
+        validityDays: normalized.validityDays,
+      },
       result,
-      selectedTerm: String(apiProposal.contract_duration || 12),
-      datacenter: apiProposal.datacenter || 'SP1',
-      observacao: dadosProposta?.observacao || apiProposal.observations,
+      selectedTerm: normalized.selectedTerm,
+      datacenter: normalized.datacenter,
+      observacao: normalized.observacao,
       attachments,
-      reseller: dadosProposta?.reseller,
+      reseller: normalized.rawDadosProposta?.reseller as any,
     });
     
     console.log('[proposalPdfService] PDF generated successfully');
