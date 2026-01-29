@@ -1389,7 +1389,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // API v12+: config_id and item IDs are REQUIRED for each server
   const serversArray: Array<Record<string, unknown>> = [];
   
-  // Get VM item IDs from configIdStore - NO FALLBACKS
+  // Get VM item IDs from configIdStore - NO FALLBACKS, VALIDATION REQUIRED
   // API v12+ requires valid config_id and item_ids from the API
   const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
   const vmConfigId = vmItemIds?.configId;
@@ -1397,8 +1397,11 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   const ramItemId = vmItemIds?.ramItemId;
   const storageItemId = vmItemIds?.storageItemId;
   
+  // CRITICAL: Log available config items for debugging if IDs are missing
   if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
-    console.error('[localToApi] Missing VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
+    console.error('[localToApi] ❌ CRITICAL: Missing VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
+    console.error('[localToApi] Available VM items:', configIdStore?.vm?.items);
+    console.error('[localToApi] This will cause API 422 error - IDs must exist in the API');
   }
   
   console.log('[localToApi] VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
@@ -1735,7 +1738,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   };
   
   // ============================================
-  // FINAL VALIDATION AND LOGGING
+  // FINAL VALIDATION AND LOGGING - BLOCK IF IDs ARE MISSING
   // ============================================
   console.log('[localToApi] PAYLOAD FINAL:', {
     total: finalPayload.total,
@@ -1747,6 +1750,52 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     })),
     addons: addonsArray.map((a: any) => ({ name: a.name, price: a.price, qty: a.quantity, config_id: a.config_id, item_id: a.item_id })),
   });
+  
+  // ============================================
+  // CRITICAL VALIDATION: Check for missing IDs that will cause API 422 errors
+  // ============================================
+  const validationErrors: string[] = [];
+  
+  // Validate servers have all required IDs
+  for (const server of serversArray) {
+    const serverName = server.name as string;
+    // Skip validation for virtual/placeholder servers
+    if (serverName?.startsWith('__VIRTUAL__')) continue;
+    
+    if (!server.config_id) {
+      validationErrors.push(`Server "${serverName}" missing config_id`);
+    }
+    if (!server.vcpu_item_id) {
+      validationErrors.push(`Server "${serverName}" missing vcpu_item_id`);
+    }
+    if (!server.ram_item_id) {
+      validationErrors.push(`Server "${serverName}" missing ram_item_id`);
+    }
+    if (!server.storage_item_id) {
+      validationErrors.push(`Server "${serverName}" missing storage_item_id`);
+    }
+  }
+  
+  // Validate addons have all required IDs
+  for (const addon of addonsArray) {
+    if (!addon.config_id) {
+      validationErrors.push(`Addon "${addon.name}" missing config_id`);
+    }
+    if (!addon.item_id) {
+      validationErrors.push(`Addon "${addon.name}" missing item_id`);
+    }
+  }
+  
+  // If there are validation errors, throw to prevent API request
+  if (validationErrors.length > 0) {
+    console.error('[localToApi] ❌ VALIDATION FAILED - Missing IDs:', validationErrors);
+    console.error('[localToApi] Available config store:', {
+      vmItems: configIdStore?.vm?.items,
+      addonsItems: configIdStore?.addons?.items,
+      sqlServerItems: configIdStore?.sqlServer?.items,
+    });
+    throw new Error(`IDs obrigatórios ausentes na configuração da API. Verifique o console para detalhes. Erros: ${validationErrors.join('; ')}`);
+  }
   
   // Validate: warn if servers have price = 0 but have resources
   let hasZeroPriceWarning = false;
