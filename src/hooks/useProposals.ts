@@ -1191,22 +1191,21 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     quantity: number;
   }> = [];
   
-  // KNOWN CONFIG IDS (fallback when API doesn't return item IDs)
-  // These match the database IDs from calculator_configs table
-  const FALLBACK_ADDONS_CONFIG_ID = 6;
-  const FALLBACK_ITEM_ID = 1; // Default item ID when not found
-  
-  // Helper to get addon IDs from configIdStore with mandatory fallbacks
-  // API v12+ requires config_id and item_id to be integers, never undefined
-  const getAddonIds = (code: string): { config_id: number; item_id: number } => {
+  // Helper to get addon IDs from configIdStore - NO FALLBACKS
+  // API v12+ requires config_id and item_id to be valid integers from the API
+  // If IDs are not found, log error but continue (API will validate)
+  const getAddonIds = (code: string): { config_id: number | undefined; item_id: number | undefined } => {
     if (!configIdStore) {
-      console.warn('[localToApi] No configIdStore, using fallback IDs for:', code);
-      return { config_id: FALLBACK_ADDONS_CONFIG_ID, item_id: FALLBACK_ITEM_ID };
+      console.error('[localToApi] No configIdStore available - addon IDs will be missing for:', code);
+      return { config_id: undefined, item_id: undefined };
     }
     const ids = getAddonItemId(configIdStore, code);
+    if (!ids.configId || !ids.itemId) {
+      console.error('[localToApi] Missing IDs for addon:', code, 'configId:', ids.configId, 'itemId:', ids.itemId);
+    }
     return { 
-      config_id: ids.configId ?? FALLBACK_ADDONS_CONFIG_ID, 
-      item_id: ids.itemId ?? FALLBACK_ITEM_ID 
+      config_id: ids.configId, 
+      item_id: ids.itemId 
     };
   };
   
@@ -1389,20 +1388,19 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // API v12+: config_id and item IDs are REQUIRED for each server
   const serversArray: Array<Record<string, unknown>> = [];
   
-  // KNOWN CONFIG IDS for VM (fallback when API doesn't return item IDs)
-  const FALLBACK_VM_CONFIG_ID = 1;
-  const FALLBACK_VCPU_ITEM_ID = 1;
-  const FALLBACK_RAM_ITEM_ID = 2;
-  const FALLBACK_STORAGE_ITEM_ID = 3;
-  
-  // Get VM item IDs from configIdStore with fallbacks
+  // Get VM item IDs from configIdStore - NO FALLBACKS
+  // API v12+ requires valid config_id and item_ids from the API
   const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
-  const vmConfigId = vmItemIds?.configId ?? FALLBACK_VM_CONFIG_ID;
-  const vcpuItemId = vmItemIds?.vcpuItemId ?? FALLBACK_VCPU_ITEM_ID;
-  const ramItemId = vmItemIds?.ramItemId ?? FALLBACK_RAM_ITEM_ID;
-  const storageItemId = vmItemIds?.storageItemId ?? FALLBACK_STORAGE_ITEM_ID;
+  const vmConfigId = vmItemIds?.configId;
+  const vcpuItemId = vmItemIds?.vcpuItemId;
+  const ramItemId = vmItemIds?.ramItemId;
+  const storageItemId = vmItemIds?.storageItemId;
   
-  console.log('[localToApi] VM IDs:', { vmConfigId, vcpuItemId, ramItemId, storageItemId, fromStore: !!vmItemIds });
+  if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
+    console.error('[localToApi] Missing VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
+  }
+  
+  console.log('[localToApi] VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
@@ -1449,15 +1447,15 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
-        // Get BareMetal IDs (different from VM) - with fallbacks
-        const FALLBACK_BM_CPU_CONFIG_ID = 2;
-        const FALLBACK_BM_RAM_CONFIG_ID = 3;
-        const FALLBACK_BM_DISK_CONFIG_ID = 4;
-        
-        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId ?? FALLBACK_BM_CPU_CONFIG_ID;
-        const bmCpuItemId = configIdStore?.baremetal?.cpu ? (getItemId(configIdStore.baremetal.cpu, 'CPU') ?? 1) : 1;
-        const bmRamItemId = configIdStore?.baremetal?.ram ? (getItemId(configIdStore.baremetal.ram, 'RAM') ?? 1) : 1;
-        const bmDiskItemId = configIdStore?.baremetal?.disk ? (getItemId(configIdStore.baremetal.disk, 'Disco') ?? 1) : 1;
+        // Get BareMetal IDs (different from VM) - NO FALLBACKS
+        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId;
+        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, item.cpu) : undefined;
+        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, item.ram) : undefined;
+        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, 'Disco') : undefined;
+
+        if (!bmCpuConfigId) {
+          console.error('[localToApi] Missing BareMetal CPU config ID from API');
+        }
 
         const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
@@ -1466,7 +1464,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           storage: 0,
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
-          // API v12+: Required config and item IDs for BareMetal (with fallbacks)
+          // API v12+: Required config and item IDs for BareMetal (from API)
           config_id: bmCpuConfigId,
           vcpu_item_id: bmCpuItemId,
           ram_item_id: bmRamItemId,
