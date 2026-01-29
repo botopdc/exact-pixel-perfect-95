@@ -265,6 +265,9 @@ export function getItemId(
  * Get VM component IDs for server payload
  * Returns the config_id and item_ids for vCPU, RAM, and Storage
  * Returns undefined for missing IDs - NO FALLBACKS
+ * 
+ * IMPORTANT: The label matching is case-insensitive and tries multiple variations
+ * to handle different API response formats (e.g., "vCPU", "vcpu", "VCPU")
  */
 export function getVmItemIds(store: ConfigIdStore): {
   configId: number | undefined;
@@ -275,15 +278,54 @@ export function getVmItemIds(store: ConfigIdStore): {
 } {
   const vmMapping = store.vm;
   
+  // Log all available items for debugging
+  if (vmMapping) {
+    console.log('[configIdsService] Available VM items for mapping:', Object.keys(vmMapping.items));
+  } else {
+    console.error('[configIdsService] No VM mapping available in store');
+  }
+  
+  // Try multiple label variations for each component
+  const vcpuItemId = getItemId(vmMapping, 'vCPU') 
+    ?? getItemId(vmMapping, 'vcpu')
+    ?? getItemId(vmMapping, 'VCPU')
+    ?? getItemId(vmMapping, 'cpu');
+    
+  const ramItemId = getItemId(vmMapping, 'RAM') 
+    ?? getItemId(vmMapping, 'ram')
+    ?? getItemId(vmMapping, 'Memória')
+    ?? getItemId(vmMapping, 'memoria');
+    
+  const storageItemId = getItemId(vmMapping, 'NVMe') 
+    ?? getItemId(vmMapping, 'nvme')
+    ?? getItemId(vmMapping, 'storage')
+    ?? getItemId(vmMapping, 'Storage')
+    ?? getItemId(vmMapping, 'Disco')
+    ?? getItemId(vmMapping, 'disco')
+    ?? getItemId(vmMapping, 'SSD');
+    
+  const ipItemId = getItemId(vmMapping, 'IP Público') 
+    ?? getItemId(vmMapping, 'ip_publico') 
+    ?? getItemId(vmMapping, 'IP')
+    ?? getItemId(vmMapping, 'ip');
+
   const result = {
     configId: vmMapping?.configId,
-    vcpuItemId: getItemId(vmMapping, 'vCPU') ?? getItemId(vmMapping, 'vcpu'),
-    ramItemId: getItemId(vmMapping, 'RAM') ?? getItemId(vmMapping, 'ram'),
-    storageItemId: getItemId(vmMapping, 'NVMe') ?? getItemId(vmMapping, 'nvme') ?? getItemId(vmMapping, 'storage'),
-    ipItemId: getItemId(vmMapping, 'IP Público') ?? getItemId(vmMapping, 'ip_publico') ?? getItemId(vmMapping, 'IP'),
+    vcpuItemId,
+    ramItemId,
+    storageItemId,
+    ipItemId,
   };
   
-  console.log('[configIdsService] getVmItemIds:', result);
+  // Log detailed results for debugging
+  console.log('[configIdsService] getVmItemIds result:', result);
+  
+  if (!vcpuItemId || !ramItemId || !storageItemId) {
+    console.error('[configIdsService] ❌ Missing required VM item IDs!');
+    console.error('[configIdsService] Expected items: vCPU, RAM, NVMe/Storage');
+    console.error('[configIdsService] Available items:', vmMapping?.items);
+  }
+  
   return result;
 }
 
