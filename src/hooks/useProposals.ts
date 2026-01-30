@@ -1532,9 +1532,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     // ============================================
     // WINSERVER - EXPLICIT (CRITICAL FOR PERSISTENCE)
     // NEW: No price - backend calculates
+    // Uses 'winserver' code which maps to 'WinServer(2vCPU/unid.)' label
     // ============================================
     if (typeof addons.winserver === 'number' && addons.winserver > 0) {
-      addAddon('winserver_2vcpu_unit', addons.winserver);
+      addAddon('winserver', addons.winserver);
     }
     
     // Standard addon mappings - NEW: No prices, only config_id + quantity
@@ -1559,28 +1560,32 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     }
     // Backup - uses dedicated function for ID lookup
     // NEW FLAT API: Only config_id + quantity
-    if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
+    // CRITICAL: Ensure backupGb >= 1 when plan is selected
+    if (addons.backupPlan && addons.backupPlan !== 'none') {
+      const backupGb = typeof addons.backupGb === 'number' && addons.backupGb > 0 ? addons.backupGb : 1;
       const backupIds = configIdStore ? getBackupItemId(configIdStore, addons.backupPlan) : { configId: undefined };
       if (backupIds.configId) {
         addonsArray.push({ 
           config_id: backupIds.configId, 
-          quantity: addons.backupGb 
+          quantity: backupGb 
         });
-        console.log('[localToApi] Added Backup to payload:', addons.backupPlan, addons.backupGb);
+        console.log('[localToApi] Added Backup to payload:', addons.backupPlan, backupGb);
       } else {
         console.error('[localToApi] SKIPPING Backup - missing config_id:', backupIds);
       }
     }
     // SQL - uses dedicated function for ID lookup
     // NEW FLAT API: Only config_id + quantity
-    if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
+    // CRITICAL: Ensure sqlQty >= 1 when edition is selected
+    if (addons.sql && addons.sql !== 'none') {
+      const sqlQty = typeof addons.sqlQty === 'number' && addons.sqlQty > 0 ? addons.sqlQty : 1;
       const sqlIds = configIdStore ? getSqlItemId(configIdStore, addons.sql) : { configId: undefined };
       if (sqlIds.configId) {
         addonsArray.push({ 
           config_id: sqlIds.configId, 
-          quantity: addons.sqlQty 
+          quantity: sqlQty 
         });
-        console.log('[localToApi] Added SQL to payload:', addons.sql, addons.sqlQty);
+        console.log('[localToApi] Added SQL to payload:', addons.sql, sqlQty);
       } else {
         console.error('[localToApi] SKIPPING SQL - missing config_id:', sqlIds);
       }
@@ -1590,12 +1595,14 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       addAddon(`support_${addons.support.level}`, 1);
     }
     // Consulting - specialized service
+    // Uses 'consulting' code which maps to 'Consultoria Técnica (horas)' label
     if (addons.consulting && typeof addons.consulting.quantity === 'number' && addons.consulting.quantity > 0) {
-      addAddon('consulting_hours', addons.consulting.quantity);
+      addAddon('consulting', addons.consulting.quantity);
     }
     // DBA - specialized service
+    // Uses 'dba' code which maps to 'DBA (horas)' label
     if (addons.dba && typeof addons.dba.quantity === 'number' && addons.dba.quantity > 0) {
-      addAddon('dba_hours', addons.dba.quantity);
+      addAddon('dba', addons.dba.quantity);
     }
     // Custom addons (legacy support)
     if (addons.customAddons && typeof addons.customAddons === 'object') {
