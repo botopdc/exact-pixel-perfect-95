@@ -173,9 +173,17 @@ export function findConfigByLabel(
   const normalized = normalizeLabel(label);
   if (categoryMap.has(normalized)) return categoryMap.get(normalized);
   
-  // Try partial match
+  // Try partial match - check if API label contains search OR vice versa
   for (const [key, mapping] of categoryMap) {
-    if (normalizeLabel(key) === normalized) return mapping;
+    const keyNormalized = normalizeLabel(key);
+    
+    // Exact normalized match
+    if (keyNormalized === normalized) return mapping;
+    
+    // Partial match (bidirectional)
+    if (keyNormalized.includes(normalized) || normalized.includes(keyNormalized)) {
+      return mapping;
+    }
   }
   
   return undefined;
@@ -183,16 +191,34 @@ export function findConfigByLabel(
 
 /**
  * Find config by multiple possible labels (first match wins)
+ * Also tries a global fallback across all categories if not found in specified category
  */
 export function findConfigByLabels(
   store: ConfigIdStore,
   category: string,
   ...labels: string[]
 ): ConfigIdMapping | undefined {
+  // First try in the specified category
   for (const label of labels) {
     const found = findConfigByLabel(store, category, label);
     if (found) return found;
   }
+  
+  // Fallback: search ALL categories for any matching label
+  for (const label of labels) {
+    const normalized = normalizeLabel(label);
+    for (const [cat, configs] of store.byCategory) {
+      for (const config of configs) {
+        const configNormalized = normalizeLabel(config.label);
+        if (configNormalized === normalized || 
+            configNormalized.includes(normalized) || 
+            normalized.includes(configNormalized)) {
+          return config;
+        }
+      }
+    }
+  }
+  
   return undefined;
 }
 
@@ -338,6 +364,11 @@ export function getSqlConfig(
 /**
  * Get backup config by retention plan
  * Searches for labels matching the retention plan (7, 15, 30 days)
+ * 
+ * IMPORTANT: Backup labels in API may have various formats:
+ * - "7 dias", "7_dias", "7d"
+ * - "7_dias_1_100" (retention + volume range)
+ * - "Backup 7 dias"
  */
 export function getBackupConfig(
   store: ConfigIdStore,
@@ -346,34 +377,52 @@ export function getBackupConfig(
   // Comprehensive label search list for backup plans
   const labels = [
     // Exact matches
-    `${plan} dias`, `${plan}d`, `${plan}_dias`,
+    `${plan} dias`, `${plan}d`, `${plan}_dias`, `${plan}`,
     // With backup prefix
-    `Backup ${plan} dias`, `Backup ${plan}d`, `backup_${plan}`,
+    `Backup ${plan} dias`, `Backup ${plan}d`, `backup_${plan}`, `Backup ${plan}`,
     // Volume ranges (common API format)
     `${plan}_dias_1_100`, `${plan}_dias_101_500`, `${plan}_dias_501_1000`,
-    // Just the plan number
-    plan,
+    `${plan}_dias_1001_2000`, `${plan}_dias_2001`,
     // Legacy formats
-    `plano_${plan}`, `Plano ${plan} dias`, `retencao_${plan}`, `Retenção ${plan} dias`
+    `plano_${plan}`, `Plano ${plan} dias`, `retencao_${plan}`, `Retenção ${plan} dias`,
+    `Retencao ${plan} dias`
   ];
   
   // Try Backup category first
   let result = findConfigByLabels(store, 'Backup', ...labels);
-  if (result) return result;
+  if (result) {
+    console.log(`[configIdsService] Found Backup ${plan} in 'Backup' category:`, result.configId, result.label);
+    return result;
+  }
   
   // Fallback: search in Add-ons
   result = findConfigByLabels(store, 'Add-ons', ...labels);
-  if (result) return result;
+  if (result) {
+    console.log(`[configIdsService] Found Backup ${plan} in 'Add-ons' category:`, result.configId, result.label);
+    return result;
+  }
   
-  // Fallback: search globally for any item with the plan number in a Backup-related category
+  // Fallback: search globally for any item with the plan number in a Backup-related category/label
   for (const [category, configs] of store.byCategory) {
-    if (category.toLowerCase().includes('backup')) {
+    const categoryLower = category.toLowerCase();
+    if (categoryLower.includes('backup')) {
       for (const config of configs) {
-        const normalizedLabel = config.label.toLowerCase();
-        if (normalizedLabel.includes(plan)) {
+        const labelLower = config.label.toLowerCase();
+        if (labelLower.includes(plan)) {
           console.log(`[configIdsService] Found Backup ${plan} via broad search:`, config.configId, config.label);
           return config;
         }
+      }
+    }
+  }
+  
+  // Final fallback: search ALL categories for labels containing both "dias" and the plan number
+  for (const [category, configs] of store.byCategory) {
+    for (const config of configs) {
+      const labelLower = config.label.toLowerCase();
+      if ((labelLower.includes('dias') || labelLower.includes('backup')) && labelLower.includes(plan)) {
+        console.log(`[configIdsService] Found Backup ${plan} via global search:`, config.configId, config.label);
+        return config;
       }
     }
   }

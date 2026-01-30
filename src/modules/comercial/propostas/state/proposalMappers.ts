@@ -1066,34 +1066,53 @@ function normalizeStr(s: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, '_')
     .replace(/[()[\]]/g, '')
+    .replace(/-/g, '_')
     .trim();
 }
 
 /**
- * Find config_id by searching ALL raw items using partial matching.
+ * Check if two normalized strings match (exact or partial bidirectional)
+ */
+function labelsMatch(apiLabel: string, searchLabel: string): boolean {
+  const api = normalizeStr(apiLabel);
+  const search = normalizeStr(searchLabel);
+  
+  // Exact match
+  if (api === search) return true;
+  
+  // Partial match (bidirectional)
+  if (api.includes(search) || search.includes(api)) return true;
+  
+  // Handle common variations
+  // "vCPU" vs "vcpu", "RAM" vs "ram"
+  if (api.replace(/_/g, '') === search.replace(/_/g, '')) return true;
+  
+  return false;
+}
+
+/**
+ * Find config_id by searching ALL raw items using intelligent matching.
  * This is the ONLY source of truth - based entirely on API data.
  * 
  * Strategy:
- * 1. Exact label match (case-insensitive, accent-insensitive)
- * 2. Partial match: API label contains search term OR vice versa
- * 3. Optional category/section filter (if provided, only matches within that category/section)
+ * 1. Search by category filter first (if provided)
+ * 2. If not found, search globally across ALL categories
+ * 3. Multiple label variations are tried
+ * 
+ * LOGGING: Always logs what it found for debugging
  */
 function findConfigId(
   store: FlatConfigStore,
   categoryOrSection: string,
   ...labels: string[]
 ): number | undefined {
-  // Normalize the category/section filter
   const normalizedFilter = normalizeStr(categoryOrSection);
   
+  // PHASE 1: Search within the specified category/section first
   for (const label of labels) {
-    const normalizedSearch = normalizeStr(label);
-    
-    // Search ALL raw items
     for (const item of store.rawItems) {
       const itemCategory = normalizeStr(item.meta?.category || '');
       const itemSection = normalizeStr(item.meta?.section || '');
-      const itemLabel = normalizeStr(item.label);
       
       // Check if category OR section matches the filter
       const categoryMatches = itemCategory === normalizedFilter || 
@@ -1104,31 +1123,95 @@ function findConfigId(
                              normalizedFilter.includes(itemSection);
       
       if (categoryMatches || sectionMatches) {
-        // Exact match
-        if (itemLabel === normalizedSearch) {
-          return item.id;
-        }
-        // Partial match (bidirectional)
-        if (itemLabel.includes(normalizedSearch) || normalizedSearch.includes(itemLabel)) {
+        if (labelsMatch(item.label, label)) {
+          console.log(`[findConfigId] ✅ FOUND in category "${categoryOrSection}": "${label}" → id=${item.id}, apiLabel="${item.label}"`);
           return item.id;
         }
       }
     }
   }
   
-  // Fallback: search without category/section filter (global search)
+  // PHASE 2: Global fallback - search ALL categories
   for (const label of labels) {
-    const normalizedSearch = normalizeStr(label);
     for (const item of store.rawItems) {
-      const itemLabel = normalizeStr(item.label);
-      if (itemLabel === normalizedSearch) {
-        console.log(`[findConfigId] GLOBAL MATCH: "${label}" → id=${item.id}, label="${item.label}", cat="${item.meta?.category}", sec="${item.meta?.section}"`);
+      if (labelsMatch(item.label, label)) {
+        console.log(`[findConfigId] ✅ GLOBAL MATCH: "${label}" → id=${item.id}, apiLabel="${item.label}", cat="${item.meta?.category}"`);
         return item.id;
       }
     }
   }
   
-  console.warn(`[findConfigId] NOT FOUND: filter="${categoryOrSection}", labels=[${labels.join(', ')}]`);
+  // Not found
+  console.warn(`[findConfigId] ❌ NOT FOUND: filter="${categoryOrSection}", labels=[${labels.join(', ')}]`);
+  return undefined;
+}
+
+/**
+ * Find config_id specifically for Backup items.
+ * Backup configs may have complex labels with retention periods and volume ranges.
+ * 
+ * Examples of backup labels in API:
+ * - "7 dias"
+ * - "7_dias_1_100" (retention + volume range)
+ * - "Backup 7 dias"
+ */
+function findBackupConfigId(
+  store: FlatConfigStore,
+  retentionDays: string
+): number | undefined {
+  // Build comprehensive search labels for backup
+  const searchLabels = [
+    // Simple formats
+    `${retentionDays}`,
+    `${retentionDays} dias`,
+    `${retentionDays}d`,
+    `${retentionDays}_dias`,
+    // Backup prefixed
+    `Backup ${retentionDays}`,
+    `Backup ${retentionDays} dias`,
+    `backup_${retentionDays}`,
+    // Volume range format (common in API)
+    `${retentionDays}_dias_1_100`,
+    `${retentionDays}_dias_101_500`,
+    `${retentionDays}_dias_501_1000`,
+    // Retention format
+    `Retenção ${retentionDays} dias`,
+    `Retencao ${retentionDays} dias`,
+    `retencao_${retentionDays}`,
+  ];
+  
+  console.log(`[findBackupConfigId] Searching for retention="${retentionDays}"`);
+  
+  // First try Backup category
+  for (const label of searchLabels) {
+    for (const item of store.rawItems) {
+      const itemCategory = normalizeStr(item.meta?.category || '');
+      
+      if (itemCategory.includes('backup')) {
+        if (labelsMatch(item.label, label)) {
+          console.log(`[findBackupConfigId] ✅ FOUND in Backup: "${label}" → id=${item.id}, apiLabel="${item.label}"`);
+          return item.id;
+        }
+      }
+    }
+  }
+  
+  // Fallback: any item containing the retention days in a backup-related context
+  const retentionPattern = retentionDays;
+  for (const item of store.rawItems) {
+    const itemLabel = normalizeStr(item.label);
+    const itemCategory = normalizeStr(item.meta?.category || '');
+    
+    // Must be in Backup category or have backup/dias in label
+    if (itemCategory.includes('backup') || itemLabel.includes('dias') || itemLabel.includes('backup')) {
+      if (itemLabel.includes(retentionPattern)) {
+        console.log(`[findBackupConfigId] ✅ BROAD MATCH: retention="${retentionDays}" → id=${item.id}, apiLabel="${item.label}"`);
+        return item.id;
+      }
+    }
+  }
+  
+  console.warn(`[findBackupConfigId] ❌ NOT FOUND: retention="${retentionDays}"`);
   return undefined;
 }
 
@@ -1297,50 +1380,15 @@ export function serializeProposal(
     addAddon(configId, state.addons.dba.quantity, 'DBA');
   }
   
-  // Backup - search with multiple retention formats and range labels
+  // Backup - use dedicated backup search function
   if (state.addons.backupPlan !== 'none') {
     const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
     const plan = state.addons.backupPlan; // "7", "15", or "30"
     
-    // CRITICAL: Backup labels may include retention + volume ranges like "7_dias_1_100"
-    // Build comprehensive label search list
-    const backupLabels = [
-      // Exact plan matches
-      `${plan} dias`, `${plan}d`, `${plan} Dias`, `${plan}_dias`,
-      // Backup prefixed
-      `Backup ${plan} dias`, `Backup ${plan}d`, `backup_${plan}`,
-      // Retention labels
-      `Retenção ${plan} dias`, `Retencao ${plan} dias`,
-      // Volume range labels (common API format: "7_dias_1_100", "7_dias_101_500", etc.)
-      `${plan}_dias_1_100`, `${plan}_dias_1`, `${plan}dias`,
-      // Just the number
-      plan,
-      // Legacy formats
-      `backup_plan_${plan}`, `plano_${plan}`, `Plano ${plan} dias`
-    ];
-    
     console.log(`[serializeProposal] Searching Backup config for plan="${plan}", gb=${backupGb}`);
     
-    // Try Backup category first
-    let configId = findConfigId(configStore, 'Backup', ...backupLabels);
-    
-    // Fallback: search in Add-ons
-    if (!configId) configId = findConfigId(configStore, 'Add-ons', ...backupLabels);
-    
-    // Fallback: do a broader search - any item with the retention number in label
-    if (!configId) {
-      for (const item of configStore.rawItems) {
-        const itemLabel = item.label.toLowerCase();
-        const itemCategory = (item.meta?.category || '').toLowerCase();
-        // Match items containing the retention days that are in Backup-related categories
-        if ((itemCategory.includes('backup') || itemLabel.includes('backup') || itemLabel.includes('dias')) &&
-            itemLabel.includes(plan)) {
-          configId = item.id;
-          console.log(`[serializeProposal] Found Backup via broad search: id=${configId}, label="${item.label}"`);
-          break;
-        }
-      }
-    }
+    // Use dedicated backup search function
+    const configId = findBackupConfigId(configStore, plan);
     
     addAddon(configId, backupGb, `Backup ${plan}d`);
   }
@@ -1406,13 +1454,20 @@ export function serializeProposal(
   // ============================================
   const serversArray: InternalServerPayload[] = [];
   
-  // Get VM config IDs
-  const vcpuConfigId = findConfigId(configStore, 'VM', 'vCPU', 'vcpu');
-  const ramConfigId = findConfigId(configStore, 'VM', 'RAM', 'ram');
-  const storageConfigId = findConfigId(configStore, 'VM', 'NVMe', 'nvme');
-  const ipConfigId = findConfigId(configStore, 'VM', 'IP Público', 'IP');
+  // Get VM config IDs with multiple label variations
+  // These labels must match exactly what exists in the API
+  const vcpuConfigId = findConfigId(configStore, 'VM', 'vCPU', 'vcpu', 'CPU', 'vCPUs', 'VCPU');
+  const ramConfigId = findConfigId(configStore, 'VM', 'RAM', 'ram', 'Memória', 'Memoria', 'RAM GB', 'RAM (GB)');
+  const storageConfigId = findConfigId(configStore, 'VM', 'NVMe', 'nvme', 'NVMe (GB)', 'NVMe GB', 'Storage', 'Disco', 'SSD', 'SSD NVMe');
+  const ipConfigId = findConfigId(configStore, 'VM', 'IP Público', 'IP', 'ip', 'IP Publico', 'IPs', 'IP Adicional');
+  const trafficConfigId = findConfigId(configStore, 'VM', 'Tráfego', 'Trafego', 'Traffic', 'TB Tráfego', 'Trafego (TB)');
   
-  console.log('[serializeProposal] VM Config IDs:', { vcpuConfigId, ramConfigId, storageConfigId, ipConfigId });
+  console.log('[serializeProposal] VM Config IDs:', { vcpuConfigId, ramConfigId, storageConfigId, ipConfigId, trafficConfigId });
+  
+  // Validate critical VM configs
+  if (!vcpuConfigId) console.error('[serializeProposal] ❌ CRITICAL: vCPU config not found!');
+  if (!ramConfigId) console.error('[serializeProposal] ❌ CRITICAL: RAM config not found!');
+  if (!storageConfigId) console.error('[serializeProposal] ❌ CRITICAL: NVMe config not found!');
   
   for (const [idx, item] of state.items.entries()) {
     if (item.type === 'vm') {
@@ -1420,23 +1475,35 @@ export function serializeProposal(
       
       // vCPU (minimum 1)
       if (vcpuConfigId) {
-        specs.push({ config_id: vcpuConfigId, value: Math.max(1, item.vcpu || 1) });
+        const vcpuValue = Math.max(1, item.vcpu || 1);
+        specs.push({ config_id: vcpuConfigId, value: vcpuValue });
+        console.log(`[serializeProposal] VM spec: vCPU=${vcpuValue}, config_id=${vcpuConfigId}`);
       }
       
       // RAM (minimum 1)
       if (ramConfigId) {
-        specs.push({ config_id: ramConfigId, value: Math.max(1, item.ramGb || 1) });
+        const ramValue = Math.max(1, item.ramGb || 1);
+        specs.push({ config_id: ramConfigId, value: ramValue });
+        console.log(`[serializeProposal] VM spec: RAM=${ramValue}GB, config_id=${ramConfigId}`);
       }
       
       // Storage (NVMe in GB)
       if (storageConfigId) {
         const storageGb = Math.round((item.nvmeTb || 0) * 1024);
         specs.push({ config_id: storageConfigId, value: Math.max(0, storageGb) });
+        console.log(`[serializeProposal] VM spec: NVMe=${storageGb}GB, config_id=${storageConfigId}`);
+      }
+      
+      // Traffic in TB (if configured)
+      if (trafficConfigId && item.trafficTb > 0) {
+        specs.push({ config_id: trafficConfigId, value: item.trafficTb });
+        console.log(`[serializeProposal] VM spec: Traffic=${item.trafficTb}TB, config_id=${trafficConfigId}`);
       }
       
       // IP if configured
       if (ipConfigId && item.ips > 0) {
         specs.push({ config_id: ipConfigId, value: item.ips });
+        console.log(`[serializeProposal] VM spec: IPs=${item.ips}, config_id=${ipConfigId}`);
       }
       
       // GPU as addon (if present)
@@ -1448,7 +1515,9 @@ export function serializeProposal(
             quantity: item.gpuQty * Math.max(1, item.qtyServers || 1),
             label: `GPU: ${item.gpu}`,
           });
-          console.log(`[serializeProposal] Added VM GPU: ${item.gpu}, qty=${item.gpuQty}`);
+          console.log(`[serializeProposal] ✅ Added VM GPU: ${item.gpu}, qty=${item.gpuQty}, config_id=${gpuConfigId}`);
+        } else {
+          console.warn(`[serializeProposal] ⚠️ GPU not found: ${item.gpu}`);
         }
       }
       
@@ -1458,6 +1527,9 @@ export function serializeProposal(
           specs,
           quantity: Math.max(1, item.qtyServers || 1),
         });
+        console.log(`[serializeProposal] ✅ VM #${idx + 1} added with ${specs.length} specs, qty=${item.qtyServers || 1}`);
+      } else {
+        console.warn(`[serializeProposal] ⚠️ VM #${idx + 1} has no specs - will be skipped!`);
       }
       
     } else if (item.type === 'bm') {
