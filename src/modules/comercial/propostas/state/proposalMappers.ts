@@ -371,33 +371,42 @@ function hydrateAddons(raw: any): AddonsStateV2 {
     console.log('[EDIT] dba restored (snapshot): qty=' + dba.quantity + ' unitPrice=' + dba.unitPrice);
   }
   
-  // CRITICAL: Ensure SQL has qty >= 1 when type is selected
-  const sqlType = raw.sql || 'none';
+  // CRITICAL: SQL type and quantity per OpenAPI spec
+  // API requires quantity >= 1 when type is selected for addon persistence
+  const sqlType = toStr(raw.sql, 'none').toLowerCase();
+  const normalizedSqlType = sqlType === 'standard' ? 'std' : (sqlType === 'web' || sqlType === 'std' ? sqlType : 'none');
   const sqlQty = toNum(raw.sqlQty, 0);
-  const finalSqlQty = sqlType !== 'none' && sqlQty === 0 ? 1 : sqlQty;
+  // CRITICAL: Ensure qty >= 1 when SQL type is selected (prevents 0-qty loss)
+  const finalSqlQty = normalizedSqlType !== 'none' && sqlQty === 0 ? 1 : sqlQty;
   
-  // CRITICAL: Ensure Backup has GB >= 1 when plan is selected
-  const backupPlan = raw.backupPlan || 'none';
+  // CRITICAL: Backup plan and GB per OpenAPI spec
+  // API requires quantity >= 1 when plan is selected for addon persistence
+  const rawBackupPlan = toStr(raw.backupPlan, 'none');
+  const validBackupPlans = ['7', '15', '30'] as const;
+  const normalizedBackupPlan: '7' | '15' | '30' | 'none' = validBackupPlans.includes(rawBackupPlan as any) 
+    ? (rawBackupPlan as '7' | '15' | '30') 
+    : 'none';
   const backupGb = toNum(raw.backupGb, 0);
-  const finalBackupGb = backupPlan !== 'none' && backupGb === 0 ? 1 : backupGb;
+  // CRITICAL: Ensure GB >= 1 when backup plan is selected (prevents 0-GB loss)
+  const finalBackupGb = normalizedBackupPlan !== 'none' && backupGb === 0 ? 1 : backupGb;
   
-  // Log SQL and Backup restoration
-  if (sqlType !== 'none') {
-    console.log('[EDIT] SQL restored (snapshot): type=' + sqlType + ' qty=' + finalSqlQty);
+  // Log SQL and Backup restoration for debugging
+  if (normalizedSqlType !== 'none') {
+    console.log('[EDIT] SQL restored (snapshot): type=' + normalizedSqlType + ' qty=' + finalSqlQty);
   }
-  if (backupPlan !== 'none') {
-    console.log('[EDIT] Backup restored (snapshot): plan=' + backupPlan + ' gb=' + finalBackupGb);
+  if (normalizedBackupPlan !== 'none') {
+    console.log('[EDIT] Backup restored (snapshot): plan=' + normalizedBackupPlan + ' gb=' + finalBackupGb);
   }
   
   return {
-    backupPlan: backupPlan,
+    backupPlan: normalizedBackupPlan,
     backupGb: finalBackupGb,
     antivirus: toNum(raw.antivirus, 0),
     // Firewall: now a quantity. Convert old boolean (true) to 1, false to 0
     firewall: typeof raw.firewall === 'boolean' ? (raw.firewall ? 1 : 0) : toNum(raw.firewall, 0),
     tsplus: toNum(raw.tsplus, 0),
     cal: toNum(raw.cal, 0),
-    sql: sqlType,
+    sql: normalizedSqlType,
     sqlQty: finalSqlQty,
     veeamVm: toNum(raw.veeamVm, 0),
     veeamAg: toNum(raw.veeamAg, 0),
@@ -533,29 +542,32 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       continue;
     }
     
-    // SQL (WE removido - apenas WEB e STD)
-    if (code?.startsWith('sql_') || name.includes('sql')) {
+    // SQL (WE removido - apenas WEB e STD per API spec)
+    // Per OpenAPI spec: SQL addon requires quantity >= 1
+    if (code?.startsWith('sql_') || name.includes('sql') || name.includes('licença sql')) {
       if (code?.includes('web') || name.includes('web')) result.sql = 'web';
       else if (code?.includes('std') || name.includes('std') || name.includes('standard')) result.sql = 'std';
       // Fallback: propostas antigas com WE mapeiam para WEB
       else if (code?.includes('we') || name.includes('we')) result.sql = 'web';
-      // CRITICAL: Ensure at least qty 1 when SQL is selected
+      // CRITICAL: Ensure at least qty 1 when SQL is selected (API requirement)
       result.sqlQty = qty > 0 ? qty : 1;
       console.log('[EDIT] SQL restored from addons[]: type=' + result.sql + ' qty=' + result.sqlQty);
       continue;
     }
   }
   
-  // CRITICAL: Post-process to ensure minimums
+  // CRITICAL POST-PROCESSING: Enforce OpenAPI minimums
+  // Per api-docs-29-jan-26.json: addons require quantity >= 1 when selected
+  
   // If SQL type is selected but qty is 0, set to 1
   if (result.sql !== 'none' && result.sqlQty === 0) {
     result.sqlQty = 1;
-    console.log('[EDIT] SQL qty was 0, set to 1');
+    console.log('[EDIT] SQL qty was 0, enforced minimum=1 (OpenAPI requirement)');
   }
   // If backup plan is selected but GB is 0, set to 1
   if (result.backupPlan !== 'none' && result.backupGb === 0) {
     result.backupGb = 1;
-    console.log('[EDIT] Backup GB was 0, set to 1');
+    console.log('[EDIT] Backup GB was 0, enforced minimum=1 (OpenAPI requirement)');
   }
   
   console.log('[hydrateAddonsFromLegacy] Final result:', {
@@ -845,8 +857,9 @@ export function serializeProposal(
   }
   
   // Backup - CRITICAL: Persist even if backupGb is 0 when plan is selected (default to 1GB)
+  // Per OpenAPI spec (api-docs-29-jan-26.json): addons require config_id and item_id
   if (state.addons.backupPlan !== 'none') {
-    // Ensure at least 1GB when backup plan is selected
+    // Ensure at least 1GB when backup plan is selected - CRITICAL for persistence
     const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
     const itemId = findItemId(configIdStore?.backup, `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`, state.addons.backupPlan);
     addonsArray.push({
@@ -854,10 +867,10 @@ export function serializeProposal(
       item_id: itemId,
       code: `backup_${state.addons.backupPlan}`,
       name: `Backup ${state.addons.backupPlan} dias`,
-      price: 0,
-      quantity: backupGb,
+      price: 0, // Backend calculates from config
+      quantity: backupGb, // CRITICAL: Must be >= 1 when plan selected
     });
-    console.log('[serializeProposal] Added Backup:', state.addons.backupPlan, 'GB:', backupGb);
+    console.log('[serializeProposal] Backup: plan=' + state.addons.backupPlan + ' gb=' + backupGb + ' item_id=' + itemId);
   }
   
   // Antivirus
@@ -939,20 +952,22 @@ export function serializeProposal(
   }
   
   // SQL - CRITICAL: Persist even if sqlQty is 0 when type is selected (default to 1)
+  // Per OpenAPI spec: addons require config_id and item_id for backend price calculation
   if (state.addons.sql !== 'none') {
     const edition = state.addons.sql.toUpperCase();
-    // Ensure at least quantity 1 when SQL type is selected
+    // Ensure at least quantity 1 when SQL type is selected - CRITICAL for persistence
     const sqlQty = state.addons.sqlQty > 0 ? state.addons.sqlQty : 1;
-    const itemId = findItemId(configIdStore?.sqlServer, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
+    const sqlLabel = edition === 'WEB' ? 'WEB (2vCPU)' : 'STD (8vCPU)';
+    const itemId = findItemId(configIdStore?.sqlServer, sqlLabel, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
     addonsArray.push({
       config_id: sqlConfigId,
       item_id: itemId,
       code: `sql_${state.addons.sql.toLowerCase()}`,
-      name: `SQL ${edition}`,
-      price: 0,
-      quantity: sqlQty,
+      name: `Licença SQL ${edition}`,
+      price: 0, // Backend calculates from config
+      quantity: sqlQty, // CRITICAL: Must be >= 1 when type selected
     });
-    console.log('[serializeProposal] Added SQL:', state.addons.sql, 'qty:', sqlQty);
+    console.log('[serializeProposal] SQL: type=' + state.addons.sql + ' qty=' + sqlQty + ' item_id=' + itemId);
   }
   
   // Log dados_proposta snapshot for debugging
