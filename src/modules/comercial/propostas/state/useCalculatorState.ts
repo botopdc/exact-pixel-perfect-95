@@ -84,10 +84,16 @@ export interface UseCalculatorStateReturn {
     discountPct: number,
     configIdStore: {
       vm?: { configId: number; items: Record<string, number> } | null;
+      gpu?: { configId: number; items: Record<string, number> } | null;
       addons?: { configId: number; items: Record<string, number> } | null;
       sqlServer?: { configId: number; items: Record<string, number> } | null;
       backup?: { configId: number; items: Record<string, number> } | null;
       specializedServices?: { configId: number; items: Record<string, number> } | null;
+      baremetal?: {
+        cpu?: { configId: number; items: Record<string, number> } | null;
+        ram?: { configId: number; items: Record<string, number> } | null;
+        disk?: { configId: number; items: Record<string, number> } | null;
+      } | null;
     }
   ) => ApiProposalPayload;
   
@@ -348,6 +354,7 @@ export function useCalculatorState(): UseCalculatorStateReturn {
     discountPct: number,
     configIdStore: {
       vm?: { configId: number; items: Record<string, number> } | null;
+      gpu?: { configId: number; items: Record<string, number> } | null;
       addons?: { configId: number; items: Record<string, number> } | null;
       sqlServer?: { configId: number; items: Record<string, number> } | null;
       backup?: { configId: number; items: Record<string, number> } | null;

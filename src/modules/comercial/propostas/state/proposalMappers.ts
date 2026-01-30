@@ -1058,6 +1058,7 @@ export function serializeProposal(
   discountPct: number = 0,
   configIdStore: {
     vm?: { configId: number; items: Record<string, number> } | null;
+    gpu?: { configId: number; items: Record<string, number> } | null;
     addons?: { configId: number; items: Record<string, number> } | null;
     sqlServer?: { configId: number; items: Record<string, number> } | null;
     backup?: { configId: number; items: Record<string, number> } | null;
@@ -1299,62 +1300,104 @@ export function serializeProposal(
       });
     } else if (item.type === 'bm') {
       // ============================================
-      // BAREMETAL: CRITICAL - API requires item IDs from SAME config_id
+      // BAREMETAL: Serialized as individual ADDONS
       // 
-      // The API validates that vcpu_item_id, ram_item_id, storage_item_id
-      // all belong to the config specified in config_id.
+      // Per OpenAPI spec, servers[] requires all item_ids from SAME config_id.
+      // BareMetal has separate configs: CPU (2), RAM (3), Disk (4).
       // 
-      // BareMetal has separate configs: CPU (2), RAM (3), Disk (4)
-      // But the API only accepts ONE config_id per server.
+      // SOLUTION: Send BareMetal components as addons:
+      // - 1 addon for CPU model (config_id=2)
+      // - 1 addon for RAM tier (config_id=3)
+      // - N addons for disks (config_id=4, one per disk type)
       // 
-      // SOLUTION: Use VM config (ID 1) for the server structure and
-      // store BareMetal specifics in the server name + dados_proposta.
-      // The backend reads dados_proposta for actual BareMetal pricing.
+      // dados_proposta stores the complete BareMetal state for hydration.
       // ============================================
       const bmCpuModel = item.bmCpu || 'intel_xeon_e2136';
       const bmRamTier = item.bmRam || 'ram_128gb';
       const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }];
-      const qtyValue = Math.max(1, item.qtyServers || 1);
-
-      // Calculate total disk storage in GB
-      const totalDiskGb = bmDisks.reduce((acc: number, disk: DiskItemV2) => {
-        const diskQty = disk.qty || 1;
-        const tbMatch = (disk.type || '').match(/(\d+)tb/i);
-        const diskTb = tbMatch ? parseInt(tbMatch[1], 10) : 1;
-        return acc + (diskTb * 1024 * diskQty);
-      }, 0);
-
-      // Encode BareMetal details in name for backend parsing
-      const bmPayload = {
-        type: 'bm',
-        cpu: bmCpuModel,
-        ram: bmRamTier,
-        disks: bmDisks,
-        gpu: gpuObj,
-      };
-
-      // CRITICAL: Only use IDs that were loaded from the API - never invent IDs
-      if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
-        console.error(`[serializeProposal] ❌ Cannot serialize BareMetal #${idx + 1}: missing required config IDs from API`);
-        throw new Error('Configuração de VM não carregada. Por favor, recarregue a página e tente novamente.');
-      }
-
-      // Use VM config_id (1) with VM item IDs - backend reads actual BareMetal
-      // data from dados_proposta.items[] and the encoded server name
-      serversArray.push({
-        config_id: vmConfigId, // Use VM config for API compatibility
-        name: `__BAREMETAL__:${JSON.stringify(bmPayload)}`,
-        vcpu_item_id: vcpuItemId, // Must be from VM config (1)
-        vcpu: 1, // Minimum per OpenAPI spec
-        ram_item_id: ramItemId, // Must be from VM config (1)
-        ram: 1, // Minimum per OpenAPI spec
-        storage_item_id: storageItemId, // Must be from VM config (1)
-        storage: totalDiskGb,
-        quantity: qtyValue,
-        gpu: gpuObj,
+      const qtyServers = Math.max(1, item.qtyServers || 1);
+      
+      // Get BareMetal config IDs
+      const bmCpuConfigId = configIdStore.baremetal?.cpu?.configId;
+      const bmRamConfigId = configIdStore.baremetal?.ram?.configId;
+      const bmDiskConfigId = configIdStore.baremetal?.disk?.configId;
+      
+      console.log('[serializeProposal] BareMetal configs:', {
+        cpuConfigId: bmCpuConfigId,
+        ramConfigId: bmRamConfigId,
+        diskConfigId: bmDiskConfigId,
       });
-
-      console.log(`[SERIALIZE] BareMetal #${idx + 1}: cpu=${bmCpuModel}, ram=${bmRamTier}, disks=${totalDiskGb}GB, qty=${qtyValue}`);
+      
+      // Add CPU as addon
+      const cpuItemId = findItemId(configIdStore.baremetal?.cpu, bmCpuModel);
+      if (bmCpuConfigId && cpuItemId) {
+        addonsArray.push({
+          config_id: bmCpuConfigId,
+          item_id: cpuItemId,
+          quantity: qtyServers,
+          label: `BareMetal CPU: ${bmCpuModel}`,
+        });
+        console.log(`[serializeProposal] Added BareMetal CPU: ${bmCpuModel}, config_id=${bmCpuConfigId}, item_id=${cpuItemId}, qty=${qtyServers}`);
+      } else {
+        console.warn(`[serializeProposal] ⚠️ Could not find BareMetal CPU item_id for: ${bmCpuModel}`);
+      }
+      
+      // Add RAM as addon
+      const ramBmItemId = findItemId(configIdStore.baremetal?.ram, bmRamTier);
+      if (bmRamConfigId && ramBmItemId) {
+        addonsArray.push({
+          config_id: bmRamConfigId,
+          item_id: ramBmItemId,
+          quantity: qtyServers,
+          label: `BareMetal RAM: ${bmRamTier}`,
+        });
+        console.log(`[serializeProposal] Added BareMetal RAM: ${bmRamTier}, config_id=${bmRamConfigId}, item_id=${ramBmItemId}, qty=${qtyServers}`);
+      } else {
+        console.warn(`[serializeProposal] ⚠️ Could not find BareMetal RAM item_id for: ${bmRamTier}`);
+      }
+      
+      // Add each disk as addon (aggregated by type)
+      const disksByType = new Map<string, number>();
+      for (const disk of bmDisks) {
+        const diskType = disk.type || 'nvme_1tb';
+        const diskQty = (disk.qty || 1) * qtyServers;
+        disksByType.set(diskType, (disksByType.get(diskType) || 0) + diskQty);
+      }
+      
+      for (const [diskType, totalQty] of disksByType) {
+        const diskItemId = findItemId(configIdStore.baremetal?.disk, diskType);
+        if (bmDiskConfigId && diskItemId) {
+          addonsArray.push({
+            config_id: bmDiskConfigId,
+            item_id: diskItemId,
+            quantity: totalQty,
+            label: `BareMetal Disk: ${diskType}`,
+          });
+          console.log(`[serializeProposal] Added BareMetal Disk: ${diskType}, config_id=${bmDiskConfigId}, item_id=${diskItemId}, qty=${totalQty}`);
+        } else {
+          console.warn(`[serializeProposal] ⚠️ Could not find BareMetal Disk item_id for: ${diskType}`);
+        }
+      }
+      
+      // Add GPU for BareMetal if present
+      if (hasGpu && gpuObj) {
+        const gpuConfigId = configIdStore.gpu?.configId;
+        const gpuItemId = findItemId(configIdStore.gpu, item.gpu);
+        if (gpuConfigId && gpuItemId) {
+          addonsArray.push({
+            config_id: gpuConfigId,
+            item_id: gpuItemId,
+            quantity: item.gpuQty * qtyServers,
+            label: `BareMetal GPU: ${item.gpu}`,
+          });
+          console.log(`[serializeProposal] Added BareMetal GPU: ${item.gpu}, qty=${item.gpuQty * qtyServers}`);
+        }
+      }
+      
+      console.log(`[SERIALIZE] BareMetal #${idx + 1} sent as addons: cpu=${bmCpuModel}, ram=${bmRamTier}, disks=${bmDisks.length} types, qty=${qtyServers}`);
+      
+      // Note: BareMetal is NOT added to serversArray - it's fully represented as addons
+      // The complete state is preserved in dados_proposta.items[] for hydration
     }
   }
   
