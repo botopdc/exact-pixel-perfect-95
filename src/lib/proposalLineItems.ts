@@ -190,7 +190,7 @@ export function buildProposalLineItems(proposal: Record<string, unknown>): LineI
       return;
     }
     
-    const name = toStr(addon.name, addon.code || `Add-on #${idx + 1}`);
+    const name = toStr(addon.label || addon.name || addon.code, `Add-on #${idx + 1}`);
     const unitPrice = toNum(addon.price ?? addon.unit_price ?? addon.unitPrice);
     const subtotal = toNum(addon.subtotal ?? addon.total, unitPrice * qty);
     
