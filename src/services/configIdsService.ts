@@ -362,114 +362,102 @@ export function getSqlConfig(
 }
 
 /**
- * Get backup config by retention plan
- * Searches for labels matching the retention plan (7, 15, 30 days)
- * 
- * IMPORTANT: Backup labels in API may have various formats:
- * - "7 dias", "7_dias", "7d"
- * - "7_dias_1_100" (retention + volume range)
- * - "Backup 7 dias"
+ * Get backup config by VOLUME (GB), not by retention days
+ * The API has volume-based items like "1 - 100 GB", "101 - 200 GB", etc.
  */
-export function getBackupConfig(
+export function getBackupConfigByVolume(
   store: ConfigIdStore,
-  plan: string
+  volumeGb: number
 ): ConfigIdMapping | undefined {
-  console.log(`[getBackupConfig] Searching for backup plan: "${plan}"`);
+  console.log(`[getBackupConfigByVolume] Searching for backup volume: ${volumeGb} GB`);
   
-  // Comprehensive label search list for backup plans
-  const labels = [
-    // Exact matches
-    `${plan} dias`, `${plan}d`, `${plan}_dias`, `${plan}`,
-    // With backup prefix
-    `Backup ${plan} dias`, `Backup ${plan}d`, `backup_${plan}`, `Backup ${plan}`,
-    // Volume ranges (common API format)
-    `${plan}_dias_1_100`, `${plan}_dias_101_500`, `${plan}_dias_501_1000`,
-    `${plan}_dias_1001_2000`, `${plan}_dias_2001`,
-    // Legacy formats
-    `plano_${plan}`, `Plano ${plan} dias`, `retencao_${plan}`, `Retenção ${plan} dias`,
-    `Retencao ${plan} dias`,
-    // Additional formats seen in APIs
-    `${plan}dias`, `backup${plan}`, `${plan}dias_1_100`, `retenção ${plan}`,
-    `retencao${plan}dias`
-  ];
+  // Get all items from Backup category
+  const backupItems = store.byCategory.get('Backup') || [];
   
-  // Try Backup category first
-  let result = findConfigByLabels(store, 'Backup', ...labels);
-  if (result) {
-    console.log(`[getBackupConfig] ✓ Found Backup ${plan} in 'Backup' category:`, result.configId, result.label);
-    return result;
+  console.log(`[getBackupConfigByVolume] Available Backup items:`, 
+    backupItems.map(c => ({ id: c.configId, label: c.label }))
+  );
+  
+  if (backupItems.length === 0) {
+    console.warn(`[getBackupConfigByVolume] ❌ No items in Backup category`);
+    return undefined;
   }
   
-  // Fallback: search in Add-ons
-  result = findConfigByLabels(store, 'Add-ons', ...labels);
-  if (result) {
-    console.log(`[getBackupConfig] ✓ Found Backup ${plan} in 'Add-ons' category:`, result.configId, result.label);
-    return result;
-  }
-  
-  // Fallback: search globally for any item with the plan number in a Backup-related category/label
-  for (const [category, configs] of store.byCategory) {
-    const categoryLower = category.toLowerCase();
-    if (categoryLower.includes('backup')) {
-      for (const config of configs) {
-        const labelLower = config.label.toLowerCase();
-        if (labelLower.includes(plan)) {
-          console.log(`[getBackupConfig] ✓ Found Backup ${plan} via broad search in '${category}':`, config.configId, config.label);
-          return config;
-        }
-      }
-    }
-  }
-  
-  // More aggressive fallback: search ALL categories for labels containing the plan number
-  // This catches cases where Backup might be in an unexpected category
-  for (const [category, configs] of store.byCategory) {
-    for (const config of configs) {
-      const labelLower = config.label.toLowerCase();
-      const sectionLower = (config.section || '').toLowerCase();
+  // Parse volume ranges from labels like "1 - 100 GB", "101 - 200 GB"
+  for (const config of backupItems) {
+    const label = config.label;
+    // Match patterns like "1 - 100 GB", "101 - 200 GB", "201 - 400 GB"
+    const rangeMatch = label.match(/(\d+)\s*-\s*(\d+)\s*GB/i);
+    
+    if (rangeMatch) {
+      const minGb = parseInt(rangeMatch[1], 10);
+      const maxGb = parseInt(rangeMatch[2], 10);
       
-      // Check if this looks like a backup config
-      const isBackupLike = labelLower.includes('dias') || 
-                           labelLower.includes('backup') || 
-                           labelLower.includes('retenc') ||
-                           sectionLower.includes('backup') ||
-                           sectionLower.includes('retenc');
-      
-      if (isBackupLike && labelLower.includes(plan)) {
-        console.log(`[getBackupConfig] ✓ Found Backup ${plan} via GLOBAL search in '${category}':`, config.configId, config.label);
+      if (volumeGb >= minGb && volumeGb <= maxGb) {
+        console.log(`[getBackupConfigByVolume] ✓ Found Backup for ${volumeGb}GB in range ${minGb}-${maxGb}:`, config.configId, label);
         return config;
       }
     }
   }
   
-  // ULTIMATE fallback: If plan is "7", "15", or "30", search for any config with that exact number
-  // AND contains "dias" or "d" after the number
-  const planNum = parseInt(plan, 10);
-  if ([7, 15, 30].includes(planNum)) {
-    for (const [category, configs] of store.byCategory) {
-      for (const config of configs) {
-        const labelLower = config.label.toLowerCase();
-        // Match patterns like "7 dias", "15dias", "30_dias", etc.
-        const pattern = new RegExp(`\\b${plan}\\s*(dias?|d|_dias)`, 'i');
-        if (pattern.test(config.label)) {
-          console.log(`[getBackupConfig] ✓ Found Backup ${plan} via REGEX in '${category}':`, config.configId, config.label);
-          return config;
-        }
+  // If no range matched, try to find the highest range (for volumes larger than max)
+  let highestRange: ConfigIdMapping | undefined;
+  let highestMax = 0;
+  
+  for (const config of backupItems) {
+    const rangeMatch = config.label.match(/(\d+)\s*-\s*(\d+)\s*GB/i);
+    if (rangeMatch) {
+      const maxGb = parseInt(rangeMatch[2], 10);
+      if (maxGb > highestMax) {
+        highestMax = maxGb;
+        highestRange = config;
       }
     }
   }
   
-  console.warn(`[getBackupConfig] ❌ Backup NOT FOUND: plan=${plan}`);
-  console.warn(`[getBackupConfig] Searched labels:`, labels.slice(0, 10), '...');
-  console.warn(`[getBackupConfig] Available categories:`, Array.from(store.byCategory.keys()));
+  if (volumeGb > highestMax && highestRange) {
+    console.log(`[getBackupConfigByVolume] ✓ Volume ${volumeGb}GB exceeds max range, using highest:`, highestRange.configId, highestRange.label);
+    return highestRange;
+  }
   
-  // Dump first 5 items from each backup-related category for debugging
-  for (const [category, configs] of store.byCategory) {
-    if (category.toLowerCase().includes('backup')) {
-      console.warn(`[getBackupConfig] Items in '${category}':`, configs.slice(0, 5).map(c => ({ id: c.configId, label: c.label })));
+  // Last resort: return first backup item if volume is very small
+  if (volumeGb > 0 && backupItems.length > 0) {
+    // Find smallest range
+    let smallestRange: ConfigIdMapping | undefined;
+    let smallestMin = Infinity;
+    
+    for (const config of backupItems) {
+      const rangeMatch = config.label.match(/(\d+)\s*-\s*(\d+)\s*GB/i);
+      if (rangeMatch) {
+        const minGb = parseInt(rangeMatch[1], 10);
+        if (minGb < smallestMin) {
+          smallestMin = minGb;
+          smallestRange = config;
+        }
+      }
+    }
+    
+    if (smallestRange) {
+      console.log(`[getBackupConfigByVolume] ✓ Using smallest range for ${volumeGb}GB:`, smallestRange.configId, smallestRange.label);
+      return smallestRange;
     }
   }
   
+  console.warn(`[getBackupConfigByVolume] ❌ Backup NOT FOUND for volume: ${volumeGb}GB`);
+  return undefined;
+}
+
+/**
+ * @deprecated Use getBackupConfigByVolume instead
+ * Get backup config by retention plan (7, 15, 30 days) - LEGACY
+ */
+export function getBackupConfig(
+  store: ConfigIdStore,
+  plan: string
+): ConfigIdMapping | undefined {
+  console.log(`[getBackupConfig] LEGACY: Searching for backup plan: "${plan}" - redirecting to volume-based search`);
+  // This function is deprecated - backup is now volume-based
+  // Return undefined to force using getBackupConfigByVolume
   return undefined;
 }
 
