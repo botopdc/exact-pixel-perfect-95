@@ -409,54 +409,119 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
   // ============================================
   
   // Helper to convert addon array to object format
+  // CRITICAL: Match by config_id FIRST (most reliable), then by label patterns
   const convertAddonsArrayToObject = (addonsArray: any[]): Record<string, unknown> => {
     const result: Record<string, unknown> = {};
     const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
     
     for (const addon of addonsArray) {
+      if (!addon || typeof addon !== 'object') continue;
+      
       const label = normalize(addon.label || addon.name || '');
       const qty = addon.quantity ?? addon.qty ?? 1;
       const price = addon.price ?? 0;
       const configId = addon.config_id ?? addon.configId;
       
-      console.log('[convertAddonsArrayToObject] Processing:', { label, qty, configId });
+      console.log('[convertAddonsArrayToObject] Processing:', { configId, label, qty, price });
       
-      // Match by label and map to object keys
-      if (label.includes('winserver') || label.includes('windows')) {
+      // ============================================
+      // SQL Server (config_id 7) - PRIORITY: config_id match
+      // API labels: "WEB", "STD" (uppercase)
+      // ============================================
+      if (configId === 7 || label === 'std' || label === 'web' || label.includes('sql')) {
+        if (label === 'web' || label.includes('web')) {
+          result.sql = 'web';
+        } else {
+          result.sql = 'std';
+        }
+        result.sqlQty = qty > 0 ? qty : 1;
+        console.log('[convertAddonsArrayToObject] SQL:', result.sql, result.sqlQty);
+        continue;
+      }
+      
+      // ============================================
+      // Serviços Especializados (config_id 16)
+      // ============================================
+      if (configId === 16 || label.includes('suporte') || label.includes('support')) {
+        if (!result.support) result.support = { level: 'none', price: 0 };
+        if (label.includes('basico') || label.includes('basic')) {
+          (result.support as any).level = 'basic';
+        } else if (label.includes('intermediario') || label.includes('intermediate')) {
+          (result.support as any).level = 'intermediate';
+        } else if (label.includes('avancado') || label.includes('advanced')) {
+          (result.support as any).level = 'advanced';
+        }
+        (result.support as any).price = price;
+        console.log('[convertAddonsArrayToObject] Support:', result.support);
+        continue;
+      }
+      
+      if (label.includes('consultoria') || label.includes('consulting')) {
+        const unitPrice = qty > 0 && price > 0 ? Math.round(price / qty) : 200;
+        result.consulting = { quantity: qty, unitPrice };
+        console.log('[convertAddonsArrayToObject] Consulting:', result.consulting);
+        continue;
+      }
+      
+      if (label === 'dba') {
+        const unitPrice = qty > 0 && price > 0 ? Math.round(price / qty) : 250;
+        result.dba = { quantity: qty, unitPrice };
+        console.log('[convertAddonsArrayToObject] DBA:', result.dba);
+        continue;
+      }
+      
+      // ============================================
+      // Windows Server (config_id 17)
+      // ============================================
+      if (configId === 17 || label.includes('winserver') || label.includes('windows')) {
         result.winserver = qty;
-      } else if (label.includes('antivirus')) {
-        result.antivirus = qty;
-      } else if (label.includes('firewall') || label.includes('pfsense')) {
-        result.firewall = qty;
-      } else if (label.includes('tsplus')) {
-        result.tsplus = qty;
-      } else if (label === 'cal') {
-        result.cal = qty;
-      } else if (label.includes('veeam vm')) {
-        result.veeamVm = qty;
-      } else if (label.includes('veeam agent')) {
-        result.veeamAg = qty;
-      } else if (label === 'std' || label === 'web' || configId === 7) {
-        // SQL Server - configId 7
-        result.sql = label === 'std' ? 'std' : 'web';
-        result.sqlQty = qty;
-      } else if (label.includes('backup')) {
-        const planMatch = label.match(/backup[_\s]*(\d+)/i);
+        continue;
+      }
+      
+      // ============================================
+      // Backup (config_id 15)
+      // ============================================
+      if (configId === 15 || label.includes('backup')) {
+        const planMatch = label.match(/(\d+)/);
         if (planMatch) {
           result.backupPlan = planMatch[1];
           result.backupGb = qty;
+        } else {
+          result.backupPlan = '7';
+          result.backupGb = qty;
         }
-      } else if (label.includes('suporte')) {
-        if (!result.support) result.support = { level: 'none', price: 0 };
-        if (label.includes('basico')) (result.support as any).level = 'basic';
-        else if (label.includes('intermediario')) (result.support as any).level = 'intermediate';
-        else if (label.includes('avancado')) (result.support as any).level = 'advanced';
-        (result.support as any).price = price;
-      } else if (label.includes('consultoria')) {
-        result.consulting = { quantity: qty, unitPrice: price || 200 };
-      } else if (label === 'dba') {
-        result.dba = { quantity: qty, unitPrice: price || 250 };
+        continue;
       }
+      
+      // ============================================
+      // Standard Add-ons (config_id 6)
+      // ============================================
+      if (label.includes('antivirus') || label.includes('antivírus')) {
+        result.antivirus = qty;
+        continue;
+      }
+      if (label.includes('firewall') || label.includes('pfsense')) {
+        result.firewall = qty;
+        continue;
+      }
+      if (label.includes('tsplus') || label.includes('ts plus')) {
+        result.tsplus = qty;
+        continue;
+      }
+      if (label === 'cal' || label.includes('cal rds')) {
+        result.cal = qty;
+        continue;
+      }
+      if (label.includes('veeam') && label.includes('vm')) {
+        result.veeamVm = qty;
+        continue;
+      }
+      if (label.includes('veeam') && label.includes('agent')) {
+        result.veeamAg = qty;
+        continue;
+      }
+      
+      console.warn('[convertAddonsArrayToObject] Unknown addon not mapped:', { configId, label, qty });
     }
     
     console.log('[convertAddonsArrayToObject] Converted result:', result);
