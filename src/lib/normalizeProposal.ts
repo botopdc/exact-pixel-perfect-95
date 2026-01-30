@@ -497,16 +497,19 @@ function convertStructuredAddonsToArray(addons: Record<string, unknown>): any[] 
   const sqlQty = toNum(addons.sqlQty, 1);
   if (sql && sql !== 'none') {
     const sqlLabels: Record<string, string> = {
-      web: 'SQL Server WEB',
-      std: 'SQL Server STD',
+      web: 'Licença SQL WEB (2vCPU)',
+      std: 'Licença SQL STD (8vCPU)',
     };
+    // Use standard prices from API config as fallback
     const sqlPrices: Record<string, number> = { web: 265, std: 2240 };
+    const unitPrice = sqlPrices[sql] || 0;
     result.push({
       code: `sql_${sql}`,
-      name: sqlLabels[sql] || `SQL Server ${sql.toUpperCase()}`,
+      name: sqlLabels[sql] || `Licença SQL ${sql.toUpperCase()}`,
       quantity: sqlQty,
-      price: sqlPrices[sql] || 0,
+      price: unitPrice,
     });
+    console.log('[convertStructuredAddonsToArray] SQL: type=' + sql + ' qty=' + sqlQty + ' unitPrice=' + unitPrice);
   }
   
   // Antivirus
@@ -553,16 +556,19 @@ function convertStructuredAddonsToArray(addons: Record<string, unknown>): any[] 
     });
   }
   
-  // Backup
+  // Backup - CRITICAL: Must have quantity >= 1 when plan selected (per OpenAPI spec)
   const backupPlan = toStr(addons.backupPlan);
   const backupGb = toNum(addons.backupGb);
-  if (backupPlan && backupPlan !== 'none' && backupGb > 0) {
+  // Enforce minimum 1 GB when plan is selected (same rule as serialization)
+  const finalBackupGb = backupPlan && backupPlan !== 'none' && backupGb === 0 ? 1 : backupGb;
+  if (backupPlan && backupPlan !== 'none' && finalBackupGb > 0) {
     result.push({
       code: `backup_${backupPlan}`,
       name: `Backup ${backupPlan} dias`,
-      quantity: backupGb,
-      price: 0.5, // Price per GB
+      quantity: finalBackupGb,
+      price: 0.5, // Price per GB - actual price from config
     });
+    console.log('[convertStructuredAddonsToArray] Backup: plan=' + backupPlan + ' gb=' + finalBackupGb);
   }
   
   return result;
