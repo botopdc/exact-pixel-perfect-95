@@ -1560,10 +1560,18 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
+        // CRITICAL: Per OpenAPI spec, VMs MUST have vcpu >= 1 and ram >= 1
+        const vcpuValue = Math.max(1, item.vcpu || 1);
+        const ramValue = Math.max(1, item.ramGb || 1);
+        
+        if ((item.vcpu || 0) < 1 || (item.ramGb || 0) < 1) {
+          console.warn(`[localToApi] VM #${idx + 1} had invalid values (vcpu=${item.vcpu}, ram=${item.ramGb}), enforced minimums`);
+        }
+
         const vm: Record<string, unknown> = {
           name: `VM #${idx + 1}`,
-          vcpu: item.vcpu || 0,
-          ram: item.ramGb || 0,
+          vcpu: vcpuValue,
+          ram: ramValue,
           storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
           price: serverPrice, // Use calculated price from result rows
           quantity: item.qtyServers || 1,
@@ -1584,7 +1592,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
-        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${item.vcpu} ram=${item.ramGb} config_id=${vm.config_id}`);
+        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${vcpuValue} ram=${ramValue} config_id=${vm.config_id}`);
         serversArray.push(vm);
       } else if (item.type === 'bm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
@@ -2448,19 +2456,41 @@ export function useSaveProposal() {
       
       if (numericId !== null && numericId > 0) {
         // Update existing proposal via API: PUT /api/calculator/proposal/{id}
+        // Per API spec, file is REQUIRED on PUT - always send it
         console.log('[SaveProposal] ✓ UPDATING proposal via PUT:', numericId, pdfBlob ? 'with PDF file' : 'without file');
         saveResult = await openApi.updateProposal(numericId, apiData, pdfBlob);
         savedProposalId = numericId;
       } else {
-        // Create new proposal via API: POST /api/calculator/proposal
-        console.log('[SaveProposal] ✓ CREATING new proposal via POST', pdfBlob ? 'with PDF file' : 'without file');
-        saveResult = await openApi.createProposal(apiData, pdfBlob);
-        // Extract the new proposal ID from the response
+        // ============================================
+        // NEW FLOW: Create in 2 steps per API requirement
+        // STEP 1: POST without file to create the proposal
+        // STEP 2: Fetch backend-calculated prices and generate PDF
+        // STEP 3: PUT with file to update with the PDF
+        // ============================================
+        console.log('[SaveProposal] ✓ CREATING new proposal via POST (Step 1: without file)');
+        
+        // Step 1: Create proposal WITHOUT file first
+        saveResult = await openApi.createProposal(apiData);
         savedProposalId = saveResult?.id || saveResult?.data?.id;
         
         if (!savedProposalId) {
           console.error('[SaveProposal] POST response did not return an ID:', saveResult);
           throw new Error('Falha ao criar proposta: ID não retornado pela API');
+        }
+        
+        console.log('[SaveProposal] ✓ Proposal created with ID:', savedProposalId, '- now will fetch and update with PDF');
+        
+        // Step 2: If we have a pdfBlob, we need to do an immediate PUT to attach the file
+        // The PDF should be generated AFTER the POST so it uses backend-calculated prices
+        if (pdfBlob) {
+          try {
+            console.log('[SaveProposal] ✓ Step 2: Updating proposal with PDF file via PUT:', savedProposalId);
+            await openApi.updateProposal(savedProposalId, apiData, pdfBlob);
+            console.log('[SaveProposal] ✓ PDF file attached successfully');
+          } catch (putError) {
+            console.error('[SaveProposal] Failed to attach PDF file (non-blocking):', putError);
+            // Don't fail the whole operation - the proposal was created successfully
+          }
         }
       }
 

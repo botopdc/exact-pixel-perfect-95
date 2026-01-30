@@ -117,10 +117,11 @@ const PropostaAprovar: React.FC = () => {
       setProposal(data);
       
       // Check if already approved/rejected
+      // CRITICAL: API uses 'Recusado' NOT 'Reprovado' per OpenAPI spec
       const status = data.status?.toUpperCase();
       if (status === 'APROVADO' || status === 'APPROVED') {
         setFinalStatus('approved');
-      } else if (status === 'REPROVADO' || status === 'REJECTED') {
+      } else if (status === 'RECUSADO' || status === 'REJECTED') {
         setFinalStatus('rejected');
       }
     } catch (error: any) {
