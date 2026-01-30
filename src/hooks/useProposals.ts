@@ -1601,51 +1601,58 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
         // ============================================
-        // BAREMETAL: Use correct field names (bmCpu, bmRam, disks)
-        // These are DIFFERENT from VM fields (vcpu, ramGb, nvmeTb)
+        // BAREMETAL: CRITICAL FIX
+        // 
+        // The API validates that vcpu_item_id, ram_item_id, storage_item_id
+        // ALL belong to the SAME config_id specified in the server object.
+        // 
+        // BareMetal has SEPARATE configs: CPU (2), RAM (3), Disk (4)
+        // But the API only accepts ONE config_id per server.
+        // 
+        // SOLUTION: Use VM config (ID 1) for the server structure and
+        // encode BareMetal specifics in the server name + dados_proposta.
+        // The backend reads dados_proposta.items[] for actual BareMetal pricing.
         // ============================================
         const bmCpuModel = item.bmCpu || item.cpu || 'intel_xeon_e2136';
         const bmRamTier = item.bmRam || item.ram || 'ram_128gb';
         const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1 }];
-        const bmDiskType = bmDisks[0]?.type || 'nvme_1tb';
-
-        // Get BareMetal IDs (different from VM) - use correct bmCpu/bmRam fields
-        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId;
-        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, bmCpuModel) : undefined;
-        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, bmRamTier) : undefined;
-        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, bmDiskType) : undefined;
-
-        if (!bmCpuConfigId) {
-          console.error('[localToApi] Missing BareMetal CPU config ID from API');
-        }
 
         // Calculate total disk storage in GB for API
         const totalDiskGb = bmDisks.reduce((acc: number, disk: any) => {
           const diskQty = disk.qty || 1;
-          // Extract TB from disk type (e.g., 'nvme_1tb' -> 1, '2tb_ssd' -> 2)
           const tbMatch = (disk.type || '').match(/(\d+)tb/i);
           const diskTb = tbMatch ? parseInt(tbMatch[1], 10) : 1;
           return acc + (diskTb * 1024 * diskQty);
         }, 0);
 
+        // Encode BareMetal details in name for backend parsing
+        const bmPayload = {
+          type: 'bm',
+          cpu: bmCpuModel,
+          ram: bmRamTier,
+          disks: bmDisks,
+          gpu: gpuModel && gpuQty > 0 ? { model: gpuModel, quantity: gpuQty } : undefined,
+        };
+
+        // CRITICAL: Use VM config_id with VM item IDs
+        // This ensures ALL item IDs belong to the SAME config (VM = config 1)
+        // Backend reads actual BareMetal data from dados_proposta.items[]
         const bm: Record<string, unknown> = {
-          name: `BareMetal #${idx + 1}`,
-          // API requires vcpu/ram/storage but BareMetal uses cpu_model/ram_tier/disks
-          // Send meaningful values based on the selected tier
-          vcpu: 0, // BareMetal doesn't have vCPU count
-          ram: 0, // BareMetal uses ram tier, not raw GB
-          storage: totalDiskGb, // Total disk storage in GB
+          name: `__BAREMETAL__:${JSON.stringify(bmPayload)}`,
+          vcpu: 1, // Minimum per OpenAPI spec (not used for BareMetal pricing)
+          ram: 1, // Minimum per OpenAPI spec (not used for BareMetal pricing)
+          storage: totalDiskGb,
           price: serverPrice,
           quantity: item.qtyServers || 1,
-          // Store BareMetal-specific data for reconstruction
+          // Store BareMetal-specific data in dados_proposta for reconstruction
           bmCpu: bmCpuModel,
           bmRam: bmRamTier,
           disks: bmDisks,
-          // API v12+: Required config and item IDs for BareMetal
-          config_id: bmCpuConfigId || vmConfigId, // Fallback to VM config if BM not found
-          vcpu_item_id: bmCpuItemId,
-          ram_item_id: bmRamItemId,
-          storage_item_id: bmDiskItemId,
+          // CRITICAL: Use VM config IDs - ALL IDs must belong to SAME config
+          config_id: vmConfigId,
+          vcpu_item_id: vcpuItemId,
+          ram_item_id: ramItemId,
+          storage_item_id: storageItemId,
         };
 
         if (gpuModel && gpuQty > 0) {
@@ -1657,7 +1664,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
-        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix} cpu=${bmCpuModel} ram=${bmRamTier} disks=${JSON.stringify(bmDisks)}`);
+        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} cpu=${bmCpuModel} ram=${bmRamTier} disks=${totalDiskGb}GB (using VM config_id for API compatibility)`);
         serversArray.push(bm);
       } else {
         // Fallback for legacy format - use VM config IDs with fallbacks
