@@ -805,33 +805,55 @@ function logAddonRestoration(addons: AddonsStateV2): void {
  * Addon payload for API (v12+)
  * 
  * Per OpenAPI spec (CalculatorProposalStoreRequest):
- * - addons is array of generic objects
- * - Backend requires config_id and item_id for price calculation
- * - name/price are included for compatibility but backend recalculates
+ * - addons requires config_id and item_id (REQUIRED for priced items)
+ * - Backend calculates price automatically from config
+ * - DO NOT send price field - backend ignores it
  */
 export interface ApiAddonPayload {
-  config_id?: number;     // ID of the calculator config entry
-  item_id?: number;       // ID of the item within the config
-  code?: string;          // Addon code for identification
-  name?: string;          // Display name (optional, for compatibility)
-  quantity: number;       // REQUIRED: Quantity
+  config_id: number;      // REQUIRED: ID of the calculator config entry
+  item_id: number;        // REQUIRED: ID of the item within the config
+  quantity: number;       // REQUIRED: Quantity (defaults to 1)
 }
 
 /**
  * Server payload for API (v12+)
  * 
  * Per OpenAPI spec (CalculatorProposalStoreRequest):
- * - servers is array of generic objects
- * - Backend uses config_id and item IDs for price calculation
+ * - servers requires config_id, name, vcpu_item_id, ram_item_id, storage_item_id
+ * - Backend calculates price automatically from config
+ * - DO NOT send price field - backend ignores it
  */
 export interface ApiServerPayload {
-  config_id?: number;       // ID of the calculator config (VM/BareMetal category)
-  name: string;             // Server name for identification
-  vcpu_item_id?: number;    // ID of the vCPU item in config
+  config_id: number;        // REQUIRED: ID of the calculator config (VM category)
+  name: string;             // REQUIRED: Server name for identification
+  vcpu_item_id: number;     // REQUIRED: ID of the vCPU item in config
   vcpu: number;
-  ram_item_id?: number;     // ID of the RAM item in config
+  ram_item_id: number;      // REQUIRED: ID of the RAM item in config
   ram: number;
-  storage_item_id?: number; // ID of the storage item in config
+  storage_item_id: number;  // REQUIRED: ID of the storage item in config
+  storage: number;
+  quantity: number;
+  gpu?: { model: string; quantity: number };
+}
+
+/**
+ * Flexible payload types for internal use (before validation)
+ * These allow undefined IDs which will be validated before serialization
+ */
+interface InternalAddonPayload {
+  config_id?: number;
+  item_id?: number;
+  quantity: number;
+}
+
+interface InternalServerPayload {
+  config_id?: number;
+  name: string;
+  vcpu_item_id?: number;
+  vcpu: number;
+  ram_item_id?: number;
+  ram: number;
+  storage_item_id?: number;
   storage: number;
   quantity: number;
   gpu?: { model: string; quantity: number };
@@ -852,12 +874,85 @@ export interface ApiProposalPayload {
   contract_duration: number;
   discount_pct: number;
   total: number;
-  addons: ApiAddonPayload[];
-  servers: ApiServerPayload[];
+  addons: InternalAddonPayload[];
+  servers: InternalServerPayload[];
   due_at: string;
   proposal_status?: string;
   status?: string;
   dados_proposta: Record<string, unknown>;
+}
+
+/**
+ * Validation result for serialization
+ */
+export interface SerializationValidation {
+  isValid: boolean;
+  errors: string[];
+}
+
+/**
+ * Validates that all required config_id and item_id are present
+ * before serialization. Returns errors if any IDs are missing.
+ */
+export function validateSerializationConfig(
+  state: OpenCalculatorState,
+  configIdStore?: {
+    vm?: { configId: number; items: Record<string, number> } | null;
+    addons?: { configId: number; items: Record<string, number> } | null;
+    sqlServer?: { configId: number; items: Record<string, number> } | null;
+    backup?: { configId: number; items: Record<string, number> } | null;
+    specializedServices?: { configId: number; items: Record<string, number> } | null;
+  } | null
+): SerializationValidation {
+  const errors: string[] = [];
+  
+  // Check if config IDs are loaded
+  if (!configIdStore) {
+    errors.push('Configuração de preços não carregada. Tente novamente.');
+    return { isValid: false, errors };
+  }
+  
+  // Check VM config if there are VM items
+  const vmItems = state.items.filter(i => i.type === 'vm');
+  if (vmItems.length > 0) {
+    if (!configIdStore.vm?.configId) {
+      errors.push('Configuração de VM não encontrada.');
+    }
+    if (!configIdStore.vm?.items?.['vCPU'] && !configIdStore.vm?.items?.['vcpu']) {
+      errors.push('Item vCPU não encontrado na configuração.');
+    }
+    if (!configIdStore.vm?.items?.['RAM'] && !configIdStore.vm?.items?.['ram']) {
+      errors.push('Item RAM não encontrado na configuração.');
+    }
+    if (!configIdStore.vm?.items?.['NVMe'] && !configIdStore.vm?.items?.['nvme']) {
+      errors.push('Item NVMe não encontrado na configuração.');
+    }
+  }
+  
+  // Check addons config if there are addons
+  const hasAddons = state.addons.winserver > 0 || 
+    state.addons.antivirus > 0 || 
+    state.addons.firewall > 0 ||
+    state.addons.tsplus > 0 ||
+    state.addons.cal > 0 ||
+    state.addons.veeamVm > 0 ||
+    state.addons.veeamAg > 0;
+  
+  if (hasAddons && !configIdStore.addons?.configId) {
+    errors.push('Configuração de Add-ons não encontrada.');
+  }
+  
+  // Check SQL config if SQL is selected
+  if (state.addons.sql !== 'none' && !configIdStore.sqlServer?.configId) {
+    errors.push('Configuração de SQL Server não encontrada.');
+  }
+  
+  // Check Backup config if backup is selected
+  if (state.addons.backupPlan !== 'none' && !configIdStore.backup?.configId) {
+    errors.push('Configuração de Backup não encontrada.');
+  }
+  
+  return { isValid: errors.length === 0, errors };
 }
 
 /**
@@ -866,27 +961,27 @@ export interface ApiProposalPayload {
  * CRITICAL: This is the ONLY function that should generate the save payload.
  * All items (WinServer, Backup, GPU) are explicitly serialized.
  * 
- * API v12+: Requires config_id and item_id for addons and servers.
- * If configIdStore is provided, IDs will be included for backend price calculation.
+ * ARCHITECTURE CHANGE: Backend calculates prices from config_id + item_id.
+ * Frontend does NOT send price fields - they are ignored by backend.
  * 
  * @param state - Calculator state
  * @param channelType - CLIENTE or PARCEIRO
  * @param grandTotal - Total value
  * @param discountPct - Discount percentage
- * @param configIdStore - Optional: Config ID mappings for v12+ API
+ * @param configIdStore - REQUIRED: Config ID mappings for API
  */
 export function serializeProposal(
   state: OpenCalculatorState,
   channelType: 'CLIENTE' | 'PARCEIRO',
   grandTotal: number,
   discountPct: number = 0,
-  configIdStore?: {
+  configIdStore: {
     vm?: { configId: number; items: Record<string, number> } | null;
     addons?: { configId: number; items: Record<string, number> } | null;
     sqlServer?: { configId: number; items: Record<string, number> } | null;
     backup?: { configId: number; items: Record<string, number> } | null;
     specializedServices?: { configId: number; items: Record<string, number> } | null;
-  } | null
+  }
 ): ApiProposalPayload {
   console.log('[serializeProposal] Serializing state for save...');
   
@@ -922,226 +1017,125 @@ export function serializeProposal(
   };
   
   // ============================================
-  // BUILD ADDONS ARRAY (with config_id + item_id for v12+)
+  // BUILD ADDONS ARRAY - Only include items with valid config_id and item_id
+  // ARCHITECTURE: Backend calculates price from IDs, frontend sends no price
   // ============================================
-  const addonsArray: ApiAddonPayload[] = [];
+  const addonsArray: InternalAddonPayload[] = [];
   
-  // Get addons config IDs
-  const addonsConfigId = configIdStore?.addons?.configId;
-  const specializedConfigId = configIdStore?.specializedServices?.configId ?? addonsConfigId;
-  const sqlConfigId = configIdStore?.sqlServer?.configId;
-  const backupConfigId = configIdStore?.backup?.configId;
+  // Get addons config IDs (guaranteed to exist since configIdStore is required)
+  const addonsConfigId = configIdStore.addons?.configId ?? 0;
+  const specializedConfigId = configIdStore.specializedServices?.configId ?? addonsConfigId;
+  const sqlConfigId = configIdStore.sqlServer?.configId ?? 0;
+  const backupConfigId = configIdStore.backup?.configId ?? 0;
   
-  // Windows Server - EXPLICIT
+  // Helper to safely add addon (only if IDs exist)
+  const addAddon = (configId: number | undefined, itemId: number | undefined, qty: number, label: string) => {
+    if (configId && itemId && qty > 0) {
+      addonsArray.push({ config_id: configId, item_id: itemId, quantity: qty });
+      console.log(`[serializeProposal] Added ${label}: qty=${qty}, config_id=${configId}, item_id=${itemId}`);
+    } else {
+      console.warn(`[serializeProposal] Skipping ${label}: missing config_id(${configId}) or item_id(${itemId})`);
+    }
+  };
+  
+  // Windows Server
   if (state.addons.winserver > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'WinServer(2vCPU/unid.)', 'winserver_2vcpu_unit', 'Windows Server');
-    addonsArray.push({
-      config_id: addonsConfigId,
-      item_id: itemId,
-      code: 'winserver_2vcpu_unit',
-      name: 'WinServer(2vCPU/unid.)',
-      quantity: state.addons.winserver,
-    });
-    console.log('[serializeProposal] Added WinServer:', state.addons.winserver, 'item_id:', itemId);
+    const itemId = findItemId(configIdStore.addons, 'WinServer(2vCPU/unid.)', 'winserver_2vcpu_unit', 'Windows Server');
+    addAddon(addonsConfigId, itemId, state.addons.winserver, 'WinServer');
   }
   
-  // Support - Using official codes from ADMIN (with both code and name for compatibility)
+  // Support
   if (state.addons.support.level !== 'none') {
-    const supportCodeMap: Record<string, { code: string; name: string }> = {
-      'basic': { code: 'support_basic', name: 'Suporte Básico' },
-      'intermediate': { code: 'support_intermediate', name: 'Suporte Intermediário' },
-      'advanced': { code: 'support_advanced', name: 'Suporte Avançado' },
+    const supportLabels: Record<string, string[]> = {
+      'basic': ['support_basic', 'Suporte Básico'],
+      'intermediate': ['support_intermediate', 'Suporte Intermediário'],
+      'advanced': ['support_advanced', 'Suporte Avançado'],
     };
-    const supportData = supportCodeMap[state.addons.support.level] || supportCodeMap['basic'];
-    const itemId = findItemId(configIdStore?.specializedServices ?? configIdStore?.addons, supportData.name, supportData.code);
-    addonsArray.push({
-      config_id: specializedConfigId,
-      item_id: itemId,
-      code: supportData.code,
-      name: supportData.name,
-      quantity: 1,
-    });
-    console.log('[SERIALIZE] support=' + supportData.code + ' price=' + state.addons.support.price + ' item_id=' + itemId);
+    const labels = supportLabels[state.addons.support.level] || supportLabels['basic'];
+    const itemId = findItemId(configIdStore.specializedServices ?? configIdStore.addons, ...labels);
+    addAddon(specializedConfigId, itemId, 1, `Support ${state.addons.support.level}`);
   }
   
-  // Consultoria Técnica - Using official code (with both code and name)
+  // Consultoria Técnica
   if (state.addons.consulting.quantity > 0) {
-    const itemId = findItemId(configIdStore?.specializedServices ?? configIdStore?.addons, 'Consultoria Técnica', 'consulting_hours');
-    addonsArray.push({
-      config_id: specializedConfigId,
-      item_id: itemId,
-      code: 'consulting_hours',
-      name: 'Consultoria Técnica',
-      quantity: state.addons.consulting.quantity,
-    });
-    console.log('[SERIALIZE] consulting_hours qty=' + state.addons.consulting.quantity + ' item_id=' + itemId);
+    const itemId = findItemId(configIdStore.specializedServices ?? configIdStore.addons, 'Consultoria Técnica', 'consulting_hours');
+    addAddon(specializedConfigId, itemId, state.addons.consulting.quantity, 'Consulting');
   }
   
-  // DBA - Using official code (with both code and name)
+  // DBA
   if (state.addons.dba.quantity > 0) {
-    const itemId = findItemId(configIdStore?.specializedServices ?? configIdStore?.addons, 'DBA', 'dba_hours');
-    addonsArray.push({
-      config_id: specializedConfigId,
-      item_id: itemId,
-      code: 'dba_hours',
-      name: 'DBA',
-      quantity: state.addons.dba.quantity,
-    });
-    console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' item_id=' + itemId);
+    const itemId = findItemId(configIdStore.specializedServices ?? configIdStore.addons, 'DBA', 'dba_hours');
+    addAddon(specializedConfigId, itemId, state.addons.dba.quantity, 'DBA');
   }
   
-  // Backup - CRITICAL: Persist even if backupGb is 0 when plan is selected (default to 1GB)
-  // Per OpenAPI spec (api-docs-29-jan-26.json): addons require config_id and item_id
+  // Backup - ensure at least 1GB when plan selected
   if (state.addons.backupPlan !== 'none') {
-    // Ensure at least 1GB when backup plan is selected - CRITICAL for persistence
     const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
-    const itemId = findItemId(configIdStore?.backup, `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`, state.addons.backupPlan);
-    addonsArray.push({
-      config_id: backupConfigId,
-      item_id: itemId,
-      code: `backup_${state.addons.backupPlan}`,
-      name: `Backup ${state.addons.backupPlan} dias`,
-      quantity: backupGb, // CRITICAL: Must be >= 1 when plan selected
-    });
-    console.log('[serializeProposal] Backup: plan=' + state.addons.backupPlan + ' gb=' + backupGb + ' item_id=' + itemId);
+    const itemId = findItemId(configIdStore.backup, `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`, state.addons.backupPlan);
+    addAddon(backupConfigId, itemId, backupGb, `Backup ${state.addons.backupPlan}d`);
   }
   
   // Antivirus
   if (state.addons.antivirus > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'Antivírus', 'Antivirus', 'antivirus');
-    addonsArray.push({ 
-      config_id: addonsConfigId, 
-      item_id: itemId, 
-      code: 'antivirus', 
-      name: 'Antivirus', 
-      quantity: state.addons.antivirus 
-    });
+    const itemId = findItemId(configIdStore.addons, 'Antivírus', 'Antivirus', 'antivirus');
+    addAddon(addonsConfigId, itemId, state.addons.antivirus, 'Antivirus');
   }
   
-  // Firewall (qty) - now with quantity support
+  // Firewall
   if (state.addons.firewall > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'Firewall pfSense', 'Firewall (qtd)', 'firewall');
-    addonsArray.push({ 
-      config_id: addonsConfigId, 
-      item_id: itemId, 
-      code: 'firewall', 
-      name: 'Firewall (qtd)', 
-      quantity: state.addons.firewall 
-    });
+    const itemId = findItemId(configIdStore.addons, 'Firewall pfSense', 'Firewall (qtd)', 'firewall');
+    addAddon(addonsConfigId, itemId, state.addons.firewall, 'Firewall');
   }
   
   // TSplus
   if (state.addons.tsplus > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'TSplus', 'tsplus');
-    addonsArray.push({ 
-      config_id: addonsConfigId, 
-      item_id: itemId, 
-      code: 'tsplus', 
-      name: 'TS Plus', 
-      quantity: state.addons.tsplus 
-    });
+    const itemId = findItemId(configIdStore.addons, 'TSplus', 'tsplus');
+    addAddon(addonsConfigId, itemId, state.addons.tsplus, 'TSplus');
   }
   
   // CAL
   if (state.addons.cal > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'CAL', 'cal');
-    addonsArray.push({ 
-      config_id: addonsConfigId, 
-      item_id: itemId, 
-      code: 'cal', 
-      name: 'CAL', 
-      quantity: state.addons.cal 
-    });
+    const itemId = findItemId(configIdStore.addons, 'CAL', 'cal');
+    addAddon(addonsConfigId, itemId, state.addons.cal, 'CAL');
   }
   
   // Veeam VM
   if (state.addons.veeamVm > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'Veeam VM', 'veeam_vm');
-    addonsArray.push({ 
-      config_id: addonsConfigId, 
-      item_id: itemId, 
-      code: 'veeam_vm', 
-      name: 'Veeam VM', 
-      quantity: state.addons.veeamVm 
-    });
+    const itemId = findItemId(configIdStore.addons, 'Veeam VM', 'veeam_vm');
+    addAddon(addonsConfigId, itemId, state.addons.veeamVm, 'Veeam VM');
   }
   
   // Veeam Agent
   if (state.addons.veeamAg > 0) {
-    const itemId = findItemId(configIdStore?.addons, 'Veeam Agent', 'veeam_agent');
-    addonsArray.push({ 
-      config_id: addonsConfigId, 
-      item_id: itemId, 
-      code: 'veeam_agent', 
-      name: 'Veeam Agent', 
-      quantity: state.addons.veeamAg 
-    });
+    const itemId = findItemId(configIdStore.addons, 'Veeam Agent', 'veeam_agent');
+    addAddon(addonsConfigId, itemId, state.addons.veeamAg, 'Veeam Agent');
   }
   
-  // SQL - CRITICAL: Persist even if sqlQty is 0 when type is selected (default to 1)
-  // Per OpenAPI spec: addons require config_id and item_id for backend price calculation
+  // SQL - ensure at least qty 1 when type selected
   if (state.addons.sql !== 'none') {
     const edition = state.addons.sql.toUpperCase();
-    // Ensure at least quantity 1 when SQL type is selected - CRITICAL for persistence
     const sqlQty = state.addons.sqlQty > 0 ? state.addons.sqlQty : 1;
     const sqlLabel = edition === 'WEB' ? 'WEB (2vCPU)' : 'STD (8vCPU)';
-    const itemId = findItemId(configIdStore?.sqlServer, sqlLabel, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
-    addonsArray.push({
-      config_id: sqlConfigId,
-      item_id: itemId,
-      code: `sql_${state.addons.sql.toLowerCase()}`,
-      name: `Licença SQL ${edition}`,
-      quantity: sqlQty, // CRITICAL: Must be >= 1 when type selected
-    });
-    console.log('[serializeProposal] SQL: type=' + state.addons.sql + ' qty=' + sqlQty + ' item_id=' + itemId);
+    const itemId = findItemId(configIdStore.sqlServer, sqlLabel, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
+    addAddon(sqlConfigId, itemId, sqlQty, `SQL ${edition}`);
   }
   
-  // Log dados_proposta snapshot for debugging
-  console.log('[SAVE] dados_proposta.support=' + JSON.stringify(state.addons.support) + 
-    ' consulting=' + JSON.stringify(state.addons.consulting) + 
-    ' dba=' + JSON.stringify(state.addons.dba));
+  // Log for debugging
+  console.log('[serializeProposal] Addons built:', addonsArray.length, 'items');
   
-  // Storage items
-  for (const storage of state.storageItems) {
-    const volumeTB = storage.volumeTB || 0;
-    const volumeGB = storage.volumeGB || 0;
-    if (volumeTB > 0 || volumeGB > 0) {
-      const displaySize = volumeTB >= 1 
-        ? `${volumeTB}TB`
-        : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
-      addonsArray.push({
-        name: `Storage ${storage.storageType.toUpperCase()} ${displaySize}`,
-        quantity: 1,
-      });
-    }
-  }
-  
-  // Kubernetes
-  if (state.kubernetes.enabled) {
-    addonsArray.push({
-      name: `Kubernetes ${state.kubernetes.plan}`,
-      quantity: 1,
-    });
-  }
-  
-  // OpenSaaS
-  if (state.openSaas.enabled && state.openSaas.users > 0) {
-    addonsArray.push({
-      name: `OPEN SaaS ${state.openSaas.users} usuários`,
-      quantity: state.openSaas.users,
-    });
-  }
+  // NOTE: Storage, Kubernetes, OpenSaaS are stored in dados_proposta snapshot
+  // Backend will calculate their prices from snapshot data
   
   // ============================================
-  // BUILD SERVERS ARRAY (with config_id + item_ids for v12+)
+  // BUILD SERVERS ARRAY - Backend calculates price from IDs
   // ============================================
-  const serversArray: ApiServerPayload[] = [];
+  const serversArray: InternalServerPayload[] = [];
   
   // Get VM config IDs
-  const vmConfigId = configIdStore?.vm?.configId;
-  const vcpuItemId = findItemId(configIdStore?.vm, 'vCPU', 'vcpu');
-  const ramItemId = findItemId(configIdStore?.vm, 'RAM', 'ram');
-  const storageItemId = findItemId(configIdStore?.vm, 'NVMe', 'nvme');
+  const vmConfigId = configIdStore.vm?.configId ?? 0;
+  const vcpuItemId = findItemId(configIdStore.vm, 'vCPU', 'vcpu');
+  const ramItemId = findItemId(configIdStore.vm, 'RAM', 'ram');
+  const storageItemId = findItemId(configIdStore.vm, 'NVMe', 'nvme');
 
   for (const [idx, item] of state.items.entries()) {
     const hasGpu = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU' && item.gpuQty > 0;
@@ -1152,8 +1146,9 @@ export function serializeProposal(
     }
 
     if (item.type === 'vm') {
+      // VMs use VM config IDs
       serversArray.push({
-        config_id: vmConfigId,
+        config_id: vmConfigId || undefined,
         name: `VM #${idx + 1}`,
         vcpu_item_id: vcpuItemId,
         vcpu: item.vcpu,
@@ -1165,7 +1160,7 @@ export function serializeProposal(
         gpu: gpuObj,
       });
     } else if (item.type === 'bm') {
-      // BareMetal doesn't use VM config IDs
+      // BareMetal - config IDs handled separately by backend
       serversArray.push({
         name: `BareMetal #${idx + 1}`,
         vcpu: 0,
@@ -1177,7 +1172,7 @@ export function serializeProposal(
     }
   }
   
-  // Add virtual servers if no real servers (API requires at least 1)
+  // Add virtual servers for storage/k8s/saas if no real servers
   if (serversArray.length === 0) {
     if (state.storageItems.length > 0) {
       serversArray.push({
@@ -1206,6 +1201,8 @@ export function serializeProposal(
       });
     }
   }
+  
+  console.log('[serializeProposal] Servers built:', serversArray.length, 'items');
   
   // ============================================
   // BUILD dados_proposta SNAPSHOT

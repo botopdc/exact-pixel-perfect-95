@@ -46,9 +46,11 @@ export {
   hydrateProposalForEdit,
   serializeProposal,
   stateToLegacyFormat,
+  validateSerializationConfig,
   type ApiProposalPayload,
   type ApiAddonPayload,
   type ApiServerPayload,
+  type SerializationValidation,
 } from './proposalMappers';
 
 export {
