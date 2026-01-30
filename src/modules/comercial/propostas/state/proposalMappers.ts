@@ -502,8 +502,11 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   console.log('[hydrateAddonsFromLegacy] Built addonsByKey with', addonsByKey.size, 'entries');
   
   // Helper to normalize strings for matching (lowercase, remove accents, trim)
-  const normalize = (str: string): string => {
-    return str
+  // CRITICAL: Handle undefined/null by using toStr first
+  const normalize = (str: unknown): string => {
+    const safeStr = toStr(str, '');
+    if (!safeStr) return '';
+    return safeStr
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -512,12 +515,16 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   };
   
   for (const addon of addons) {
+    // CRITICAL: Skip if addon is null/undefined (can happen with sparse arrays)
+    if (!addon || typeof addon !== 'object') continue;
+    
     // Get code, name, AND label for matching (API returns 'label' not 'name')
+    // CRITICAL: Use toStr to safely convert to string before calling toLowerCase
     const code = toStr(addon.code, '').toLowerCase().trim();
-    const name = toStr(addon.name || addon.label, '').toLowerCase().trim(); // FIXED: Use label as fallback
-    const label = toStr(addon.label, '').toLowerCase().trim(); // ADDED: explicit label field
-    const nameNormalized = normalize(addon.name || addon.label || '');
-    const labelNormalized = normalize(addon.label || '');
+    const name = toStr(addon.name ?? addon.label, '').toLowerCase().trim();
+    const label = toStr(addon.label, '').toLowerCase().trim();
+    const nameNormalized = normalize(addon.name ?? addon.label ?? '');
+    const labelNormalized = normalize(addon.label ?? '');
     const qty = toNum(addon.quantity ?? addon.qty, 1);
     const price = toNum(addon.price, 0);
     
