@@ -1600,25 +1600,49 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
 
-        // Get BareMetal IDs (different from VM) - NO FALLBACKS
+        // ============================================
+        // BAREMETAL: Use correct field names (bmCpu, bmRam, disks)
+        // These are DIFFERENT from VM fields (vcpu, ramGb, nvmeTb)
+        // ============================================
+        const bmCpuModel = item.bmCpu || item.cpu || 'intel_xeon_e2136';
+        const bmRamTier = item.bmRam || item.ram || 'ram_128gb';
+        const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1 }];
+        const bmDiskType = bmDisks[0]?.type || 'nvme_1tb';
+
+        // Get BareMetal IDs (different from VM) - use correct bmCpu/bmRam fields
         const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId;
-        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, item.cpu) : undefined;
-        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, item.ram) : undefined;
-        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, 'Disco') : undefined;
+        const bmCpuItemId = configIdStore?.baremetal?.cpu ? getItemId(configIdStore.baremetal.cpu, bmCpuModel) : undefined;
+        const bmRamItemId = configIdStore?.baremetal?.ram ? getItemId(configIdStore.baremetal.ram, bmRamTier) : undefined;
+        const bmDiskItemId = configIdStore?.baremetal?.disk ? getItemId(configIdStore.baremetal.disk, bmDiskType) : undefined;
 
         if (!bmCpuConfigId) {
           console.error('[localToApi] Missing BareMetal CPU config ID from API');
         }
 
+        // Calculate total disk storage in GB for API
+        const totalDiskGb = bmDisks.reduce((acc: number, disk: any) => {
+          const diskQty = disk.qty || 1;
+          // Extract TB from disk type (e.g., 'nvme_1tb' -> 1, '2tb_ssd' -> 2)
+          const tbMatch = (disk.type || '').match(/(\d+)tb/i);
+          const diskTb = tbMatch ? parseInt(tbMatch[1], 10) : 1;
+          return acc + (diskTb * 1024 * diskQty);
+        }, 0);
+
         const bm: Record<string, unknown> = {
           name: `BareMetal #${idx + 1}`,
-          vcpu: 0,
-          ram: 0,
-          storage: 0,
-          price: serverPrice, // Use calculated price from result rows
+          // API requires vcpu/ram/storage but BareMetal uses cpu_model/ram_tier/disks
+          // Send meaningful values based on the selected tier
+          vcpu: 0, // BareMetal doesn't have vCPU count
+          ram: 0, // BareMetal uses ram tier, not raw GB
+          storage: totalDiskGb, // Total disk storage in GB
+          price: serverPrice,
           quantity: item.qtyServers || 1,
-          // API v12+: Required config and item IDs for BareMetal (from API)
-          config_id: bmCpuConfigId,
+          // Store BareMetal-specific data for reconstruction
+          bmCpu: bmCpuModel,
+          bmRam: bmRamTier,
+          disks: bmDisks,
+          // API v12+: Required config and item IDs for BareMetal
+          config_id: bmCpuConfigId || vmConfigId, // Fallback to VM config if BM not found
           vcpu_item_id: bmCpuItemId,
           ram_item_id: bmRamItemId,
           storage_item_id: bmDiskItemId,
@@ -1633,14 +1657,14 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
         }
         
-        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix}`);
+        console.log(`[SERIALIZE] BareMetal #${idx + 1} price=${serverPrice} prefix=${itemPrefix} cpu=${bmCpuModel} ram=${bmRamTier} disks=${JSON.stringify(bmDisks)}`);
         serversArray.push(bm);
       } else {
         // Fallback for legacy format - use VM config IDs with fallbacks
         serversArray.push({
           name: item.name || item.label || 'Server',
-          vcpu: item.vcpu || item.cpu || 0,
-          ram: item.ram || item.memory || item.ramGb || 0,
+          vcpu: Math.max(1, item.vcpu || item.cpu || 1),
+          ram: Math.max(1, item.ram || item.memory || item.ramGb || 1),
           storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
           price: item.price || item.total || item.monthlyPrice || serverPrice || 0,
           quantity: item.quantity || item.qtyServers || 1,

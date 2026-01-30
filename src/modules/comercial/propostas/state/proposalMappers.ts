@@ -991,6 +991,11 @@ export function serializeProposal(
     sqlServer?: { configId: number; items: Record<string, number> } | null;
     backup?: { configId: number; items: Record<string, number> } | null;
     specializedServices?: { configId: number; items: Record<string, number> } | null;
+    baremetal?: {
+      cpu?: { configId: number; items: Record<string, number> } | null;
+      ram?: { configId: number; items: Record<string, number> } | null;
+      disk?: { configId: number; items: Record<string, number> } | null;
+    } | null;
   }
 ): ApiProposalPayload {
   console.log('[serializeProposal] Serializing state for save...');
@@ -1178,14 +1183,40 @@ export function serializeProposal(
         gpu: gpuObj,
       });
     } else if (item.type === 'bm') {
-      // BareMetal - config IDs handled separately by backend
+      // ============================================
+      // BAREMETAL: Serialize with correct fields (bmCpu, bmRam, disks)
+      // ============================================
+      const bmCpuModel = item.bmCpu || 'intel_xeon_e2136';
+      const bmRamTier = item.bmRam || 'ram_128gb';
+      const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }];
+      const bmDiskType = bmDisks[0]?.type || 'nvme_1tb';
+
+      // Get BareMetal config IDs if available
+      const bmCpuConfigId = configIdStore.baremetal?.cpu?.configId;
+      const bmCpuItemId = findItemId(configIdStore.baremetal?.cpu || null, bmCpuModel);
+      const bmRamItemId = findItemId(configIdStore.baremetal?.ram || null, bmRamTier);
+      const bmDiskItemId = findItemId(configIdStore.baremetal?.disk || null, bmDiskType);
+
+      // Calculate total disk storage in GB
+      const totalDiskGb = bmDisks.reduce((acc: number, disk: DiskItemV2) => {
+        const diskQty = disk.qty || 1;
+        const tbMatch = (disk.type || '').match(/(\d+)tb/i);
+        const diskTb = tbMatch ? parseInt(tbMatch[1], 10) : 1;
+        return acc + (diskTb * 1024 * diskQty);
+      }, 0);
+
       serversArray.push({
         name: `BareMetal #${idx + 1}`,
         vcpu: 0,
         ram: 0,
-        storage: 0,
+        storage: totalDiskGb,
         quantity: item.qtyServers,
         gpu: gpuObj,
+        // Include BareMetal-specific data
+        config_id: bmCpuConfigId || vmConfigId || undefined,
+        vcpu_item_id: bmCpuItemId,
+        ram_item_id: bmRamItemId,
+        storage_item_id: bmDiskItemId,
       });
     }
   }
