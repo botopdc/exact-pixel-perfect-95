@@ -325,10 +325,10 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         console.log('[apiToLocal] Processing addon:', { configId, label: addonLabel, qty: addonQty });
         
         // ============================================
-        // SQL Server (config_id 7) - PRIORITY: config_id match
-        // API labels: "web", "std" (after normalize)
+        // SQL Server - Match by LABEL (API returns dynamic config_ids)
+        // API labels: "WEB", "STD" (case-insensitive)
         // ============================================
-        if (configId === 7 || addonLabel === 'web' || addonLabel === 'std' || addonLabel.includes('sql')) {
+        if (addonLabel === 'web' || addonLabel === 'std' || addonLabel.includes('sql')) {
           if (sqlType === 'none') {
             if (addonLabel === 'web' || addonLabel.includes('web')) {
               sqlType = 'web';
@@ -336,15 +336,16 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
               sqlType = 'std';
             }
             sqlQtyRaw = addonQty > 0 ? addonQty : 1;
-            console.log('[EDIT] SQL restored from API array:', { type: sqlType, qty: sqlQtyRaw });
+            console.log('[EDIT] SQL restored from API array:', { type: sqlType, qty: sqlQtyRaw, configId });
           }
           continue;
         }
         
         // ============================================
-        // Serviços Especializados (config_id 16)
+        // Serviços Especializados - Match by LABEL
+        // API labels: "Suporte Básico", "Suporte Avançado", etc.
         // ============================================
-        if (configId === 16 || addonLabel.includes('suporte') || addonLabel.includes('support')) {
+        if (addonLabel.includes('suporte') || addonLabel.includes('support')) {
           if (supportLevel === 'none') {
             if (addonLabel.includes('avancado') || addonLabel.includes('advanced')) {
               supportLevel = 'advanced';
@@ -354,7 +355,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
               supportLevel = 'basic';
             }
             supportPrice = addonPrice;
-            console.log('[EDIT] Support restored from API array:', { level: supportLevel, price: addonPrice });
+            console.log('[EDIT] Support restored from API array:', { level: supportLevel, price: addonPrice, configId });
           }
           continue;
         }
@@ -378,27 +379,27 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         }
         
         // ============================================
-        // Windows Server (config_id 17)
+        // Windows Server - Match by LABEL
         // ============================================
-        if (configId === 17 || addonLabel.includes('winserver') || addonLabel.includes('windows')) {
+        if (addonLabel.includes('winserver') || addonLabel.includes('windows')) {
           if (winserverQty === 0) {
             winserverQty = addonQty;
-            console.log('[EDIT] WindowsServer restored from API array:', addonQty);
+            console.log('[EDIT] WindowsServer restored from API array:', addonQty, 'configId:', configId);
           }
           continue;
         }
         
         // ============================================
-        // Backup (config_id 15)
+        // Backup - Match by LABEL
         // ============================================
-        if (configId === 15 || addonLabel.includes('backup')) {
+        if (addonLabel.includes('backup')) {
           if (backupPlan === 'none') {
             if (addonLabel.includes('30')) backupPlan = '30';
             else if (addonLabel.includes('15')) backupPlan = '15';
             else if (addonLabel.includes('7')) backupPlan = '7';
             else backupPlan = '7';
             backupGbRaw = addonQty;
-            console.log('[EDIT] Backup restored from API array: plan=', backupPlan, ', gb=', addonQty);
+            console.log('[EDIT] Backup restored from API array: plan=', backupPlan, ', gb=', addonQty, 'configId:', configId);
           }
           continue;
         }
