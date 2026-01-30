@@ -488,6 +488,9 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   const addonsByKey: Map<string, number> = new Map();
   
   for (const addon of addons) {
+    // CRITICAL: Skip if addon is null/undefined (sparse arrays)
+    if (!addon || typeof addon !== 'object') continue;
+    
     const configId = addon.config_id ?? addon.configId;
     const itemId = addon.item_id ?? addon.itemId;
     const qty = toNum(addon.quantity ?? addon.qty, 1);
