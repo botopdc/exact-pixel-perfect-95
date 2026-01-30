@@ -93,26 +93,36 @@ function apiToLocalFormat(apiProposal: any): LocalProposalData {
   
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
     for (const addon of apiProposal.addons) {
-      if (addon.name) {
-        const addonPrice = addon.price || 0;
-        const addonQty = addon.quantity || 1;
-        // Map addon names to local state keys
-        const addonKeyMap: Record<string, string> = {
-          'antivirus': 'antivirus',
-          'firewall': 'firewall',
-          'tsplus': 'tsplus',
-          'cal': 'cal',
-          'veeam_vm': 'veeamVm',
-          'veeam_agent': 'veeamAg',
-        };
-        const localKey = addonKeyMap[addon.name.toLowerCase()] || addon.name;
-        if (localKey === 'firewall') {
-          addonsObj.firewall = true;
-        } else if (typeof addonsObj[localKey] === 'number') {
-          addonsObj[localKey] = addonQty;
-        }
-        addonsTotal += addonPrice * addonQty;
+      // CRITICAL: Skip if addon is null/undefined (sparse arrays)
+      if (!addon || typeof addon !== 'object') continue;
+      
+      // CRITICAL: API returns 'label' not 'name' - use label as primary
+      const addonName = String(addon.label || addon.name || '').toLowerCase().trim();
+      if (!addonName) continue;
+      
+      const addonPrice = addon.price || 0;
+      const addonQty = addon.quantity || 1;
+      
+      // Map addon names to local state keys
+      const addonKeyMap: Record<string, string> = {
+        'antivirus': 'antivirus',
+        'antivírus': 'antivirus',
+        'firewall': 'firewall',
+        'firewall pfsense': 'firewall',
+        'tsplus': 'tsplus',
+        'cal': 'cal',
+        'veeam_vm': 'veeamVm',
+        'veeam vm': 'veeamVm',
+        'veeam_agent': 'veeamAg',
+        'veeam agent': 'veeamAg',
+      };
+      const localKey = addonKeyMap[addonName] || addonName;
+      if (localKey === 'firewall') {
+        addonsObj.firewall = true;
+      } else if (typeof addonsObj[localKey] === 'number') {
+        addonsObj[localKey] = addonQty;
       }
+      addonsTotal += addonPrice * addonQty;
     }
   }
   
