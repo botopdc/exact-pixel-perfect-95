@@ -272,27 +272,41 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     
     // ============================================
     // ADDONS RESTORATION: Log addons being restored from dados_proposta
+    // CRITICAL: Ensure SQL and Backup have minimum qty when selected
     // ============================================
     const rawAddons = dadosProposta.addons || {};
+    
+    // CRITICAL: Ensure SQL has qty >= 1 when type is selected
+    const sqlType = rawAddons.sql || 'none';
+    const sqlQtyRaw = toNum(rawAddons.sqlQty, 0);
+    const finalSqlQty = sqlType !== 'none' && sqlQtyRaw === 0 ? 1 : sqlQtyRaw;
+    
+    // CRITICAL: Ensure Backup has GB >= 1 when plan is selected
+    const backupPlan = rawAddons.backupPlan || 'none';
+    const backupGbRaw = toNum(rawAddons.backupGb, 0);
+    const finalBackupGb = backupPlan !== 'none' && backupGbRaw === 0 ? 1 : backupGbRaw;
     
     // Log specific addons for debugging
     if (toNum(rawAddons.winserver, 0) > 0) {
       console.log('[EDIT] WindowsServer units restored:', toNum(rawAddons.winserver, 0));
     }
-    if (rawAddons.backupPlan && rawAddons.backupPlan !== 'none') {
-      console.log('[EDIT] Backup restored: plan=', rawAddons.backupPlan, ', gb=', toNum(rawAddons.backupGb, 0));
+    if (backupPlan !== 'none') {
+      console.log('[EDIT] Backup restored: plan=', backupPlan, ', gb=', finalBackupGb);
+    }
+    if (sqlType !== 'none') {
+      console.log('[EDIT] SQL restored: type=', sqlType, ', qty=', finalSqlQty);
     }
     
     const normalizedAddons: AddonsState = {
-      backupPlan: rawAddons.backupPlan || 'none',
-      backupGb: toNum(rawAddons.backupGb, 0),
+      backupPlan: backupPlan,
+      backupGb: finalBackupGb,
       antivirus: toNum(rawAddons.antivirus, 0),
       // Firewall: convert old boolean to number
       firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
       tsplus: toNum(rawAddons.tsplus, 0),
       cal: toNum(rawAddons.cal, 0),
-      sql: rawAddons.sql || 'none',
-      sqlQty: toNum(rawAddons.sqlQty, 0),
+      sql: sqlType,
+      sqlQty: finalSqlQty,
       veeamVm: toNum(rawAddons.veeamVm, 0),
       veeamAg: toNum(rawAddons.veeamAg, 0),
       winserver: toNum(rawAddons.winserver, 0),

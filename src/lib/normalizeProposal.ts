@@ -231,6 +231,10 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   // Priority: dados_proposta.items > rawProposal.servers
   let rawServers: any[] = [];
   
+  // CRITICAL: Check for dados_proposta.result.rows first - these have pre-calculated prices
+  const snapshotResult = dadosProposta?.result as { rows?: any[] } | undefined;
+  const hasSnapshotRows = snapshotResult?.rows && Array.isArray(snapshotResult.rows) && snapshotResult.rows.length > 0;
+  
   if (dadosProposta?.items && Array.isArray(dadosProposta.items)) {
     rawServers = dadosProposta.items.filter((item: any) => {
       const itemType = toStr(item.type).toLowerCase();
@@ -241,12 +245,27 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
     rawServers = ensureArray(rawProposal.servers);
   }
   
-  console.log('[normalizeProposal] Raw servers from snapshot:', rawServers.length, rawServers.map((s: any) => ({ type: s.type, name: s.name })));
+  console.log('[normalizeProposal] Raw servers from snapshot:', rawServers.length, 'hasSnapshotRows:', hasSnapshotRows);
+  
+  // CRITICAL: Build a map of prices from snapshot result rows for lookup
+  const rowPriceMap: Map<string, { unitPrice: number; subtotal: number }> = new Map();
+  if (hasSnapshotRows && snapshotResult?.rows) {
+    snapshotResult.rows.forEach((row: any) => {
+      const key = toStr(row.rowKey || row.label);
+      if (key) {
+        rowPriceMap.set(key.toLowerCase(), {
+          unitPrice: toNum(row.unitPrice),
+          subtotal: toNum(row.finalTotal ?? row.subtotal),
+        });
+      }
+    });
+  }
   
   const servers: NormalizedServer[] = rawServers.map((server: any, idx: number) => {
     const typeRaw = toStr(server.type).toLowerCase();
     const type = typeRaw === 'bm' || typeRaw === 'baremetal' ? 'bm' : 'vm';
-    const name = toStr(server.name, `${type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1}`);
+    const defaultName = `${type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1}`;
+    const name = toStr(server.name, defaultName);
     
     // CRITICAL: Support multiple field naming conventions from different snapshots
     const vcpu = toNum(server.vcpu);
@@ -258,15 +277,34 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
     const gpu = toStr(server.gpu, 'Sem GPU');
     const gpuQty = toNum(server.gpuQty ?? server.gpu_qty);
     
-    // CRITICAL: Use stored prices from snapshot, or calculate
-    const unitPrice = toNum(server.price ?? server.unitPrice ?? server.unit_price);
-    const subtotal = toNum(server.subtotal ?? server.totalPrice ?? server.total_price, unitPrice * quantity);
-    
     // Build description matching calculator summary format
     const storageDisplay = nvmeTb >= 1 ? `${nvmeTb.toFixed(2)}TB` : `${storage || 0}GB`;
     const description = vcpu > 0 || ram > 0 || storage > 0 
       ? `(${vcpu} vCPU, ${ram}GB RAM, ${storageDisplay})`
       : buildServerDescription(server);
+    
+    // CRITICAL: Get prices - priority order:
+    // 1. Direct price from server object (saved during calculation)
+    // 2. Lookup from snapshot result rows by rowKey (vm_0, vm_1, etc.)
+    // 3. Lookup by label match
+    let unitPrice = toNum(server.price ?? server.unitPrice ?? server.unit_price);
+    let subtotal = toNum(server.subtotal ?? server.totalPrice ?? server.total_price);
+    
+    // If no direct price, try to find from snapshot rows
+    if (unitPrice === 0 && subtotal === 0) {
+      const rowKey = `${type}_${idx}`;
+      const priceFromMap = rowPriceMap.get(rowKey) || rowPriceMap.get(name.toLowerCase());
+      if (priceFromMap) {
+        unitPrice = priceFromMap.unitPrice;
+        subtotal = priceFromMap.subtotal;
+        console.log(`[normalizeProposal] Found price for ${name} from snapshot rows:`, { unitPrice, subtotal });
+      }
+    }
+    
+    // Calculate subtotal if we have unitPrice but no subtotal
+    if (unitPrice > 0 && subtotal === 0) {
+      subtotal = unitPrice * quantity;
+    }
     
     return {
       name,
@@ -562,6 +600,7 @@ function extractOpenSaasSubtotal(openSaas: unknown): number {
 
 /**
  * Build CalculationResult from normalized data
+ * CRITICAL: Prioritizes snapshot result rows when available (they have correct prices)
  */
 function buildResultFromNormalized(
   servers: NormalizedServer[],
@@ -569,6 +608,67 @@ function buildResultFromNormalized(
   totals: NormalizedTotals,
   dadosProposta: Record<string, unknown> | null
 ): CalculationResult {
+  // CRITICAL: If dados_proposta has a result with rows, use those directly
+  // They were saved during calculation and have correct prices
+  const snapshotResult = dadosProposta?.result as { 
+    rows?: any[]; 
+    subRec?: number;
+    subIps?: number;
+    subServices?: number;
+    subBackup?: number;
+    subKubernetes?: number;
+    subStorage?: number;
+    subOpenSaas?: number;
+    discountPct?: number;
+    discountValue?: number;
+    grandTotal?: number;
+  } | undefined;
+  
+  const hasValidSnapshotRows = snapshotResult?.rows && 
+    Array.isArray(snapshotResult.rows) && 
+    snapshotResult.rows.length > 0 &&
+    snapshotResult.rows.some((r: any) => toNum(r.subtotal) > 0 || toNum(r.unitPrice) > 0);
+  
+  if (hasValidSnapshotRows && snapshotResult?.rows) {
+    console.log('[buildResultFromNormalized] Using snapshot result rows (', snapshotResult.rows.length, ' rows)');
+    
+    // Use snapshot rows directly - they have correct prices
+    const rows: SummaryRow[] = snapshotResult.rows.map((row: any) => ({
+      label: row.label || 'Item',
+      qty: toNum(row.qty, 1),
+      unitPrice: toNum(row.unitPrice),
+      subtotal: toNum(row.subtotal),
+      finalTotal: toNum(row.finalTotal ?? row.subtotal),
+      rowKey: row.rowKey,
+      baseTotal: row.baseTotal,
+      overrideTotal: row.overrideTotal,
+    }));
+    
+    return {
+      rows,
+      subRec: toNum(snapshotResult.subRec, totals.subtotalRecursos),
+      subIps: toNum(snapshotResult.subIps, totals.subtotalIps),
+      subServices: toNum(snapshotResult.subServices, totals.subtotalServices),
+      subBackup: toNum(snapshotResult.subBackup, totals.subtotalBackup),
+      subKubernetes: toNum(snapshotResult.subKubernetes, totals.subtotalKubernetes),
+      subStorage: toNum(snapshotResult.subStorage, totals.subtotalStorage),
+      subOpenSaas: toNum(snapshotResult.subOpenSaas, totals.subtotalOpenSaas),
+      discountPct: toNum(snapshotResult.discountPct, totals.discountPct),
+      discountValue: toNum(snapshotResult.discountValue, totals.discountValue),
+      grandTotal: toNum(snapshotResult.grandTotal, totals.totalMensal),
+      totalServers: servers.reduce((sum, s) => sum + s.quantity, 0),
+      gpuUsdTotal: 0,
+      gpuBrlTotal: 0,
+      subtotalPriceList: toNum(snapshotResult.subRec, 0) + toNum(snapshotResult.subIps, 0) + toNum(snapshotResult.subServices, 0),
+      overValue: 0,
+      overPercent: 0,
+      totalWithOver: toNum(snapshotResult.grandTotal, totals.totalMensal),
+    };
+  }
+  
+  // FALLBACK: Build from normalized data if no valid snapshot rows
+  console.log('[buildResultFromNormalized] Building from normalized data (no valid snapshot rows)');
+  
   const rows: SummaryRow[] = [];
   
   // Add server rows
@@ -623,7 +723,6 @@ function buildResultFromNormalized(
   
   // Add kubernetes if enabled
   if (dadosProposta?.kubernetes && (dadosProposta.kubernetes as any).enabled) {
-    const k8s = dadosProposta.kubernetes as any;
     rows.push({
       label: `Kubernetes Gerenciado`,
       qty: 1,
