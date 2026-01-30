@@ -338,9 +338,26 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
     })
     .map((server, idx) => {
       const id = crypto.randomUUID();
-      const name = toStr(server.name, '').toLowerCase();
-      const isVM = name.includes('vm') || toNum(server.vcpu, 0) > 0;
-
+      const name = toStr(server.name, '');
+      const nameLower = name.toLowerCase();
+      
+      // ============================================
+      // BAREMETAL DETECTION - CRITICAL FIX
+      // 
+      // Priority order:
+      // 1. Check if name contains __BAREMETAL__ (serialized format)
+      // 2. Check if server has explicit bmCpu/bmRam fields (dados_proposta format)
+      // 3. FALLBACK to VM only if vcpu > 0 AND no BareMetal indicators
+      // 
+      // IMPORTANT: vcpu > 0 is NOT a reliable VM indicator because
+      // BareMetals are sent with vcpu=1 (API minimum requirement)
+      // ============================================
+      
+      const isEncodedBareMetal = name.startsWith('__BAREMETAL__:');
+      const hasBaremetalFields = !!server.bmCpu || !!server.bmRam || 
+        (Array.isArray(server.disks) && server.disks.length > 0 && server.disks[0]?.type);
+      const isBareMetal = isEncodedBareMetal || hasBaremetalFields;
+      
       // CRITICAL: support GPU stored as object: { model, quantity }
       let gpu = 'Sem GPU';
       let gpuQty = 0;
@@ -359,50 +376,86 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
       if (gpu !== 'Sem GPU' && gpuQty > 0) {
         console.log(`[EDIT] GPU restored: model=${gpu} qty=${gpuQty}`);
       }
+      
+      // ============================================
+      // BAREMETAL PARSING
+      // ============================================
+      if (isBareMetal) {
+        let bmCpu = 'intel_xeon_e2136';
+        let bmRam = 'ram_128gb';
+        let bmDisks: DiskItemV2[] = [{ type: 'nvme_1tb', qty: 1, desc: '' }];
+        let bmGpu = gpu;
+        let bmGpuQty = gpuQty;
+        
+        // Parse from encoded name if present
+        if (isEncodedBareMetal) {
+          try {
+            const jsonPart = name.substring('__BAREMETAL__:'.length);
+            const bmPayload = JSON.parse(jsonPart);
+            bmCpu = bmPayload.cpu || bmCpu;
+            bmRam = bmPayload.ram || bmRam;
+            if (Array.isArray(bmPayload.disks) && bmPayload.disks.length > 0) {
+              bmDisks = bmPayload.disks.map((d: any) => ({
+                type: toStr(d.type, 'nvme_1tb'),
+                qty: toNum(d.qty, 1),
+                desc: toStr(d.desc, ''),
+              }));
+            }
+            // GPU from encoded payload
+            if (bmPayload.gpu?.model) {
+              bmGpu = bmPayload.gpu.model;
+              bmGpuQty = bmPayload.gpu.quantity || 0;
+            }
+            console.log('[EDIT] BareMetal decoded from name:', { bmCpu, bmRam, disks: bmDisks.length });
+          } catch (e) {
+            console.warn('[EDIT] Failed to parse BareMetal JSON from name, using defaults');
+          }
+        } else {
+          // Extract from server fields directly
+          bmCpu = toStr(server.bmCpu || server.cpu || server.cpu_model, bmCpu);
+          bmRam = toStr(server.bmRam || server.ram_tier, bmRam);
+          if (Array.isArray(server.disks) && server.disks.length > 0) {
+            bmDisks = server.disks.map((d: any) => ({
+              type: toStr(d.type, 'nvme_1tb'),
+              qty: toNum(d.qty, 1),
+              desc: toStr(d.desc, ''),
+            }));
+          }
+        }
+        
+        console.log(`[EDIT] BareMetal restored: cpu=${bmCpu} ram=${bmRam} disks=${JSON.stringify(bmDisks)} gpu=${bmGpu} gpuQty=${bmGpuQty}`);
 
-      if (isVM) {
         return {
-          type: 'vm' as const,
+          type: 'bm' as const,
           id,
-          gpu,
-          gpuQty,
-          vcpu: toNum(server.vcpu, 16),
-          ramGb: toNum(server.ram, 128),
-          nvmeTb: toNum(server.storage, 50) / 1024,
+          gpu: bmGpu,
+          gpuQty: bmGpuQty,
+          bmCpu,
+          bmRam,
+          disks: bmDisks,
           trafficTb: 5,
           ips: toNum(server.ips, 0),
           qtyServers: toNum(server.quantity, 1),
-        } as VMItemV2;
-      }
-
-      // BareMetal: Extract bmCpu, bmRam, and disks from API response
-      const bmCpu = toStr(server.bmCpu || server.cpu || server.cpu_model, 'intel_xeon_e2136');
-      const bmRam = toStr(server.bmRam || server.ram_tier, 'ram_128gb');
-      
-      // Parse disks from API - could be array or need reconstruction
-      let bmDisks: DiskItemV2[] = [{ type: 'nvme_1tb', qty: 1, desc: '' }];
-      if (Array.isArray(server.disks) && server.disks.length > 0) {
-        bmDisks = server.disks.map((d: any) => ({
-          type: toStr(d.type, 'nvme_1tb'),
-          qty: toNum(d.qty, 1),
-          desc: toStr(d.desc, ''),
-        }));
+        } as BMItemV2;
       }
       
-      console.log(`[EDIT] BareMetal restored: cpu=${bmCpu} ram=${bmRam} disks=${JSON.stringify(bmDisks)}`);
+      // ============================================
+      // VM PARSING (default case)
+      // ============================================
+      console.log(`[EDIT] VM restored: vcpu=${server.vcpu} ram=${server.ram} storage=${server.storage}`);
 
       return {
-        type: 'bm' as const,
+        type: 'vm' as const,
         id,
         gpu,
         gpuQty,
-        bmCpu,
-        bmRam,
-        disks: bmDisks,
+        vcpu: toNum(server.vcpu, 16),
+        ramGb: toNum(server.ram, 128),
+        nvmeTb: toNum(server.storage, 50) / 1024,
         trafficTb: 5,
         ips: toNum(server.ips, 0),
         qtyServers: toNum(server.quantity, 1),
-      } as BMItemV2;
+      } as VMItemV2;
     });
 }
 
