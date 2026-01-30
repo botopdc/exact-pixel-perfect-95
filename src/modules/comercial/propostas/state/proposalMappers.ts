@@ -51,6 +51,33 @@ const toBool = (val: unknown): boolean => {
   return Boolean(val);
 };
 
+/**
+ * Merge addons: API values take precedence for non-zero values.
+ * This ensures that the actual API data is used when available.
+ */
+function mergeAddonsWithApiPrecedence(snapshot: AddonsStateV2, api: AddonsStateV2): AddonsStateV2 {
+  return {
+    // Numeric fields: use API if > 0, otherwise fall back to snapshot
+    backupPlan: api.backupPlan !== 'none' ? api.backupPlan : snapshot.backupPlan,
+    backupGb: api.backupGb > 0 ? api.backupGb : snapshot.backupGb,
+    antivirus: api.antivirus > 0 ? api.antivirus : snapshot.antivirus,
+    firewall: api.firewall > 0 ? api.firewall : snapshot.firewall,
+    tsplus: api.tsplus > 0 ? api.tsplus : snapshot.tsplus,
+    cal: api.cal > 0 ? api.cal : snapshot.cal,
+    sql: api.sql !== 'none' ? api.sql : snapshot.sql,
+    sqlQty: api.sqlQty > 0 ? api.sqlQty : snapshot.sqlQty,
+    veeamVm: api.veeamVm > 0 ? api.veeamVm : snapshot.veeamVm,
+    veeamAg: api.veeamAg > 0 ? api.veeamAg : snapshot.veeamAg,
+    winserver: api.winserver > 0 ? api.winserver : snapshot.winserver,
+    // Complex objects: merge with API precedence
+    support: api.support.level !== 'none' ? api.support : snapshot.support,
+    consulting: api.consulting.quantity > 0 ? api.consulting : snapshot.consulting,
+    dba: api.dba.quantity > 0 ? api.dba : snapshot.dba,
+    // Custom addons: merge both
+    customAddons: { ...snapshot.customAddons, ...api.customAddons },
+  };
+}
+
 // ============================================================================
 // HYDRATE FROM API (for edit mode)
 // ============================================================================
@@ -153,11 +180,30 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
   
   // ============================================
   // STEP 6: Extract ADDONS (including WinServer, Backup)
+  // STRATEGY: Use dados_proposta.addons as primary, then MERGE from API addons[]
+  // This ensures we always have the latest data from the API.
   // ============================================
+  let snapshotAddons: AddonsStateV2 | null = null;
+  let apiAddons: AddonsStateV2 | null = null;
+  
+  // First try to get from snapshot
   if (hasDadosProposta && (dadosProposta as any).addons) {
-    state.addons = hydrateAddons((dadosProposta as any).addons);
-  } else if (Array.isArray(apiProposal.addons)) {
-    state.addons = hydrateAddonsFromLegacy(apiProposal.addons as any[]);
+    snapshotAddons = hydrateAddons((dadosProposta as any).addons);
+    console.log('[hydrateProposalForEdit] Addons from snapshot:', snapshotAddons);
+  }
+  
+  // Then get from API array (source of truth per API spec)
+  if (Array.isArray(apiProposal.addons) && apiProposal.addons.length > 0) {
+    apiAddons = hydrateAddonsFromLegacy(apiProposal.addons as any[]);
+    console.log('[hydrateProposalForEdit] Addons from API array:', apiAddons);
+  }
+  
+  // Merge: API takes precedence over snapshot for non-zero values
+  // This ensures that if the API has data, it's used; otherwise fall back to snapshot
+  if (apiAddons) {
+    state.addons = mergeAddonsWithApiPrecedence(snapshotAddons || DEFAULT_ADDONS, apiAddons);
+  } else if (snapshotAddons) {
+    state.addons = snapshotAddons;
   }
   
   // Log addon restoration for debugging
@@ -420,10 +466,31 @@ function hydrateAddons(raw: any): AddonsStateV2 {
 
 /**
  * Hydrate addons from legacy API response (addons[] array).
- * Matches by code OR name (case-insensitive, accent-insensitive).
+ * 
+ * STRATEGY: Build a map using config_id:item_id as key.
+ * Then match based on:
+ * 1. config_id + item_id (new API format)
+ * 2. code OR name (legacy fallback)
  */
 function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   const result: AddonsStateV2 = { ...DEFAULT_ADDONS };
+  
+  // Step 1: Build addonsByKey map for config_id:item_id lookup
+  const addonsByKey: Map<string, number> = new Map();
+  
+  for (const addon of addons) {
+    const configId = addon.config_id ?? addon.configId;
+    const itemId = addon.item_id ?? addon.itemId;
+    const qty = toNum(addon.quantity ?? addon.qty, 1);
+    
+    if (configId !== undefined && itemId !== undefined) {
+      const key = `${configId}:${itemId}`;
+      addonsByKey.set(key, qty);
+      console.log(`[hydrateAddonsFromLegacy] Mapped ${key} -> qty=${qty}`);
+    }
+  }
+  
+  console.log('[hydrateAddonsFromLegacy] Built addonsByKey with', addonsByKey.size, 'entries');
   
   // Helper to normalize strings for matching (lowercase, remove accents, trim)
   const normalize = (str: string): string => {
@@ -436,21 +503,31 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   };
   
   for (const addon of addons) {
-    // Get both code and name for matching
+    // Get both code and name for matching (legacy format)
     const code = toStr(addon.code, '').toLowerCase().trim();
     const name = toStr(addon.name, '').toLowerCase().trim();
     const nameNormalized = normalize(addon.name || '');
-    const qty = toNum(addon.quantity, 1);
+    const qty = toNum(addon.quantity ?? addon.qty, 1);
     const price = toNum(addon.price, 0);
     
-    // Skip if no identifier
-    if (!code && !name) continue;
+    // Also check for config_id/item_id based lookup (new format)
+    const configId = addon.config_id ?? addon.configId;
+    const itemId = addon.item_id ?? addon.itemId;
     
-    // Windows Server - match by code or name
+    console.log(`[hydrateAddonsFromLegacy] Processing addon:`, { 
+      code, name, qty, configId, itemId 
+    });
+    
+    // Skip if no identifier at all
+    if (!code && !name && configId === undefined) continue;
+    
+    // Windows Server - match by code, name, or known item_id patterns
     if (code === 'winserver_2vcpu_unit' || 
         name.includes('winserver') || 
         name.includes('windows server') || 
-        name.includes('win server')) {
+        name.includes('win server') ||
+        name.includes('windows') ||
+        (nameNormalized.includes('winserver') || nameNormalized.includes('windows'))) {
       result.winserver = qty;
       console.log('[EDIT] WindowsServer units restored:', qty);
       continue;
@@ -475,6 +552,19 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       console.log('[EDIT] support restored from addons[]: level=advanced price=' + price);
       continue;
     }
+    // Generic support matching
+    if (name.includes('suporte') || code.includes('support')) {
+      if (name.includes('basico') || name.includes('basic') || code.includes('basic')) {
+        result.support.level = 'basic';
+      } else if (name.includes('intermediario') || name.includes('intermediate') || code.includes('intermediate')) {
+        result.support.level = 'intermediate';
+      } else if (name.includes('avancado') || name.includes('advanced') || code.includes('advanced')) {
+        result.support.level = 'advanced';
+      }
+      result.support.price = price;
+      console.log('[EDIT] support restored (generic): level=' + result.support.level + ' price=' + price);
+      continue;
+    }
     
     // Consultoria Técnica - match by code or name
     if (code === 'consulting_hours' || 
@@ -487,7 +577,7 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     }
     
     // DBA - match by code or name
-    if (code === 'dba_hours' || name === 'dba') {
+    if (code === 'dba_hours' || name === 'dba' || nameNormalized === 'dba') {
       result.dba.quantity = qty;
       result.dba.unitPrice = price > 0 ? price : 250;
       console.log('[EDIT] dba restored from addons[]: qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
@@ -495,24 +585,29 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     }
     
     // Backup - match by code or name pattern
-    if (code?.startsWith('backup_') || name.startsWith('backup ')) {
-      const planMatch = (code || name).match(/backup[_\s]+(\d+)/i);
+    if (code?.startsWith('backup_') || name.startsWith('backup ') || name.includes('backup')) {
+      const planMatch = (code || name).match(/backup[_\s]*(\d+)/i);
       if (planMatch) {
-        result.backupPlan = planMatch[1] as '7' | '15' | '30';
-        result.backupGb = qty;
-        console.log('[EDIT] Backup restored: plan=', result.backupPlan, ', gb=', result.backupGb);
+        const plan = planMatch[1];
+        if (plan === '7' || plan === '15' || plan === '30') {
+          result.backupPlan = plan as '7' | '15' | '30';
+          result.backupGb = qty;
+          console.log('[EDIT] Backup restored: plan=', result.backupPlan, ', gb=', result.backupGb);
+        }
       }
       continue;
     }
     
     // Antivirus
-    if (code === 'antivirus' || name.includes('antivirus') || name.includes('antivírus')) {
+    if (code === 'antivirus' || name.includes('antivirus') || name.includes('antivírus') || 
+        nameNormalized.includes('antivirus')) {
       result.antivirus = qty;
+      console.log('[EDIT] Antivirus restored:', qty);
       continue;
     }
     
     // Firewall - now supports quantity
-    if (code === 'firewall' || name.includes('firewall')) {
+    if (code === 'firewall' || name.includes('firewall') || code.includes('pfsense')) {
       result.firewall = qty > 0 ? qty : 1; // If qty not set, default to 1 for old boolean data
       console.log('[EDIT] Firewall restored: qty=' + result.firewall);
       continue;
@@ -521,30 +616,35 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     // TSplus
     if (code === 'tsplus' || name.includes('tsplus') || name.includes('ts plus')) {
       result.tsplus = qty;
+      console.log('[EDIT] TSplus restored:', qty);
       continue;
     }
     
     // CAL
-    if (code === 'cal' || name === 'cal') {
+    if (code === 'cal' || name === 'cal' || name.includes('cal rds') || name.includes('ts-cal')) {
       result.cal = qty;
+      console.log('[EDIT] CAL restored:', qty);
       continue;
     }
     
     // Veeam VM
-    if (code === 'veeam_vm' || name.includes('veeam vm')) {
+    if (code === 'veeam_vm' || name.includes('veeam vm') || name.includes('veeam backup')) {
       result.veeamVm = qty;
+      console.log('[EDIT] Veeam VM restored:', qty);
       continue;
     }
     
     // Veeam Agent
     if (code === 'veeam_agent' || name.includes('veeam agent')) {
       result.veeamAg = qty;
+      console.log('[EDIT] Veeam Agent restored:', qty);
       continue;
     }
     
     // SQL (WE removido - apenas WEB e STD per API spec)
     // Per OpenAPI spec: SQL addon requires quantity >= 1
-    if (code?.startsWith('sql_') || name.includes('sql') || name.includes('licença sql')) {
+    if (code?.startsWith('sql_') || name.includes('sql') || name.includes('licença sql') ||
+        nameNormalized.includes('sql')) {
       if (code?.includes('web') || name.includes('web')) result.sql = 'web';
       else if (code?.includes('std') || name.includes('std') || name.includes('standard')) result.sql = 'std';
       // Fallback: propostas antigas com WE mapeiam para WEB
@@ -576,9 +676,15 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     sqlQty: result.sqlQty,
     backupPlan: result.backupPlan,
     backupGb: result.backupGb,
+    antivirus: result.antivirus,
+    firewall: result.firewall,
     support: result.support,
     consulting: result.consulting,
     dba: result.dba,
+    cal: result.cal,
+    tsplus: result.tsplus,
+    veeamVm: result.veeamVm,
+    veeamAg: result.veeamAg,
   });
   
   return result;
