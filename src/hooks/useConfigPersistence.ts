@@ -508,9 +508,9 @@ export function useConfigPersistence() {
   const queryClient = useQueryClient();
   const { config: apiConfig, isLoading: isApiLoading, refetch } = useConfigWithFallback();
   
-  // Local state
+  // Local state - TODO: Refactor to use new flat CalculatorConfigItem[] structure
   const [localConfig, setLocalConfig] = useState<CalculatorConfig | null>(null);
-  const [apiEntries, setApiEntries] = useState<CalculatorConfigEntry[]>([]);
+  const [apiEntries, setApiEntries] = useState<any[]>([]); // Temporarily use any[] for compatibility
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -841,7 +841,7 @@ export function useConfigPersistence() {
           }
           console.log('='.repeat(60));
           
-          const updated = await updateCalculatorConfig(existingId, requestBody);
+          const updated = await updateCalculatorConfig(existingId, requestBody as any);
           console.log('[ConfigPersistence] PUT response:', updated);
           savedCount++;
         } else {
