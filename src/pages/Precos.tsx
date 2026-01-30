@@ -1,32 +1,49 @@
-import { useState, useEffect, useCallback } from 'react';
+// ============================================================================
+// PAGE: Precos - Pricing Configuration using FLAT API structure
+// All data comes from API - labels, categories, values, etc.
+// ============================================================================
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Loader2, Shield, ShieldOff, History, Lock, AlertTriangle, Check, Plus, Trash2, Save } from 'lucide-react';
+import {
+  ArrowLeft,
+  RefreshCw,
+  Loader2,
+  Shield,
+  ShieldOff,
+  History,
+  Lock,
+  AlertTriangle,
+  Check,
+  Plus,
+  Trash2,
+  Save,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useConfigPersistence } from '@/hooks/useConfigPersistence';
-import { CalculatorConfig, CpuModel, RamTier, DiskOption, StorageRegionPricing } from '@/lib/calculatorConfig';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import { usePricingConfig } from '@/hooks/usePricingConfig';
+import { PricingCategorySection } from '@/components/pricing/PricingCategorySection';
+import { PricingItemRow } from '@/components/pricing/PricingItemRow';
+import { CalculatorConfigItem, CONFIG_CATEGORIES, ConfigMeta } from '@/services/calculatorConfigService';
 
 // ============ CONSTANTS ============
-const ADMIN_PIN = "OPEN2026";
+const ADMIN_PIN = 'OPEN2026';
 const ADMIN_STORAGE_KEY = 'open_precos_isAdmin';
 const LOG_STORAGE_KEY = 'open_precos_changeLog';
 
@@ -38,6 +55,12 @@ interface PriceChangeLog {
   itemName: string;
   oldValue?: string | number;
   newValue?: string | number;
+}
+
+interface NewItemForm {
+  label: string;
+  value: number;
+  meta: Partial<ConfigMeta>;
 }
 
 // ============ HELPERS ============
@@ -106,49 +129,43 @@ const getActionColor = (action: string): string => {
   return colors[action] || 'bg-muted text-muted-foreground';
 };
 
-const generateId = () => Math.random().toString(36).substring(2, 10);
-
 // ============ COMPONENT ============
 const Precos = () => {
   // Hook for API persistence
-  const { 
-    config, 
-    isLoading, 
-    isSaving, 
-    isDirty: hasLocalChanges, 
-    updateConfig: updateConfigFromHook, 
-    saveToApi, 
+  const {
+    items,
+    groupedItems,
+    isLoading,
+    isSaving,
+    isDirty: hasLocalChanges,
+    updateItemValue,
+    addItem,
+    removeItem,
+    saveChanges,
     resetToApi,
-  } = useConfigPersistence();
-  
+    getItemsByCategory,
+    getItemsByCategoryAndSection,
+  } = usePricingConfig();
+
   // Admin state
   const [isAdmin, setIsAdmin] = useState<boolean>(loadAdminState);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
-  
+
   // Log state
   const [changeLog, setChangeLog] = useState<PriceChangeLog[]>(loadChangeLog);
   const [showLogModal, setShowLogModal] = useState(false);
 
-  // Add item modals
-  const [showAddCpuModal, setShowAddCpuModal] = useState(false);
-  const [showAddRamModal, setShowAddRamModal] = useState(false);
-  const [showAddDiskModal, setShowAddDiskModal] = useState(false);
-  const [showAddGpuModal, setShowAddGpuModal] = useState(false);
-  const [showAddSqlModal, setShowAddSqlModal] = useState(false);
-  const [showAddAddonModal, setShowAddAddonModal] = useState(false);
-
-  // New item form states
-  const [newCpu, setNewCpu] = useState<Partial<CpuModel>>({ label: '', price: 0 });
-  const [newRam, setNewRam] = useState<Partial<RamTier>>({ label: '', gb: 0, price: 0 });
-  const [newDisk, setNewDisk] = useState<Partial<DiskOption>>({ label: '', tb: 0, price: 0 });
-  const [newGpu, setNewGpu] = useState({ name: '', price: 0 });
-  const [newSql, setNewSql] = useState({ name: '', price: 0 });
-  const [newAddon, setNewAddon] = useState({ key: '', label: '', price: 0 });
-
-  // Confirmations
-  const [showConfirmEmptyGpuSave, setShowConfirmEmptyGpuSave] = useState(false);
+  // Add item modal state
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [addItemCategory, setAddItemCategory] = useState<string>('');
+  const [addItemSection, setAddItemSection] = useState<string>('');
+  const [newItemForm, setNewItemForm] = useState<NewItemForm>({
+    label: '',
+    value: 0,
+    meta: {},
+  });
 
   // Persist admin state
   useEffect(() => {
@@ -161,40 +178,30 @@ const Precos = () => {
   }, [changeLog]);
 
   // Add log entry
-  const addLogEntry = useCallback((
-    actionType: PriceChangeLog['actionType'],
-    section: string,
-    itemName: string,
-    oldValue?: string | number,
-    newValue?: string | number
-  ) => {
-    if (!isAdmin) return false;
-    
-    const entry: PriceChangeLog = {
-      timestamp: new Date().toISOString(),
-      actionType,
-      section,
-      itemName,
-      oldValue,
-      newValue,
-    };
-    
-    setChangeLog(prev => [entry, ...prev]);
-    return true;
-  }, [isAdmin]);
+  const addLogEntry = useCallback(
+    (
+      actionType: PriceChangeLog['actionType'],
+      section: string,
+      itemName: string,
+      oldValue?: string | number,
+      newValue?: string | number
+    ) => {
+      if (!isAdmin) return false;
 
-  // Update config with admin check
-  const updateConfig = useCallback((updater: (prev: CalculatorConfig) => CalculatorConfig) => {
-    if (!isAdmin || !config) {
-      toast({
-        title: 'Ação bloqueada',
-        description: 'Ação permitida somente em Modo Admin',
-        variant: 'destructive',
-      });
-      return;
-    }
-    updateConfigFromHook(updater);
-  }, [isAdmin, config, updateConfigFromHook]);
+      const entry: PriceChangeLog = {
+        timestamp: new Date().toISOString(),
+        actionType,
+        section,
+        itemName,
+        oldValue,
+        newValue,
+      };
+
+      setChangeLog((prev) => [entry, ...prev]);
+      return true;
+    },
+    [isAdmin]
+  );
 
   // ============ PIN HANDLERS ============
   const handlePinSubmit = () => {
@@ -221,304 +228,177 @@ const Precos = () => {
     setShowPinModal(true);
   };
 
+  // ============ ITEM HANDLERS ============
+  const handleValueChange = useCallback(
+    (item: CalculatorConfigItem, newValue: number) => {
+      if (!isAdmin) {
+        toast({
+          title: 'Ação bloqueada',
+          description: 'Ação permitida somente em Modo Admin',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const oldValue = item.value;
+      updateItemValue(item.id, newValue);
+      addLogEntry('UPDATE_ITEM', item.meta?.section || item.meta?.category || 'Geral', item.label, oldValue, newValue);
+    },
+    [isAdmin, updateItemValue, addLogEntry]
+  );
+
+  const handleRemoveItem = useCallback(
+    (item: CalculatorConfigItem) => {
+      if (!isAdmin) return;
+
+      removeItem(item.id);
+      addLogEntry('REMOVE_ITEM', item.meta?.section || item.meta?.category || 'Geral', item.label, item.value, undefined);
+      toast({ title: 'Item removido', description: item.label });
+    },
+    [isAdmin, removeItem, addLogEntry]
+  );
+
+  const openAddItemModal = useCallback((category: string, section: string) => {
+    setAddItemCategory(category);
+    setAddItemSection(section);
+    setNewItemForm({ label: '', value: 0, meta: {} });
+    setShowAddItemModal(true);
+  }, []);
+
+  const handleAddItem = useCallback(() => {
+    if (!isAdmin || !newItemForm.label) return;
+
+    const newItem: Omit<CalculatorConfigItem, 'id'> = {
+      label: newItemForm.label,
+      value: newItemForm.value,
+      meta: {
+        category: addItemCategory,
+        section: addItemSection,
+        type: 'BRL',
+        by: 'unit',
+        ...newItemForm.meta,
+      },
+    };
+
+    addItem(newItem);
+    addLogEntry('ADD_ITEM', addItemSection || addItemCategory, newItemForm.label, undefined, newItemForm.value);
+    setShowAddItemModal(false);
+    toast({ title: 'Item adicionado', description: newItemForm.label });
+  }, [isAdmin, newItemForm, addItemCategory, addItemSection, addItem, addLogEntry]);
+
+  // ============ SAVE HANDLER ============
+  const handleSaveConfig = async () => {
+    if (!isAdmin) return;
+    await saveChanges();
+  };
+
   const handleResetToApi = async () => {
     if (!isAdmin) return;
     await resetToApi();
     addLogEntry('UPDATE_ITEM', 'geral', 'Reset para API', 'configuração local', 'configuração API');
   };
 
-  // ============ BAREMETAL HANDLERS ============
-  const handleAddCpu = () => {
-    if (!isAdmin || !newCpu.label || newCpu.price === undefined) return;
-    
-    const cpu: CpuModel = { id: generateId(), label: newCpu.label, price: Number(newCpu.price) };
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: { ...prev.baremetal, cpu_models: [...prev.baremetal.cpu_models, cpu] },
-    }));
-    
-    addLogEntry('ADD_ITEM', 'baremetal_cpu', cpu.label, undefined, cpu.price);
-    setNewCpu({ label: '', price: 0 });
-    setShowAddCpuModal(false);
-    toast({ title: 'CPU adicionada', description: cpu.label });
-  };
+  // ============ MEMOIZED CATEGORY DATA ============
+  const vmItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.VM), [getItemsByCategory]);
+  const gpuItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.GPU), [getItemsByCategory]);
+  const baremetalItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.BAREMETAL), [getItemsByCategory]);
+  const addonsItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.ADDONS), [getItemsByCategory]);
+  const sqlItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.SQL_SERVER), [getItemsByCategory]);
+  const storageItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.STORAGE), [getItemsByCategory]);
+  const backupItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.BACKUP), [getItemsByCategory]);
+  const kubernetesItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.KUBERNETES), [getItemsByCategory]);
+  const geralItems = useMemo(() => getItemsByCategory(CONFIG_CATEGORIES.GERAL), [getItemsByCategory]);
 
-  const handleRemoveCpu = (cpu: CpuModel) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: { ...prev.baremetal, cpu_models: prev.baremetal.cpu_models.filter(c => c.id !== cpu.id) },
-    }));
-    addLogEntry('REMOVE_ITEM', 'baremetal_cpu', cpu.label, cpu.price, undefined);
-    toast({ title: 'CPU removida', description: cpu.label });
-  };
+  // Group baremetal by section
+  const baremetalCpuItems = useMemo(
+    () => baremetalItems.filter((i) => i.meta?.section?.toLowerCase().includes('cpu')),
+    [baremetalItems]
+  );
+  const baremetalRamItems = useMemo(
+    () => baremetalItems.filter((i) => i.meta?.section?.toLowerCase().includes('ram')),
+    [baremetalItems]
+  );
+  const baremetalDiskItems = useMemo(
+    () => baremetalItems.filter((i) => i.meta?.section?.toLowerCase().includes('disco')),
+    [baremetalItems]
+  );
 
-  const handleUpdateCpuPrice = (cpu: CpuModel, newPrice: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: {
-        ...prev.baremetal,
-        cpu_models: prev.baremetal.cpu_models.map(c => c.id === cpu.id ? { ...c, price: newPrice } : c),
-      },
-    }));
-    addLogEntry('UPDATE_ITEM', 'baremetal_cpu', cpu.label, cpu.price, newPrice);
-  };
+  // Group addons by section
+  const standardAddons = useMemo(
+    () => addonsItems.filter((i) => i.meta?.section === 'Add-ons'),
+    [addonsItems]
+  );
+  const specializedServices = useMemo(
+    () => addonsItems.filter((i) => i.meta?.section === 'Serviços Especializados'),
+    [addonsItems]
+  );
 
-  const handleAddRam = () => {
-    if (!isAdmin || !newRam.label || newRam.price === undefined) return;
-    
-    const ram: RamTier = { id: generateId(), label: newRam.label, gb: Number(newRam.gb) || 0, price: Number(newRam.price) };
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: { ...prev.baremetal, ram_tiers: [...prev.baremetal.ram_tiers, ram] },
-    }));
-    
-    addLogEntry('ADD_ITEM', 'baremetal_ram', ram.label, undefined, ram.price);
-    setNewRam({ label: '', gb: 0, price: 0 });
-    setShowAddRamModal(false);
-    toast({ title: 'RAM adicionada', description: ram.label });
-  };
+  // Group storage by section
+  const storageSasItems = useMemo(
+    () => storageItems.filter((i) => i.meta?.section?.includes('SAS')),
+    [storageItems]
+  );
+  const storageNvmeItems = useMemo(
+    () => storageItems.filter((i) => i.meta?.section?.includes('NVMe')),
+    [storageItems]
+  );
 
-  const handleRemoveRam = (ram: RamTier) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: { ...prev.baremetal, ram_tiers: prev.baremetal.ram_tiers.filter(r => r.id !== ram.id) },
-    }));
-    addLogEntry('REMOVE_ITEM', 'baremetal_ram', ram.label, ram.price, undefined);
-    toast({ title: 'RAM removida', description: ram.label });
-  };
+  // Group storage SAS by region
+  const storageSasBrasil = useMemo(
+    () => storageSasItems.filter((i) => i.meta?.region === 'Brasil'),
+    [storageSasItems]
+  );
+  const storageSasUsa = useMemo(
+    () => storageSasItems.filter((i) => i.meta?.region === 'Estados Unidos'),
+    [storageSasItems]
+  );
 
-  const handleUpdateRamPrice = (ram: RamTier, newPrice: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: {
-        ...prev.baremetal,
-        ram_tiers: prev.baremetal.ram_tiers.map(r => r.id === ram.id ? { ...r, price: newPrice } : r),
-      },
-    }));
-    addLogEntry('UPDATE_ITEM', 'baremetal_ram', ram.label, ram.price, newPrice);
-  };
+  // Group backup by retention
+  const backup7dias = useMemo(
+    () => backupItems.filter((i) => i.meta?.retention === '7 dias'),
+    [backupItems]
+  );
+  const backup15dias = useMemo(
+    () => backupItems.filter((i) => i.meta?.retention === '15 dias'),
+    [backupItems]
+  );
+  const backup30dias = useMemo(
+    () => backupItems.filter((i) => i.meta?.retention === '30 dias'),
+    [backupItems]
+  );
 
-  const handleAddDisk = () => {
-    if (!isAdmin || !newDisk.label || newDisk.price === undefined) return;
-    
-    const disk: DiskOption = { id: generateId(), label: newDisk.label, tb: Number(newDisk.tb) || 0, price: Number(newDisk.price) };
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: { ...prev.baremetal, disks: [...prev.baremetal.disks, disk] },
-    }));
-    
-    addLogEntry('ADD_ITEM', 'baremetal_disk', disk.label, undefined, disk.price);
-    setNewDisk({ label: '', tb: 0, price: 0 });
-    setShowAddDiskModal(false);
-    toast({ title: 'Disco adicionado', description: disk.label });
-  };
+  // Group kubernetes by section
+  const kubernetesPlanItems = useMemo(
+    () => kubernetesItems.filter((i) => i.meta?.section?.includes('Planos')),
+    [kubernetesItems]
+  );
+  const kubernetesAddonItems = useMemo(
+    () => kubernetesItems.filter((i) => i.meta?.section?.includes('Add-ons')),
+    [kubernetesItems]
+  );
 
-  const handleRemoveDisk = (disk: DiskOption) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: { ...prev.baremetal, disks: prev.baremetal.disks.filter(d => d.id !== disk.id) },
-    }));
-    addLogEntry('REMOVE_ITEM', 'baremetal_disk', disk.label, disk.price, undefined);
-    toast({ title: 'Disco removido', description: disk.label });
-  };
-
-  const handleUpdateDiskPrice = (disk: DiskOption, newPrice: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      baremetal: {
-        ...prev.baremetal,
-        disks: prev.baremetal.disks.map(d => d.id === disk.id ? { ...d, price: newPrice } : d),
-      },
-    }));
-    addLogEntry('UPDATE_ITEM', 'baremetal_disk', disk.label, disk.price, newPrice);
-  };
-
-  // ============ GPU HANDLERS ============
-  const handleAddGpu = () => {
-    if (!isAdmin || !newGpu.name || newGpu.price === undefined) return;
-    
-    updateConfig(prev => ({
-      ...prev,
-      gpu_usd: { ...prev.gpu_usd, [newGpu.name]: Number(newGpu.price) },
-    }));
-    
-    addLogEntry('ADD_ITEM', 'gpu', newGpu.name, undefined, newGpu.price);
-    setNewGpu({ name: '', price: 0 });
-    setShowAddGpuModal(false);
-    toast({ title: 'GPU adicionada', description: newGpu.name });
-  };
-
-  const handleRemoveGpu = (gpuName: string, price: number) => {
-    if (!isAdmin) return;
-    
-    updateConfig(prev => {
-      const newGpuPrices = { ...prev.gpu_usd };
-      delete newGpuPrices[gpuName];
-      return { ...prev, gpu_usd: newGpuPrices };
-    });
-    
-    addLogEntry('REMOVE_ITEM', 'gpu', gpuName, price, undefined);
-    toast({ title: 'GPU removida', description: gpuName });
-  };
-
-  const handleUpdateGpuPrice = (gpuName: string, oldPrice: number, newPrice: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      gpu_usd: { ...prev.gpu_usd, [gpuName]: newPrice },
-    }));
-    addLogEntry('UPDATE_ITEM', 'gpu', gpuName, oldPrice, newPrice);
-  };
-
-  // ============ SQL HANDLERS ============
-  const handleAddSql = () => {
-    if (!isAdmin || !newSql.name || newSql.price === undefined) return;
-    
-    const price = Number(newSql.price);
-    if (isNaN(price)) {
-      toast({ title: 'Preço inválido', description: 'O preço deve ser um número válido.', variant: 'destructive' });
-      return;
-    }
-    
-    updateConfig(prev => ({
-      ...prev,
-      addons_brl: {
-        ...prev.addons_brl,
-        sql: { ...(prev.addons_brl?.sql ?? {}), [newSql.name]: price },
-      },
-    }));
-    
-    addLogEntry('ADD_ITEM', 'sql', newSql.name, undefined, price);
-    setNewSql({ name: '', price: 0 });
-    setShowAddSqlModal(false);
-    toast({ title: 'SQL adicionado', description: newSql.name });
-  };
-
-  const handleRemoveSql = (sqlType: string, price: number) => {
-    if (!isAdmin || sqlType === 'none') return;
-    
-    updateConfig(prev => {
-      const newSqlPrices = { ...(prev.addons_brl?.sql ?? {}) };
-      delete newSqlPrices[sqlType];
-      return { ...prev, addons_brl: { ...prev.addons_brl, sql: newSqlPrices } };
-    });
-    
-    addLogEntry('REMOVE_ITEM', 'sql', sqlType, price, undefined);
-    toast({ title: 'SQL removido', description: sqlType });
-  };
-
-  const handleUpdateSqlPrice = (sqlType: string, oldPrice: number, newPrice: number) => {
-    if (!isAdmin) return;
-    const price = Number(newPrice);
-    if (isNaN(price)) return;
-    
-    updateConfig(prev => ({
-      ...prev,
-      addons_brl: {
-        ...prev.addons_brl,
-        sql: { ...(prev.addons_brl?.sql ?? {}), [sqlType]: price },
-      },
-    }));
-    addLogEntry('UPDATE_ITEM', 'sql', sqlType, oldPrice, price);
-  };
-
-  // ============ ADDON HANDLERS ============
-  const handleUpdateAddonPrice = (addonKey: string, addonLabel: string, oldPrice: number, newPrice: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      addons_brl: { ...prev.addons_brl, [addonKey]: newPrice },
-    }));
-    addLogEntry('UPDATE_ITEM', 'addons', addonLabel, oldPrice, newPrice);
-  };
-
-  const handleAddAddon = () => {
-    if (!isAdmin || !newAddon.key || !newAddon.label || newAddon.price === undefined) return;
-    
-    const addonKey = newAddon.key.toLowerCase().replace(/\s+/g, '_');
-    updateConfig(prev => ({
-      ...prev,
-      addons_brl: { ...prev.addons_brl, [addonKey]: Number(newAddon.price) },
-    }));
-    
-    addLogEntry('ADD_ITEM', 'addons', newAddon.label, undefined, newAddon.price);
-    setNewAddon({ key: '', label: '', price: 0 });
-    setShowAddAddonModal(false);
-    toast({ title: 'Add-on adicionado', description: newAddon.label });
-  };
-
-  const handleRemoveAddon = (addonKey: string, addonLabel: string, price: number) => {
-    if (!isAdmin) return;
-    
-    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit'];
-    if (standardAddonKeys.includes(addonKey)) {
-      toast({ title: 'Ação não permitida', description: 'Não é possível remover add-ons padrão.', variant: 'destructive' });
-      return;
-    }
-    
-    updateConfig(prev => {
-      const newAddonsBrl = { ...prev.addons_brl };
-      delete (newAddonsBrl as Record<string, unknown>)[addonKey];
-      return { ...prev, addons_brl: newAddonsBrl as typeof prev.addons_brl };
-    });
-    
-    addLogEntry('REMOVE_ITEM', 'addons', addonLabel, price, undefined);
-    toast({ title: 'Add-on removido', description: addonLabel });
-  };
-
-  // ============ VM HANDLERS ============
-  const handleUpdateVmPrice = (vmKey: string, vmLabel: string, oldPrice: number, newPrice: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      vm_prices_brl: { ...prev.vm_prices_brl, [vmKey]: newPrice },
-    }));
-    addLogEntry('UPDATE_ITEM', 'vm', vmLabel, oldPrice, newPrice);
-  };
-
-  // ============ DISCOUNT HANDLERS ============
-  const handleUpdateDiscount = (term: string, oldValue: number, newValue: number) => {
-    if (!isAdmin) return;
-    updateConfig(prev => ({
-      ...prev,
-      discount: { ...prev.discount, [term]: newValue / 100 },
-    }));
-    addLogEntry('UPDATE_ITEM', 'descontos', `${term} meses`, oldValue, newValue);
-  };
-
-  // ============ SAVE HANDLER ============
-  const handleSaveConfig = async () => {
-    if (!isAdmin) return;
-
-    const gpuCount = Object.keys(config?.gpu_usd ?? {}).length;
-    if (gpuCount === 0) {
-      setShowConfirmEmptyGpuSave(true);
-      return;
-    }
-
-    await saveToApi();
-  };
-
-  const confirmSaveEmptyGpuConfig = async () => {
-    if (!isAdmin) return;
-    setShowConfirmEmptyGpuSave(false);
-    await saveToApi({ allowEmptyGpuSave: true });
-  };
+  // Group geral by section
+  const discountItems = useMemo(
+    () => geralItems.filter((i) => i.meta?.section?.includes('Desconto')),
+    [geralItems]
+  );
+  const saasItems = useMemo(
+    () => geralItems.filter((i) => i.meta?.section?.includes('SaaS')),
+    [geralItems]
+  );
 
   // ============ LOADING STATE ============
-  if (isLoading || !config) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background p-6">
         <div className="max-w-6xl mx-auto">
           <header className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
-              <Link to="/"><Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button></Link>
+              <Link to="/">
+                <Button variant="ghost" size="icon">
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </Link>
               <Skeleton className="h-8 w-64" />
             </div>
           </header>
@@ -538,16 +418,20 @@ const Precos = () => {
         {/* Header */}
         <header className="flex items-center justify-between mb-8 flex-wrap gap-4">
           <div className="flex items-center gap-4">
-            <Link to="/"><Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button></Link>
+            <Link to="/">
+              <Button variant="ghost" size="icon">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
             <h1 className="text-2xl font-bold text-foreground">Configuração de Preços</h1>
-            
+
             {isAdmin && (
               <Badge className="bg-green-500/20 text-green-500 border-green-500/50">
                 <Shield className="w-3 h-3 mr-1" />
                 Modo Admin
               </Badge>
             )}
-            
+
             {hasLocalChanges && (
               <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/50">
                 <Save className="w-3 h-3 mr-1" />
@@ -555,17 +439,17 @@ const Precos = () => {
               </Badge>
             )}
           </div>
-          
+
           <div className="flex items-center gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => setShowLogModal(true)} className="gap-2">
               <History className="h-4 w-4" />
               Ver Log
             </Button>
-            
+
             {isAdmin && hasLocalChanges && (
               <>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={handleSaveConfig}
                   disabled={isSaving}
@@ -574,9 +458,9 @@ const Precos = () => {
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {isSaving ? 'Salvando...' : 'Salvar Preços'}
                 </Button>
-                
-                <Button 
-                  variant="outline" 
+
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={handleResetToApi}
                   className="gap-2 border-red-500/50 text-red-500 hover:bg-red-500/10"
@@ -586,10 +470,10 @@ const Precos = () => {
                 </Button>
               </>
             )}
-            
+
             {isAdmin ? (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={handleAdminLogout}
                 className="gap-2 border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
@@ -619,7 +503,7 @@ const Precos = () => {
         {/* Info Banner */}
         <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-border">
           <p className="text-sm text-muted-foreground">
-            Preços carregados da API. Todos os valores são em R$ (BRL).
+            <strong>{items.length} itens</strong> carregados da API. Todos os valores são em R$ (BRL).
             {isAdmin && <span className="text-green-500 ml-2">• Modo Admin: edição habilitada.</span>}
             {isSaving && <span className="text-blue-500 ml-2">• Salvando...</span>}
           </p>
@@ -628,42 +512,27 @@ const Precos = () => {
         {/* Tabs */}
         <Tabs defaultValue="vm" className="space-y-6">
           <TabsList className="grid grid-cols-8 w-full max-w-5xl">
-            <TabsTrigger value="vm">VM</TabsTrigger>
-            <TabsTrigger value="baremetal">BareMetal</TabsTrigger>
-            <TabsTrigger value="gpu">GPU</TabsTrigger>
-            <TabsTrigger value="addons">Add-ons</TabsTrigger>
-            <TabsTrigger value="storage">Storage</TabsTrigger>
-            <TabsTrigger value="backup">Backup</TabsTrigger>
-            <TabsTrigger value="kubernetes">Kubernetes</TabsTrigger>
-            <TabsTrigger value="geral">Geral</TabsTrigger>
+            <TabsTrigger value="vm">VM ({vmItems.length})</TabsTrigger>
+            <TabsTrigger value="baremetal">BareMetal ({baremetalItems.length})</TabsTrigger>
+            <TabsTrigger value="gpu">GPU ({gpuItems.length})</TabsTrigger>
+            <TabsTrigger value="addons">Add-ons ({addonsItems.length + sqlItems.length})</TabsTrigger>
+            <TabsTrigger value="storage">Storage ({storageItems.length})</TabsTrigger>
+            <TabsTrigger value="backup">Backup ({backupItems.length})</TabsTrigger>
+            <TabsTrigger value="kubernetes">K8s ({kubernetesItems.length})</TabsTrigger>
+            <TabsTrigger value="geral">Geral ({geralItems.length})</TabsTrigger>
           </TabsList>
 
           {/* VM Tab */}
           <TabsContent value="vm">
-            <Card>
-              <CardHeader><CardTitle>Preços de VM (R$)</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { key: 'vcpu', label: 'vCPU (unid.)', value: config.vm_prices_brl.vcpu },
-                  { key: 'ram_per_gb', label: 'RAM (GB)', value: config.vm_prices_brl.ram_per_gb },
-                  { key: 'nvme_per_gb', label: 'NVMe (GB)', value: config.vm_prices_brl.nvme_per_gb },
-                  { key: 'ip_public', label: 'IP Público', value: config.vm_prices_brl.ip_public },
-                ].map(({ key, label, value }) => (
-                  <div key={key} className="space-y-2">
-                    <Label>{label}</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={value}
-                      readOnly={!isAdmin}
-                      disabled={!isAdmin}
-                      className={!isAdmin ? "bg-muted/30" : ""}
-                      onChange={(e) => handleUpdateVmPrice(key, label, value, Number(e.target.value))}
-                    />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <PricingCategorySection
+              title="Preços de VM (R$)"
+              items={vmItems}
+              isAdmin={isAdmin}
+              onValueChange={handleValueChange}
+              onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.VM, 'Preços de VM')}
+              showAddButton={true}
+              columns={4}
+            />
           </TabsContent>
 
           {/* BareMetal Tab */}
@@ -672,291 +541,121 @@ const Precos = () => {
               {/* CPU Models */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Modelos de CPU</CardTitle>
+                  <CardTitle>Modelos de CPU ({baremetalCpuItems.length})</CardTitle>
                   {isAdmin && (
-                    <Button variant="outline" size="sm" onClick={() => setShowAddCpuModal(true)} className="gap-1 text-green-500 border-green-500/50">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openAddItemModal(CONFIG_CATEGORIES.BAREMETAL, 'Modelos de CPU')}
+                      className="gap-1 text-green-500 border-green-500/50"
+                    >
                       <Plus className="h-4 w-4" />
                       Adicionar
                     </Button>
                   )}
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {config.baremetal.cpu_models.length === 0 ? (
+                  {baremetalCpuItems.length === 0 ? (
                     <p className="text-muted-foreground text-sm">Nenhum modelo configurado.</p>
                   ) : (
-                    config.baremetal.cpu_models.map((cpu) => (
-                      <div key={cpu.id} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                        <div className="md:col-span-3">
-                          <Label>Descrição</Label>
-                          <Input value={cpu.label} readOnly disabled className="bg-muted/30" />
-                        </div>
-                        <div>
-                          <Label>Preço (R$)</Label>
-                          <Input 
-                            type="number" step="0.01" value={cpu.price} 
-                            readOnly={!isAdmin} disabled={!isAdmin}
-                            className={!isAdmin ? "bg-muted/30" : ""}
-                            onChange={(e) => handleUpdateCpuPrice(cpu, Number(e.target.value))}
-                          />
-                        </div>
-                        {isAdmin && (
-                          <Button variant="ghost" size="icon" onClick={() => handleRemoveCpu(cpu)} className="text-red-500 hover:bg-red-500/10">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+                    baremetalCpuItems.map((item) => (
+                      <PricingItemRow
+                        key={item.id}
+                        item={item}
+                        isAdmin={isAdmin}
+                        onValueChange={handleValueChange}
+                        onRemoveItem={handleRemoveItem}
+                        showRemoveButton={true}
+                      />
                     ))
                   )}
                 </CardContent>
               </Card>
 
               {/* RAM Tiers */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Opções de RAM</CardTitle>
-                  {isAdmin && (
-                    <Button variant="outline" size="sm" onClick={() => setShowAddRamModal(true)} className="gap-1 text-green-500 border-green-500/50">
-                      <Plus className="h-4 w-4" />
-                      Adicionar
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {config.baremetal.ram_tiers.length === 0 ? (
-                    <p className="text-muted-foreground text-sm col-span-4">Nenhuma opção configurada.</p>
-                  ) : (
-                    config.baremetal.ram_tiers.map((ram) => (
-                      <div key={ram.id} className="space-y-2">
-                        <Label className="flex items-center justify-between">
-                          {ram.label}
-                          {isAdmin && <Button variant="ghost" size="icon" onClick={() => handleRemoveRam(ram)} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
-                        </Label>
-                        <Input 
-                          type="number" step="0.01" value={ram.price} 
-                          readOnly={!isAdmin} disabled={!isAdmin}
-                          className={!isAdmin ? "bg-muted/30" : ""}
-                          onChange={(e) => handleUpdateRamPrice(ram, Number(e.target.value))}
-                        />
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`Opções de RAM (${baremetalRamItems.length})`}
+                items={baremetalRamItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.BAREMETAL, 'Opções de RAM')}
+                onRemoveItem={handleRemoveItem}
+                showAddButton={true}
+                showRemoveButton={true}
+                columns={4}
+              />
 
               {/* Disk Options */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Opções de Disco</CardTitle>
-                  {isAdmin && (
-                    <Button variant="outline" size="sm" onClick={() => setShowAddDiskModal(true)} className="gap-1 text-green-500 border-green-500/50">
-                      <Plus className="h-4 w-4" />
-                      Adicionar
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {config.baremetal.disks.length === 0 ? (
-                    <p className="text-muted-foreground text-sm col-span-3">Nenhuma opção configurada.</p>
-                  ) : (
-                    config.baremetal.disks.map((disk) => (
-                      <div key={disk.id} className="space-y-2">
-                        <Label className="flex items-center justify-between">
-                          {disk.label}
-                          {isAdmin && <Button variant="ghost" size="icon" onClick={() => handleRemoveDisk(disk)} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
-                        </Label>
-                        <Input 
-                          type="number" step="0.01" value={disk.price} 
-                          readOnly={!isAdmin} disabled={!isAdmin}
-                          className={!isAdmin ? "bg-muted/30" : ""}
-                          onChange={(e) => handleUpdateDiskPrice(disk, Number(e.target.value))}
-                        />
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`Opções de Disco (${baremetalDiskItems.length})`}
+                items={baremetalDiskItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.BAREMETAL, 'Opções de Disco')}
+                onRemoveItem={handleRemoveItem}
+                showAddButton={true}
+                showRemoveButton={true}
+                columns={3}
+              />
             </div>
           </TabsContent>
 
           {/* GPU Tab */}
           <TabsContent value="gpu">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Preços de GPU (R$)</CardTitle>
-                {isAdmin && (
-                  <Button variant="outline" size="sm" onClick={() => setShowAddGpuModal(true)} className="gap-1 text-green-500 border-green-500/50">
-                    <Plus className="h-4 w-4" />
-                    Adicionar
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {Object.keys(config.gpu_usd).length === 0 ? (
-                  <p className="text-muted-foreground text-sm col-span-3">Nenhuma GPU configurada.</p>
-                ) : (
-                  Object.entries(config.gpu_usd).map(([gpu, price]) => (
-                    <div key={gpu} className="space-y-2">
-                      <Label className="flex items-center justify-between">
-                        {gpu}
-                        {isAdmin && gpu !== 'Sem GPU' && (
-                          <Button variant="ghost" size="icon" onClick={() => handleRemoveGpu(gpu, price)} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>
-                        )}
-                      </Label>
-                      <Input 
-                        type="number" step="0.01" value={price} 
-                        readOnly={!isAdmin} disabled={!isAdmin}
-                        className={!isAdmin ? "bg-muted/30" : ""}
-                        onChange={(e) => handleUpdateGpuPrice(gpu, price, Number(e.target.value))}
-                      />
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+            <PricingCategorySection
+              title={`Preços de GPU (${gpuItems.length})`}
+              items={gpuItems}
+              isAdmin={isAdmin}
+              onValueChange={handleValueChange}
+              onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.GPU, 'Preços de GPU')}
+              onRemoveItem={handleRemoveItem}
+              showAddButton={true}
+              showRemoveButton={true}
+              columns={3}
+            />
           </TabsContent>
 
           {/* Add-ons Tab */}
           <TabsContent value="addons">
             <div className="space-y-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Add-ons (R$)</CardTitle>
-                  {isAdmin && (
-                    <Button variant="outline" size="sm" onClick={() => setShowAddAddonModal(true)} className="gap-1 text-green-500 border-green-500/50">
-                      <Plus className="h-4 w-4" />
-                      Novo Add-on
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { key: 'antivirus_unit', label: 'Antivírus (unid.)', value: config.addons_brl.antivirus_unit },
-                    { key: 'firewall_pfsense', label: 'Firewall (qtd)', value: config.addons_brl.firewall_pfsense },
-                    { key: 'tsplus_unit', label: 'TSplus (unid.)', value: config.addons_brl.tsplus_unit },
-                    { key: 'cal_unit', label: 'CAL (unid.)', value: config.addons_brl.cal_unit },
-                    { key: 'veeam_vm_unit', label: 'Veeam VM (unid.)', value: config.addons_brl.veeam_vm_unit },
-                    { key: 'veeam_agent_unit', label: 'Veeam Agent (unid.)', value: config.addons_brl.veeam_agent_unit },
-                    { key: 'winserver_2vcpu_unit', label: 'WinServer(2vCPU/unid.)', value: config.addons_brl.winserver_2vcpu_unit },
-                  ].map(({ key, label, value }) => (
-                    <div key={key} className="space-y-2">
-                      <Label>{label}</Label>
-                      <Input 
-                        type="number" step="0.01" value={value} 
-                        readOnly={!isAdmin} disabled={!isAdmin}
-                        className={!isAdmin ? "bg-muted/30" : ""}
-                        onChange={(e) => handleUpdateAddonPrice(key, label, value, Number(e.target.value))}
-                      />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+              {/* Standard Add-ons */}
+              <PricingCategorySection
+                title={`Add-ons (${standardAddons.length})`}
+                items={standardAddons}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.ADDONS, 'Add-ons')}
+                onRemoveItem={handleRemoveItem}
+                showAddButton={true}
+                showRemoveButton={true}
+                columns={4}
+              />
 
-              {/* Serviços Especializados */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Serviços Especializados (R$)</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  {[
-                    { key: 'support_basic', label: 'Suporte Básico', value: config.addons_brl.support_basic ?? 1 },
-                    { key: 'support_intermediate', label: 'Suporte Intermediário', value: config.addons_brl.support_intermediate ?? 500 },
-                    { key: 'support_advanced', label: 'Suporte Avançado', value: config.addons_brl.support_advanced ?? 900 },
-                    { key: 'consulting_hours', label: 'Consultoria Técnica (hora)', value: config.addons_brl.consulting_hours ?? 200 },
-                    { key: 'dba_hours', label: 'DBA (hora)', value: config.addons_brl.dba_hours ?? 250 },
-                  ].map(({ key, label, value }) => (
-                    <div key={key} className="space-y-2">
-                      <Label>{label}</Label>
-                      <Input 
-                        type="number" step="0.01" value={value} 
-                        readOnly={!isAdmin} disabled={!isAdmin}
-                        className={!isAdmin ? "bg-muted/30" : ""}
-                        onChange={(e) => handleUpdateAddonPrice(key, label, value, Number(e.target.value))}
-                      />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              {/* Custom Add-ons */}
-              {(() => {
-                const standardKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit', 'support_basic', 'support_intermediate', 'support_advanced', 'consulting_hours', 'dba_hours'];
-                const customEntries = Object.entries(config.addons_brl).filter(
-                  ([key, value]) => !standardKeys.includes(key) && typeof value === 'number'
-                );
-                
-                if (customEntries.length === 0) return null;
-                
-                return (
-                  <Card>
-                    <CardHeader><CardTitle>Add-ons Customizados (R$)</CardTitle></CardHeader>
-                    <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {customEntries.map(([key, price]) => (
-                        <div key={key} className="space-y-2">
-                          <Label className="flex items-center justify-between capitalize">
-                            {key.replace(/_/g, ' ')}
-                            {isAdmin && (
-                              <Button variant="ghost" size="icon" onClick={() => handleRemoveAddon(key, key.replace(/_/g, ' '), price as number)} className="h-6 w-6 text-red-500">
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            )}
-                          </Label>
-                          <Input 
-                            type="number" step="0.01" value={price as number} 
-                            readOnly={!isAdmin} disabled={!isAdmin}
-                            className={!isAdmin ? "bg-muted/30" : ""}
-                            onChange={(e) => handleUpdateAddonPrice(key, key, price as number, Number(e.target.value))}
-                          />
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                );
-              })()}
+              {/* Specialized Services */}
+              <PricingCategorySection
+                title={`Serviços Especializados (${specializedServices.length})`}
+                items={specializedServices}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.ADDONS, 'Serviços Especializados')}
+                onRemoveItem={handleRemoveItem}
+                showAddButton={true}
+                showRemoveButton={true}
+                columns={5}
+              />
 
               {/* SQL Server */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>SQL Server (R$)</CardTitle>
-                  {isAdmin && (
-                    <Button variant="outline" size="sm" onClick={() => setShowAddSqlModal(true)} className="gap-1 text-green-500 border-green-500/50">
-                      <Plus className="h-4 w-4" />
-                      Adicionar
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Object.keys(config.addons_brl?.sql ?? {}).length === 0 ? (
-                    <p className="text-muted-foreground text-sm col-span-4">Nenhuma opção configurada.</p>
-                  ) : (
-                    Object.entries(config.addons_brl?.sql ?? {})
-                      .filter(([sqlType]) => sqlType !== 'we') // Remove WE da exibição
-                      .map(([sqlType, price]) => {
-                        const formatSqlLabel = (k: string) => {
-                          if (k === 'none') return 'Nenhum';
-                          if (k === 'web') return 'WEB (2vCPU)';
-                          if (k === 'std') return 'STD (8vCPU)';
-                          return k.toUpperCase();
-                        };
-                        return (
-                          <div key={sqlType} className="space-y-2">
-                            <Label className="flex items-center justify-between">
-                              {formatSqlLabel(sqlType)}
-                              {isAdmin && sqlType !== 'none' && (
-                                <Button variant="ghost" size="icon" onClick={() => handleRemoveSql(sqlType, Number(price))} className="h-6 w-6 text-red-500"><Trash2 className="h-3 w-3" /></Button>
-                              )}
-                            </Label>
-                            <Input 
-                              type="number" step="0.01" value={Number(price)} 
-                              readOnly={!isAdmin} disabled={!isAdmin}
-                              className={!isAdmin ? "bg-muted/30" : ""}
-                              onChange={(e) => handleUpdateSqlPrice(sqlType, Number(price), Number(e.target.value))}
-                            />
-                          </div>
-                        );
-                      })
-                  )}
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`SQL Server (${sqlItems.length})`}
+                items={sqlItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.SQL_SERVER, 'SQL Server')}
+                onRemoveItem={handleRemoveItem}
+                showAddButton={true}
+                showRemoveButton={true}
+                columns={4}
+              />
             </div>
           </TabsContent>
 
@@ -964,104 +663,64 @@ const Precos = () => {
           <TabsContent value="storage">
             <div className="space-y-6">
               <Card>
-                <CardHeader><CardTitle>Storage SAS (R$/TB)</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle>Storage SAS (R$/TB)</CardTitle>
+                  <p className="text-sm text-muted-foreground">Bucket S3 utiliza os mesmos preços do Storage SAS.</p>
+                </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4">Bucket S3 utiliza os mesmos preços do Storage SAS.</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Brasil */}
                     <div className="space-y-4">
-                      <h4 className="font-medium">Brasil</h4>
+                      <h4 className="font-medium">Brasil ({storageSasBrasil.length})</h4>
                       <div className="grid grid-cols-2 gap-3">
-                        {['1_10', '11_100', '101_500', '501_1024', 'gt_1024'].map((tier) => {
-                          const label = tier === 'gt_1024' ? '>1024 TB' : tier.replace('_', '-') + ' TB';
-                          const key = `pricePerTB_${tier}` as keyof StorageRegionPricing;
-                          const value = config.storage_pricing?.sas?.br?.[key] || 0;
-                          return (
-                            <div key={tier} className="space-y-1">
-                              <Label className="text-xs">{label}</Label>
-                              <Input 
-                                type="number" step="0.01" value={value} 
-                                readOnly={!isAdmin} disabled={!isAdmin}
-                                className={!isAdmin ? "bg-muted/30" : ""}
-                                onChange={(e) => {
-                                  if (!isAdmin) return;
-                                  const newPrice = Number(e.target.value);
-                                  updateConfig(prev => ({
-                                    ...prev,
-                                    storage_pricing: {
-                                      ...prev.storage_pricing!,
-                                      sas: { ...prev.storage_pricing!.sas, br: { ...prev.storage_pricing!.sas.br, [key]: newPrice } }
-                                    }
-                                  }));
-                                  addLogEntry('UPDATE_ITEM', 'storage_sas_br', label, value, newPrice);
-                                }}
-                              />
-                            </div>
-                          );
-                        })}
+                        {storageSasBrasil.map((item) => (
+                          <div key={item.id} className="space-y-1">
+                            <Label className="text-xs">{item.label}</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.value}
+                              readOnly={!isAdmin}
+                              disabled={!isAdmin}
+                              className={!isAdmin ? 'bg-muted/30' : ''}
+                              onChange={(e) => handleValueChange(item, Number(e.target.value))}
+                            />
+                          </div>
+                        ))}
                       </div>
                     </div>
+
                     {/* USA */}
                     <div className="space-y-4">
-                      <h4 className="font-medium">Estados Unidos</h4>
+                      <h4 className="font-medium">Estados Unidos ({storageSasUsa.length})</h4>
                       <div className="grid grid-cols-2 gap-3">
-                        {['1_10', '11_100', '101_500', '501_1024', 'gt_1024'].map((tier) => {
-                          const label = tier === 'gt_1024' ? '>1024 TB' : tier.replace('_', '-') + ' TB';
-                          const key = `pricePerTB_${tier}` as keyof StorageRegionPricing;
-                          const value = config.storage_pricing?.sas?.usa?.[key] || 0;
-                          return (
-                            <div key={tier} className="space-y-1">
-                              <Label className="text-xs">{label}</Label>
-                              <Input 
-                                type="number" step="0.01" value={value} 
-                                readOnly={!isAdmin} disabled={!isAdmin}
-                                className={!isAdmin ? "bg-muted/30" : ""}
-                                onChange={(e) => {
-                                  if (!isAdmin) return;
-                                  const newPrice = Number(e.target.value);
-                                  updateConfig(prev => ({
-                                    ...prev,
-                                    storage_pricing: {
-                                      ...prev.storage_pricing!,
-                                      sas: { ...prev.storage_pricing!.sas, usa: { ...prev.storage_pricing!.sas.usa, [key]: newPrice } }
-                                    }
-                                  }));
-                                  addLogEntry('UPDATE_ITEM', 'storage_sas_usa', label, value, newPrice);
-                                }}
-                              />
-                            </div>
-                          );
-                        })}
+                        {storageSasUsa.map((item) => (
+                          <div key={item.id} className="space-y-1">
+                            <Label className="text-xs">{item.label}</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.value}
+                              readOnly={!isAdmin}
+                              disabled={!isAdmin}
+                              className={!isAdmin ? 'bg-muted/30' : ''}
+                              onChange={(e) => handleValueChange(item, Number(e.target.value))}
+                            />
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader><CardTitle>SSD NVMe (R$/GB)</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="max-w-xs space-y-2">
-                    <Label>Preço por GB</Label>
-                    <Input 
-                      type="number" step="0.01" 
-                      value={config.storage_pricing?.nvme?.pricePerGB || 0} 
-                      readOnly={!isAdmin} disabled={!isAdmin}
-                      className={!isAdmin ? "bg-muted/30" : ""}
-                      onChange={(e) => {
-                        if (!isAdmin) return;
-                        const newPrice = Number(e.target.value);
-                        const oldPrice = config.storage_pricing?.nvme?.pricePerGB || 0;
-                        updateConfig(prev => ({
-                          ...prev,
-                          storage_pricing: { ...prev.storage_pricing!, nvme: { pricePerGB: newPrice } }
-                        }));
-                        addLogEntry('UPDATE_ITEM', 'storage_nvme', 'NVMe GB', oldPrice, newPrice);
-                      }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`SSD NVMe (${storageNvmeItems.length})`}
+                items={storageNvmeItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                columns={2}
+              />
             </div>
           </TabsContent>
 
@@ -1077,13 +736,17 @@ const Precos = () => {
               <CardContent>
                 <Tabs defaultValue="7" className="w-full">
                   <TabsList className="grid grid-cols-3 w-full max-w-sm">
-                    <TabsTrigger value="7">7 dias</TabsTrigger>
-                    <TabsTrigger value="15">15 dias</TabsTrigger>
-                    <TabsTrigger value="30">30 dias</TabsTrigger>
+                    <TabsTrigger value="7">7 dias ({backup7dias.length})</TabsTrigger>
+                    <TabsTrigger value="15">15 dias ({backup15dias.length})</TabsTrigger>
+                    <TabsTrigger value="30">30 dias ({backup30dias.length})</TabsTrigger>
                   </TabsList>
 
-                  {['7', '15', '30'].map((retention) => (
-                    <TabsContent key={retention} value={retention} className="mt-4">
+                  {[
+                    { key: '7', items: backup7dias },
+                    { key: '15', items: backup15dias },
+                    { key: '30', items: backup30dias },
+                  ].map(({ key, items: retentionItems }) => (
+                    <TabsContent key={key} value={key} className="mt-4">
                       <div className="border rounded-lg overflow-hidden">
                         <table className="w-full">
                           <thead className="bg-muted/50">
@@ -1093,41 +756,21 @@ const Precos = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {(config.backup_tables_brl_per_gb?.[retention] || []).map((range, idx) => (
-                              <tr key={`${retention}-${idx}`} className="border-t">
+                            {retentionItems.map((item) => (
+                              <tr key={item.id} className="border-t">
                                 <td className="px-4 py-2 text-sm text-muted-foreground">
-                                  {range.min} - {range.max} GB
+                                  {item.meta?.min ?? 0} - {item.meta?.max ?? 0} GB
                                 </td>
                                 <td className="px-4 py-2 text-right">
                                   <Input
                                     type="number"
                                     step="0.001"
                                     min="0"
-                                    value={range.price}
+                                    value={item.value}
                                     readOnly={!isAdmin}
                                     disabled={!isAdmin}
-                                    className={`w-28 text-right ml-auto ${!isAdmin ? "bg-muted/30" : ""}`}
-                                    onChange={(e) => {
-                                      if (!isAdmin) return;
-                                      const newPrice = Number(e.target.value);
-                                      const oldPrice = range.price;
-                                      
-                                      updateConfig(prev => {
-                                        const updatedTables = { ...prev.backup_tables_brl_per_gb };
-                                        const ranges = [...(updatedTables[retention] || [])];
-                                        ranges[idx] = { ...ranges[idx], price: newPrice };
-                                        updatedTables[retention] = ranges;
-                                        return { ...prev, backup_tables_brl_per_gb: updatedTables };
-                                      });
-                                      
-                                      addLogEntry(
-                                        'UPDATE_ITEM',
-                                        `backup_${retention}dias`,
-                                        `${range.min}-${range.max} GB`,
-                                        oldPrice,
-                                        newPrice
-                                      );
-                                    }}
+                                    className={`w-28 text-right ml-auto ${!isAdmin ? 'bg-muted/30' : ''}`}
+                                    onChange={(e) => handleValueChange(item, Number(e.target.value))}
                                   />
                                 </td>
                               </tr>
@@ -1145,61 +788,25 @@ const Precos = () => {
           {/* Kubernetes Tab */}
           <TabsContent value="kubernetes">
             <div className="space-y-6">
-              <Card>
-                <CardHeader><CardTitle>Planos Kubernetes (R$/mês)</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {config.kubernetes_pricing && Object.entries(config.kubernetes_pricing).map(([plan, data]) => {
-                    const planData = data as { basePriceMonthly: number; description?: string };
-                    return (
-                      <div key={plan} className="space-y-2">
-                        <Label>{plan}</Label>
-                        <Input 
-                          type="number" step="0.01" value={planData.basePriceMonthly || 0} 
-                          readOnly={!isAdmin} disabled={!isAdmin}
-                          className={!isAdmin ? "bg-muted/30" : ""}
-                          onChange={(e) => {
-                            if (!isAdmin) return;
-                            const newPrice = Number(e.target.value);
-                            updateConfig(prev => ({
-                              ...prev,
-                              kubernetes_pricing: {
-                                ...prev.kubernetes_pricing,
-                                [plan]: { ...planData, basePriceMonthly: newPrice }
-                              }
-                            }));
-                            addLogEntry('UPDATE_ITEM', 'kubernetes_plans', plan, planData.basePriceMonthly, newPrice);
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`Planos Kubernetes (${kubernetesPlanItems.length})`}
+                items={kubernetesPlanItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.KUBERNETES, 'Preços Base dos Planos')}
+                showAddButton={true}
+                columns={3}
+              />
 
-              <Card>
-                <CardHeader><CardTitle>Add-ons Kubernetes (R$)</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {config.kubernetes_addons_pricing && Object.entries(config.kubernetes_addons_pricing).map(([addon, price]) => (
-                    <div key={addon} className="space-y-2">
-                      <Label>{addon}</Label>
-                      <Input 
-                        type="number" step="0.01" value={price as number || 0} 
-                        readOnly={!isAdmin} disabled={!isAdmin}
-                        className={!isAdmin ? "bg-muted/30" : ""}
-                        onChange={(e) => {
-                          if (!isAdmin) return;
-                          const newPrice = Number(e.target.value);
-                          updateConfig(prev => ({
-                            ...prev,
-                            kubernetes_addons_pricing: { ...prev.kubernetes_addons_pricing, [addon]: newPrice }
-                          }));
-                          addLogEntry('UPDATE_ITEM', 'kubernetes_addons', addon, price as number, newPrice);
-                        }}
-                      />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`Add-ons Kubernetes (${kubernetesAddonItems.length})`}
+                items={kubernetesAddonItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                onAddItem={() => openAddItemModal(CONFIG_CATEGORIES.KUBERNETES, 'Add-ons Kubernetes')}
+                showAddButton={true}
+                columns={3}
+              />
             </div>
           </TabsContent>
 
@@ -1207,65 +814,49 @@ const Precos = () => {
           <TabsContent value="geral">
             <div className="space-y-6">
               <Card>
-                <CardHeader><CardTitle>Informações</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle>Informações</CardTitle>
+                </CardHeader>
                 <CardContent>
                   <div className="p-4 bg-muted/30 rounded-lg border border-border">
                     <p className="text-sm text-muted-foreground">
-                      <strong>Todos os preços são em R$ (BRL).</strong><br />
-                      O sistema não utiliza conversão de câmbio.
+                      <strong>Todos os preços são em R$ (BRL).</strong>
+                      <br />O sistema não utiliza conversão de câmbio.
                     </p>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader><CardTitle>Descontos por Vigência (%)</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Object.entries(config.discount).map(([term, discount]) => (
-                    <div key={term} className="space-y-2">
-                      <Label>{term} {parseInt(term) === 1 ? 'mês' : 'meses'}</Label>
-                      <Input 
-                        type="number" step="0.1" value={(discount * 100).toFixed(1)} 
-                        readOnly={!isAdmin} disabled={!isAdmin}
-                        className={!isAdmin ? "bg-muted/30" : ""}
-                        onChange={(e) => handleUpdateDiscount(term, discount * 100, Number(e.target.value))}
-                      />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`Descontos por Vigência (${discountItems.length})`}
+                items={discountItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                columns={4}
+              />
 
-              <Card>
-                <CardHeader><CardTitle>OPEN SaaS (R$)</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="max-w-xs space-y-2">
-                    <Label>Preço por Usuário</Label>
-                    <Input 
-                      type="number" step="0.01" value={config.open_saas_price_per_user || 85} 
-                      readOnly={!isAdmin} disabled={!isAdmin}
-                      className={!isAdmin ? "bg-muted/30" : ""}
-                      onChange={(e) => {
-                        if (!isAdmin) return;
-                        const newPrice = Number(e.target.value);
-                        updateConfig(prev => ({ ...prev, open_saas_price_per_user: newPrice }));
-                        addLogEntry('UPDATE_ITEM', 'open_saas', 'Preço/Usuário', config.open_saas_price_per_user || 85, newPrice);
-                      }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+              <PricingCategorySection
+                title={`OPEN SaaS (${saasItems.length})`}
+                items={saasItems}
+                isAdmin={isAdmin}
+                onValueChange={handleValueChange}
+                columns={2}
+              />
             </div>
           </TabsContent>
         </Tabs>
       </div>
 
       {/* ============ MODALS ============ */}
-      
+
       {/* PIN Modal */}
       <Dialog open={showPinModal} onOpenChange={setShowPinModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Entrar em Modo Admin</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Entrar em Modo Admin
+            </DialogTitle>
             <DialogDescription>Digite o PIN para habilitar edição.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1276,17 +867,30 @@ const Precos = () => {
                 type="password"
                 placeholder="Digite o PIN"
                 value={pinInput}
-                onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
+                onChange={(e) => {
+                  setPinInput(e.target.value);
+                  setPinError(false);
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && handlePinSubmit()}
                 className={pinError ? 'border-destructive' : ''}
                 autoFocus
               />
-              {pinError && <p className="text-sm text-destructive flex items-center gap-1"><AlertTriangle className="h-3 w-3" />PIN incorreto.</p>}
+              {pinError && (
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  PIN incorreto.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPinModal(false)}>Cancelar</Button>
-            <Button onClick={handlePinSubmit} disabled={!pinInput}><Check className="h-4 w-4 mr-2" />Confirmar</Button>
+            <Button variant="outline" onClick={() => setShowPinModal(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handlePinSubmit} disabled={!pinInput}>
+              <Check className="h-4 w-4 mr-2" />
+              Confirmar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1295,7 +899,10 @@ const Precos = () => {
       <Dialog open={showLogModal} onOpenChange={setShowLogModal}>
         <DialogContent className="sm:max-w-2xl max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><History className="h-5 w-5" />Log de Alterações</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Log de Alterações
+            </DialogTitle>
             <DialogDescription>Histórico de alterações de preços.</DialogDescription>
           </DialogHeader>
           <ScrollArea className="h-[400px] pr-4">
@@ -1316,7 +923,9 @@ const Precos = () => {
                     <p className="text-xs text-muted-foreground">Seção: {entry.section}</p>
                     {(entry.oldValue !== undefined || entry.newValue !== undefined) && (
                       <p className="text-xs">
-                        {entry.oldValue !== undefined && <span className="text-red-400 line-through mr-2">{entry.oldValue}</span>}
+                        {entry.oldValue !== undefined && (
+                          <span className="text-red-400 line-through mr-2">{entry.oldValue}</span>
+                        )}
                         {entry.newValue !== undefined && <span className="text-green-400">→ {entry.newValue}</span>}
                       </p>
                     )}
@@ -1325,163 +934,54 @@ const Precos = () => {
               </div>
             )}
           </ScrollArea>
-          <DialogFooter><Button variant="outline" onClick={() => setShowLogModal(false)}>Fechar</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add CPU Modal */}
-      <Dialog open={showAddCpuModal} onOpenChange={setShowAddCpuModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Adicionar CPU</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Descrição</Label>
-              <Input placeholder="Ex: 2x Intel Xeon Gold..." value={newCpu.label || ''} onChange={(e) => setNewCpu(prev => ({ ...prev, label: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Preço (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0.00" value={newCpu.price || ''} onChange={(e) => setNewCpu(prev => ({ ...prev, price: Number(e.target.value) }))} />
-            </div>
-          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddCpuModal(false)}>Cancelar</Button>
-            <Button onClick={handleAddCpu} disabled={!newCpu.label}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
+            <Button variant="outline" onClick={() => setShowLogModal(false)}>
+              Fechar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Add RAM Modal */}
-      <Dialog open={showAddRamModal} onOpenChange={setShowAddRamModal}>
+      {/* Add Item Modal */}
+      <Dialog open={showAddItemModal} onOpenChange={setShowAddItemModal}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Adicionar RAM</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Adicionar Item</DialogTitle>
+            <DialogDescription>
+              Categoria: {addItemCategory} / Seção: {addItemSection}
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Label</Label>
-              <Input placeholder="Ex: 768GB" value={newRam.label || ''} onChange={(e) => setNewRam(prev => ({ ...prev, label: e.target.value }))} />
+              <Input
+                placeholder="Ex: vCPU Premium, NVIDIA A100..."
+                value={newItemForm.label}
+                onChange={(e) => setNewItemForm((prev) => ({ ...prev, label: e.target.value }))}
+              />
             </div>
             <div className="space-y-2">
-              <Label>Capacidade (GB)</Label>
-              <Input type="number" placeholder="768" value={newRam.gb || ''} onChange={(e) => setNewRam(prev => ({ ...prev, gb: Number(e.target.value) }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Preço (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0.00" value={newRam.price || ''} onChange={(e) => setNewRam(prev => ({ ...prev, price: Number(e.target.value) }))} />
+              <Label>Valor (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={newItemForm.value || ''}
+                onChange={(e) => setNewItemForm((prev) => ({ ...prev, value: Number(e.target.value) }))}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddRamModal(false)}>Cancelar</Button>
-            <Button onClick={handleAddRam} disabled={!newRam.label}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
+            <Button variant="outline" onClick={() => setShowAddItemModal(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAddItem} disabled={!newItemForm.label}>
+              <Plus className="h-4 w-4 mr-2" />
+              Adicionar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Add Disk Modal */}
-      <Dialog open={showAddDiskModal} onOpenChange={setShowAddDiskModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Adicionar Disco</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Label</Label>
-              <Input placeholder="Ex: 8TB NVMe" value={newDisk.label || ''} onChange={(e) => setNewDisk(prev => ({ ...prev, label: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Capacidade (TB)</Label>
-              <Input type="number" step="0.1" placeholder="8" value={newDisk.tb || ''} onChange={(e) => setNewDisk(prev => ({ ...prev, tb: Number(e.target.value) }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Preço (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0.00" value={newDisk.price || ''} onChange={(e) => setNewDisk(prev => ({ ...prev, price: Number(e.target.value) }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDiskModal(false)}>Cancelar</Button>
-            <Button onClick={handleAddDisk} disabled={!newDisk.label}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add GPU Modal */}
-      <Dialog open={showAddGpuModal} onOpenChange={setShowAddGpuModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Adicionar GPU</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Nome da GPU</Label>
-              <Input placeholder="Ex: NVIDIA L40S" value={newGpu.name} onChange={(e) => setNewGpu(prev => ({ ...prev, name: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Preço (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0.00" value={newGpu.price || ''} onChange={(e) => setNewGpu(prev => ({ ...prev, price: Number(e.target.value) }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddGpuModal(false)}>Cancelar</Button>
-            <Button onClick={handleAddGpu} disabled={!newGpu.name}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add SQL Modal */}
-      <Dialog open={showAddSqlModal} onOpenChange={setShowAddSqlModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Adicionar SQL</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Input placeholder="Ex: enterprise" value={newSql.name} onChange={(e) => setNewSql(prev => ({ ...prev, name: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Preço (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0.00" value={newSql.price || ''} onChange={(e) => setNewSql(prev => ({ ...prev, price: Number(e.target.value) }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddSqlModal(false)}>Cancelar</Button>
-            <Button onClick={handleAddSql} disabled={!newSql.name}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Addon Modal */}
-      <Dialog open={showAddAddonModal} onOpenChange={setShowAddAddonModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Adicionar Add-on</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Chave (identificador)</Label>
-              <Input placeholder="Ex: monitoring_unit" value={newAddon.key} onChange={(e) => setNewAddon(prev => ({ ...prev, key: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Nome/Label</Label>
-              <Input placeholder="Ex: Monitoramento (unid.)" value={newAddon.label} onChange={(e) => setNewAddon(prev => ({ ...prev, label: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Preço (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0.00" value={newAddon.price || ''} onChange={(e) => setNewAddon(prev => ({ ...prev, price: Number(e.target.value) }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddAddonModal(false)}>Cancelar</Button>
-            <Button onClick={handleAddAddon} disabled={!newAddon.key || !newAddon.label}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Confirm Empty GPU Save */}
-      <AlertDialog open={showConfirmEmptyGpuSave} onOpenChange={setShowConfirmEmptyGpuSave}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Configuração vazia de GPU</AlertDialogTitle>
-            <AlertDialogDescription>
-              Você está prestes a salvar uma configuração sem nenhuma GPU. Deseja continuar?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmSaveEmptyGpuConfig}>Confirmar</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };
