@@ -828,7 +828,54 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       // ============================================
       // PARSE STANDARD ADDONS → AddonsState
       // ============================================
-      if (addonNameLower.includes('antivirus') || addonNameLower.includes('antivírus')) {
+      
+      // ============================================
+      // SQL SERVER - Match by label: "WEB", "STD", or contains "sql"
+      // API returns: label: "WEB" or label: "STD"
+      // ============================================
+      if (addonName.toUpperCase() === 'WEB' || addonName.toUpperCase() === 'STD' || 
+          addonNameLower.includes('sql')) {
+        if (addonName.toUpperCase() === 'WEB' || addonNameLower.includes('web')) {
+          reconstructedAddonsState.sql = 'web';
+        } else if (addonName.toUpperCase() === 'STD' || addonNameLower.includes('standard') || addonNameLower.includes('std')) {
+          reconstructedAddonsState.sql = 'std';
+        } else if (addonNameLower.includes('enterprise')) {
+          reconstructedAddonsState.sql = 'enterprise';
+        } else {
+          reconstructedAddonsState.sql = 'std'; // Default to standard
+        }
+        reconstructedAddonsState.sqlQty = addonQty > 0 ? addonQty : 1;
+        console.log('[EDIT] SQL LEGACY restored:', { type: reconstructedAddonsState.sql, qty: reconstructedAddonsState.sqlQty, rawLabel: addonName });
+      } 
+      // ============================================
+      // SERVIÇOS ESPECIALIZADOS - Match by label containing "Suporte", "Consultoria", "DBA"
+      // API returns: label: "Suporte Básico", "Suporte Avançado", etc.
+      // ============================================
+      else if (addonNameLower.includes('suporte') || addonNameLower.includes('support')) {
+        if (addonNameLower.includes('avançado') || addonNameLower.includes('avancado') || addonNameLower.includes('advanced')) {
+          reconstructedAddonsState.support = { level: 'advanced', price: addonPrice };
+        } else if (addonNameLower.includes('intermediário') || addonNameLower.includes('intermediario') || addonNameLower.includes('intermediate')) {
+          reconstructedAddonsState.support = { level: 'intermediate', price: addonPrice };
+        } else if (addonNameLower.includes('básico') || addonNameLower.includes('basico') || addonNameLower.includes('basic')) {
+          reconstructedAddonsState.support = { level: 'basic', price: addonPrice };
+        } else {
+          // Default to basic if just "suporte"
+          reconstructedAddonsState.support = { level: 'basic', price: addonPrice };
+        }
+        console.log('[EDIT] Support LEGACY restored:', { level: reconstructedAddonsState.support.level, price: addonPrice, rawLabel: addonName });
+      } else if (addonNameLower.includes('consultoria') || addonNameLower.includes('consulting')) {
+        const unitPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 200;
+        reconstructedAddonsState.consulting = { quantity: addonQty, unitPrice };
+        console.log('[EDIT] Consulting LEGACY restored:', { qty: addonQty, unitPrice, rawLabel: addonName });
+      } else if (addonNameLower === 'dba' || addonNameLower.includes('dba ')) {
+        const unitPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 250;
+        reconstructedAddonsState.dba = { quantity: addonQty, unitPrice };
+        console.log('[EDIT] DBA LEGACY restored:', { qty: addonQty, unitPrice, rawLabel: addonName });
+      }
+      // ============================================
+      // Other standard addons
+      // ============================================
+      else if (addonNameLower.includes('antivirus') || addonNameLower.includes('antivírus')) {
         reconstructedAddonsState.antivirus = addonQty;
         console.log('[EDIT] Antivirus restored:', addonQty);
       } else if (addonNameLower.includes('firewall')) {
@@ -852,19 +899,6 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         // ============================================
         reconstructedAddonsState.winserver = addonQty;
         console.log('[EDIT] WindowsServer units restored:', addonQty);
-      } else if (addonNameLower.includes('sql')) {
-        // Detect SQL type from name
-        if (addonNameLower.includes('enterprise')) {
-          reconstructedAddonsState.sql = 'enterprise';
-        } else if (addonNameLower.includes('standard')) {
-          reconstructedAddonsState.sql = 'standard';
-        } else if (addonNameLower.includes('web')) {
-          reconstructedAddonsState.sql = 'web';
-        } else {
-          reconstructedAddonsState.sql = 'standard'; // Default
-        }
-        reconstructedAddonsState.sqlQty = addonQty;
-        console.log('[EDIT] SQL restored:', { type: reconstructedAddonsState.sql, qty: addonQty });
       } else if (addonNameLower.includes('backup')) {
         // Parse backup size from name if available
         const backupGbMatch = addonName.match(/(\d+)\s*GB/i);
@@ -877,17 +911,25 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
           reconstructedAddonsState.backupGb = addonQty; // Use quantity as GB
         }
         
-        // Detect backup plan
-        if (addonNameLower.includes('gold')) {
-          reconstructedAddonsState.backupPlan = 'gold';
+        // Detect backup plan by retention days
+        if (addonNameLower.includes('30')) {
+          reconstructedAddonsState.backupPlan = '30';
+        } else if (addonNameLower.includes('15')) {
+          reconstructedAddonsState.backupPlan = '15';
+        } else if (addonNameLower.includes('7')) {
+          reconstructedAddonsState.backupPlan = '7';
+        } else if (addonNameLower.includes('gold')) {
+          reconstructedAddonsState.backupPlan = '30';
         } else if (addonNameLower.includes('silver')) {
-          reconstructedAddonsState.backupPlan = 'silver';
+          reconstructedAddonsState.backupPlan = '15';
         } else if (addonNameLower.includes('bronze')) {
-          reconstructedAddonsState.backupPlan = 'bronze';
+          reconstructedAddonsState.backupPlan = '7';
         } else {
-          reconstructedAddonsState.backupPlan = 'bronze'; // Default
+          reconstructedAddonsState.backupPlan = '7'; // Default
         }
         console.log('[EDIT] Backup restored: plan=', reconstructedAddonsState.backupPlan, ', gb=', reconstructedAddonsState.backupGb);
+      } else {
+        console.log('[EDIT] Addon NOT MATCHED in LEGACY:', { rawLabel: addonName, normalized: addonNameLower });
       }
     }
   }
