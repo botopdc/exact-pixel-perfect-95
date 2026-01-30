@@ -371,16 +371,34 @@ function hydrateAddons(raw: any): AddonsStateV2 {
     console.log('[EDIT] dba restored (snapshot): qty=' + dba.quantity + ' unitPrice=' + dba.unitPrice);
   }
   
+  // CRITICAL: Ensure SQL has qty >= 1 when type is selected
+  const sqlType = raw.sql || 'none';
+  const sqlQty = toNum(raw.sqlQty, 0);
+  const finalSqlQty = sqlType !== 'none' && sqlQty === 0 ? 1 : sqlQty;
+  
+  // CRITICAL: Ensure Backup has GB >= 1 when plan is selected
+  const backupPlan = raw.backupPlan || 'none';
+  const backupGb = toNum(raw.backupGb, 0);
+  const finalBackupGb = backupPlan !== 'none' && backupGb === 0 ? 1 : backupGb;
+  
+  // Log SQL and Backup restoration
+  if (sqlType !== 'none') {
+    console.log('[EDIT] SQL restored (snapshot): type=' + sqlType + ' qty=' + finalSqlQty);
+  }
+  if (backupPlan !== 'none') {
+    console.log('[EDIT] Backup restored (snapshot): plan=' + backupPlan + ' gb=' + finalBackupGb);
+  }
+  
   return {
-    backupPlan: raw.backupPlan || 'none',
-    backupGb: toNum(raw.backupGb, 0),
+    backupPlan: backupPlan,
+    backupGb: finalBackupGb,
     antivirus: toNum(raw.antivirus, 0),
     // Firewall: now a quantity. Convert old boolean (true) to 1, false to 0
     firewall: typeof raw.firewall === 'boolean' ? (raw.firewall ? 1 : 0) : toNum(raw.firewall, 0),
     tsplus: toNum(raw.tsplus, 0),
     cal: toNum(raw.cal, 0),
-    sql: raw.sql || 'none',
-    sqlQty: toNum(raw.sqlQty, 0),
+    sql: sqlType,
+    sqlQty: finalSqlQty,
     veeamVm: toNum(raw.veeamVm, 0),
     veeamAg: toNum(raw.veeamAg, 0),
     winserver: toNum(raw.winserver, 0),
@@ -521,14 +539,31 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       else if (code?.includes('std') || name.includes('std') || name.includes('standard')) result.sql = 'std';
       // Fallback: propostas antigas com WE mapeiam para WEB
       else if (code?.includes('we') || name.includes('we')) result.sql = 'web';
-      result.sqlQty = qty;
+      // CRITICAL: Ensure at least qty 1 when SQL is selected
+      result.sqlQty = qty > 0 ? qty : 1;
+      console.log('[EDIT] SQL restored from addons[]: type=' + result.sql + ' qty=' + result.sqlQty);
       continue;
     }
   }
   
+  // CRITICAL: Post-process to ensure minimums
+  // If SQL type is selected but qty is 0, set to 1
+  if (result.sql !== 'none' && result.sqlQty === 0) {
+    result.sqlQty = 1;
+    console.log('[EDIT] SQL qty was 0, set to 1');
+  }
+  // If backup plan is selected but GB is 0, set to 1
+  if (result.backupPlan !== 'none' && result.backupGb === 0) {
+    result.backupGb = 1;
+    console.log('[EDIT] Backup GB was 0, set to 1');
+  }
+  
   console.log('[hydrateAddonsFromLegacy] Final result:', {
     winserver: result.winserver,
+    sql: result.sql,
+    sqlQty: result.sqlQty,
     backupPlan: result.backupPlan,
+    backupGb: result.backupGb,
     support: result.support,
     consulting: result.consulting,
     dba: result.dba,
@@ -809,18 +844,20 @@ export function serializeProposal(
     console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' item_id=' + itemId);
   }
   
-  // Backup - EXPLICIT
-  if (state.addons.backupPlan !== 'none' && state.addons.backupGb > 0) {
+  // Backup - CRITICAL: Persist even if backupGb is 0 when plan is selected (default to 1GB)
+  if (state.addons.backupPlan !== 'none') {
+    // Ensure at least 1GB when backup plan is selected
+    const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
     const itemId = findItemId(configIdStore?.backup, `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`, state.addons.backupPlan);
     addonsArray.push({
       config_id: backupConfigId,
       item_id: itemId,
       code: `backup_${state.addons.backupPlan}`,
-      name: `Backup ${state.addons.backupPlan}`,
+      name: `Backup ${state.addons.backupPlan} dias`,
       price: 0,
-      quantity: state.addons.backupGb,
+      quantity: backupGb,
     });
-    console.log('[serializeProposal] Added Backup:', state.addons.backupPlan, state.addons.backupGb, 'item_id:', itemId);
+    console.log('[serializeProposal] Added Backup:', state.addons.backupPlan, 'GB:', backupGb);
   }
   
   // Antivirus
@@ -901,9 +938,11 @@ export function serializeProposal(
     });
   }
   
-  // SQL
-  if (state.addons.sql !== 'none' && state.addons.sqlQty > 0) {
+  // SQL - CRITICAL: Persist even if sqlQty is 0 when type is selected (default to 1)
+  if (state.addons.sql !== 'none') {
     const edition = state.addons.sql.toUpperCase();
+    // Ensure at least quantity 1 when SQL type is selected
+    const sqlQty = state.addons.sqlQty > 0 ? state.addons.sqlQty : 1;
     const itemId = findItemId(configIdStore?.sqlServer, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
     addonsArray.push({
       config_id: sqlConfigId,
@@ -911,8 +950,9 @@ export function serializeProposal(
       code: `sql_${state.addons.sql.toLowerCase()}`,
       name: `SQL ${edition}`,
       price: 0,
-      quantity: state.addons.sqlQty,
+      quantity: sqlQty,
     });
+    console.log('[serializeProposal] Added SQL:', state.addons.sql, 'qty:', sqlQty);
   }
   
   // Log dados_proposta snapshot for debugging
