@@ -1526,6 +1526,19 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     addAddon('open_saas', proposal.openSaas.users);
   }
   
+  // DEBUG: Log proposal.addons to diagnose why addons might be empty
+  console.log('[localToApi] ADDONS DIAGNOSIS - proposal.addons:', {
+    exists: Boolean(proposal.addons),
+    type: typeof proposal.addons,
+    isObject: proposal.addons && typeof proposal.addons === 'object',
+    keys: proposal.addons && typeof proposal.addons === 'object' ? Object.keys(proposal.addons) : [],
+    backupPlan: (proposal.addons as any)?.backupPlan,
+    backupGb: (proposal.addons as any)?.backupGb,
+    antivirus: (proposal.addons as any)?.antivirus,
+    firewall: (proposal.addons as any)?.firewall,
+    winserver: (proposal.addons as any)?.winserver,
+  });
+  
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
@@ -1563,15 +1576,30 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     // CRITICAL: Ensure backupGb >= 1 when plan is selected
     if (addons.backupPlan && addons.backupPlan !== 'none') {
       const backupGb = typeof addons.backupGb === 'number' && addons.backupGb > 0 ? addons.backupGb : 1;
+      
+      // DEBUG: Dump all available Backup configs to console
+      if (configIdStore) {
+        const backupConfigs = configIdStore.byCategory.get('Backup') || [];
+        const addonsConfigs = configIdStore.byCategory.get('Add-ons') || [];
+        console.log('[localToApi] BACKUP DIAGNOSIS - All Backup items from API:', 
+          backupConfigs.map(c => ({ id: c.configId, label: c.label, section: c.section })));
+        console.log('[localToApi] BACKUP DIAGNOSIS - All Add-ons items from API:', 
+          addonsConfigs.map(c => ({ id: c.configId, label: c.label, section: c.section })));
+        console.log('[localToApi] BACKUP DIAGNOSIS - All categories available:', 
+          Array.from(configIdStore.byCategory.keys()));
+      }
+      
       const backupIds = configIdStore ? getBackupItemId(configIdStore, addons.backupPlan) : { configId: undefined };
+      console.log('[localToApi] Backup lookup result for plan', addons.backupPlan, ':', backupIds);
+      
       if (backupIds.configId) {
         addonsArray.push({ 
           config_id: backupIds.configId, 
           quantity: backupGb 
         });
-        console.log('[localToApi] Added Backup to payload:', addons.backupPlan, backupGb);
+        console.log('[localToApi] ✓ Added Backup to payload:', addons.backupPlan, 'qty:', backupGb, 'config_id:', backupIds.configId);
       } else {
-        console.error('[localToApi] SKIPPING Backup - missing config_id:', backupIds);
+        console.error('[localToApi] ❌ SKIPPING Backup - missing config_id for plan:', addons.backupPlan);
       }
     }
     // SQL - uses dedicated function for ID lookup
