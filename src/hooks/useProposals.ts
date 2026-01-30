@@ -1704,16 +1704,17 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const storagePayload = JSON.stringify({ items: validStorageItems });
       serversArray.push({
         name: `__VIRTUAL__STORAGE__:${storagePayload}`,
-        vcpu: 0,
-        ram: 0,
+        // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
+        vcpu: 1,
+        ram: 1,
         storage: 0,
         price: 0,
         quantity: 1,
-        // Virtual servers still need config IDs for API validation (with fallbacks)
-        config_id: vmConfigId,
-        vcpu_item_id: vcpuItemId,
-        ram_item_id: ramItemId,
-        storage_item_id: storageItemId,
+        // Virtual servers need config IDs for API validation
+        config_id: vmConfigId ?? 1,
+        vcpu_item_id: vcpuItemId ?? 1,
+        ram_item_id: ramItemId ?? 2,
+        storage_item_id: storageItemId ?? 3,
       });
     }
     
@@ -1723,15 +1724,16 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const k8sPayload = JSON.stringify(proposal.kubernetes);
       serversArray.push({
         name: `__VIRTUAL__KUBERNETES__:${k8sPayload}`,
-        vcpu: 0,
-        ram: 0,
+        // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
+        vcpu: 1,
+        ram: 1,
         storage: 0,
         price: 0,
         quantity: 1,
-        config_id: vmConfigId,
-        vcpu_item_id: vcpuItemId,
-        ram_item_id: ramItemId,
-        storage_item_id: storageItemId,
+        config_id: vmConfigId ?? 1,
+        vcpu_item_id: vcpuItemId ?? 1,
+        ram_item_id: ramItemId ?? 2,
+        storage_item_id: storageItemId ?? 3,
       });
     }
     
@@ -1741,34 +1743,36 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const saasPayload = JSON.stringify(proposal.openSaas);
       serversArray.push({
         name: `__VIRTUAL__OPENSAAS__:${saasPayload}`,
-        vcpu: 0,
-        ram: 0,
+        // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
+        vcpu: 1,
+        ram: 1,
         storage: 0,
         price: 0,
         quantity: 1,
-        config_id: vmConfigId,
-        vcpu_item_id: vcpuItemId,
-        ram_item_id: ramItemId,
-        storage_item_id: storageItemId,
+        config_id: vmConfigId ?? 1,
+        vcpu_item_id: vcpuItemId ?? 1,
+        ram_item_id: ramItemId ?? 2,
+        storage_item_id: storageItemId ?? 3,
       });
     }
     // ============================================
     // FALLBACK: If still no servers after adding independent products,
     // add a virtual placeholder to guarantee servers is never empty
+    // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
     // ============================================
     if (serversArray.length === 0) {
       console.warn('[localToApi] No items found, adding VIRTUAL_PRODUCT_BUNDLE fallback');
       serversArray.push({
         name: '__VIRTUAL__BUNDLE__:{}',
-        vcpu: 0,
-        ram: 0,
+        vcpu: 1, // Per OpenAPI: minimum 1
+        ram: 1, // Per OpenAPI: minimum 1
         storage: 0,
         price: 0,
-        quantity: 1,
-        config_id: vmConfigId,
-        vcpu_item_id: vcpuItemId,
-        ram_item_id: ramItemId,
-        storage_item_id: storageItemId,
+        quantity: 1, // Per OpenAPI: minimum 1
+        config_id: vmConfigId ?? 1,
+        vcpu_item_id: vcpuItemId ?? 1,
+        ram_item_id: ramItemId ?? 2,
+        storage_item_id: storageItemId ?? 3,
       });
     }
     

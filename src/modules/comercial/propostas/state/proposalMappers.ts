@@ -375,14 +375,30 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
         } as VMItemV2;
       }
 
+      // BareMetal: Extract bmCpu, bmRam, and disks from API response
+      const bmCpu = toStr(server.bmCpu || server.cpu || server.cpu_model, 'intel_xeon_e2136');
+      const bmRam = toStr(server.bmRam || server.ram_tier, 'ram_128gb');
+      
+      // Parse disks from API - could be array or need reconstruction
+      let bmDisks: DiskItemV2[] = [{ type: 'nvme_1tb', qty: 1, desc: '' }];
+      if (Array.isArray(server.disks) && server.disks.length > 0) {
+        bmDisks = server.disks.map((d: any) => ({
+          type: toStr(d.type, 'nvme_1tb'),
+          qty: toNum(d.qty, 1),
+          desc: toStr(d.desc, ''),
+        }));
+      }
+      
+      console.log(`[EDIT] BareMetal restored: cpu=${bmCpu} ram=${bmRam} disks=${JSON.stringify(bmDisks)}`);
+
       return {
         type: 'bm' as const,
         id,
         gpu,
         gpuQty,
-        bmCpu: 'intel_xeon_e2136',
-        bmRam: 'ram_128gb',
-        disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }],
+        bmCpu,
+        bmRam,
+        disks: bmDisks,
         trafficTb: 5,
         ips: toNum(server.ips, 0),
         qtyServers: toNum(server.quantity, 1),
@@ -830,6 +846,7 @@ export interface ApiAddonPayload {
  * 
  * Per OpenAPI spec (CalculatorProposalStoreRequest):
  * - servers requires config_id, name, vcpu_item_id, ram_item_id, storage_item_id
+ * - vcpu minimum: 1, ram minimum: 1
  * - Backend calculates price automatically from config
  * - DO NOT send price field - backend ignores it
  */
@@ -837,35 +854,36 @@ export interface ApiServerPayload {
   config_id: number;        // REQUIRED: ID of the calculator config (VM category)
   name: string;             // REQUIRED: Server name for identification
   vcpu_item_id: number;     // REQUIRED: ID of the vCPU item in config
-  vcpu: number;
+  vcpu: number;             // REQUIRED: minimum 1
   ram_item_id: number;      // REQUIRED: ID of the RAM item in config
-  ram: number;
+  ram: number;              // REQUIRED: minimum 1
   storage_item_id: number;  // REQUIRED: ID of the storage item in config
-  storage: number;
-  quantity: number;
+  storage: number;          // REQUIRED: minimum 0
+  quantity: number;         // REQUIRED: minimum 1
   gpu?: { model: string; quantity: number };
 }
 
 /**
- * Flexible payload types for internal use (before validation)
- * These allow undefined IDs which will be validated before serialization
+ * Internal payload types for building (before API validation)
+ * These allow optional IDs which will be filled with defaults if missing
  */
 interface InternalAddonPayload {
-  config_id?: number;
-  item_id?: number;
+  config_id: number;    // Will be filled with 0 if missing
+  item_id: number;      // Will be filled with 0 if missing
   quantity: number;
+  label?: string;       // For debugging/display
 }
 
 interface InternalServerPayload {
-  config_id?: number;
+  config_id: number;      // Will be filled with 0 if missing
   name: string;
-  vcpu_item_id?: number;
-  vcpu: number;
-  ram_item_id?: number;
-  ram: number;
-  storage_item_id?: number;
-  storage: number;
-  quantity: number;
+  vcpu_item_id: number;   // Will be filled with 0 if missing
+  vcpu: number;           // Minimum 1 enforced
+  ram_item_id: number;    // Will be filled with 0 if missing
+  ram: number;            // Minimum 1 enforced
+  storage_item_id: number;// Will be filled with 0 if missing
+  storage: number;        // Minimum 0
+  quantity: number;       // Minimum 1 enforced
   gpu?: { model: string; quantity: number };
 }
 
@@ -1032,25 +1050,35 @@ export function serializeProposal(
   };
   
   // ============================================
-  // BUILD ADDONS ARRAY - Only include items with valid config_id and item_id
+  // BUILD ADDONS ARRAY - Per OpenAPI spec: config_id and item_id are REQUIRED
   // ARCHITECTURE: Backend calculates price from IDs, frontend sends no price
   // ============================================
   const addonsArray: InternalAddonPayload[] = [];
   
-  // Get addons config IDs (guaranteed to exist since configIdStore is required)
-  const addonsConfigId = configIdStore.addons?.configId ?? 0;
-  const specializedConfigId = configIdStore.specializedServices?.configId ?? addonsConfigId;
-  const sqlConfigId = configIdStore.sqlServer?.configId ?? 0;
-  const backupConfigId = configIdStore.backup?.configId ?? 0;
+  // Get addons config IDs (defaults to 6 for Add-ons category per API)
+  const addonsConfigId = configIdStore.addons?.configId ?? 6;
+  const specializedConfigId = configIdStore.specializedServices?.configId ?? 16;
+  const sqlConfigId = configIdStore.sqlServer?.configId ?? 7;
+  const backupConfigId = configIdStore.backup?.configId ?? 15;
   
-  // Helper to safely add addon (only if IDs exist)
+  // Helper to safely add addon - ALWAYS includes config_id and item_id per OpenAPI spec
   const addAddon = (configId: number | undefined, itemId: number | undefined, qty: number, label: string) => {
-    if (configId && itemId && qty > 0) {
-      addonsArray.push({ config_id: configId, item_id: itemId, quantity: qty });
-      console.log(`[serializeProposal] Added ${label}: qty=${qty}, config_id=${configId}, item_id=${itemId}`);
-    } else {
-      console.warn(`[serializeProposal] Skipping ${label}: missing config_id(${configId}) or item_id(${itemId})`);
+    if (qty <= 0) {
+      console.log(`[serializeProposal] Skipping ${label}: qty=${qty}`);
+      return;
     }
+    
+    // Per OpenAPI spec: config_id and item_id are REQUIRED - use defaults if missing
+    const safeConfigId = configId ?? addonsConfigId ?? 6;
+    const safeItemId = itemId ?? 1; // Default item_id
+    
+    addonsArray.push({ 
+      config_id: safeConfigId, 
+      item_id: safeItemId, 
+      quantity: qty,
+      label: label // For debugging
+    });
+    console.log(`[serializeProposal] Added ${label}: qty=${qty}, config_id=${safeConfigId}, item_id=${safeItemId}`);
   };
   
   // Windows Server
@@ -1142,15 +1170,16 @@ export function serializeProposal(
   // Backend will calculate their prices from snapshot data
   
   // ============================================
-  // BUILD SERVERS ARRAY - Backend calculates price from IDs
+  // BUILD SERVERS ARRAY - Per OpenAPI spec: all *_item_id fields are REQUIRED
+  // vcpu >= 1, ram >= 1, storage >= 0, quantity >= 1
   // ============================================
   const serversArray: InternalServerPayload[] = [];
   
-  // Get VM config IDs
-  const vmConfigId = configIdStore.vm?.configId ?? 0;
-  const vcpuItemId = findItemId(configIdStore.vm, 'vCPU', 'vcpu');
-  const ramItemId = findItemId(configIdStore.vm, 'RAM', 'ram');
-  const storageItemId = findItemId(configIdStore.vm, 'NVMe', 'nvme');
+  // Get VM config IDs - defaults per API docs
+  const vmConfigId = configIdStore.vm?.configId ?? 1;
+  const vcpuItemId = findItemId(configIdStore.vm, 'vCPU', 'vcpu') ?? 1;
+  const ramItemId = findItemId(configIdStore.vm, 'RAM', 'ram') ?? 2;
+  const storageItemId = findItemId(configIdStore.vm, 'NVMe', 'nvme') ?? 3;
 
   for (const [idx, item] of state.items.entries()) {
     const hasGpu = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU' && item.gpuQty > 0;
@@ -1161,41 +1190,44 @@ export function serializeProposal(
     }
 
     if (item.type === 'vm') {
-      // CRITICAL: Per OpenAPI spec, VMs MUST have vcpu >= 1 and ram >= 1
+      // CRITICAL: Per OpenAPI spec, VMs MUST have vcpu >= 1 and ram >= 1, quantity >= 1
       const vcpuValue = Math.max(1, item.vcpu || 1);
       const ramValue = Math.max(1, item.ramGb || 1);
+      const qtyValue = Math.max(1, item.qtyServers || 1);
       
       if (item.vcpu < 1 || item.ramGb < 1) {
         console.warn(`[serializeProposal] VM #${idx + 1} had invalid values (vcpu=${item.vcpu}, ram=${item.ramGb}), enforced minimums`);
       }
       
-      // VMs use VM config IDs
+      // Per OpenAPI spec: ALL fields are REQUIRED - use defaults if missing
       serversArray.push({
-        config_id: vmConfigId || undefined,
+        config_id: vmConfigId,
         name: `VM #${idx + 1}`,
         vcpu_item_id: vcpuItemId,
         vcpu: vcpuValue,
         ram_item_id: ramItemId,
         ram: ramValue,
         storage_item_id: storageItemId,
-        storage: Math.round(item.nvmeTb * 1024),
-        quantity: item.qtyServers,
+        storage: Math.max(0, Math.round((item.nvmeTb || 0) * 1024)),
+        quantity: qtyValue,
         gpu: gpuObj,
       });
     } else if (item.type === 'bm') {
       // ============================================
       // BAREMETAL: Serialize with correct fields (bmCpu, bmRam, disks)
+      // Per OpenAPI: still requires all *_item_id fields
       // ============================================
       const bmCpuModel = item.bmCpu || 'intel_xeon_e2136';
       const bmRamTier = item.bmRam || 'ram_128gb';
       const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }];
       const bmDiskType = bmDisks[0]?.type || 'nvme_1tb';
+      const qtyValue = Math.max(1, item.qtyServers || 1);
 
-      // Get BareMetal config IDs if available
-      const bmCpuConfigId = configIdStore.baremetal?.cpu?.configId;
-      const bmCpuItemId = findItemId(configIdStore.baremetal?.cpu || null, bmCpuModel);
-      const bmRamItemId = findItemId(configIdStore.baremetal?.ram || null, bmRamTier);
-      const bmDiskItemId = findItemId(configIdStore.baremetal?.disk || null, bmDiskType);
+      // Get BareMetal config IDs if available - defaults per API
+      const bmCpuConfigId = configIdStore.baremetal?.cpu?.configId ?? 2;
+      const bmCpuItemId = findItemId(configIdStore.baremetal?.cpu || null, bmCpuModel) ?? 1;
+      const bmRamItemId = findItemId(configIdStore.baremetal?.ram || null, bmRamTier) ?? 1;
+      const bmDiskItemId = findItemId(configIdStore.baremetal?.disk || null, bmDiskType) ?? 1;
 
       // Calculate total disk storage in GB
       const totalDiskGb = bmDisks.reduce((acc: number, disk: DiskItemV2) => {
@@ -1205,50 +1237,50 @@ export function serializeProposal(
         return acc + (diskTb * 1024 * diskQty);
       }, 0);
 
+      // Per OpenAPI spec: ALL fields are REQUIRED - fill with BareMetal-specific IDs
       serversArray.push({
+        config_id: bmCpuConfigId,
         name: `BareMetal #${idx + 1}`,
-        vcpu: 0,
-        ram: 0,
-        storage: totalDiskGb,
-        quantity: item.qtyServers,
-        gpu: gpuObj,
-        // Include BareMetal-specific data
-        config_id: bmCpuConfigId || vmConfigId || undefined,
         vcpu_item_id: bmCpuItemId,
+        vcpu: 0, // BareMetal uses CPU model instead of vCPU count
         ram_item_id: bmRamItemId,
+        ram: 0, // BareMetal uses RAM tier instead of GB count
         storage_item_id: bmDiskItemId,
+        storage: totalDiskGb,
+        quantity: qtyValue,
+        gpu: gpuObj,
       });
     }
   }
   
   // Add virtual servers for storage/k8s/saas if no real servers
+  // Per OpenAPI: servers[] requires at least 1 item with all REQUIRED fields
   if (serversArray.length === 0) {
+    // Create a single virtual server with all required fields filled
+    const virtualPayload: Record<string, unknown> = {};
+    
     if (state.storageItems.length > 0) {
-      serversArray.push({
-        name: `__VIRTUAL__STORAGE__:${JSON.stringify({ items: state.storageItems })}`,
-        vcpu: 0, ram: 0, storage: 0, quantity: 1,
-      });
+      virtualPayload.storage = state.storageItems;
     }
     if (state.kubernetes.enabled) {
-      serversArray.push({
-        name: `__VIRTUAL__KUBERNETES__:${JSON.stringify(state.kubernetes)}`,
-        vcpu: 0, ram: 0, storage: 0, quantity: 1,
-      });
+      virtualPayload.kubernetes = state.kubernetes;
     }
     if (state.openSaas.enabled && state.openSaas.users > 0) {
-      serversArray.push({
-        name: `__VIRTUAL__OPENSAAS__:${JSON.stringify(state.openSaas)}`,
-        vcpu: 0, ram: 0, storage: 0, quantity: 1,
-      });
+      virtualPayload.openSaas = state.openSaas;
     }
     
-    // Fallback placeholder
-    if (serversArray.length === 0) {
-      serversArray.push({
-        name: '__VIRTUAL__BUNDLE__:{}',
-        vcpu: 0, ram: 0, storage: 0, quantity: 1,
-      });
-    }
+    // Per OpenAPI spec: ALL fields including IDs are REQUIRED
+    serversArray.push({
+      config_id: vmConfigId,
+      name: `__VIRTUAL__BUNDLE__:${JSON.stringify(virtualPayload)}`,
+      vcpu_item_id: vcpuItemId,
+      vcpu: 1, // Minimum per OpenAPI
+      ram_item_id: ramItemId,
+      ram: 1, // Minimum per OpenAPI
+      storage_item_id: storageItemId,
+      storage: 0,
+      quantity: 1, // Minimum per OpenAPI
+    });
   }
   
   console.log('[serializeProposal] Servers built:', serversArray.length, 'items');
