@@ -404,8 +404,11 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
   
   // ============================================
   // STEP 5: Extract addons from dedicated field
+  // CRITICAL: This data may come from apiToLocal which already normalized addons
+  // or directly from dados_proposta. We must handle both cases.
   // ============================================
   const rawAddons = data.addons as Record<string, unknown> | undefined;
+  
   // Parse customAddons ensuring values are numbers
   const parseCustomAddons = (obj: unknown): Record<string, number> => {
     if (!obj || typeof obj !== 'object') return {};
@@ -415,22 +418,56 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
     }
     return result;
   };
-  const addons: AddonsState = rawAddons && typeof rawAddons === 'object'
+  
+  // Log incoming addons for debugging
+  console.log('[normalizeProposalForEdit] Raw addons received:', {
+    hasAddons: !!rawAddons,
+    antivirus: rawAddons?.antivirus,
+    firewall: rawAddons?.firewall,
+    sql: rawAddons?.sql,
+    sqlQty: rawAddons?.sqlQty,
+    backupPlan: rawAddons?.backupPlan,
+    backupGb: rawAddons?.backupGb,
+    winserver: rawAddons?.winserver,
+    veeamVm: rawAddons?.veeamVm,
+    veeamAg: rawAddons?.veeamAg,
+    support: rawAddons?.support,
+    consulting: rawAddons?.consulting,
+    dba: rawAddons?.dba,
+  });
+  
+  // Extract addons with EXPLICIT value preservation
+  // CRITICAL: Use !== undefined checks to preserve 0 values and avoid losing them
+  const extractedAddons: AddonsState = rawAddons && typeof rawAddons === 'object'
     ? {
-        backupPlan: (rawAddons.backupPlan as string) || 'none',
+        // Backup
+        backupPlan: (['7', '15', '30'].includes(String(rawAddons.backupPlan)) 
+          ? rawAddons.backupPlan as '7' | '15' | '30'
+          : 'none') as 'none' | '7' | '15' | '30',
         backupGb: toNum(rawAddons.backupGb, 0),
-        antivirus: toNum(rawAddons.antivirus, 0),
-        // Firewall: convert old boolean to number
-        firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
-        tsplus: toNum(rawAddons.tsplus, 0),
-        cal: toNum(rawAddons.cal, 0),
-        sql: (rawAddons.sql as string) || 'none',
-        sqlQty: toNum(rawAddons.sqlQty, 0),
-        veeamVm: toNum(rawAddons.veeamVm, 0),
-        veeamAg: toNum(rawAddons.veeamAg, 0),
-        winserver: toNum(rawAddons.winserver, 0),
+        
+        // Standard addons - PRESERVE 0 VALUES
+        antivirus: rawAddons.antivirus !== undefined ? toNum(rawAddons.antivirus, 0) : 0,
+        firewall: typeof rawAddons.firewall === 'boolean' 
+          ? (rawAddons.firewall ? 1 : 0) 
+          : (rawAddons.firewall !== undefined ? toNum(rawAddons.firewall, 0) : 0),
+        tsplus: rawAddons.tsplus !== undefined ? toNum(rawAddons.tsplus, 0) : 0,
+        cal: rawAddons.cal !== undefined ? toNum(rawAddons.cal, 0) : 0,
+        veeamVm: rawAddons.veeamVm !== undefined ? toNum(rawAddons.veeamVm, 0) : 0,
+        veeamAg: rawAddons.veeamAg !== undefined ? toNum(rawAddons.veeamAg, 0) : 0,
+        winserver: rawAddons.winserver !== undefined ? toNum(rawAddons.winserver, 0) : 0,
+        
+        // SQL - type and quantity
+        sql: (['web', 'std'].includes(String(rawAddons.sql).toLowerCase()) 
+          ? rawAddons.sql as 'web' | 'std'
+          : 'none') as 'none' | 'web' | 'std',
+        sqlQty: rawAddons.sqlQty !== undefined ? toNum(rawAddons.sqlQty, 0) : 0,
+        
+        // Specialized services
         support: {
-          level: (rawAddons.support as any)?.level || 'none',
+          level: (['basic', 'intermediate', 'advanced'].includes(String((rawAddons.support as any)?.level))
+            ? (rawAddons.support as any)?.level
+            : 'none') as 'none' | 'basic' | 'intermediate' | 'advanced',
           price: toNum((rawAddons.support as any)?.price, 0),
         },
         consulting: {
@@ -444,6 +481,20 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
         customAddons: parseCustomAddons(rawAddons.customAddons),
       }
     : { ...DEFAULT_ADDONS };
+  
+  // CRITICAL: Ensure SQL has qty >= 1 when type is selected (prevent 0-qty loss)
+  if (extractedAddons.sql !== 'none' && extractedAddons.sqlQty === 0) {
+    extractedAddons.sqlQty = 1;
+    console.log('[normalizeProposalForEdit] [FIX] SQL qty forced to 1');
+  }
+  
+  // CRITICAL: Ensure Backup has GB >= 1 when plan is selected (prevent 0-GB loss)
+  if (extractedAddons.backupPlan !== 'none' && extractedAddons.backupGb === 0) {
+    extractedAddons.backupGb = 1;
+    console.log('[normalizeProposalForEdit] [FIX] Backup GB forced to 1');
+  }
+  
+  const addons: AddonsState = extractedAddons;
   
   // Log restored addons for debugging
   if (rawAddons) {
@@ -549,7 +600,7 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
     grandTotal: toNum(rawResult?.grandTotal || proposal.total, 0),
   };
   
-  // Log what we found
+  // Log what we found - DETAILED for debugging addon issues
   console.log('[normalizeProposalForEdit] Normalized result:', {
     vmCount: vmItems.length,
     bmCount: baremetalItems.length,
@@ -558,6 +609,22 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
     openSaasEnabled: openSaas.enabled,
     selectedTerm,
     grandTotal: totals.grandTotal,
+    addons: {
+      antivirus: addons.antivirus,
+      firewall: addons.firewall,
+      sql: addons.sql,
+      sqlQty: addons.sqlQty,
+      backupPlan: addons.backupPlan,
+      backupGb: addons.backupGb,
+      veeamVm: addons.veeamVm,
+      veeamAg: addons.veeamAg,
+      winserver: addons.winserver,
+      tsplus: addons.tsplus,
+      cal: addons.cal,
+      support: addons.support,
+      consulting: addons.consulting,
+      dba: addons.dba,
+    },
   });
   
   return {
