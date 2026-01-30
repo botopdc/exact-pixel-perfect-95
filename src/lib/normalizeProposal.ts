@@ -4,6 +4,9 @@
  * SINGLE SOURCE OF TRUTH for normalizing proposal data from API.
  * Used by: PropostaView, OpenCalculator (edit mode), PDF Generator
  * 
+ * CRITICAL: For VIEW/PDF, line items are now built from proposal.servers[] and proposal.addons[]
+ * via buildProposalLineItems(). The dados_proposta snapshot is only used for edit mode hydration.
+ * 
  * This function ensures:
  * 1. servers is always an array (handles object/string/null)
  * 2. addons is always an array (handles object/string/null)
@@ -14,6 +17,7 @@
  */
 
 import { CalculationResult, SummaryRow, getContractDiscount, formatCurrency } from './calculatorConfig';
+import { buildProposalLineItems, LineItemsResult } from './proposalLineItems';
 
 // ============================================================================
 // TYPES
@@ -407,7 +411,7 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   // ============================================
   // STEP 9: Build CalculationResult for rendering
   // ============================================
-  const result = buildResultFromNormalized(servers, addons, totals, dadosProposta);
+  const result = buildResultFromNormalized(servers, addons, totals, dadosProposta, rawProposal);
   
   return {
     id,
@@ -607,12 +611,14 @@ function extractOpenSaasSubtotal(openSaas: unknown): number {
 /**
  * Build CalculationResult from normalized data
  * CRITICAL: Prioritizes snapshot result rows when available (they have correct prices)
+ * FALLBACK: Uses buildProposalLineItems to build from API servers[] and addons[]
  */
 function buildResultFromNormalized(
   servers: NormalizedServer[],
   addons: NormalizedAddon[],
   totals: NormalizedTotals,
-  dadosProposta: Record<string, unknown> | null
+  dadosProposta: Record<string, unknown> | null,
+  rawProposal: Record<string, unknown>
 ): CalculationResult {
   // CRITICAL: If dados_proposta has a result with rows, use those directly
   // They were saved during calculation and have correct prices
@@ -669,6 +675,49 @@ function buildResultFromNormalized(
       overValue: 0,
       overPercent: 0,
       totalWithOver: toNum(snapshotResult.grandTotal, totals.totalMensal),
+    };
+  }
+  
+  // ============================================
+  // FALLBACK: Build from API proposal.servers[] and proposal.addons[]
+  // This is the PRIMARY source of truth per API documentation
+  // ============================================
+  const lineItems = buildProposalLineItems(rawProposal);
+  
+  if (lineItems.hasItems) {
+    console.log('[buildResultFromNormalized] Using buildProposalLineItems (', lineItems.items.length, ' items from API arrays)');
+    
+    const rows: SummaryRow[] = lineItems.items.map(item => ({
+      label: item.label,
+      qty: item.qty,
+      unitPrice: item.unitPrice,
+      subtotal: item.subtotal,
+      finalTotal: item.subtotal,
+      rowKey: item.key,
+    }));
+    
+    // Use API total as source of truth
+    const apiTotal = toNum(rawProposal.total);
+    
+    return {
+      rows,
+      subRec: lineItems.subtotalServers,
+      subIps: 0, // IPs are included in items
+      subServices: lineItems.subtotalAddons,
+      subBackup: 0,
+      subKubernetes: 0,
+      subStorage: 0,
+      subOpenSaas: 0,
+      discountPct: totals.discountPct,
+      discountValue: totals.discountValue,
+      grandTotal: apiTotal > 0 ? apiTotal : lineItems.grandTotal,
+      totalServers: lineItems.items.filter(i => i.category === 'server').reduce((sum, i) => sum + i.qty, 0),
+      gpuUsdTotal: 0,
+      gpuBrlTotal: 0,
+      subtotalPriceList: lineItems.grandTotal,
+      overValue: 0,
+      overPercent: 0,
+      totalWithOver: apiTotal > 0 ? apiTotal : lineItems.grandTotal,
     };
   }
   
