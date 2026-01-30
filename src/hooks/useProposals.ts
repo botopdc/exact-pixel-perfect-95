@@ -306,7 +306,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       for (const addon of apiAddonsArray) {
         if (!addon) continue;
         
-        const addonName = String(addon.name || '').toLowerCase().trim();
+        // CRITICAL: API returns 'label' not 'name' - use label as primary
+        const addonName = String(addon.label || addon.name || '').toLowerCase().trim();
         const addonQty = toNum(addon.quantity, 1);
         const addonPrice = toNum(addon.price, 0);
         
@@ -705,9 +706,10 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   
   if (apiProposal.addons && Array.isArray(apiProposal.addons)) {
     for (const addon of apiProposal.addons) {
-      if (!addon.name) continue;
+      // CRITICAL: API returns 'label' not 'name' - use label as primary
+      const addonName = (addon.label || addon.name || '').trim();
+      if (!addonName) continue;
       
-      const addonName = addon.name.trim();
       const addonPrice = toNum(addon.price, 0);
       const addonQty = toNum(addon.quantity, 1);
       const addonNameLower = addonName.toLowerCase();
