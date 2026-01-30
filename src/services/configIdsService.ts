@@ -225,50 +225,95 @@ export function getAddonConfig(
   store: ConfigIdStore,
   code: string
 ): ConfigIdMapping | undefined {
+  // Comprehensive mapping of code → possible labels in API
+  // CRITICAL: These labels must match EXACTLY what the API returns
   const codeToLabels: Record<string, string[]> = {
-    'antivirus': ['Antivírus', 'Antivirus'],
-    'firewall': ['Firewall pfSense', 'Firewall', 'Firewall (qtd)'],
-    'tsplus': ['TSplus', 'TS Plus', 'TSPlus'],
-    'cal': ['CAL', 'CAL / TS-CAL', 'TS-CAL'],
-    'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)', 'Veeam (VM)'],
-    'veeam_agent': ['Veeam Agent', 'Veeam Agent (Workstation)'],
-    'winserver': ['WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer 2vCPU', 'WinServer'],
-    'support_basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)'],
-    'support_intermediate': ['Suporte Intermediário', 'Suporte Intermediario', 'Suporte (Intermediário)'],
-    'support_advanced': ['Suporte Avançado', 'Suporte Avancado', 'Suporte (Avançado)'],
-    'consulting': ['Consultoria Técnica', 'Consultoria Tecnica', 'Consultoria Técnica (horas)', 'Consultoria', 'Horas de Consultoria'],
-    'dba': ['DBA', 'DBA (horas)', 'Horas de DBA', 'DBA Remoto'],
+    // Standard Add-ons
+    'antivirus': ['Antivírus', 'Antivirus', 'Antivírus (unid.)', 'Antivirus (unid.)'],
+    'firewall': ['Firewall pfSense', 'Firewall', 'Firewall (qtd)', 'pfSense'],
+    'tsplus': ['TSplus', 'TS Plus', 'TSPlus', 'TSplus (unid.)'],
+    'cal': ['CAL', 'CAL / TS-CAL', 'TS-CAL', 'CAL (unid.)'],
+    'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)', 'Veeam (VM)', 'Veeam VM (unid.)'],
+    'veeam_agent': ['Veeam Agent', 'Veeam Agent (Workstation)', 'Veeam (Agent)', 'Veeam Agent (unid.)'],
+    // Windows Server - multiple possible labels
+    'winserver': ['WinServer(2vCPU/unid.)', 'WinServer 2vCPU/unid.', 'Windows Server', 'WinServer', 'WinServer (2vCPU)', 'Win Server'],
+    'winserver_2vcpu_unit': ['WinServer(2vCPU/unid.)', 'WinServer 2vCPU/unid.', 'Windows Server', 'WinServer', 'WinServer (2vCPU)'],
+    // Serviços Especializados - Support
+    'support_basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)', 'Suporte (Basico)', 'Support Basic'],
+    'support_intermediate': ['Suporte Intermediário', 'Suporte Intermediario', 'Suporte (Intermediário)', 'Suporte (Intermediario)', 'Support Intermediate'],
+    'support_advanced': ['Suporte Avançado', 'Suporte Avancado', 'Suporte (Avançado)', 'Suporte (Avancado)', 'Support Advanced'],
+    // Serviços Especializados - Consulting & DBA
+    'consulting': ['Consultoria Técnica (horas)', 'Consultoria Técnica', 'Consultoria Tecnica (horas)', 'Consultoria Tecnica', 'Consultoria', 'Horas de Consultoria', 'Consulting'],
+    'consulting_hours': ['Consultoria Técnica (horas)', 'Consultoria Técnica', 'Consultoria Tecnica (horas)', 'Consultoria Tecnica', 'Consultoria', 'Horas de Consultoria'],
+    'dba': ['DBA (horas)', 'DBA', 'Horas de DBA', 'DBA Remoto', 'DBA as a Service'],
+    'dba_hours': ['DBA (horas)', 'DBA', 'Horas de DBA', 'DBA Remoto'],
+    // Independent products
+    'storage': ['Storage', 'Storage SAS', 'Storage NVMe', 'Bucket S3'],
+    'kubernetes': ['Kubernetes', 'K8s', 'Container'],
+    'open_saas': ['OPEN SaaS', 'Open SaaS', 'SaaS', 'OpenSaaS'],
   };
   
   // Items that should be searched in Serviços Especializados first
-  const servicosEspecializadosCodes = ['support_basic', 'support_intermediate', 'support_advanced', 'consulting', 'dba'];
+  const servicosEspecializadosCodes = ['support_basic', 'support_intermediate', 'support_advanced', 'consulting', 'consulting_hours', 'dba', 'dba_hours'];
   
   const labels = codeToLabels[code] || [code];
   
   // Try Serviços Especializados first for specialized services
   if (servicosEspecializadosCodes.includes(code)) {
-    // Try as category
+    // Try as category "Serviços Especializados"
     let result = findConfigByLabels(store, 'Serviços Especializados', ...labels);
-    if (result) return result;
+    if (result) {
+      console.log(`[configIdsService] Found ${code} in 'Serviços Especializados':`, result.configId, result.label);
+      return result;
+    }
     
     // Try in Add-ons category but with section "Serviços Especializados"
     // (some configs have category=Add-ons, section=Serviços Especializados)
     const allConfigs = getConfigsByCategory(store, 'Add-ons');
     for (const config of allConfigs) {
-      if (config.section === 'Serviços Especializados') {
+      if (config.section && config.section.toLowerCase().includes('especializado')) {
         const normalizedLabel = config.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         for (const label of labels) {
           const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           if (normalizedLabel === normalizedSearch || normalizedLabel.includes(normalizedSearch) || normalizedSearch.includes(normalizedLabel)) {
+            console.log(`[configIdsService] Found ${code} in Add-ons/Serviços Especializados:`, config.configId, config.label);
             return config;
           }
         }
       }
     }
+    
+    // Also try Geral category
+    result = findConfigByLabels(store, 'Geral', ...labels);
+    if (result) {
+      console.log(`[configIdsService] Found ${code} in 'Geral':`, result.configId, result.label);
+      return result;
+    }
   }
   
-  // Fallback to Add-ons category
-  return findConfigByLabels(store, 'Add-ons', ...labels);
+  // Try Add-ons category
+  let result = findConfigByLabels(store, 'Add-ons', ...labels);
+  if (result) {
+    console.log(`[configIdsService] Found ${code} in 'Add-ons':`, result.configId, result.label);
+    return result;
+  }
+  
+  // Fallback: search ALL categories for the labels (global search)
+  for (const [category, configs] of store.byCategory) {
+    for (const config of configs) {
+      const normalizedConfigLabel = config.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      for (const label of labels) {
+        const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (normalizedConfigLabel === normalizedSearch || normalizedConfigLabel.includes(normalizedSearch) || normalizedSearch.includes(normalizedConfigLabel)) {
+          console.log(`[configIdsService] Found ${code} via global search in '${category}':`, config.configId, config.label);
+          return config;
+        }
+      }
+    }
+  }
+  
+  console.warn(`[configIdsService] Addon NOT FOUND: ${code}, searched labels:`, labels);
+  return undefined;
 }
 
 /**
