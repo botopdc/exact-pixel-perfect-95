@@ -982,67 +982,129 @@ export interface SerializationValidation {
 }
 
 /**
+ * Raw item from API for section-based lookups
+ */
+export interface FlatConfigRawItem {
+  id: number;
+  label: string;
+  value: number;
+  meta?: { category?: string; section?: string };
+}
+
+/**
  * Store for config_id lookups (simplified for flat structure)
  */
 export interface FlatConfigStore {
   // All configs indexed by ID
-  byId: Map<number, { id: number; label: string; value: number; category: string }>;
+  byId: Map<number, { id: number; label: string; value: number; category: string; section?: string }>;
   // Configs by category → label → id
   byCategoryLabel: Map<string, Map<string, number>>;
+  // Configs by section → label → id (for items like "Serviços Especializados")
+  bySectionLabel: Map<string, Map<string, number>>;
+  // Raw items for advanced searches
+  rawItems: FlatConfigRawItem[];
 }
 
 /**
  * Build a flat config store from API items
  */
 export function buildFlatConfigStore(
-  items: Array<{ id: number; label: string; value: number; meta?: { category?: string } }>
+  items: Array<{ id: number; label: string; value: number; meta?: { category?: string; section?: string } }>
 ): FlatConfigStore {
   const store: FlatConfigStore = {
     byId: new Map(),
     byCategoryLabel: new Map(),
+    bySectionLabel: new Map(),
+    rawItems: items.map(i => ({ id: i.id, label: i.label, value: i.value, meta: i.meta })),
   };
   
   for (const item of items) {
     const category = item.meta?.category || 'Unknown';
+    const section = item.meta?.section || '';
     
     store.byId.set(item.id, {
       id: item.id,
       label: item.label,
       value: item.value,
       category,
+      section,
     });
     
+    // Index by category
     if (!store.byCategoryLabel.has(category)) {
       store.byCategoryLabel.set(category, new Map());
     }
     const categoryMap = store.byCategoryLabel.get(category)!;
-    
-    // Store with original label
     categoryMap.set(item.label, item.id);
-    // Store with normalized label
-    const normalized = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-    categoryMap.set(normalized, item.id);
+    const normalizedLabel = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+    categoryMap.set(normalizedLabel, item.id);
+    
+    // Index by section (for items like "Serviços Especializados" that are sections within "Add-ons")
+    if (section) {
+      if (!store.bySectionLabel.has(section)) {
+        store.bySectionLabel.set(section, new Map());
+      }
+      const sectionMap = store.bySectionLabel.get(section)!;
+      sectionMap.set(item.label, item.id);
+      sectionMap.set(normalizedLabel, item.id);
+    }
   }
+  
+  // Log categories and sections found
+  console.log('[buildFlatConfigStore] Categories found:', Array.from(store.byCategoryLabel.keys()));
+  console.log('[buildFlatConfigStore] Sections found:', Array.from(store.bySectionLabel.keys()));
   
   return store;
 }
 
 /**
  * Find config_id by label in a category
+ * Enhanced: Also searches by section when category lookup fails
  */
 function findConfigId(
   store: FlatConfigStore,
   category: string,
   ...labels: string[]
 ): number | undefined {
+  // Try direct category lookup first
   const categoryMap = store.byCategoryLabel.get(category);
-  if (!categoryMap) return undefined;
-  
-  for (const label of labels) {
-    if (categoryMap.has(label)) return categoryMap.get(label);
-    const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-    if (categoryMap.has(normalized)) return categoryMap.get(normalized);
+  if (categoryMap) {
+    for (const label of labels) {
+      if (categoryMap.has(label)) return categoryMap.get(label);
+      const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+      if (categoryMap.has(normalized)) return categoryMap.get(normalized);
+    }
   }
+  
+  // Try section-based lookup (for items like "Serviços Especializados" which might be a section in "Add-ons")
+  const sectionMap = store.bySectionLabel.get(category);
+  if (sectionMap) {
+    for (const label of labels) {
+      if (sectionMap.has(label)) return sectionMap.get(label);
+      const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+      if (sectionMap.has(normalized)) return sectionMap.get(normalized);
+    }
+  }
+  
+  // Fallback: search raw items for flexible matching
+  for (const item of store.rawItems) {
+    const itemSection = item.meta?.section;
+    const itemCategory = item.meta?.category;
+    
+    // Check if section or category matches our search parameter
+    if (itemSection === category || itemCategory === category) {
+      for (const label of labels) {
+        const normalizedItem = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+        const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+        
+        if (item.label === label || normalizedItem === normalizedSearch || 
+            item.label.toLowerCase().includes(label.toLowerCase()) || label.toLowerCase().includes(item.label.toLowerCase())) {
+          return item.id;
+        }
+      }
+    }
+  }
+  
   return undefined;
 }
 
@@ -1098,6 +1160,41 @@ export function serializeProposal(
 ): ApiProposalPayload {
   console.log('[serializeProposal] Serializing state for save (FLAT structure)...');
   
+  // ========== ADDON AUDIT LOG ==========
+  console.log('[serializeProposal] ===== ADDON AUDIT START =====');
+  console.log('[serializeProposal] State addons:', JSON.stringify({
+    winserver: state.addons.winserver,
+    support: state.addons.support,
+    consulting: state.addons.consulting,
+    dba: state.addons.dba,
+    backupPlan: state.addons.backupPlan,
+    backupGb: state.addons.backupGb,
+    antivirus: state.addons.antivirus,
+    firewall: state.addons.firewall,
+    tsplus: state.addons.tsplus,
+    cal: state.addons.cal,
+    veeamVm: state.addons.veeamVm,
+    veeamAg: state.addons.veeamAg,
+    sql: state.addons.sql,
+    sqlQty: state.addons.sqlQty,
+  }, null, 2));
+  
+  // Log available configs per category for debugging
+  console.log('[serializeProposal] Available categories:', Array.from(configStore.byCategoryLabel.keys()));
+  console.log('[serializeProposal] Available sections:', Array.from(configStore.bySectionLabel.keys()));
+  
+  // Log specific categories for debugging
+  const addonsCategory = configStore.byCategoryLabel.get('Add-ons');
+  if (addonsCategory) {
+    console.log('[serializeProposal] Add-ons category items:', Array.from(addonsCategory.keys()).slice(0, 30));
+  }
+  const servicosSection = configStore.bySectionLabel.get('Serviços Especializados');
+  if (servicosSection) {
+    console.log('[serializeProposal] Serviços Especializados section items:', Array.from(servicosSection.keys()));
+  }
+  console.log('[serializeProposal] ===== ADDON AUDIT END =====');
+  // ========================================
+  
   const datacenterNames: Record<string, string> = {
     'SP1': 'São Paulo',
     'SP2': 'São Paulo 2',
@@ -1116,15 +1213,17 @@ export function serializeProposal(
   // Backend calculates price from config_id
   // ============================================
   const addonsArray: InternalAddonPayload[] = [];
+  const addonAudit: { name: string; found: boolean; configId?: number }[] = [];
   
   // Helper to safely add addon
   const addAddon = (configId: number | undefined, qty: number, label: string) => {
+    addonAudit.push({ name: label, found: !!configId, configId });
     if (qty <= 0 || !configId) {
-      if (!configId) console.warn(`[serializeProposal] ⚠️ Skipping ${label}: missing config_id`);
+      if (!configId && qty > 0) console.warn(`[serializeProposal] ⚠️ MISSING CONFIG_ID for ${label} (qty=${qty})`);
       return;
     }
     addonsArray.push({ config_id: configId, quantity: qty, label });
-    console.log(`[serializeProposal] Added ${label}: qty=${qty}, config_id=${configId}`);
+    console.log(`[serializeProposal] ✅ Added ${label}: qty=${qty}, config_id=${configId}`);
   };
   
   // Windows Server
@@ -1133,33 +1232,41 @@ export function serializeProposal(
     addAddon(configId, state.addons.winserver, 'WinServer');
   }
   
-  // Support (Serviços Especializados category)
+  // Support (Serviços Especializados - may be category or section)
   if (state.addons.support.level !== 'none') {
     const supportLabels: Record<string, string[]> = {
-      'basic': ['Suporte Básico', 'support_basic'],
-      'intermediate': ['Suporte Intermediário', 'support_intermediate'],
-      'advanced': ['Suporte Avançado', 'support_advanced'],
+      'basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)', 'Suporte (Basico)', 'support_basic', 'suporte_basico'],
+      'intermediate': ['Suporte Intermediário', 'Suporte Intermediario', 'Suporte (Intermediário)', 'support_intermediate', 'suporte_intermediario'],
+      'advanced': ['Suporte Avançado', 'Suporte Avancado', 'Suporte (Avançado)', 'support_advanced', 'suporte_avancado'],
     };
     const labels = supportLabels[state.addons.support.level] || supportLabels['basic'];
-    // Try Serviços Especializados first, then Add-ons as fallback
+    // Try multiple categories/sections for specialized services
     let configId = findConfigId(configStore, 'Serviços Especializados', ...labels);
     if (!configId) configId = findConfigId(configStore, 'Add-ons', ...labels);
+    if (!configId) configId = findConfigId(configStore, 'Geral', ...labels);
     addAddon(configId, 1, `Support ${state.addons.support.level}`);
   }
   
-  // Consultoria Técnica (Serviços Especializados category)
+  // Consultoria Técnica (Serviços Especializados - may be category or section)
   if (state.addons.consulting.quantity > 0) {
-    // Try Serviços Especializados first, then Add-ons as fallback
-    let configId = findConfigId(configStore, 'Serviços Especializados', 'Consultoria Técnica', 'Consultoria', 'consulting');
-    if (!configId) configId = findConfigId(configStore, 'Add-ons', 'Consultoria Técnica', 'Consultoria');
+    const consultingLabels = [
+      'Consultoria Técnica', 'Consultoria Tecnica', 'Consultoria Técnica (horas)', 'Consultoria',
+      'consulting', 'consultoria_tecnica', 'Consultoria (horas)', 'Horas de Consultoria'
+    ];
+    let configId = findConfigId(configStore, 'Serviços Especializados', ...consultingLabels);
+    if (!configId) configId = findConfigId(configStore, 'Add-ons', ...consultingLabels);
+    if (!configId) configId = findConfigId(configStore, 'Geral', ...consultingLabels);
     addAddon(configId, state.addons.consulting.quantity, 'Consulting');
   }
   
-  // DBA (Serviços Especializados category)
+  // DBA (Serviços Especializados - may be category or section)
   if (state.addons.dba.quantity > 0) {
-    // Try Serviços Especializados first, then Add-ons as fallback
-    let configId = findConfigId(configStore, 'Serviços Especializados', 'DBA', 'dba');
-    if (!configId) configId = findConfigId(configStore, 'Add-ons', 'DBA');
+    const dbaLabels = [
+      'DBA', 'DBA (horas)', 'Horas de DBA', 'dba', 'DBA Remoto', 'DBA as a Service'
+    ];
+    let configId = findConfigId(configStore, 'Serviços Especializados', ...dbaLabels);
+    if (!configId) configId = findConfigId(configStore, 'Add-ons', ...dbaLabels);
+    if (!configId) configId = findConfigId(configStore, 'Geral', ...dbaLabels);
     addAddon(configId, state.addons.dba.quantity, 'DBA');
   }
   
@@ -1215,8 +1322,16 @@ export function serializeProposal(
     addAddon(configId, sqlQty, `SQL ${edition}`);
   }
   
+  // Log final addon audit
+  console.log('[serializeProposal] ===== ADDON AUDIT RESULT =====');
   console.log('[serializeProposal] Addons built:', addonsArray.length, 'items');
-  
+  console.log('[serializeProposal] Addon audit:', JSON.stringify(addonAudit, null, 2));
+  const missingAddons = addonAudit.filter(a => !a.found);
+  if (missingAddons.length > 0) {
+    console.warn('[serializeProposal] ⚠️ MISSING ADDONS:', missingAddons.map(a => a.name).join(', '));
+  }
+  console.log('[serializeProposal] ===== ADDON AUDIT RESULT END =====');
+
   // ============================================
   // BUILD SERVERS ARRAY - Per new OpenAPI spec: { name, specs[], quantity }
   // specs[] is array of { config_id, value }

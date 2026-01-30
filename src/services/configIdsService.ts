@@ -219,7 +219,7 @@ export function getVmConfigIds(store: ConfigIdStore): {
 
 /**
  * Get addon config by code
- * NOTE: Some addons are in 'Serviços Especializados' category (Support, Consulting, DBA)
+ * NOTE: Some addons are in 'Serviços Especializados' category/section (Support, Consulting, DBA)
  */
 export function getAddonConfig(
   store: ConfigIdStore,
@@ -228,27 +228,43 @@ export function getAddonConfig(
   const codeToLabels: Record<string, string[]> = {
     'antivirus': ['Antivírus', 'Antivirus'],
     'firewall': ['Firewall pfSense', 'Firewall', 'Firewall (qtd)'],
-    'tsplus': ['TSplus', 'TS Plus'],
-    'cal': ['CAL', 'CAL / TS-CAL'],
-    'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)'],
+    'tsplus': ['TSplus', 'TS Plus', 'TSPlus'],
+    'cal': ['CAL', 'CAL / TS-CAL', 'TS-CAL'],
+    'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)', 'Veeam (VM)'],
     'veeam_agent': ['Veeam Agent', 'Veeam Agent (Workstation)'],
-    'winserver': ['WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer 2vCPU'],
-    'support_basic': ['Suporte Básico'],
-    'support_intermediate': ['Suporte Intermediário'],
-    'support_advanced': ['Suporte Avançado'],
-    'consulting': ['Consultoria Técnica', 'Consultoria'],
-    'dba': ['DBA'],
+    'winserver': ['WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer 2vCPU', 'WinServer'],
+    'support_basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)'],
+    'support_intermediate': ['Suporte Intermediário', 'Suporte Intermediario', 'Suporte (Intermediário)'],
+    'support_advanced': ['Suporte Avançado', 'Suporte Avancado', 'Suporte (Avançado)'],
+    'consulting': ['Consultoria Técnica', 'Consultoria Tecnica', 'Consultoria Técnica (horas)', 'Consultoria', 'Horas de Consultoria'],
+    'dba': ['DBA', 'DBA (horas)', 'Horas de DBA', 'DBA Remoto'],
   };
   
-  // Items in Serviços Especializados category
+  // Items that should be searched in Serviços Especializados first
   const servicosEspecializadosCodes = ['support_basic', 'support_intermediate', 'support_advanced', 'consulting', 'dba'];
   
   const labels = codeToLabels[code] || [code];
   
   // Try Serviços Especializados first for specialized services
   if (servicosEspecializadosCodes.includes(code)) {
-    const result = findConfigByLabels(store, 'Serviços Especializados', ...labels);
+    // Try as category
+    let result = findConfigByLabels(store, 'Serviços Especializados', ...labels);
     if (result) return result;
+    
+    // Try in Add-ons category but with section "Serviços Especializados"
+    // (some configs have category=Add-ons, section=Serviços Especializados)
+    const allConfigs = getConfigsByCategory(store, 'Add-ons');
+    for (const config of allConfigs) {
+      if (config.section === 'Serviços Especializados') {
+        const normalizedLabel = config.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        for (const label of labels) {
+          const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          if (normalizedLabel === normalizedSearch || normalizedLabel.includes(normalizedSearch) || normalizedSearch.includes(normalizedLabel)) {
+            return config;
+          }
+        }
+      }
+    }
   }
   
   // Fallback to Add-ons category
