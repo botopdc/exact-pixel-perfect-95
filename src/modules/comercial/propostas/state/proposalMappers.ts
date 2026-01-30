@@ -94,6 +94,15 @@ function mergeAddonsWithApiPrecedence(snapshot: AddonsStateV2, api: AddonsStateV
 export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): OpenCalculatorState {
   console.log('[hydrateProposalForEdit] Starting hydration for proposal:', apiProposal.id);
   
+  // DEBUG: Log exactly what the API returned for addons/servers
+  console.log('[hydrateProposalForEdit] RAW API addons type:', typeof apiProposal.addons, 
+    'isArray:', Array.isArray(apiProposal.addons),
+    'keys:', apiProposal.addons && typeof apiProposal.addons === 'object' ? Object.keys(apiProposal.addons) : 'N/A');
+  console.log('[hydrateProposalForEdit] RAW API addons value:', JSON.stringify(apiProposal.addons, null, 2));
+  console.log('[hydrateProposalForEdit] RAW API servers type:', typeof apiProposal.servers, 
+    'isArray:', Array.isArray(apiProposal.servers));
+  console.log('[hydrateProposalForEdit] RAW API servers value:', JSON.stringify(apiProposal.servers, null, 2));
+  
   const state = createDefaultCalculatorState();
   
   // Set edit mode flags
