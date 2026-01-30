@@ -1156,14 +1156,22 @@ export function serializeProposal(
     }
 
     if (item.type === 'vm') {
+      // CRITICAL: Per OpenAPI spec, VMs MUST have vcpu >= 1 and ram >= 1
+      const vcpuValue = Math.max(1, item.vcpu || 1);
+      const ramValue = Math.max(1, item.ramGb || 1);
+      
+      if (item.vcpu < 1 || item.ramGb < 1) {
+        console.warn(`[serializeProposal] VM #${idx + 1} had invalid values (vcpu=${item.vcpu}, ram=${item.ramGb}), enforced minimums`);
+      }
+      
       // VMs use VM config IDs
       serversArray.push({
         config_id: vmConfigId || undefined,
         name: `VM #${idx + 1}`,
         vcpu_item_id: vcpuItemId,
-        vcpu: item.vcpu,
+        vcpu: vcpuValue,
         ram_item_id: ramItemId,
-        ram: item.ramGb,
+        ram: ramValue,
         storage_item_id: storageItemId,
         storage: Math.round(item.nvmeTb * 1024),
         quantity: item.qtyServers,
