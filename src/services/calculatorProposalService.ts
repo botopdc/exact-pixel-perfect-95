@@ -24,10 +24,16 @@ export interface ApprovalTokenResponse {
   token: string;
 }
 
+/**
+ * Payload for define-acceptance endpoint
+ * 
+ * CRITICAL: Per OpenAPI spec (DefineProposalAcceptanceRequest):
+ * - status MUST be "Aprovado" or "Recusado" (NOT "Reprovado")
+ */
 export interface DefineAcceptancePayload {
   proposal_id: number;       // INTEGER - required
   approval_token: string;    // STRING - required
-  status: 'Aprovado' | 'Reprovado';  // ENUM - required, case-sensitive
+  status: 'Aprovado' | 'Recusado';  // FIXED: "Recusado" not "Reprovado" per API spec
 }
 
 export interface CalculatorProposal {
@@ -103,8 +109,9 @@ export async function defineAcceptance(payload: DefineAcceptancePayload): Promis
     throw new Error('approval_token is required');
   }
   
-  if (payload.status !== 'Aprovado' && payload.status !== 'Reprovado') {
-    throw new Error('status must be "Aprovado" or "Reprovado"');
+  // FIXED: Per OpenAPI spec, status must be "Recusado" not "Reprovado"
+  if (payload.status !== 'Aprovado' && payload.status !== 'Recusado') {
+    throw new Error('status must be "Aprovado" or "Recusado" (not "Reprovado")');
   }
   
   await publicClient.post('/calculator/proposal/define-acceptance', payload);

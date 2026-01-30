@@ -743,12 +743,15 @@ class OpenApiClient {
    * 
    * POST /api/calculator/proposal/define-acceptance
    * 
+   * CRITICAL: Per OpenAPI spec (DefineProposalAcceptanceRequest):
+   * - status MUST be "Aprovado" or "Recusado" (NOT "Reprovado")
+   * 
    * @param payload - Acceptance payload per DefineProposalAcceptanceRequest schema
    */
   async defineProposalAcceptance(payload: {
     proposal_id: number;
     approval_token: string;
-    status: 'Aprovado' | 'Reprovado';
+    status: 'Aprovado' | 'Recusado'; // FIXED: "Recusado" not "Reprovado" per API spec
   }): Promise<void> {
     await this.client.post('/calculator/proposal/define-acceptance', payload);
   }
