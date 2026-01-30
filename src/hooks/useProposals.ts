@@ -271,56 +271,181 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     });
     
     // ============================================
-    // ADDONS RESTORATION: Log addons being restored from dados_proposta
-    // CRITICAL: Ensure SQL and Backup have minimum qty when selected
+    // ADDONS RESTORATION: Hybrid approach
+    // 1. Try dados_proposta.addons first (snapshot)
+    // 2. THEN merge from apiProposal.addons[] (API array) as fallback
+    // This ensures addons are restored even if snapshot is incomplete
     // ============================================
     const rawAddons = dadosProposta.addons || {};
     
+    // STEP 1: Initialize from dados_proposta.addons (snapshot)
+    let sqlType = rawAddons.sql || 'none';
+    let sqlQtyRaw = toNum(rawAddons.sqlQty, 0);
+    let backupPlan = rawAddons.backupPlan || 'none';
+    let backupGbRaw = toNum(rawAddons.backupGb, 0);
+    let antivirusQty = toNum(rawAddons.antivirus, 0);
+    let firewallQty = typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0);
+    let tsplusQty = toNum(rawAddons.tsplus, 0);
+    let calQty = toNum(rawAddons.cal, 0);
+    let veeamVmQty = toNum(rawAddons.veeamVm, 0);
+    let veeamAgQty = toNum(rawAddons.veeamAg, 0);
+    let winserverQty = toNum(rawAddons.winserver, 0);
+    let supportLevel = rawAddons.support?.level || 'none';
+    let supportPrice = toNum(rawAddons.support?.price, 0);
+    let consultingQty = toNum(rawAddons.consulting?.quantity, 0);
+    let consultingPrice = toNum(rawAddons.consulting?.unitPrice, 200);
+    let dbaQty = toNum(rawAddons.dba?.quantity, 0);
+    let dbaPrice = toNum(rawAddons.dba?.unitPrice, 250);
+    
+    // STEP 2: Merge from apiProposal.addons[] array if dados_proposta is incomplete
+    // This is critical when addons were saved via API but snapshot is empty
+    const apiAddonsArray = apiProposal.addons || [];
+    if (Array.isArray(apiAddonsArray) && apiAddonsArray.length > 0) {
+      console.log('[apiToLocal] Merging addons from API array:', apiAddonsArray.length, 'items');
+      
+      for (const addon of apiAddonsArray) {
+        if (!addon) continue;
+        
+        const addonName = String(addon.name || '').toLowerCase().trim();
+        const addonQty = toNum(addon.quantity, 1);
+        const addonPrice = toNum(addon.price, 0);
+        
+        // Skip if name is empty or if it's a virtual/product bundle
+        if (!addonName || addonName.includes('virtual') || addonName.includes('bundle')) continue;
+        
+        // Match addon by name patterns and apply quantity
+        if (addonName.includes('antivirus') || addonName.includes('antivírus')) {
+          if (antivirusQty === 0) {
+            antivirusQty = addonQty;
+            console.log('[EDIT] Antivirus restored from API array:', addonQty);
+          }
+        } else if (addonName.includes('firewall')) {
+          if (firewallQty === 0) {
+            firewallQty = addonQty > 0 ? addonQty : 1;
+            console.log('[EDIT] Firewall restored from API array:', firewallQty);
+          }
+        } else if (addonName.includes('tsplus') || addonName.includes('ts plus')) {
+          if (tsplusQty === 0) {
+            tsplusQty = addonQty;
+            console.log('[EDIT] TSPlus restored from API array:', addonQty);
+          }
+        } else if ((addonName.includes('cal') || addonName.includes('ts-cal')) && !addonName.includes('technical')) {
+          if (calQty === 0) {
+            calQty = addonQty;
+            console.log('[EDIT] CAL restored from API array:', addonQty);
+          }
+        } else if (addonName.includes('veeam') && addonName.includes('vm')) {
+          if (veeamVmQty === 0) {
+            veeamVmQty = addonQty;
+            console.log('[EDIT] Veeam VM restored from API array:', addonQty);
+          }
+        } else if (addonName.includes('veeam') && (addonName.includes('agent') || addonName.includes('workstation'))) {
+          if (veeamAgQty === 0) {
+            veeamAgQty = addonQty;
+            console.log('[EDIT] Veeam Agent restored from API array:', addonQty);
+          }
+        } else if (addonName.includes('winserver') || addonName.includes('windows server') || addonName.includes('win server')) {
+          if (winserverQty === 0) {
+            winserverQty = addonQty;
+            console.log('[EDIT] WindowsServer restored from API array:', addonQty);
+          }
+        } else if (addonName.includes('sql')) {
+          if (sqlType === 'none') {
+            // Detect SQL type from name
+            if (addonName.includes('std') || addonName.includes('standard')) {
+              sqlType = 'std';
+            } else if (addonName.includes('web')) {
+              sqlType = 'web';
+            } else {
+              sqlType = 'std'; // Default to standard
+            }
+            sqlQtyRaw = addonQty;
+            console.log('[EDIT] SQL restored from API array:', { type: sqlType, qty: addonQty });
+          }
+        } else if (addonName.includes('backup')) {
+          if (backupPlan === 'none') {
+            // Detect backup plan from name (7, 15, 30 days)
+            if (addonName.includes('30')) backupPlan = '30';
+            else if (addonName.includes('15')) backupPlan = '15';
+            else if (addonName.includes('7')) backupPlan = '7';
+            else backupPlan = '7'; // Default to 7 days
+            backupGbRaw = addonQty;
+            console.log('[EDIT] Backup restored from API array: plan=', backupPlan, ', gb=', addonQty);
+          }
+        } else if (addonName.includes('suporte') || addonName.includes('support')) {
+          if (supportLevel === 'none') {
+            // Detect support level
+            if (addonName.includes('avançado') || addonName.includes('avancado') || addonName.includes('advanced')) {
+              supportLevel = 'advanced';
+            } else if (addonName.includes('intermediário') || addonName.includes('intermediario') || addonName.includes('intermediate')) {
+              supportLevel = 'intermediate';
+            } else if (addonName.includes('básico') || addonName.includes('basico') || addonName.includes('basic')) {
+              supportLevel = 'basic';
+            }
+            supportPrice = addonPrice;
+            console.log('[EDIT] Support restored from API array:', { level: supportLevel, price: addonPrice });
+          }
+        } else if (addonName.includes('consultoria') || addonName.includes('consulting')) {
+          if (consultingQty === 0) {
+            consultingQty = addonQty;
+            consultingPrice = addonPrice > 0 ? addonPrice : 200;
+            console.log('[EDIT] Consulting restored from API array:', { qty: addonQty, price: consultingPrice });
+          }
+        } else if (addonName === 'dba' || addonName.includes('dba ')) {
+          if (dbaQty === 0) {
+            dbaQty = addonQty;
+            dbaPrice = addonPrice > 0 ? addonPrice : 250;
+            console.log('[EDIT] DBA restored from API array:', { qty: addonQty, price: dbaPrice });
+          }
+        }
+      }
+    }
+    
     // CRITICAL: Ensure SQL has qty >= 1 when type is selected
-    const sqlType = rawAddons.sql || 'none';
-    const sqlQtyRaw = toNum(rawAddons.sqlQty, 0);
     const finalSqlQty = sqlType !== 'none' && sqlQtyRaw === 0 ? 1 : sqlQtyRaw;
     
     // CRITICAL: Ensure Backup has GB >= 1 when plan is selected
-    const backupPlan = rawAddons.backupPlan || 'none';
-    const backupGbRaw = toNum(rawAddons.backupGb, 0);
     const finalBackupGb = backupPlan !== 'none' && backupGbRaw === 0 ? 1 : backupGbRaw;
     
-    // Log specific addons for debugging
-    if (toNum(rawAddons.winserver, 0) > 0) {
-      console.log('[EDIT] WindowsServer units restored:', toNum(rawAddons.winserver, 0));
-    }
-    if (backupPlan !== 'none') {
-      console.log('[EDIT] Backup restored: plan=', backupPlan, ', gb=', finalBackupGb);
-    }
-    if (sqlType !== 'none') {
-      console.log('[EDIT] SQL restored: type=', sqlType, ', qty=', finalSqlQty);
-    }
-    
-    const normalizedAddons: AddonsState = {
-      backupPlan: backupPlan,
-      backupGb: finalBackupGb,
-      antivirus: toNum(rawAddons.antivirus, 0),
-      // Firewall: convert old boolean to number
-      firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
-      tsplus: toNum(rawAddons.tsplus, 0),
-      cal: toNum(rawAddons.cal, 0),
+    // Log final addons state for debugging
+    console.log('[apiToLocal] Final addons state after merge:', {
+      antivirus: antivirusQty,
+      firewall: firewallQty,
+      tsplus: tsplusQty,
+      cal: calQty,
+      veeamVm: veeamVmQty,
+      veeamAg: veeamAgQty,
+      winserver: winserverQty,
       sql: sqlType,
       sqlQty: finalSqlQty,
-      veeamVm: toNum(rawAddons.veeamVm, 0),
-      veeamAg: toNum(rawAddons.veeamAg, 0),
-      winserver: toNum(rawAddons.winserver, 0),
+      backupPlan,
+      backupGb: finalBackupGb,
+      support: { level: supportLevel, price: supportPrice },
+    });
+    
+    const normalizedAddons: AddonsState = {
+      backupPlan: backupPlan as 'none' | '7' | '15' | '30',
+      backupGb: finalBackupGb,
+      antivirus: antivirusQty,
+      firewall: firewallQty,
+      tsplus: tsplusQty,
+      cal: calQty,
+      sql: sqlType as 'none' | 'web' | 'std',
+      sqlQty: finalSqlQty,
+      veeamVm: veeamVmQty,
+      veeamAg: veeamAgQty,
+      winserver: winserverQty,
       support: {
-        level: rawAddons.support?.level || 'none',
-        price: toNum(rawAddons.support?.price, 0),
+        level: supportLevel as 'none' | 'basic' | 'intermediate' | 'advanced',
+        price: supportPrice,
       },
       consulting: {
-        quantity: toNum(rawAddons.consulting?.quantity, 0),
-        unitPrice: toNum(rawAddons.consulting?.unitPrice, 200),
+        quantity: consultingQty,
+        unitPrice: consultingPrice,
       },
       dba: {
-        quantity: toNum(rawAddons.dba?.quantity, 0),
-        unitPrice: toNum(rawAddons.dba?.unitPrice, 250),
+        quantity: dbaQty,
+        unitPrice: dbaPrice,
       },
       customAddons: rawAddons.customAddons || {},
     };
