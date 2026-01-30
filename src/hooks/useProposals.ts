@@ -2331,11 +2331,28 @@ export function useProposal(proposalId: string | undefined) {
           // openApi.getProposal now defaults to __with=files,creator
           const result = await openApi.getProposal(numericId);
           
+          // CRITICAL: Log raw API response for debugging
+          console.log('[useProposal] Raw API response:', {
+            id: (result as any).id,
+            serversCount: (result as any).servers?.length || 0,
+            addonsCount: (result as any).addons?.length || 0,
+            total: (result as any).total,
+            sampleServer: (result as any).servers?.[0],
+            sampleAddon: (result as any).addons?.[0],
+          });
+          
           // Convert to local format - result now includes files and creator
           const localProposal = apiToLocal(result as ApiProposal);
           
-          // Attach files directly from API response if present
+          // CRITICAL: Preserve raw API data for PropostaView rendering
+          // These arrays have backend-calculated prices which are the source of truth
           const apiResult = result as any;
+          (localProposal as any)._rawApiServers = apiResult.servers || [];
+          (localProposal as any)._rawApiAddons = apiResult.addons || [];
+          (localProposal as any)._rawApiTotal = apiResult.total;
+          (localProposal as any)._rawApiData = apiResult;
+          
+          // Attach files directly from API response if present
           if (apiResult.files && Array.isArray(apiResult.files)) {
             (localProposal as any).files = apiResult.files;
           }

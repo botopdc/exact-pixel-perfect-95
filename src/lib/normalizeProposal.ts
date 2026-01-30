@@ -181,9 +181,26 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   console.log('[normalizeProposal] Processing proposal:', rawProposal.id);
   
   // ============================================
-  // STEP 1: Parse dados_proposta
+  // STEP 0: Check for raw API data (attached by useProposal)
+  // This is the SOURCE OF TRUTH for prices - backend-calculated
   // ============================================
-  let dadosProposta = parseJsonField<Record<string, unknown>>(rawProposal.dados_proposta);
+  const hasRawApiData = (rawProposal as any)._rawApiData !== undefined;
+  const rawApiData = (rawProposal as any)._rawApiData || rawProposal;
+  const rawApiServers = (rawProposal as any)._rawApiServers || rawApiData.servers || [];
+  const rawApiAddons = (rawProposal as any)._rawApiAddons || rawApiData.addons || [];
+  const rawApiTotal = (rawProposal as any)._rawApiTotal || rawApiData.total;
+  
+  console.log('[normalizeProposal] API data check:', {
+    hasRawApiData,
+    rawApiServersCount: Array.isArray(rawApiServers) ? rawApiServers.length : 0,
+    rawApiAddonsCount: Array.isArray(rawApiAddons) ? rawApiAddons.length : 0,
+    rawApiTotal,
+  });
+  
+  // ============================================
+  // STEP 1: Parse dados_proposta (only used for edit mode and fallback)
+  // ============================================
+  let dadosProposta = parseJsonField<Record<string, unknown>>(rawProposal.dados_proposta || rawApiData.dados_proposta);
   
   console.log('[normalizeProposal] dados_proposta:', {
     hasDadosProposta: !!dadosProposta,
@@ -231,26 +248,36 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   
   // ============================================
   // STEP 5: Normalize servers array
+  // PRIORITY: API servers[] (backend-calculated prices) > dados_proposta.items (snapshot)
   // ============================================
-  // Priority: dados_proposta.items > rawProposal.servers
   let rawServers: any[] = [];
+  let serversFromApi = false;
   
   // CRITICAL: Check for dados_proposta.result.rows first - these have pre-calculated prices
   const snapshotResult = dadosProposta?.result as { rows?: any[] } | undefined;
   const hasSnapshotRows = snapshotResult?.rows && Array.isArray(snapshotResult.rows) && snapshotResult.rows.length > 0;
   
-  if (dadosProposta?.items && Array.isArray(dadosProposta.items)) {
+  // NEW PRIORITY ORDER:
+  // 1. rawApiServers (direct from API - backend-calculated prices)
+  // 2. dados_proposta.items (legacy snapshot for edit mode)
+  if (Array.isArray(rawApiServers) && rawApiServers.length > 0) {
+    rawServers = rawApiServers;
+    serversFromApi = true;
+    console.log('[normalizeProposal] ✓ Using API servers[] with backend-calculated prices:', rawServers.length);
+  } else if (dadosProposta?.items && Array.isArray(dadosProposta.items)) {
     rawServers = dadosProposta.items.filter((item: any) => {
       const itemType = toStr(item.type).toLowerCase();
       // CRITICAL FIX: Support both 'vm'/'bm' (snapshot) and 'VM'/'BareMetal' (legacy)
       return itemType === 'vm' || itemType === 'bm' || itemType === 'baremetal';
     });
+    console.log('[normalizeProposal] Using dados_proposta.items (legacy):', rawServers.length);
   } else {
     rawServers = ensureArray(rawProposal.servers);
+    console.log('[normalizeProposal] Using rawProposal.servers (fallback):', rawServers.length);
   }
   
-  console.log('[normalizeProposal] Raw servers from snapshot:', rawServers.length, 'hasSnapshotRows:', hasSnapshotRows);
-  
+  console.log('[normalizeProposal] Raw servers source:', serversFromApi ? 'API' : 'snapshot', 'count:', rawServers.length, 'hasSnapshotRows:', hasSnapshotRows);
+
   // CRITICAL: Build a map of prices from snapshot result rows for lookup
   const rowPriceMap: Map<string, { unitPrice: number; subtotal: number }> = new Map();
   if (hasSnapshotRows && snapshotResult?.rows) {
@@ -331,18 +358,30 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   
   // ============================================
   // STEP 6: Normalize addons array
+  // PRIORITY: API addons[] (backend-calculated prices) > dados_proposta.addons (snapshot)
   // ============================================
   let rawAddons: any[] = [];
+  let addonsFromApi = false;
   
   // Check if dados_proposta has structured addons (object format)
   const structuredAddons = dadosProposta?.addons as Record<string, unknown> | undefined;
   
-  if (structuredAddons && typeof structuredAddons === 'object' && !Array.isArray(structuredAddons)) {
+  // NEW PRIORITY ORDER:
+  // 1. rawApiAddons (direct from API - backend-calculated prices)
+  // 2. dados_proposta.addons (object format - convert to array)
+  // 3. rawProposal.addons (fallback)
+  if (Array.isArray(rawApiAddons) && rawApiAddons.length > 0) {
+    rawAddons = rawApiAddons;
+    addonsFromApi = true;
+    console.log('[normalizeProposal] ✓ Using API addons[] with backend-calculated prices:', rawAddons.length);
+  } else if (structuredAddons && typeof structuredAddons === 'object' && !Array.isArray(structuredAddons)) {
     // Convert structured addons to array format
     rawAddons = convertStructuredAddonsToArray(structuredAddons);
+    console.log('[normalizeProposal] Using dados_proposta.addons (structured):', rawAddons.length);
   } else {
     // Use API addons array
     rawAddons = ensureArray(rawProposal.addons);
+    console.log('[normalizeProposal] Using rawProposal.addons (fallback):', rawAddons.length);
   }
   
   const addons: NormalizedAddon[] = rawAddons.map((addon: any) => {
@@ -355,7 +394,7 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
     return { code, name, quantity, unitPrice, subtotal };
   }).filter(addon => addon.quantity > 0 || addon.subtotal > 0);
   
-  console.log('[normalizeProposal] Normalized addons:', addons.length);
+  console.log('[normalizeProposal] Normalized addons:', addons.length, 'source:', addonsFromApi ? 'API' : 'snapshot');
   
   // ============================================
   // STEP 7: Calculate totals from normalized items
@@ -377,7 +416,7 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   const discountValue = subtotalBeforeDiscount * discountPct;
   const calculatedTotal = subtotalBeforeDiscount - discountValue;
   
-  const apiTotal = toNum(rawProposal.total);
+  const apiTotal = toNum(rawApiTotal ?? rawProposal.total);
   
   const totals: NormalizedTotals = {
     subtotalRecursos,
@@ -410,8 +449,9 @@ export function normalizeProposal(rawProposal: Record<string, unknown>): Normali
   
   // ============================================
   // STEP 9: Build CalculationResult for rendering
+  // CRITICAL: Pass raw API data for backend-calculated prices
   // ============================================
-  const result = buildResultFromNormalized(servers, addons, totals, dadosProposta, rawProposal);
+  const result = buildResultFromNormalized(servers, addons, totals, dadosProposta, rawApiData);
   
   return {
     id,

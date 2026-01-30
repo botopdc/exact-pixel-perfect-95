@@ -506,12 +506,18 @@ const PropostaView: React.FC = () => {
                 <h2 className="proposal-section-title text-base mb-2 uppercase tracking-wide">
                   Resumo & Totais
                 </h2>
-                <p className="text-muted-foreground">
-                  Itens da proposta não encontrados. Verifique se a proposta foi salva corretamente.
-                </p>
-                {normalizedProposal && normalizedProposal.apiTotal > 0 && (
-                  <p className="text-lg font-semibold mt-4">
-                    Total: R$ {formatCurrency(normalizedProposal.apiTotal)}
+                {normalizedProposal && normalizedProposal.apiTotal > 0 ? (
+                  <>
+                    <p className="text-muted-foreground text-sm mb-4">
+                      Proposta salva sem itens detalhados. Verifique o salvamento (servers/addons).
+                    </p>
+                    <p className="text-lg font-semibold">
+                      Total: R$ {formatCurrency(normalizedProposal.apiTotal)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Itens da proposta não encontrados. Verifique se a proposta foi salva corretamente.
                   </p>
                 )}
               </div>
