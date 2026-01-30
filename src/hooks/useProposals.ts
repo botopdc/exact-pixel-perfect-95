@@ -2365,6 +2365,9 @@ export function useProposal(proposalId: string | undefined) {
 // 2. proposal.id undefined/null → CREATE (POST) - new proposal
 // 3. proposal.proposal.id is IGNORED for this decision (it's a local display ID like OPEN-ABC123)
 // 
+// NEW ARCHITECTURE: After POST/PUT, we do a GET to fetch the complete proposal with
+// backend-calculated prices. The mutation returns the refetched data as source of truth.
+// 
 // NEW: The mutation now accepts an optional pdfBlob to send along with the proposal data
 // in the same request using multipart/form-data.
 export function useSaveProposal() {
@@ -2421,23 +2424,80 @@ export function useSaveProposal() {
         sampleServer: (apiData as any).servers?.[0],
       });
 
-      let result: any;
+      let saveResult: any;
+      let savedProposalId: number;
       
       if (numericId !== null && numericId > 0) {
         // Update existing proposal via API: PUT /api/calculator/proposal/{id}
         console.log('[SaveProposal] ✓ UPDATING proposal via PUT:', numericId, pdfBlob ? 'with PDF file' : 'without file');
-        result = await openApi.updateProposal(numericId, apiData, pdfBlob);
+        saveResult = await openApi.updateProposal(numericId, apiData, pdfBlob);
+        savedProposalId = numericId;
       } else {
         // Create new proposal via API: POST /api/calculator/proposal
         console.log('[SaveProposal] ✓ CREATING new proposal via POST', pdfBlob ? 'with PDF file' : 'without file');
-        result = await openApi.createProposal(apiData, pdfBlob);
+        saveResult = await openApi.createProposal(apiData, pdfBlob);
+        // Extract the new proposal ID from the response
+        savedProposalId = saveResult?.id || saveResult?.data?.id;
+        
+        if (!savedProposalId) {
+          console.error('[SaveProposal] POST response did not return an ID:', saveResult);
+          throw new Error('Falha ao criar proposta: ID não retornado pela API');
+        }
       }
 
-      console.log('[SaveProposal] API response:', result);
-      return { success: true, data: result, isUpdate: Boolean(numericId) };
+      console.log('[SaveProposal] Save response - now refetching with backend-calculated prices. ID:', savedProposalId);
+
+      // CRITICAL NEW STEP: Refetch the proposal to get backend-calculated prices
+      // This is the source of truth for UI rendering, PDF generation, and editing
+      let refetchedProposal: any;
+      try {
+        // GET /api/calculator/proposal/{id} with __with=files,creator
+        refetchedProposal = await openApi.getProposal(savedProposalId);
+        console.log('[SaveProposal] ✓ Refetched proposal with backend-calculated prices:', {
+          id: refetchedProposal?.id,
+          total: refetchedProposal?.total,
+          serversCount: refetchedProposal?.servers?.length,
+          addonsCount: refetchedProposal?.addons?.length,
+          sampleServerPrice: refetchedProposal?.servers?.[0]?.price,
+          sampleAddonPrice: refetchedProposal?.addons?.[0]?.price,
+        });
+      } catch (refetchError) {
+        console.error('[SaveProposal] Failed to refetch proposal after save:', refetchError);
+        // Don't fail the whole operation - return save result but warn about missing refetch
+        return { 
+          success: true, 
+          data: saveResult, 
+          refetchedData: null,
+          proposalId: savedProposalId,
+          isUpdate: Boolean(numericId),
+          refetchFailed: true,
+        };
+      }
+
+      // Convert refetched API data to local format for UI consumption
+      const localProposal = apiToLocal(refetchedProposal as ApiProposal);
+      
+      // Attach files directly from refetched response if present
+      if (refetchedProposal.files && Array.isArray(refetchedProposal.files)) {
+        (localProposal as any).files = refetchedProposal.files;
+      }
+
+      return { 
+        success: true, 
+        data: saveResult, 
+        refetchedData: refetchedProposal,
+        localData: localProposal,
+        proposalId: savedProposalId,
+        isUpdate: Boolean(numericId),
+        refetchFailed: false,
+      };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      // Also invalidate specific proposal query to ensure fresh data
+      if (result?.proposalId) {
+        queryClient.invalidateQueries({ queryKey: ['proposal', 'api', String(result.proposalId)] });
+      }
     },
     onError: (error) => {
       console.error('[SaveProposal] Error:', error);
