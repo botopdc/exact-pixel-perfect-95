@@ -20,7 +20,7 @@ import {
   getAddonItemId, 
   getSqlItemId, 
   getBackupItemId,
-  getBackupConfigByVolume,
+  getBackupConfigByRetentionAndVolume,
   getGpuItemId,
   getItemId,
   findConfigByLabel,
@@ -1571,8 +1571,9 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     if (typeof addons.veeamAg === 'number' && addons.veeamAg > 0) {
       addAddon('veeam_agent', addons.veeamAg);
     }
-    // Backup - uses volume-based lookup (GB ranges like "1 - 100 GB")
-    // The API has config items by volume range, NOT by retention days
+    // Backup - uses retention + volume lookup
+    // The API has config items with meta.retention ("7 dias", "15 dias", "30 dias") 
+    // AND meta.min/max for volume ranges
     // NEW FLAT API: Only config_id + quantity
     if (addons.backupPlan && addons.backupPlan !== 'none') {
       const backupGb = typeof addons.backupGb === 'number' && addons.backupGb > 0 ? addons.backupGb : 1;
@@ -1581,13 +1582,15 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       if (configIdStore) {
         const backupConfigs = configIdStore.byCategory.get('Backup') || [];
         console.log('[localToApi] BACKUP DIAGNOSIS - All Backup items from API:', 
-          backupConfigs.map(c => ({ id: c.configId, label: c.label })));
+          backupConfigs.map(c => ({ id: c.configId, label: c.label, retention: c.retention, min: c.min, max: c.max })));
         console.log('[localToApi] BACKUP: Plan selected =', addons.backupPlan, ', Volume =', backupGb, 'GB');
       }
       
-      // Use volume-based lookup instead of plan-based
-      const backupConfig = configIdStore ? getBackupConfigByVolume(configIdStore, backupGb) : undefined;
-      console.log('[localToApi] Backup lookup result for volume', backupGb, 'GB:', backupConfig);
+      // Use retention + volume lookup
+      const backupConfig = configIdStore 
+        ? getBackupConfigByRetentionAndVolume(configIdStore, addons.backupPlan, backupGb) 
+        : undefined;
+      console.log('[localToApi] Backup lookup result:', backupConfig);
       
       if (backupConfig?.configId) {
         addonsArray.push({ 
@@ -1598,9 +1601,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           'plan:', addons.backupPlan, 
           'volume:', backupGb, 'GB', 
           'config_id:', backupConfig.configId, 
-          'label:', backupConfig.label);
+          'label:', backupConfig.label,
+          'retention:', backupConfig.retention);
       } else {
-        console.error('[localToApi] ❌ SKIPPING Backup - missing config_id for volume:', backupGb, 'GB');
+        console.error('[localToApi] ❌ SKIPPING Backup - missing config_id for plan:', addons.backupPlan, 'volume:', backupGb, 'GB');
       }
     }
     // SQL - uses dedicated function for ID lookup

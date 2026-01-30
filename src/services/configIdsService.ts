@@ -27,6 +27,11 @@ export interface ConfigIdMapping {
   section?: string;
   by?: string;
   type?: string;
+  // Full meta object for backup/storage range lookups (min, max, retention, etc.)
+  min?: number;
+  max?: number;
+  retention?: string;
+  region?: string;
 }
 
 export interface ConfigIdStore {
@@ -97,6 +102,11 @@ export async function loadConfigIds(): Promise<ConfigIdStore> {
         section,
         by,
         type,
+        // Extract range values from meta for backup/storage lookups
+        min: item.meta?.min,
+        max: item.meta?.max,
+        retention: item.meta?.retention,
+        region: item.meta?.region,
       };
       
       // Index by ID
@@ -362,85 +372,146 @@ export function getSqlConfig(
 }
 
 /**
- * Get backup config by VOLUME (GB), not by retention days
- * The API has volume-based items like "1 - 100 GB", "101 - 200 GB", etc.
+ * Get backup config by RETENTION (7, 15, 30 dias) AND VOLUME (GB)
+ * The API has items with meta.retention ("7 dias", "15 dias", "30 dias") 
+ * AND meta.min/max for volume ranges
+ */
+export function getBackupConfigByRetentionAndVolume(
+  store: ConfigIdStore,
+  retentionDays: string | number,
+  volumeGb: number
+): ConfigIdMapping | undefined {
+  // Normalize retention to match API format: "7 dias", "15 dias", "30 dias"
+  const retentionStr = typeof retentionDays === 'number' 
+    ? `${retentionDays} dias` 
+    : retentionDays.includes('dias') 
+      ? retentionDays 
+      : `${retentionDays} dias`;
+  
+  console.log(`[getBackupConfig] Searching for backup: retention="${retentionStr}", volume=${volumeGb} GB`);
+  
+  // Get all items from Backup category
+  const backupItems = store.byCategory.get('Backup') || [];
+  
+  console.log(`[getBackupConfig] Available Backup items:`, 
+    backupItems.map(c => ({ 
+      id: c.configId, 
+      label: c.label, 
+      retention: c.retention,
+      min: c.min,
+      max: c.max 
+    }))
+  );
+  
+  if (backupItems.length === 0) {
+    console.warn(`[getBackupConfig] ❌ No items in Backup category`);
+    return undefined;
+  }
+  
+  // Filter by matching retention first
+  const matchingRetention = backupItems.filter(item => {
+    if (!item.retention) return false;
+    const itemRetention = item.retention.toLowerCase().replace(/\s+/g, '');
+    const searchRetention = retentionStr.toLowerCase().replace(/\s+/g, '');
+    return itemRetention === searchRetention;
+  });
+  
+  console.log(`[getBackupConfig] Items matching retention "${retentionStr}":`, 
+    matchingRetention.map(c => ({ id: c.configId, label: c.label, min: c.min, max: c.max }))
+  );
+  
+  if (matchingRetention.length === 0) {
+    console.warn(`[getBackupConfig] ❌ No items found for retention: ${retentionStr}`);
+    // Fallback: return any backup item in the volume range (ignore retention)
+    return getBackupConfigByVolume(store, volumeGb);
+  }
+  
+  // Find the item where volume falls within min-max range
+  for (const config of matchingRetention) {
+    const minGb = config.min ?? 0;
+    const maxGb = config.max ?? Infinity;
+    
+    if (volumeGb >= minGb && volumeGb <= maxGb) {
+      console.log(`[getBackupConfig] ✓ Found Backup for ${retentionStr}, ${volumeGb}GB in range ${minGb}-${maxGb}:`, 
+        config.configId, config.label);
+      return config;
+    }
+  }
+  
+  // If no exact range match, find the highest range for this retention
+  let bestMatch: ConfigIdMapping | undefined;
+  let highestMax = 0;
+  let lowestMin = Infinity;
+  
+  for (const config of matchingRetention) {
+    const maxGb = config.max ?? 0;
+    const minGb = config.min ?? 0;
+    
+    if (volumeGb > maxGb && maxGb > highestMax) {
+      highestMax = maxGb;
+      bestMatch = config;
+    }
+    if (minGb < lowestMin) {
+      lowestMin = minGb;
+      if (!bestMatch) bestMatch = config;
+    }
+  }
+  
+  if (bestMatch) {
+    console.log(`[getBackupConfig] ✓ Using best match for ${retentionStr}, ${volumeGb}GB:`, 
+      bestMatch.configId, bestMatch.label);
+    return bestMatch;
+  }
+  
+  console.warn(`[getBackupConfig] ❌ Backup NOT FOUND for retention=${retentionStr}, volume=${volumeGb}GB`);
+  return undefined;
+}
+
+/**
+ * Get backup config by VOLUME only (fallback when retention is not specified)
+ * Uses meta.min/max to find the correct volume range
  */
 export function getBackupConfigByVolume(
   store: ConfigIdStore,
   volumeGb: number
 ): ConfigIdMapping | undefined {
-  console.log(`[getBackupConfigByVolume] Searching for backup volume: ${volumeGb} GB`);
+  console.log(`[getBackupConfigByVolume] Searching for backup volume: ${volumeGb} GB (any retention)`);
   
-  // Get all items from Backup category
   const backupItems = store.byCategory.get('Backup') || [];
-  
-  console.log(`[getBackupConfigByVolume] Available Backup items:`, 
-    backupItems.map(c => ({ id: c.configId, label: c.label }))
-  );
   
   if (backupItems.length === 0) {
     console.warn(`[getBackupConfigByVolume] ❌ No items in Backup category`);
     return undefined;
   }
   
-  // Parse volume ranges from labels like "1 - 100 GB", "101 - 200 GB"
+  // Find first item where volume falls within min-max range
   for (const config of backupItems) {
-    const label = config.label;
-    // Match patterns like "1 - 100 GB", "101 - 200 GB", "201 - 400 GB"
-    const rangeMatch = label.match(/(\d+)\s*-\s*(\d+)\s*GB/i);
+    const minGb = config.min ?? 0;
+    const maxGb = config.max ?? Infinity;
     
-    if (rangeMatch) {
-      const minGb = parseInt(rangeMatch[1], 10);
-      const maxGb = parseInt(rangeMatch[2], 10);
-      
-      if (volumeGb >= minGb && volumeGb <= maxGb) {
-        console.log(`[getBackupConfigByVolume] ✓ Found Backup for ${volumeGb}GB in range ${minGb}-${maxGb}:`, config.configId, label);
-        return config;
-      }
+    if (volumeGb >= minGb && volumeGb <= maxGb) {
+      console.log(`[getBackupConfigByVolume] ✓ Found Backup for ${volumeGb}GB in range ${minGb}-${maxGb}:`, 
+        config.configId, config.label, `(retention: ${config.retention})`);
+      return config;
     }
   }
   
-  // If no range matched, try to find the highest range (for volumes larger than max)
-  let highestRange: ConfigIdMapping | undefined;
-  let highestMax = 0;
+  // Find smallest range as fallback
+  let smallestRange: ConfigIdMapping | undefined;
+  let smallestMin = Infinity;
   
   for (const config of backupItems) {
-    const rangeMatch = config.label.match(/(\d+)\s*-\s*(\d+)\s*GB/i);
-    if (rangeMatch) {
-      const maxGb = parseInt(rangeMatch[2], 10);
-      if (maxGb > highestMax) {
-        highestMax = maxGb;
-        highestRange = config;
-      }
+    const minGb = config.min ?? Infinity;
+    if (minGb < smallestMin) {
+      smallestMin = minGb;
+      smallestRange = config;
     }
   }
   
-  if (volumeGb > highestMax && highestRange) {
-    console.log(`[getBackupConfigByVolume] ✓ Volume ${volumeGb}GB exceeds max range, using highest:`, highestRange.configId, highestRange.label);
-    return highestRange;
-  }
-  
-  // Last resort: return first backup item if volume is very small
-  if (volumeGb > 0 && backupItems.length > 0) {
-    // Find smallest range
-    let smallestRange: ConfigIdMapping | undefined;
-    let smallestMin = Infinity;
-    
-    for (const config of backupItems) {
-      const rangeMatch = config.label.match(/(\d+)\s*-\s*(\d+)\s*GB/i);
-      if (rangeMatch) {
-        const minGb = parseInt(rangeMatch[1], 10);
-        if (minGb < smallestMin) {
-          smallestMin = minGb;
-          smallestRange = config;
-        }
-      }
-    }
-    
-    if (smallestRange) {
-      console.log(`[getBackupConfigByVolume] ✓ Using smallest range for ${volumeGb}GB:`, smallestRange.configId, smallestRange.label);
-      return smallestRange;
-    }
+  if (smallestRange) {
+    console.log(`[getBackupConfigByVolume] ✓ Using smallest range for ${volumeGb}GB:`, 
+      smallestRange.configId, smallestRange.label);
+    return smallestRange;
   }
   
   console.warn(`[getBackupConfigByVolume] ❌ Backup NOT FOUND for volume: ${volumeGb}GB`);
