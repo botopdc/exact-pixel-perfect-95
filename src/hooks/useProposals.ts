@@ -300,11 +300,12 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     let dbaQty = toNum(rawAddons.dba?.quantity, 0);
     let dbaPrice = toNum(rawAddons.dba?.unitPrice, 250);
     
-    // STEP 2: Merge from apiProposal.addons[] array if dados_proposta is incomplete
-    // This is critical when addons were saved via API but snapshot is empty
+    // STEP 2: ALWAYS process apiProposal.addons[] array (API is source of truth)
+    // This OVERRIDES snapshot values for addons that exist in the API response
     const apiAddonsArray = apiProposal.addons || [];
     if (Array.isArray(apiAddonsArray) && apiAddonsArray.length > 0) {
-      console.log('[apiToLocal] Merging addons from API array:', apiAddonsArray.length, 'items');
+      console.log('[apiToLocal] Processing addons from API array:', apiAddonsArray.length, 'items');
+      console.log('[apiToLocal] API addons raw:', JSON.stringify(apiAddonsArray));
       
       // Helper to normalize strings
       const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
@@ -314,67 +315,67 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         
         // Get all identifiers for matching
         const configId = addon.config_id ?? addon.configId;
-        const addonLabel = normalize(addon.label || addon.name || '');
+        const rawLabel = addon.label || addon.name || '';
+        const addonLabel = normalize(rawLabel);
         const addonQty = toNum(addon.quantity, 1);
         const addonPrice = toNum(addon.price, 0);
         
         // Skip if empty or virtual/bundle
-        if (!addonLabel && configId === undefined) continue;
+        if (!rawLabel && configId === undefined) continue;
         if (addonLabel.includes('virtual') || addonLabel.includes('bundle')) continue;
         
-        console.log('[apiToLocal] Processing addon:', { configId, label: addonLabel, qty: addonQty });
+        console.log('[apiToLocal] Processing addon:', { configId, rawLabel, normalizedLabel: addonLabel, qty: addonQty, price: addonPrice });
         
         // ============================================
-        // SQL Server - Match by LABEL (API returns dynamic config_ids)
-        // API labels: "WEB", "STD" (case-insensitive)
+        // SQL Server - Match by LABEL
+        // API returns: label: "WEB" or label: "STD"
         // ============================================
-        if (addonLabel === 'web' || addonLabel === 'std' || addonLabel.includes('sql')) {
-          if (sqlType === 'none') {
-            if (addonLabel === 'web' || addonLabel.includes('web')) {
-              sqlType = 'web';
-            } else {
-              sqlType = 'std';
-            }
-            sqlQtyRaw = addonQty > 0 ? addonQty : 1;
-            console.log('[EDIT] SQL restored from API array:', { type: sqlType, qty: sqlQtyRaw, configId });
+        if (addonLabel === 'web' || addonLabel === 'std' || 
+            addonLabel.includes('sql') || 
+            rawLabel.toUpperCase() === 'WEB' || rawLabel.toUpperCase() === 'STD') {
+          // ALWAYS override - API is source of truth
+          if (addonLabel === 'web' || addonLabel.includes('web') || rawLabel.toUpperCase() === 'WEB') {
+            sqlType = 'web';
+          } else {
+            sqlType = 'std';
           }
+          sqlQtyRaw = addonQty > 0 ? addonQty : 1;
+          console.log('[EDIT] SQL SET from API:', { type: sqlType, qty: sqlQtyRaw, configId, rawLabel });
           continue;
         }
         
         // ============================================
         // Serviços Especializados - Match by LABEL
-        // API labels: "Suporte Básico", "Suporte Avançado", etc.
+        // API returns: label: "Suporte Básico", "Suporte Avançado", etc.
         // ============================================
         if (addonLabel.includes('suporte') || addonLabel.includes('support')) {
-          if (supportLevel === 'none') {
-            if (addonLabel.includes('avancado') || addonLabel.includes('advanced')) {
-              supportLevel = 'advanced';
-            } else if (addonLabel.includes('intermediario') || addonLabel.includes('intermediate')) {
-              supportLevel = 'intermediate';
-            } else if (addonLabel.includes('basico') || addonLabel.includes('basic')) {
-              supportLevel = 'basic';
-            }
-            supportPrice = addonPrice;
-            console.log('[EDIT] Support restored from API array:', { level: supportLevel, price: addonPrice, configId });
+          // ALWAYS override - API is source of truth
+          if (addonLabel.includes('avancado') || addonLabel.includes('advanced')) {
+            supportLevel = 'advanced';
+          } else if (addonLabel.includes('intermediario') || addonLabel.includes('intermediate')) {
+            supportLevel = 'intermediate';
+          } else if (addonLabel.includes('basico') || addonLabel.includes('basic')) {
+            supportLevel = 'basic';
+          } else {
+            // Default to basic if just "suporte"
+            supportLevel = 'basic';
           }
+          supportPrice = addonPrice;
+          console.log('[EDIT] Support SET from API:', { level: supportLevel, price: addonPrice, configId, rawLabel });
           continue;
         }
         
         if (addonLabel.includes('consultoria') || addonLabel.includes('consulting')) {
-          if (consultingQty === 0) {
-            consultingQty = addonQty;
-            consultingPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 200;
-            console.log('[EDIT] Consulting restored from API array:', { qty: addonQty, unitPrice: consultingPrice });
-          }
+          consultingQty = addonQty;
+          consultingPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 200;
+          console.log('[EDIT] Consulting SET from API:', { qty: addonQty, unitPrice: consultingPrice, rawLabel });
           continue;
         }
         
         if (addonLabel === 'dba') {
-          if (dbaQty === 0) {
-            dbaQty = addonQty;
-            dbaPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 250;
-            console.log('[EDIT] DBA restored from API array:', { qty: addonQty, unitPrice: dbaPrice });
-          }
+          dbaQty = addonQty;
+          dbaPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 250;
+          console.log('[EDIT] DBA SET from API:', { qty: addonQty, unitPrice: dbaPrice, rawLabel });
           continue;
         }
         
@@ -382,10 +383,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         // Windows Server - Match by LABEL
         // ============================================
         if (addonLabel.includes('winserver') || addonLabel.includes('windows')) {
-          if (winserverQty === 0) {
-            winserverQty = addonQty;
-            console.log('[EDIT] WindowsServer restored from API array:', addonQty, 'configId:', configId);
-          }
+          winserverQty = addonQty;
+          console.log('[EDIT] WindowsServer SET from API:', addonQty, 'rawLabel:', rawLabel);
           continue;
         }
         
@@ -393,14 +392,12 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         // Backup - Match by LABEL
         // ============================================
         if (addonLabel.includes('backup')) {
-          if (backupPlan === 'none') {
-            if (addonLabel.includes('30')) backupPlan = '30';
-            else if (addonLabel.includes('15')) backupPlan = '15';
-            else if (addonLabel.includes('7')) backupPlan = '7';
-            else backupPlan = '7';
-            backupGbRaw = addonQty;
-            console.log('[EDIT] Backup restored from API array: plan=', backupPlan, ', gb=', addonQty, 'configId:', configId);
-          }
+          if (addonLabel.includes('30')) backupPlan = '30';
+          else if (addonLabel.includes('15')) backupPlan = '15';
+          else if (addonLabel.includes('7')) backupPlan = '7';
+          else backupPlan = '7';
+          backupGbRaw = addonQty;
+          console.log('[EDIT] Backup SET from API: plan=', backupPlan, ', gb=', addonQty, 'rawLabel:', rawLabel);
           continue;
         }
         
@@ -408,35 +405,25 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         // Standard Add-ons
         // ============================================
         if (addonLabel.includes('antivirus')) {
-          if (antivirusQty === 0) {
-            antivirusQty = addonQty;
-            console.log('[EDIT] Antivirus restored from API array:', addonQty);
-          }
+          antivirusQty = addonQty;
+          console.log('[EDIT] Antivirus SET from API:', addonQty);
         } else if (addonLabel.includes('firewall') || addonLabel.includes('pfsense')) {
-          if (firewallQty === 0) {
-            firewallQty = addonQty > 0 ? addonQty : 1;
-            console.log('[EDIT] Firewall restored from API array:', firewallQty);
-          }
+          firewallQty = addonQty > 0 ? addonQty : 1;
+          console.log('[EDIT] Firewall SET from API:', firewallQty);
         } else if (addonLabel.includes('tsplus') || addonLabel.includes('ts plus')) {
-          if (tsplusQty === 0) {
-            tsplusQty = addonQty;
-            console.log('[EDIT] TSPlus restored from API array:', addonQty);
-          }
+          tsplusQty = addonQty;
+          console.log('[EDIT] TSPlus SET from API:', addonQty);
         } else if ((addonLabel.includes('cal') || addonLabel === 'cal') && !addonLabel.includes('technical')) {
-          if (calQty === 0) {
-            calQty = addonQty;
-            console.log('[EDIT] CAL restored from API array:', addonQty);
-          }
+          calQty = addonQty;
+          console.log('[EDIT] CAL SET from API:', addonQty);
         } else if (addonLabel.includes('veeam') && addonLabel.includes('vm')) {
-          if (veeamVmQty === 0) {
-            veeamVmQty = addonQty;
-            console.log('[EDIT] Veeam VM restored from API array:', addonQty);
-          }
+          veeamVmQty = addonQty;
+          console.log('[EDIT] Veeam VM SET from API:', addonQty);
         } else if (addonLabel.includes('veeam') && addonLabel.includes('agent')) {
-          if (veeamAgQty === 0) {
-            veeamAgQty = addonQty;
-            console.log('[EDIT] Veeam Agent restored from API array:', addonQty);
-          }
+          veeamAgQty = addonQty;
+          console.log('[EDIT] Veeam Agent SET from API:', addonQty);
+        } else {
+          console.log('[EDIT] Addon NOT MATCHED:', { rawLabel, addonLabel, configId });
         }
       }
     }
