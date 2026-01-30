@@ -1058,53 +1058,77 @@ export function buildFlatConfigStore(
 }
 
 /**
- * Find config_id by label in a category
- * Enhanced: Also searches by section when category lookup fails
+ * Normalize string for comparison (lowercase, no accents, underscores for spaces)
+ */
+function normalizeStr(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[()[\]]/g, '')
+    .trim();
+}
+
+/**
+ * Find config_id by searching ALL raw items using partial matching.
+ * This is the ONLY source of truth - based entirely on API data.
+ * 
+ * Strategy:
+ * 1. Exact label match (case-insensitive, accent-insensitive)
+ * 2. Partial match: API label contains search term OR vice versa
+ * 3. Optional category/section filter (if provided, only matches within that category/section)
  */
 function findConfigId(
   store: FlatConfigStore,
-  category: string,
+  categoryOrSection: string,
   ...labels: string[]
 ): number | undefined {
-  // Try direct category lookup first
-  const categoryMap = store.byCategoryLabel.get(category);
-  if (categoryMap) {
-    for (const label of labels) {
-      if (categoryMap.has(label)) return categoryMap.get(label);
-      const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-      if (categoryMap.has(normalized)) return categoryMap.get(normalized);
-    }
-  }
+  // Normalize the category/section filter
+  const normalizedFilter = normalizeStr(categoryOrSection);
   
-  // Try section-based lookup (for items like "Serviços Especializados" which might be a section in "Add-ons")
-  const sectionMap = store.bySectionLabel.get(category);
-  if (sectionMap) {
-    for (const label of labels) {
-      if (sectionMap.has(label)) return sectionMap.get(label);
-      const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-      if (sectionMap.has(normalized)) return sectionMap.get(normalized);
-    }
-  }
-  
-  // Fallback: search raw items for flexible matching
-  for (const item of store.rawItems) {
-    const itemSection = item.meta?.section;
-    const itemCategory = item.meta?.category;
+  for (const label of labels) {
+    const normalizedSearch = normalizeStr(label);
     
-    // Check if section or category matches our search parameter
-    if (itemSection === category || itemCategory === category) {
-      for (const label of labels) {
-        const normalizedItem = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-        const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-        
-        if (item.label === label || normalizedItem === normalizedSearch || 
-            item.label.toLowerCase().includes(label.toLowerCase()) || label.toLowerCase().includes(item.label.toLowerCase())) {
+    // Search ALL raw items
+    for (const item of store.rawItems) {
+      const itemCategory = normalizeStr(item.meta?.category || '');
+      const itemSection = normalizeStr(item.meta?.section || '');
+      const itemLabel = normalizeStr(item.label);
+      
+      // Check if category OR section matches the filter
+      const categoryMatches = itemCategory === normalizedFilter || 
+                              itemCategory.includes(normalizedFilter) || 
+                              normalizedFilter.includes(itemCategory);
+      const sectionMatches = itemSection === normalizedFilter || 
+                             itemSection.includes(normalizedFilter) || 
+                             normalizedFilter.includes(itemSection);
+      
+      if (categoryMatches || sectionMatches) {
+        // Exact match
+        if (itemLabel === normalizedSearch) {
+          return item.id;
+        }
+        // Partial match (bidirectional)
+        if (itemLabel.includes(normalizedSearch) || normalizedSearch.includes(itemLabel)) {
           return item.id;
         }
       }
     }
   }
   
+  // Fallback: search without category/section filter (global search)
+  for (const label of labels) {
+    const normalizedSearch = normalizeStr(label);
+    for (const item of store.rawItems) {
+      const itemLabel = normalizeStr(item.label);
+      if (itemLabel === normalizedSearch) {
+        console.log(`[findConfigId] GLOBAL MATCH: "${label}" → id=${item.id}, label="${item.label}", cat="${item.meta?.category}", sec="${item.meta?.section}"`);
+        return item.id;
+      }
+    }
+  }
+  
+  console.warn(`[findConfigId] NOT FOUND: filter="${categoryOrSection}", labels=[${labels.join(', ')}]`);
   return undefined;
 }
 
@@ -1160,7 +1184,7 @@ export function serializeProposal(
 ): ApiProposalPayload {
   console.log('[serializeProposal] Serializing state for save (FLAT structure)...');
   
-  // ========== ADDON AUDIT LOG ==========
+  // ========== ADDON AUDIT LOG - FULL API DUMP ==========
   console.log('[serializeProposal] ===== ADDON AUDIT START =====');
   console.log('[serializeProposal] State addons:', JSON.stringify({
     winserver: state.addons.winserver,
@@ -1179,19 +1203,14 @@ export function serializeProposal(
     sqlQty: state.addons.sqlQty,
   }, null, 2));
   
-  // Log available configs per category for debugging
-  console.log('[serializeProposal] Available categories:', Array.from(configStore.byCategoryLabel.keys()));
-  console.log('[serializeProposal] Available sections:', Array.from(configStore.bySectionLabel.keys()));
-  
-  // Log specific categories for debugging
-  const addonsCategory = configStore.byCategoryLabel.get('Add-ons');
-  if (addonsCategory) {
-    console.log('[serializeProposal] Add-ons category items:', Array.from(addonsCategory.keys()).slice(0, 30));
+  // FULL API DUMP - group by category and section for debugging
+  const apiDump: Record<string, { label: string; id: number; section?: string }[]> = {};
+  for (const item of configStore.rawItems) {
+    const cat = item.meta?.category || 'Unknown';
+    if (!apiDump[cat]) apiDump[cat] = [];
+    apiDump[cat].push({ label: item.label, id: item.id, section: item.meta?.section });
   }
-  const servicosSection = configStore.bySectionLabel.get('Serviços Especializados');
-  if (servicosSection) {
-    console.log('[serializeProposal] Serviços Especializados section items:', Array.from(servicosSection.keys()));
-  }
+  console.log('[serializeProposal] API ITEMS DUMP:', JSON.stringify(apiDump, null, 2));
   console.log('[serializeProposal] ===== ADDON AUDIT END =====');
   // ========================================
   
@@ -1226,16 +1245,22 @@ export function serializeProposal(
     console.log(`[serializeProposal] ✅ Added ${label}: qty=${qty}, config_id=${configId}`);
   };
   
-  // Windows Server
+  // Windows Server - search with multiple variations
   if (state.addons.winserver > 0) {
-    const configId = findConfigId(configStore, 'Add-ons', 'WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer');
+    const winserverLabels = [
+      'WinServer(2vCPU/unid.)', 'WinServer 2vCPU/unid.', 'WinServer(2vCPU)', 'WinServer',
+      'Windows Server', 'Windows', 'Win Server', 'winserver'
+    ];
+    let configId = findConfigId(configStore, 'Add-ons', ...winserverLabels);
+    if (!configId) configId = findConfigId(configStore, 'Windows Server', ...winserverLabels);
+    if (!configId) configId = findConfigId(configStore, 'Geral', ...winserverLabels);
     addAddon(configId, state.addons.winserver, 'WinServer');
   }
   
   // Support (Serviços Especializados - may be category or section)
   if (state.addons.support.level !== 'none') {
     const supportLabels: Record<string, string[]> = {
-      'basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)', 'Suporte (Basico)', 'support_basic', 'suporte_basico'],
+      'basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)', 'Suporte (Basico)', 'support_basic', 'suporte_basico', 'Suporte'],
       'intermediate': ['Suporte Intermediário', 'Suporte Intermediario', 'Suporte (Intermediário)', 'support_intermediate', 'suporte_intermediario'],
       'advanced': ['Suporte Avançado', 'Suporte Avancado', 'Suporte (Avançado)', 'support_advanced', 'suporte_avancado'],
     };
@@ -1250,8 +1275,9 @@ export function serializeProposal(
   // Consultoria Técnica (Serviços Especializados - may be category or section)
   if (state.addons.consulting.quantity > 0) {
     const consultingLabels = [
-      'Consultoria Técnica', 'Consultoria Tecnica', 'Consultoria Técnica (horas)', 'Consultoria',
-      'consulting', 'consultoria_tecnica', 'Consultoria (horas)', 'Horas de Consultoria'
+      'Consultoria Técnica', 'Consultoria Tecnica', 'Consultoria Técnica (horas)', 
+      'Consultoria (horas)', 'Consultoria', 'Horas de Consultoria',
+      'consulting', 'consultoria_tecnica', 'consultoria'
     ];
     let configId = findConfigId(configStore, 'Serviços Especializados', ...consultingLabels);
     if (!configId) configId = findConfigId(configStore, 'Add-ons', ...consultingLabels);
@@ -1262,7 +1288,8 @@ export function serializeProposal(
   // DBA (Serviços Especializados - may be category or section)
   if (state.addons.dba.quantity > 0) {
     const dbaLabels = [
-      'DBA', 'DBA (horas)', 'Horas de DBA', 'dba', 'DBA Remoto', 'DBA as a Service'
+      'DBA (horas)', 'DBA', 'Horas de DBA', 'DBA Remoto', 'DBA as a Service', 
+      'dba', 'dba_horas'
     ];
     let configId = findConfigId(configStore, 'Serviços Especializados', ...dbaLabels);
     if (!configId) configId = findConfigId(configStore, 'Add-ons', ...dbaLabels);
@@ -1270,11 +1297,17 @@ export function serializeProposal(
     addAddon(configId, state.addons.dba.quantity, 'DBA');
   }
   
-  // Backup
+  // Backup - search with multiple retention formats
   if (state.addons.backupPlan !== 'none') {
     const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
-    const configId = findConfigId(configStore, 'Backup', `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`);
-    addAddon(configId, backupGb, `Backup ${state.addons.backupPlan}d`);
+    const plan = state.addons.backupPlan;
+    const backupLabels = [
+      `${plan} dias`, `${plan}d`, `${plan} Dias`, `Backup ${plan} dias`, 
+      `backup_${plan}`, `Retenção ${plan} dias`, plan
+    ];
+    let configId = findConfigId(configStore, 'Backup', ...backupLabels);
+    if (!configId) configId = findConfigId(configStore, 'Add-ons', ...backupLabels);
+    addAddon(configId, backupGb, `Backup ${plan}d`);
   }
   
   // Antivirus
