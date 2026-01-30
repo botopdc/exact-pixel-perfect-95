@@ -1297,16 +1297,51 @@ export function serializeProposal(
     addAddon(configId, state.addons.dba.quantity, 'DBA');
   }
   
-  // Backup - search with multiple retention formats
+  // Backup - search with multiple retention formats and range labels
   if (state.addons.backupPlan !== 'none') {
     const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
-    const plan = state.addons.backupPlan;
+    const plan = state.addons.backupPlan; // "7", "15", or "30"
+    
+    // CRITICAL: Backup labels may include retention + volume ranges like "7_dias_1_100"
+    // Build comprehensive label search list
     const backupLabels = [
-      `${plan} dias`, `${plan}d`, `${plan} Dias`, `Backup ${plan} dias`, 
-      `backup_${plan}`, `Retenção ${plan} dias`, plan
+      // Exact plan matches
+      `${plan} dias`, `${plan}d`, `${plan} Dias`, `${plan}_dias`,
+      // Backup prefixed
+      `Backup ${plan} dias`, `Backup ${plan}d`, `backup_${plan}`,
+      // Retention labels
+      `Retenção ${plan} dias`, `Retencao ${plan} dias`,
+      // Volume range labels (common API format: "7_dias_1_100", "7_dias_101_500", etc.)
+      `${plan}_dias_1_100`, `${plan}_dias_1`, `${plan}dias`,
+      // Just the number
+      plan,
+      // Legacy formats
+      `backup_plan_${plan}`, `plano_${plan}`, `Plano ${plan} dias`
     ];
+    
+    console.log(`[serializeProposal] Searching Backup config for plan="${plan}", gb=${backupGb}`);
+    
+    // Try Backup category first
     let configId = findConfigId(configStore, 'Backup', ...backupLabels);
+    
+    // Fallback: search in Add-ons
     if (!configId) configId = findConfigId(configStore, 'Add-ons', ...backupLabels);
+    
+    // Fallback: do a broader search - any item with the retention number in label
+    if (!configId) {
+      for (const item of configStore.rawItems) {
+        const itemLabel = item.label.toLowerCase();
+        const itemCategory = (item.meta?.category || '').toLowerCase();
+        // Match items containing the retention days that are in Backup-related categories
+        if ((itemCategory.includes('backup') || itemLabel.includes('backup') || itemLabel.includes('dias')) &&
+            itemLabel.includes(plan)) {
+          configId = item.id;
+          console.log(`[serializeProposal] Found Backup via broad search: id=${configId}, label="${item.label}"`);
+          break;
+        }
+      }
+    }
+    
     addAddon(configId, backupGb, `Backup ${plan}d`);
   }
   
@@ -1435,16 +1470,52 @@ export function serializeProposal(
       const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }];
       const qtyServers = Math.max(1, item.qtyServers || 1);
       
-      // CPU as addon
-      const cpuConfigId = findConfigId(configStore, 'BareMetal', bmCpuModel);
+      console.log(`[serializeProposal] BareMetal #${idx + 1}: cpu=${bmCpuModel}, ram=${bmRamTier}, disks=${JSON.stringify(bmDisks)}, qty=${qtyServers}`);
+      
+      // CPU as addon - try multiple search strategies
+      let cpuConfigId = findConfigId(configStore, 'BareMetal', bmCpuModel);
+      if (!cpuConfigId) cpuConfigId = findConfigId(configStore, 'BareMetal CPU', bmCpuModel);
+      if (!cpuConfigId) cpuConfigId = findConfigId(configStore, 'CPU', bmCpuModel);
+      // Fallback: search globally for the CPU model
+      if (!cpuConfigId) {
+        for (const rawItem of configStore.rawItems) {
+          const itemLabel = normalizeStr(rawItem.label);
+          const searchLabel = normalizeStr(bmCpuModel);
+          if (itemLabel === searchLabel || itemLabel.includes(searchLabel) || searchLabel.includes(itemLabel)) {
+            cpuConfigId = rawItem.id;
+            console.log(`[serializeProposal] Found BM CPU via global search: id=${cpuConfigId}, label="${rawItem.label}"`);
+            break;
+          }
+        }
+      }
       if (cpuConfigId) {
         addonsArray.push({ config_id: cpuConfigId, quantity: qtyServers, label: `BM CPU: ${bmCpuModel}` });
+        console.log(`[serializeProposal] ✅ Added BM CPU: ${bmCpuModel}, qty=${qtyServers}, config_id=${cpuConfigId}`);
+      } else {
+        console.warn(`[serializeProposal] ⚠️ BM CPU NOT FOUND: ${bmCpuModel}`);
       }
       
-      // RAM as addon
-      const ramBmConfigId = findConfigId(configStore, 'BareMetal', bmRamTier);
+      // RAM as addon - try multiple search strategies
+      let ramBmConfigId = findConfigId(configStore, 'BareMetal', bmRamTier);
+      if (!ramBmConfigId) ramBmConfigId = findConfigId(configStore, 'BareMetal RAM', bmRamTier);
+      if (!ramBmConfigId) ramBmConfigId = findConfigId(configStore, 'RAM', bmRamTier);
+      // Fallback: search globally for the RAM tier
+      if (!ramBmConfigId) {
+        for (const rawItem of configStore.rawItems) {
+          const itemLabel = normalizeStr(rawItem.label);
+          const searchLabel = normalizeStr(bmRamTier);
+          if (itemLabel === searchLabel || itemLabel.includes(searchLabel) || searchLabel.includes(itemLabel)) {
+            ramBmConfigId = rawItem.id;
+            console.log(`[serializeProposal] Found BM RAM via global search: id=${ramBmConfigId}, label="${rawItem.label}"`);
+            break;
+          }
+        }
+      }
       if (ramBmConfigId) {
         addonsArray.push({ config_id: ramBmConfigId, quantity: qtyServers, label: `BM RAM: ${bmRamTier}` });
+        console.log(`[serializeProposal] ✅ Added BM RAM: ${bmRamTier}, qty=${qtyServers}, config_id=${ramBmConfigId}`);
+      } else {
+        console.warn(`[serializeProposal] ⚠️ BM RAM NOT FOUND: ${bmRamTier}`);
       }
       
       // Disks as addons (aggregated by type)
@@ -1456,9 +1527,26 @@ export function serializeProposal(
       }
       
       for (const [diskType, totalQty] of disksByType) {
-        const diskConfigId = findConfigId(configStore, 'BareMetal', diskType);
+        let diskConfigId = findConfigId(configStore, 'BareMetal', diskType);
+        if (!diskConfigId) diskConfigId = findConfigId(configStore, 'BareMetal Disco', diskType);
+        if (!diskConfigId) diskConfigId = findConfigId(configStore, 'Disco', diskType);
+        // Fallback: search globally for the disk type
+        if (!diskConfigId) {
+          for (const rawItem of configStore.rawItems) {
+            const itemLabel = normalizeStr(rawItem.label);
+            const searchLabel = normalizeStr(diskType);
+            if (itemLabel === searchLabel || itemLabel.includes(searchLabel) || searchLabel.includes(itemLabel)) {
+              diskConfigId = rawItem.id;
+              console.log(`[serializeProposal] Found BM Disk via global search: id=${diskConfigId}, label="${rawItem.label}"`);
+              break;
+            }
+          }
+        }
         if (diskConfigId) {
           addonsArray.push({ config_id: diskConfigId, quantity: totalQty, label: `BM Disk: ${diskType}` });
+          console.log(`[serializeProposal] ✅ Added BM Disk: ${diskType}, qty=${totalQty}, config_id=${diskConfigId}`);
+        } else {
+          console.warn(`[serializeProposal] ⚠️ BM Disk NOT FOUND: ${diskType}`);
         }
       }
       
@@ -1471,6 +1559,7 @@ export function serializeProposal(
             quantity: item.gpuQty * qtyServers,
             label: `BM GPU: ${item.gpu}`,
           });
+          console.log(`[serializeProposal] ✅ Added BM GPU: ${item.gpu}, qty=${item.gpuQty * qtyServers}, config_id=${gpuConfigId}`);
         }
       }
       
