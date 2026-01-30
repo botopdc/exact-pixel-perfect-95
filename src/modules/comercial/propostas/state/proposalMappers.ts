@@ -670,31 +670,36 @@ function logAddonRestoration(addons: AddonsStateV2): void {
 
 /**
  * Addon payload for API (v12+)
- * Requires config_id and item_id for backend price calculation
+ * 
+ * Per OpenAPI spec (CalculatorProposalStoreRequest):
+ * - addons is array of generic objects
+ * - Backend requires config_id and item_id for price calculation
+ * - name/price are included for compatibility but backend recalculates
  */
 export interface ApiAddonPayload {
-  config_id?: number;     // ID of the calculator config entry (Add-ons category)
+  config_id?: number;     // ID of the calculator config entry
   item_id?: number;       // ID of the item within the config
-  code?: string;          // Legacy: addon code for compatibility
-  name: string;           // Display name
-  price: number;          // Price (backend will recalculate from config)
-  quantity: number;       // Quantity
+  code?: string;          // Addon code for identification
+  name?: string;          // Display name (optional, for compatibility)
+  quantity: number;       // REQUIRED: Quantity
 }
 
 /**
  * Server payload for API (v12+)
- * Requires config_id and item IDs for backend price calculation
+ * 
+ * Per OpenAPI spec (CalculatorProposalStoreRequest):
+ * - servers is array of generic objects
+ * - Backend uses config_id and item IDs for price calculation
  */
 export interface ApiServerPayload {
   config_id?: number;       // ID of the calculator config (VM/BareMetal category)
-  name: string;
+  name: string;             // Server name for identification
   vcpu_item_id?: number;    // ID of the vCPU item in config
   vcpu: number;
   ram_item_id?: number;     // ID of the RAM item in config
   ram: number;
   storage_item_id?: number; // ID of the storage item in config
   storage: number;
-  price: number;
   quantity: number;
   gpu?: { model: string; quantity: number };
 }
@@ -802,7 +807,6 @@ export function serializeProposal(
       item_id: itemId,
       code: 'winserver_2vcpu_unit',
       name: 'WinServer(2vCPU/unid.)',
-      price: 0,
       quantity: state.addons.winserver,
     });
     console.log('[serializeProposal] Added WinServer:', state.addons.winserver, 'item_id:', itemId);
@@ -822,7 +826,6 @@ export function serializeProposal(
       item_id: itemId,
       code: supportData.code,
       name: supportData.name,
-      price: state.addons.support.price,
       quantity: 1,
     });
     console.log('[SERIALIZE] support=' + supportData.code + ' price=' + state.addons.support.price + ' item_id=' + itemId);
@@ -836,7 +839,6 @@ export function serializeProposal(
       item_id: itemId,
       code: 'consulting_hours',
       name: 'Consultoria Técnica',
-      price: state.addons.consulting.unitPrice,
       quantity: state.addons.consulting.quantity,
     });
     console.log('[SERIALIZE] consulting_hours qty=' + state.addons.consulting.quantity + ' item_id=' + itemId);
@@ -850,7 +852,6 @@ export function serializeProposal(
       item_id: itemId,
       code: 'dba_hours',
       name: 'DBA',
-      price: state.addons.dba.unitPrice,
       quantity: state.addons.dba.quantity,
     });
     console.log('[SERIALIZE] dba_hours qty=' + state.addons.dba.quantity + ' item_id=' + itemId);
@@ -867,7 +868,6 @@ export function serializeProposal(
       item_id: itemId,
       code: `backup_${state.addons.backupPlan}`,
       name: `Backup ${state.addons.backupPlan} dias`,
-      price: 0, // Backend calculates from config
       quantity: backupGb, // CRITICAL: Must be >= 1 when plan selected
     });
     console.log('[serializeProposal] Backup: plan=' + state.addons.backupPlan + ' gb=' + backupGb + ' item_id=' + itemId);
@@ -881,7 +881,6 @@ export function serializeProposal(
       item_id: itemId, 
       code: 'antivirus', 
       name: 'Antivirus', 
-      price: 0, 
       quantity: state.addons.antivirus 
     });
   }
@@ -894,7 +893,6 @@ export function serializeProposal(
       item_id: itemId, 
       code: 'firewall', 
       name: 'Firewall (qtd)', 
-      price: 0, 
       quantity: state.addons.firewall 
     });
   }
@@ -907,7 +905,6 @@ export function serializeProposal(
       item_id: itemId, 
       code: 'tsplus', 
       name: 'TS Plus', 
-      price: 0, 
       quantity: state.addons.tsplus 
     });
   }
@@ -920,7 +917,6 @@ export function serializeProposal(
       item_id: itemId, 
       code: 'cal', 
       name: 'CAL', 
-      price: 0, 
       quantity: state.addons.cal 
     });
   }
@@ -933,7 +929,6 @@ export function serializeProposal(
       item_id: itemId, 
       code: 'veeam_vm', 
       name: 'Veeam VM', 
-      price: 0, 
       quantity: state.addons.veeamVm 
     });
   }
@@ -946,7 +941,6 @@ export function serializeProposal(
       item_id: itemId, 
       code: 'veeam_agent', 
       name: 'Veeam Agent', 
-      price: 0, 
       quantity: state.addons.veeamAg 
     });
   }
@@ -964,7 +958,6 @@ export function serializeProposal(
       item_id: itemId,
       code: `sql_${state.addons.sql.toLowerCase()}`,
       name: `Licença SQL ${edition}`,
-      price: 0, // Backend calculates from config
       quantity: sqlQty, // CRITICAL: Must be >= 1 when type selected
     });
     console.log('[serializeProposal] SQL: type=' + state.addons.sql + ' qty=' + sqlQty + ' item_id=' + itemId);
@@ -985,7 +978,6 @@ export function serializeProposal(
         : `${Math.round(volumeGB || volumeTB * 1024)}GB`;
       addonsArray.push({
         name: `Storage ${storage.storageType.toUpperCase()} ${displaySize}`,
-        price: 0,
         quantity: 1,
       });
     }
@@ -995,7 +987,6 @@ export function serializeProposal(
   if (state.kubernetes.enabled) {
     addonsArray.push({
       name: `Kubernetes ${state.kubernetes.plan}`,
-      price: 0,
       quantity: 1,
     });
   }
@@ -1004,7 +995,6 @@ export function serializeProposal(
   if (state.openSaas.enabled && state.openSaas.users > 0) {
     addonsArray.push({
       name: `OPEN SaaS ${state.openSaas.users} usuários`,
-      price: 0,
       quantity: state.openSaas.users,
     });
   }
@@ -1038,7 +1028,6 @@ export function serializeProposal(
         ram: item.ramGb,
         storage_item_id: storageItemId,
         storage: Math.round(item.nvmeTb * 1024),
-        price: 0,
         quantity: item.qtyServers,
         gpu: gpuObj,
       });
@@ -1049,7 +1038,6 @@ export function serializeProposal(
         vcpu: 0,
         ram: 0,
         storage: 0,
-        price: 0,
         quantity: item.qtyServers,
         gpu: gpuObj,
       });
@@ -1061,19 +1049,19 @@ export function serializeProposal(
     if (state.storageItems.length > 0) {
       serversArray.push({
         name: `__VIRTUAL__STORAGE__:${JSON.stringify({ items: state.storageItems })}`,
-        vcpu: 0, ram: 0, storage: 0, price: 0, quantity: 1,
+        vcpu: 0, ram: 0, storage: 0, quantity: 1,
       });
     }
     if (state.kubernetes.enabled) {
       serversArray.push({
         name: `__VIRTUAL__KUBERNETES__:${JSON.stringify(state.kubernetes)}`,
-        vcpu: 0, ram: 0, storage: 0, price: 0, quantity: 1,
+        vcpu: 0, ram: 0, storage: 0, quantity: 1,
       });
     }
     if (state.openSaas.enabled && state.openSaas.users > 0) {
       serversArray.push({
         name: `__VIRTUAL__OPENSAAS__:${JSON.stringify(state.openSaas)}`,
-        vcpu: 0, ram: 0, storage: 0, price: 0, quantity: 1,
+        vcpu: 0, ram: 0, storage: 0, quantity: 1,
       });
     }
     
@@ -1081,7 +1069,7 @@ export function serializeProposal(
     if (serversArray.length === 0) {
       serversArray.push({
         name: '__VIRTUAL__BUNDLE__:{}',
-        vcpu: 0, ram: 0, storage: 0, price: 0, quantity: 1,
+        vcpu: 0, ram: 0, storage: 0, quantity: 1,
       });
     }
   }
