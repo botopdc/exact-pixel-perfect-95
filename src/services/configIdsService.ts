@@ -374,6 +374,8 @@ export function getBackupConfig(
   store: ConfigIdStore,
   plan: string
 ): ConfigIdMapping | undefined {
+  console.log(`[getBackupConfig] Searching for backup plan: "${plan}"`);
+  
   // Comprehensive label search list for backup plans
   const labels = [
     // Exact matches
@@ -385,20 +387,23 @@ export function getBackupConfig(
     `${plan}_dias_1001_2000`, `${plan}_dias_2001`,
     // Legacy formats
     `plano_${plan}`, `Plano ${plan} dias`, `retencao_${plan}`, `Retenção ${plan} dias`,
-    `Retencao ${plan} dias`
+    `Retencao ${plan} dias`,
+    // Additional formats seen in APIs
+    `${plan}dias`, `backup${plan}`, `${plan}dias_1_100`, `retenção ${plan}`,
+    `retencao${plan}dias`
   ];
   
   // Try Backup category first
   let result = findConfigByLabels(store, 'Backup', ...labels);
   if (result) {
-    console.log(`[configIdsService] Found Backup ${plan} in 'Backup' category:`, result.configId, result.label);
+    console.log(`[getBackupConfig] ✓ Found Backup ${plan} in 'Backup' category:`, result.configId, result.label);
     return result;
   }
   
   // Fallback: search in Add-ons
   result = findConfigByLabels(store, 'Add-ons', ...labels);
   if (result) {
-    console.log(`[configIdsService] Found Backup ${plan} in 'Add-ons' category:`, result.configId, result.label);
+    console.log(`[getBackupConfig] ✓ Found Backup ${plan} in 'Add-ons' category:`, result.configId, result.label);
     return result;
   }
   
@@ -409,25 +414,62 @@ export function getBackupConfig(
       for (const config of configs) {
         const labelLower = config.label.toLowerCase();
         if (labelLower.includes(plan)) {
-          console.log(`[configIdsService] Found Backup ${plan} via broad search:`, config.configId, config.label);
+          console.log(`[getBackupConfig] ✓ Found Backup ${plan} via broad search in '${category}':`, config.configId, config.label);
           return config;
         }
       }
     }
   }
   
-  // Final fallback: search ALL categories for labels containing both "dias" and the plan number
+  // More aggressive fallback: search ALL categories for labels containing the plan number
+  // This catches cases where Backup might be in an unexpected category
   for (const [category, configs] of store.byCategory) {
     for (const config of configs) {
       const labelLower = config.label.toLowerCase();
-      if ((labelLower.includes('dias') || labelLower.includes('backup')) && labelLower.includes(plan)) {
-        console.log(`[configIdsService] Found Backup ${plan} via global search:`, config.configId, config.label);
+      const sectionLower = (config.section || '').toLowerCase();
+      
+      // Check if this looks like a backup config
+      const isBackupLike = labelLower.includes('dias') || 
+                           labelLower.includes('backup') || 
+                           labelLower.includes('retenc') ||
+                           sectionLower.includes('backup') ||
+                           sectionLower.includes('retenc');
+      
+      if (isBackupLike && labelLower.includes(plan)) {
+        console.log(`[getBackupConfig] ✓ Found Backup ${plan} via GLOBAL search in '${category}':`, config.configId, config.label);
         return config;
       }
     }
   }
   
-  console.warn(`[configIdsService] Backup NOT FOUND: plan=${plan}, searched labels:`, labels);
+  // ULTIMATE fallback: If plan is "7", "15", or "30", search for any config with that exact number
+  // AND contains "dias" or "d" after the number
+  const planNum = parseInt(plan, 10);
+  if ([7, 15, 30].includes(planNum)) {
+    for (const [category, configs] of store.byCategory) {
+      for (const config of configs) {
+        const labelLower = config.label.toLowerCase();
+        // Match patterns like "7 dias", "15dias", "30_dias", etc.
+        const pattern = new RegExp(`\\b${plan}\\s*(dias?|d|_dias)`, 'i');
+        if (pattern.test(config.label)) {
+          console.log(`[getBackupConfig] ✓ Found Backup ${plan} via REGEX in '${category}':`, config.configId, config.label);
+          return config;
+        }
+      }
+    }
+  }
+  
+  console.warn(`[getBackupConfig] ❌ Backup NOT FOUND: plan=${plan}`);
+  console.warn(`[getBackupConfig] Searched labels:`, labels.slice(0, 10), '...');
+  console.warn(`[getBackupConfig] Available categories:`, Array.from(store.byCategory.keys()));
+  
+  // Dump first 5 items from each backup-related category for debugging
+  for (const [category, configs] of store.byCategory) {
+    if (category.toLowerCase().includes('backup')) {
+      console.warn(`[getBackupConfig] Items in '${category}':`, configs.slice(0, 5).map(c => ({ id: c.configId, label: c.label })));
+    }
+  }
+  
   return undefined;
 }
 
