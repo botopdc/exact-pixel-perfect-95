@@ -113,8 +113,11 @@ export function buildProposalLineItems(proposal: Record<string, unknown>): LineI
     const serverName = toStr(server.name, `Servidor #${idx + 1}`);
     const description = buildServerDescription(server);
     const qty = toNum(server.quantity ?? server.qty ?? server.qtyServers, 1);
-    const unitPrice = toNum(server.price ?? server.unit_price ?? server.unitPrice);
-    const subtotal = toNum(server.subtotal ?? server.total, unitPrice * qty);
+    
+    // API returns price as TOTAL (unit × qty), so we calculate unit price by dividing
+    const rawPrice = toNum(server.price ?? server.unit_price ?? server.unitPrice);
+    const subtotal = rawPrice; // price from API is already the subtotal
+    const unitPrice = qty > 0 ? rawPrice / qty : rawPrice; // calculate unit price
     
     // Detect server type
     const typeRaw = toStr(server.type).toLowerCase();
@@ -191,8 +194,11 @@ export function buildProposalLineItems(proposal: Record<string, unknown>): LineI
     }
     
     const name = toStr(addon.label || addon.name || addon.code, `Add-on #${idx + 1}`);
-    const unitPrice = toNum(addon.price ?? addon.unit_price ?? addon.unitPrice);
-    const subtotal = toNum(addon.subtotal ?? addon.total, unitPrice * qty);
+    
+    // API returns price as TOTAL (unit × qty), so we calculate unit price by dividing
+    const rawPrice = toNum(addon.price ?? addon.unit_price ?? addon.unitPrice);
+    const subtotal = rawPrice; // price from API is already the subtotal
+    const unitPrice = qty > 0 ? rawPrice / qty : rawPrice; // calculate unit price
     
     items.push({
       key: `addon_${idx}`,
