@@ -352,6 +352,11 @@ export function useCalculatorState(): UseCalculatorStateReturn {
       sqlServer?: { configId: number; items: Record<string, number> } | null;
       backup?: { configId: number; items: Record<string, number> } | null;
       specializedServices?: { configId: number; items: Record<string, number> } | null;
+      baremetal?: {
+        cpu?: { configId: number; items: Record<string, number> } | null;
+        ram?: { configId: number; items: Record<string, number> } | null;
+        disk?: { configId: number; items: Record<string, number> } | null;
+      } | null;
     }
   ): ApiProposalPayload => {
     return serializeProposal(state, channelType, grandTotal, discountPct, configIdStore);
