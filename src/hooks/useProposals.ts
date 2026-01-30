@@ -18,7 +18,6 @@ import {
   loadConfigIds, 
   ConfigIdStore, 
   getAddonItemId, 
-  getVmItemIds, 
   getSqlItemId, 
   getBackupItemId,
   getGpuItemId,
@@ -1551,24 +1550,49 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // IMPORTANT: GPU must be persisted inside the server object (servers[].gpu)
   // CRITICAL: Use serverPriceByPrefix built at the start from result.rows
   // API v12+: config_id and item IDs are REQUIRED for each server
-  const serversArray: Array<Record<string, unknown>> = [];
+  // ============================================
+  // NEW FLAT API STRUCTURE (Janeiro 2026)
+  // servers: { name, specs: [{ config_id, value }], quantity }
+  // Backend calculates price from specs using config values
+  // ============================================
+  const serversArray: Array<{
+    name: string;
+    specs: Array<{ config_id: number; value: number }>;
+    quantity: number;
+  }> = [];
   
-  // Get VM item IDs from configIdStore - NO FALLBACKS, VALIDATION REQUIRED
-  // API v12+ requires valid config_id and item_ids from the API
-  const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
-  const vmConfigId = vmItemIds?.configId;
-  const vcpuItemId = vmItemIds?.vcpuItemId;
-  const ramItemId = vmItemIds?.ramItemId;
-  const storageItemId = vmItemIds?.storageItemId;
+  // Get VM config IDs from configIdStore using FLAT structure lookups
+  // These are IDs from calculator_configs table for vCPU, RAM, NVMe
+  const getConfigIdByLabel = (category: string, ...labels: string[]): number | undefined => {
+    if (!configIdStore) return undefined;
+    const categoryConfigs = configIdStore.byCategory.get(category);
+    if (!categoryConfigs) return undefined;
+    
+    for (const searchLabel of labels) {
+      const normalizedSearch = searchLabel.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      for (const item of categoryConfigs) {
+        const itemLabel = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (itemLabel === normalizedSearch || itemLabel.includes(normalizedSearch) || normalizedSearch.includes(itemLabel)) {
+          return item.configId;
+        }
+      }
+    }
+    return undefined;
+  };
+  
+  const vcpuConfigId = getConfigIdByLabel('VM', 'vCPU', 'vcpu');
+  const ramConfigId = getConfigIdByLabel('VM', 'RAM', 'ram');
+  const storageConfigId = getConfigIdByLabel('VM', 'NVMe', 'nvme', 'Storage');
+  const ipConfigId = getConfigIdByLabel('VM', 'IP Público', 'IP');
   
   // CRITICAL: Log available config items for debugging if IDs are missing
-  if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
-    console.error('[localToApi] ❌ CRITICAL: Missing VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
-    console.error('[localToApi] Available VM items:', configIdStore?.byCategory.get('VM')?.map(v => v.label));
-    console.error('[localToApi] This will cause API 422 error - IDs must exist in the API');
+  if (!vcpuConfigId || !ramConfigId || !storageConfigId) {
+    console.error('[localToApi] ❌ CRITICAL: Missing VM config IDs from API:', { vcpuConfigId, ramConfigId, storageConfigId, ipConfigId });
+    console.error('[localToApi] Available VM items:', configIdStore?.byCategory.get('VM')?.map(v => ({ id: v.configId, label: v.label })));
+    console.error('[localToApi] This will cause API 422 error - config IDs must exist in the API');
   }
   
-  console.log('[localToApi] VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
+  console.log('[localToApi] VM Config IDs from API (FLAT):', { vcpuConfigId, ramConfigId, storageConfigId, ipConfigId });
   
   if (proposal.items && Array.isArray(proposal.items)) {
     for (const [idx, item] of proposal.items.entries()) {
@@ -1576,7 +1600,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
       const serverPrice = serverPriceByPrefix[itemPrefix] || 0;
       
-      // Handle VM/BM format from calculator
+      // Handle VM format from calculator - NEW FLAT API uses specs[]
       if (item.type === 'vm') {
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
           ? item.gpu
@@ -1586,37 +1610,74 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         // CRITICAL: Per OpenAPI spec, VMs MUST have vcpu >= 1 and ram >= 1
         const vcpuValue = Math.max(1, item.vcpu || 1);
         const ramValue = Math.max(1, item.ramGb || 1);
+        const storageGb = Math.round((item.nvmeTb || 0) * 1024);
         
         if ((item.vcpu || 0) < 1 || (item.ramGb || 0) < 1) {
           console.warn(`[localToApi] VM #${idx + 1} had invalid values (vcpu=${item.vcpu}, ram=${item.ramGb}), enforced minimums`);
         }
 
-        const vm: Record<string, unknown> = {
-          name: `VM #${idx + 1}`,
-          vcpu: vcpuValue,
-          ram: ramValue,
-          storage: Math.round((item.nvmeTb || 0) * 1024), // Convert TB to GB
-          price: serverPrice, // Use calculated price from result rows
-          quantity: item.qtyServers || 1,
-          // API v12+: Required config and item IDs (with fallbacks)
-          config_id: vmConfigId,
-          vcpu_item_id: vcpuItemId,
-          ram_item_id: ramItemId,
-          storage_item_id: storageItemId,
-        };
-
-        if (gpuModel && gpuQty > 0) {
-          vm.gpu = { model: gpuModel, quantity: gpuQty };
-          // Get GPU item ID
-          if (configIdStore) {
-            const gpuIds = getGpuItemId(configIdStore, gpuModel);
-            vm.gpu_item_id = gpuIds.itemId;
-          }
-          console.log(`[SERIALIZE] gpu.enabled=true model=${gpuModel} qty=${gpuQty}`);
+        // Build specs array - NEW FLAT API format per OpenAPI spec
+        const specs: Array<{ config_id: number; value: number }> = [];
+        
+        // vCPU spec (minimum 1)
+        if (vcpuConfigId) {
+          specs.push({ config_id: vcpuConfigId, value: vcpuValue });
         }
         
-        console.log(`[SERIALIZE] VM #${idx + 1} price=${serverPrice} prefix=${itemPrefix} vcpu=${vcpuValue} ram=${ramValue} config_id=${vm.config_id}`);
-        serversArray.push(vm);
+        // RAM spec (minimum 1)
+        if (ramConfigId) {
+          specs.push({ config_id: ramConfigId, value: ramValue });
+        }
+        
+        // Storage/NVMe spec (in GB)
+        if (storageConfigId) {
+          specs.push({ config_id: storageConfigId, value: Math.max(0, storageGb) });
+        }
+        
+        // IP spec (if configured)
+        if (ipConfigId && item.ips > 0) {
+          specs.push({ config_id: ipConfigId, value: item.ips });
+        }
+
+        // Add GPU as addon (if present) - GPU is a separate addon, not part of specs
+        if (gpuModel && gpuQty > 0) {
+          // Get GPU config ID from GPU category
+          const gpuConfigs = configIdStore?.byCategory.get('GPU');
+          let gpuConfigId: number | undefined;
+          if (gpuConfigs) {
+            const normalizedGpuModel = gpuModel.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            for (const item of gpuConfigs) {
+              const itemLabel = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              if (itemLabel === normalizedGpuModel || itemLabel.includes(normalizedGpuModel) || normalizedGpuModel.includes(itemLabel)) {
+                gpuConfigId = item.configId;
+                break;
+              }
+            }
+          }
+          
+          if (gpuConfigId) {
+            const totalGpuQty = gpuQty * Math.max(1, item.qtyServers || 1);
+            addonsArray.push({
+              config_id: gpuConfigId,
+              quantity: totalGpuQty,
+            });
+            console.log(`[localToApi] Added VM GPU as addon: ${gpuModel}, config_id=${gpuConfigId}, qty=${totalGpuQty}`);
+          } else {
+            console.warn(`[localToApi] ⚠️ Could not find GPU config for: ${gpuModel}`);
+          }
+        }
+        
+        // Only add server if we have at least one valid spec
+        if (specs.length > 0) {
+          serversArray.push({
+            name: `VM #${idx + 1}`,
+            specs,
+            quantity: Math.max(1, item.qtyServers || 1),
+          });
+          console.log(`[localToApi] VM #${idx + 1} serialized with specs[] format:`, specs);
+        } else {
+          console.error(`[localToApi] ❌ VM #${idx + 1} skipped - no valid specs (missing config IDs)`);
+        }
       } else if (item.type === 'bm') {
         // ============================================
         // BAREMETAL: Send as individual ADDONS
@@ -1710,19 +1771,23 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         
         // Note: BareMetal is NOT added to serversArray - it's fully represented as addons
       } else {
-        // Fallback for legacy format - use VM config IDs with fallbacks
-        serversArray.push({
-          name: item.name || item.label || 'Server',
-          vcpu: Math.max(1, item.vcpu || item.cpu || 1),
-          ram: Math.max(1, item.ram || item.memory || item.ramGb || 1),
-          storage: item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0,
-          price: item.price || item.total || item.monthlyPrice || serverPrice || 0,
-          quantity: item.quantity || item.qtyServers || 1,
-          config_id: vmConfigId,
-          vcpu_item_id: vcpuItemId,
-          ram_item_id: ramItemId,
-          storage_item_id: storageItemId,
-        });
+        // Fallback for legacy format - convert to specs[] format
+        const specs: Array<{ config_id: number; value: number }> = [];
+        const vcpuVal = Math.max(1, item.vcpu || item.cpu || 1);
+        const ramVal = Math.max(1, item.ram || item.memory || item.ramGb || 1);
+        const storageVal = item.storage || item.disk || item.nvme || Math.round((item.nvmeTb || 0) * 1024) || 0;
+        
+        if (vcpuConfigId) specs.push({ config_id: vcpuConfigId, value: vcpuVal });
+        if (ramConfigId) specs.push({ config_id: ramConfigId, value: ramVal });
+        if (storageConfigId) specs.push({ config_id: storageConfigId, value: storageVal });
+        
+        if (specs.length > 0) {
+          serversArray.push({
+            name: item.name || item.label || 'Server',
+            specs,
+            quantity: item.quantity || item.qtyServers || 1,
+          });
+        }
       }
     }
   }
@@ -1741,6 +1806,19 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   if (serversArray.length === 0) {
     let hasAnyIndependentProduct = false;
     
+    // Build default specs for virtual servers
+    const defaultVirtualSpecs: Array<{ config_id: number; value: number }> = [];
+    if (vcpuConfigId) defaultVirtualSpecs.push({ config_id: vcpuConfigId, value: 1 });
+    if (ramConfigId) defaultVirtualSpecs.push({ config_id: ramConfigId, value: 1 });
+    if (storageConfigId) defaultVirtualSpecs.push({ config_id: storageConfigId, value: 0 });
+    
+    // Fallback if no config IDs - use hardcoded IDs (should not happen)
+    const virtualSpecs = defaultVirtualSpecs.length > 0 ? defaultVirtualSpecs : [
+      { config_id: 1, value: 1 },
+      { config_id: 2, value: 1 },
+      { config_id: 3, value: 0 },
+    ];
+    
     // Check for Storage items (accept any volume > 0)
     const validStorageItems = (proposal.storageItems || []).filter((storage: any) => {
       const volumeTB = toNum(storage.volumeTB, 0);
@@ -1754,17 +1832,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const storagePayload = JSON.stringify({ items: validStorageItems });
       serversArray.push({
         name: `__VIRTUAL__STORAGE__:${storagePayload}`,
-        // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
-        vcpu: 1,
-        ram: 1,
-        storage: 0,
-        price: 0,
+        specs: virtualSpecs,
         quantity: 1,
-        // Virtual servers need config IDs for API validation
-        config_id: vmConfigId ?? 1,
-        vcpu_item_id: vcpuItemId ?? 1,
-        ram_item_id: ramItemId ?? 2,
-        storage_item_id: storageItemId ?? 3,
       });
     }
     
@@ -1774,16 +1843,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const k8sPayload = JSON.stringify(proposal.kubernetes);
       serversArray.push({
         name: `__VIRTUAL__KUBERNETES__:${k8sPayload}`,
-        // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
-        vcpu: 1,
-        ram: 1,
-        storage: 0,
-        price: 0,
+        specs: virtualSpecs,
         quantity: 1,
-        config_id: vmConfigId ?? 1,
-        vcpu_item_id: vcpuItemId ?? 1,
-        ram_item_id: ramItemId ?? 2,
-        storage_item_id: storageItemId ?? 3,
       });
     }
     
@@ -1793,36 +1854,20 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const saasPayload = JSON.stringify(proposal.openSaas);
       serversArray.push({
         name: `__VIRTUAL__OPENSAAS__:${saasPayload}`,
-        // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
-        vcpu: 1,
-        ram: 1,
-        storage: 0,
-        price: 0,
+        specs: virtualSpecs,
         quantity: 1,
-        config_id: vmConfigId ?? 1,
-        vcpu_item_id: vcpuItemId ?? 1,
-        ram_item_id: ramItemId ?? 2,
-        storage_item_id: storageItemId ?? 3,
       });
     }
     // ============================================
     // FALLBACK: If still no servers after adding independent products,
     // add a virtual placeholder to guarantee servers is never empty
-    // Per OpenAPI spec: vcpu >= 1, ram >= 1, quantity >= 1
     // ============================================
     if (serversArray.length === 0) {
       console.warn('[localToApi] No items found, adding VIRTUAL_PRODUCT_BUNDLE fallback');
       serversArray.push({
         name: '__VIRTUAL__BUNDLE__:{}',
-        vcpu: 1, // Per OpenAPI: minimum 1
-        ram: 1, // Per OpenAPI: minimum 1
-        storage: 0,
-        price: 0,
-        quantity: 1, // Per OpenAPI: minimum 1
-        config_id: vmConfigId ?? 1,
-        vcpu_item_id: vcpuItemId ?? 1,
-        ram_item_id: ramItemId ?? 2,
-        storage_item_id: storageItemId ?? 3,
+        specs: virtualSpecs,
+        quantity: 1,
       });
     }
     
@@ -1979,27 +2024,27 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   });
   
   // ============================================
-  // CRITICAL VALIDATION: Check for missing IDs that will cause API 422 errors
+  // CRITICAL VALIDATION: Check for missing specs that will cause API 422 errors
+  // NEW FLAT API: servers use specs[] not individual fields
   // ============================================
   const validationErrors: string[] = [];
   
-  // Validate servers have all required IDs
+  // Validate servers have at least one spec (NEW FLAT API: specs[] is required)
   for (const server of serversArray) {
-    const serverName = server.name as string;
+    const serverName = server.name;
     // Skip validation for virtual/placeholder servers
     if (serverName?.startsWith('__VIRTUAL__')) continue;
     
-    if (!server.config_id) {
-      validationErrors.push(`Server "${serverName}" missing config_id`);
-    }
-    if (!server.vcpu_item_id) {
-      validationErrors.push(`Server "${serverName}" missing vcpu_item_id`);
-    }
-    if (!server.ram_item_id) {
-      validationErrors.push(`Server "${serverName}" missing ram_item_id`);
-    }
-    if (!server.storage_item_id) {
-      validationErrors.push(`Server "${serverName}" missing storage_item_id`);
+    if (!server.specs || server.specs.length === 0) {
+      validationErrors.push(`Server "${serverName}" missing specs[]`);
+    } else {
+      // Validate each spec has config_id and value
+      for (let i = 0; i < server.specs.length; i++) {
+        const spec = server.specs[i];
+        if (!spec.config_id) {
+          validationErrors.push(`Server "${serverName}" spec[${i}] missing config_id`);
+        }
+      }
     }
   }
   
@@ -2020,20 +2065,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     throw new Error(`IDs obrigatórios ausentes na configuração da API. Verifique o console para detalhes. Erros: ${validationErrors.join('; ')}`);
   }
   
-  // Validate: warn if servers have price = 0 but have resources
-  // NOTE: In NEW FLAT API, price is calculated by backend, so we skip this check for addons
-  let hasZeroPriceWarning = false;
-  for (const server of serversArray) {
-    const hasResources = (server.vcpu as number) > 0 || (server.ram as number) > 0 || (server.storage as number) > 0;
-    if (hasResources && server.price === 0) {
-      console.warn('[localToApi] ⚠️ Server has resources but price=0 (will be calculated by backend):', server);
-      hasZeroPriceWarning = true;
-    }
-  }
-  
-  if (hasZeroPriceWarning) {
-    console.log('[localToApi] Note: Prices will be calculated by backend in NEW FLAT API');
-  }
+  // NEW FLAT API: Price is calculated by backend from specs, no validation needed
+  console.log('[localToApi] Note: All prices will be calculated by backend in NEW FLAT API');
   
   return finalPayload;
 }
