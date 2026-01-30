@@ -404,10 +404,73 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
   
   // ============================================
   // STEP 5: Extract addons from dedicated field
-  // CRITICAL: This data may come from apiToLocal which already normalized addons
-  // or directly from dados_proposta. We must handle both cases.
+  // CRITICAL: API returns addons as ARRAY with label field, not object.
+  // We must convert array format to object format for UI state.
   // ============================================
-  const rawAddons = data.addons as Record<string, unknown> | undefined;
+  
+  // Helper to convert addon array to object format
+  const convertAddonsArrayToObject = (addonsArray: any[]): Record<string, unknown> => {
+    const result: Record<string, unknown> = {};
+    const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    
+    for (const addon of addonsArray) {
+      const label = normalize(addon.label || addon.name || '');
+      const qty = addon.quantity ?? addon.qty ?? 1;
+      const price = addon.price ?? 0;
+      const configId = addon.config_id ?? addon.configId;
+      
+      console.log('[convertAddonsArrayToObject] Processing:', { label, qty, configId });
+      
+      // Match by label and map to object keys
+      if (label.includes('winserver') || label.includes('windows')) {
+        result.winserver = qty;
+      } else if (label.includes('antivirus')) {
+        result.antivirus = qty;
+      } else if (label.includes('firewall') || label.includes('pfsense')) {
+        result.firewall = qty;
+      } else if (label.includes('tsplus')) {
+        result.tsplus = qty;
+      } else if (label === 'cal') {
+        result.cal = qty;
+      } else if (label.includes('veeam vm')) {
+        result.veeamVm = qty;
+      } else if (label.includes('veeam agent')) {
+        result.veeamAg = qty;
+      } else if (label === 'std' || label === 'web' || configId === 7) {
+        // SQL Server - configId 7
+        result.sql = label === 'std' ? 'std' : 'web';
+        result.sqlQty = qty;
+      } else if (label.includes('backup')) {
+        const planMatch = label.match(/backup[_\s]*(\d+)/i);
+        if (planMatch) {
+          result.backupPlan = planMatch[1];
+          result.backupGb = qty;
+        }
+      } else if (label.includes('suporte')) {
+        if (!result.support) result.support = { level: 'none', price: 0 };
+        if (label.includes('basico')) (result.support as any).level = 'basic';
+        else if (label.includes('intermediario')) (result.support as any).level = 'intermediate';
+        else if (label.includes('avancado')) (result.support as any).level = 'advanced';
+        (result.support as any).price = price;
+      } else if (label.includes('consultoria')) {
+        result.consulting = { quantity: qty, unitPrice: price || 200 };
+      } else if (label === 'dba') {
+        result.dba = { quantity: qty, unitPrice: price || 250 };
+      }
+    }
+    
+    console.log('[convertAddonsArrayToObject] Converted result:', result);
+    return result;
+  };
+  
+  // Check if addons is array (API format) or object (snapshot format)
+  let rawAddons: Record<string, unknown> | undefined;
+  if (Array.isArray(data.addons)) {
+    console.log('[normalizeProposalForEdit] Addons is ARRAY - converting to object');
+    rawAddons = convertAddonsArrayToObject(data.addons);
+  } else {
+    rawAddons = data.addons as Record<string, unknown> | undefined;
+  }
   
   // Parse customAddons ensuring values are numbers
   const parseCustomAddons = (obj: unknown): Record<string, number> => {

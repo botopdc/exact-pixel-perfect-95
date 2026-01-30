@@ -512,10 +512,12 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   };
   
   for (const addon of addons) {
-    // Get both code and name for matching (legacy format)
+    // Get code, name, AND label for matching (API returns 'label' not 'name')
     const code = toStr(addon.code, '').toLowerCase().trim();
-    const name = toStr(addon.name, '').toLowerCase().trim();
-    const nameNormalized = normalize(addon.name || '');
+    const name = toStr(addon.name || addon.label, '').toLowerCase().trim(); // FIXED: Use label as fallback
+    const label = toStr(addon.label, '').toLowerCase().trim(); // ADDED: explicit label field
+    const nameNormalized = normalize(addon.name || addon.label || '');
+    const labelNormalized = normalize(addon.label || '');
     const qty = toNum(addon.quantity ?? addon.qty, 1);
     const price = toNum(addon.price, 0);
     
@@ -524,50 +526,52 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     const itemId = addon.item_id ?? addon.itemId;
     
     console.log(`[hydrateAddonsFromLegacy] Processing addon:`, { 
-      code, name, qty, configId, itemId 
+      code, name, label, qty, configId, itemId 
     });
     
     // Skip if no identifier at all
-    if (!code && !name && configId === undefined) continue;
+    if (!code && !name && !label && configId === undefined) continue;
     
-    // Windows Server - match by code, name, or known item_id patterns
+    // Windows Server - match by code, name, label, or known item_id patterns
     if (code === 'winserver_2vcpu_unit' || 
         name.includes('winserver') || 
         name.includes('windows server') || 
         name.includes('win server') ||
         name.includes('windows') ||
-        (nameNormalized.includes('winserver') || nameNormalized.includes('windows'))) {
+        label.includes('winserver') ||
+        labelNormalized.includes('winserver') || 
+        labelNormalized.includes('windows')) {
       result.winserver = qty;
       console.log('[EDIT] WindowsServer units restored:', qty);
       continue;
     }
     
-    // Support - match by code OR normalized name
-    if (code === 'support_basic' || nameNormalized === 'suporte basico') {
+    // Support - match by code OR normalized name/label
+    if (code === 'support_basic' || nameNormalized === 'suporte basico' || labelNormalized === 'suporte basico') {
       result.support.level = 'basic';
       result.support.price = price;
       console.log('[EDIT] support restored from addons[]: level=basic price=' + price);
       continue;
     }
-    if (code === 'support_intermediate' || nameNormalized === 'suporte intermediario') {
+    if (code === 'support_intermediate' || nameNormalized === 'suporte intermediario' || labelNormalized === 'suporte intermediario') {
       result.support.level = 'intermediate';
       result.support.price = price;
       console.log('[EDIT] support restored from addons[]: level=intermediate price=' + price);
       continue;
     }
-    if (code === 'support_advanced' || nameNormalized === 'suporte avancado') {
+    if (code === 'support_advanced' || nameNormalized === 'suporte avancado' || labelNormalized === 'suporte avancado') {
       result.support.level = 'advanced';
       result.support.price = price;
       console.log('[EDIT] support restored from addons[]: level=advanced price=' + price);
       continue;
     }
     // Generic support matching
-    if (name.includes('suporte') || code.includes('support')) {
-      if (name.includes('basico') || name.includes('basic') || code.includes('basic')) {
+    if (name.includes('suporte') || label.includes('suporte') || code.includes('support')) {
+      if (name.includes('basico') || label.includes('basico') || name.includes('basic') || code.includes('basic')) {
         result.support.level = 'basic';
-      } else if (name.includes('intermediario') || name.includes('intermediate') || code.includes('intermediate')) {
+      } else if (name.includes('intermediario') || label.includes('intermediario') || name.includes('intermediate') || code.includes('intermediate')) {
         result.support.level = 'intermediate';
-      } else if (name.includes('avancado') || name.includes('advanced') || code.includes('advanced')) {
+      } else if (name.includes('avancado') || label.includes('avancado') || name.includes('advanced') || code.includes('advanced')) {
         result.support.level = 'advanced';
       }
       result.support.price = price;
@@ -575,27 +579,29 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       continue;
     }
     
-    // Consultoria Técnica - match by code or name
+    // Consultoria Técnica - match by code, name, or label
     if (code === 'consulting_hours' || 
         nameNormalized === 'consultoria tecnica' || 
-        nameNormalized.includes('consultoria')) {
+        nameNormalized.includes('consultoria') ||
+        labelNormalized.includes('consultoria')) {
       result.consulting.quantity = qty;
       result.consulting.unitPrice = price > 0 ? price : 200;
       console.log('[EDIT] consulting restored from addons[]: qty=' + qty + ' unitPrice=' + result.consulting.unitPrice);
       continue;
     }
     
-    // DBA - match by code or name
-    if (code === 'dba_hours' || name === 'dba' || nameNormalized === 'dba') {
+    // DBA - match by code, name, or label
+    if (code === 'dba_hours' || name === 'dba' || label === 'dba' || nameNormalized === 'dba' || labelNormalized === 'dba') {
       result.dba.quantity = qty;
       result.dba.unitPrice = price > 0 ? price : 250;
       console.log('[EDIT] dba restored from addons[]: qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
       continue;
     }
     
-    // Backup - match by code or name pattern
-    if (code?.startsWith('backup_') || name.startsWith('backup ') || name.includes('backup')) {
-      const planMatch = (code || name).match(/backup[_\s]*(\d+)/i);
+    // Backup - match by code, name, or label pattern
+    if (code?.startsWith('backup_') || name.startsWith('backup ') || name.includes('backup') || 
+        label.includes('backup')) {
+      const planMatch = (code || name || label).match(/backup[_\s]*(\d+)/i);
       if (planMatch) {
         const plan = planMatch[1];
         if (plan === '7' || plan === '15' || plan === '30') {
@@ -607,44 +613,50 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       continue;
     }
     
-    // Antivirus
+    // Antivirus - match by code, name, or label
     if (code === 'antivirus' || name.includes('antivirus') || name.includes('antivírus') || 
-        nameNormalized.includes('antivirus')) {
+        nameNormalized.includes('antivirus') || label.includes('antivirus') || labelNormalized.includes('antivirus')) {
       result.antivirus = qty;
       console.log('[EDIT] Antivirus restored:', qty);
       continue;
     }
     
-    // Firewall - now supports quantity
-    if (code === 'firewall' || name.includes('firewall') || code.includes('pfsense')) {
+    // Firewall - now supports quantity - match by code, name, or label
+    if (code === 'firewall' || name.includes('firewall') || code.includes('pfsense') ||
+        label.includes('firewall') || labelNormalized.includes('pfsense')) {
       result.firewall = qty > 0 ? qty : 1; // If qty not set, default to 1 for old boolean data
       console.log('[EDIT] Firewall restored: qty=' + result.firewall);
       continue;
     }
     
-    // TSplus
-    if (code === 'tsplus' || name.includes('tsplus') || name.includes('ts plus')) {
+    // TSplus - match by code, name, or label
+    if (code === 'tsplus' || name.includes('tsplus') || name.includes('ts plus') ||
+        label.includes('tsplus') || labelNormalized.includes('tsplus')) {
       result.tsplus = qty;
       console.log('[EDIT] TSplus restored:', qty);
       continue;
     }
     
-    // CAL
-    if (code === 'cal' || name === 'cal' || name.includes('cal rds') || name.includes('ts-cal')) {
+    // CAL - match by code, name, or label
+    if (code === 'cal' || name === 'cal' || label === 'cal' || 
+        name.includes('cal rds') || name.includes('ts-cal') ||
+        labelNormalized === 'cal') {
       result.cal = qty;
       console.log('[EDIT] CAL restored:', qty);
       continue;
     }
     
-    // Veeam VM
-    if (code === 'veeam_vm' || name.includes('veeam vm') || name.includes('veeam backup')) {
+    // Veeam VM - match by code, name, or label
+    if (code === 'veeam_vm' || name.includes('veeam vm') || name.includes('veeam backup') ||
+        label.includes('veeam vm') || labelNormalized.includes('veeam vm')) {
       result.veeamVm = qty;
       console.log('[EDIT] Veeam VM restored:', qty);
       continue;
     }
     
-    // Veeam Agent
-    if (code === 'veeam_agent' || name.includes('veeam agent')) {
+    // Veeam Agent - match by code, name, or label
+    if (code === 'veeam_agent' || name.includes('veeam agent') ||
+        label.includes('veeam agent') || labelNormalized.includes('veeam agent')) {
       result.veeamAg = qty;
       console.log('[EDIT] Veeam Agent restored:', qty);
       continue;
@@ -652,10 +664,16 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
     
     // SQL (WE removido - apenas WEB e STD per API spec)
     // Per OpenAPI spec: SQL addon requires quantity >= 1
+    // API returns label like "STD" or "WEB" for SQL items (config_id 7)
     if (code?.startsWith('sql_') || name.includes('sql') || name.includes('licença sql') ||
-        nameNormalized.includes('sql')) {
-      if (code?.includes('web') || name.includes('web')) result.sql = 'web';
-      else if (code?.includes('std') || name.includes('std') || name.includes('standard')) result.sql = 'std';
+        nameNormalized.includes('sql') || configId === 7 ||
+        label === 'std' || label === 'web' || labelNormalized === 'std' || labelNormalized === 'web') {
+      if (code?.includes('web') || name.includes('web') || label === 'web' || labelNormalized === 'web') {
+        result.sql = 'web';
+      } else if (code?.includes('std') || name.includes('std') || name.includes('standard') || 
+                 label === 'std' || labelNormalized === 'std') {
+        result.sql = 'std';
+      }
       // Fallback: propostas antigas com WE mapeiam para WEB
       else if (code?.includes('we') || name.includes('we')) result.sql = 'web';
       // CRITICAL: Ensure at least qty 1 when SQL is selected (API requirement)
