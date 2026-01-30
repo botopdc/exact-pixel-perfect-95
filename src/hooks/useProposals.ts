@@ -306,100 +306,135 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     if (Array.isArray(apiAddonsArray) && apiAddonsArray.length > 0) {
       console.log('[apiToLocal] Merging addons from API array:', apiAddonsArray.length, 'items');
       
+      // Helper to normalize strings
+      const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      
       for (const addon of apiAddonsArray) {
         if (!addon) continue;
         
-        // CRITICAL: API returns 'label' not 'name' - use label as primary
-        const addonName = String(addon.label || addon.name || '').toLowerCase().trim();
+        // Get all identifiers for matching
+        const configId = addon.config_id ?? addon.configId;
+        const addonLabel = normalize(addon.label || addon.name || '');
         const addonQty = toNum(addon.quantity, 1);
         const addonPrice = toNum(addon.price, 0);
         
-        // Skip if name is empty or if it's a virtual/product bundle
-        if (!addonName || addonName.includes('virtual') || addonName.includes('bundle')) continue;
+        // Skip if empty or virtual/bundle
+        if (!addonLabel && configId === undefined) continue;
+        if (addonLabel.includes('virtual') || addonLabel.includes('bundle')) continue;
         
-        // Match addon by name patterns and apply quantity
-        if (addonName.includes('antivirus') || addonName.includes('antivírus')) {
-          if (antivirusQty === 0) {
-            antivirusQty = addonQty;
-            console.log('[EDIT] Antivirus restored from API array:', addonQty);
-          }
-        } else if (addonName.includes('firewall')) {
-          if (firewallQty === 0) {
-            firewallQty = addonQty > 0 ? addonQty : 1;
-            console.log('[EDIT] Firewall restored from API array:', firewallQty);
-          }
-        } else if (addonName.includes('tsplus') || addonName.includes('ts plus')) {
-          if (tsplusQty === 0) {
-            tsplusQty = addonQty;
-            console.log('[EDIT] TSPlus restored from API array:', addonQty);
-          }
-        } else if ((addonName.includes('cal') || addonName.includes('ts-cal')) && !addonName.includes('technical')) {
-          if (calQty === 0) {
-            calQty = addonQty;
-            console.log('[EDIT] CAL restored from API array:', addonQty);
-          }
-        } else if (addonName.includes('veeam') && addonName.includes('vm')) {
-          if (veeamVmQty === 0) {
-            veeamVmQty = addonQty;
-            console.log('[EDIT] Veeam VM restored from API array:', addonQty);
-          }
-        } else if (addonName.includes('veeam') && (addonName.includes('agent') || addonName.includes('workstation'))) {
-          if (veeamAgQty === 0) {
-            veeamAgQty = addonQty;
-            console.log('[EDIT] Veeam Agent restored from API array:', addonQty);
-          }
-        } else if (addonName.includes('winserver') || addonName.includes('windows server') || addonName.includes('win server')) {
-          if (winserverQty === 0) {
-            winserverQty = addonQty;
-            console.log('[EDIT] WindowsServer restored from API array:', addonQty);
-          }
-        } else if (addonName.includes('sql')) {
+        console.log('[apiToLocal] Processing addon:', { configId, label: addonLabel, qty: addonQty });
+        
+        // ============================================
+        // SQL Server (config_id 7) - PRIORITY: config_id match
+        // API labels: "web", "std" (after normalize)
+        // ============================================
+        if (configId === 7 || addonLabel === 'web' || addonLabel === 'std' || addonLabel.includes('sql')) {
           if (sqlType === 'none') {
-            // Detect SQL type from name
-            if (addonName.includes('std') || addonName.includes('standard')) {
-              sqlType = 'std';
-            } else if (addonName.includes('web')) {
+            if (addonLabel === 'web' || addonLabel.includes('web')) {
               sqlType = 'web';
             } else {
-              sqlType = 'std'; // Default to standard
+              sqlType = 'std';
             }
-            sqlQtyRaw = addonQty;
-            console.log('[EDIT] SQL restored from API array:', { type: sqlType, qty: addonQty });
+            sqlQtyRaw = addonQty > 0 ? addonQty : 1;
+            console.log('[EDIT] SQL restored from API array:', { type: sqlType, qty: sqlQtyRaw });
           }
-        } else if (addonName.includes('backup')) {
-          if (backupPlan === 'none') {
-            // Detect backup plan from name (7, 15, 30 days)
-            if (addonName.includes('30')) backupPlan = '30';
-            else if (addonName.includes('15')) backupPlan = '15';
-            else if (addonName.includes('7')) backupPlan = '7';
-            else backupPlan = '7'; // Default to 7 days
-            backupGbRaw = addonQty;
-            console.log('[EDIT] Backup restored from API array: plan=', backupPlan, ', gb=', addonQty);
-          }
-        } else if (addonName.includes('suporte') || addonName.includes('support')) {
+          continue;
+        }
+        
+        // ============================================
+        // Serviços Especializados (config_id 16)
+        // ============================================
+        if (configId === 16 || addonLabel.includes('suporte') || addonLabel.includes('support')) {
           if (supportLevel === 'none') {
-            // Detect support level
-            if (addonName.includes('avançado') || addonName.includes('avancado') || addonName.includes('advanced')) {
+            if (addonLabel.includes('avancado') || addonLabel.includes('advanced')) {
               supportLevel = 'advanced';
-            } else if (addonName.includes('intermediário') || addonName.includes('intermediario') || addonName.includes('intermediate')) {
+            } else if (addonLabel.includes('intermediario') || addonLabel.includes('intermediate')) {
               supportLevel = 'intermediate';
-            } else if (addonName.includes('básico') || addonName.includes('basico') || addonName.includes('basic')) {
+            } else if (addonLabel.includes('basico') || addonLabel.includes('basic')) {
               supportLevel = 'basic';
             }
             supportPrice = addonPrice;
             console.log('[EDIT] Support restored from API array:', { level: supportLevel, price: addonPrice });
           }
-        } else if (addonName.includes('consultoria') || addonName.includes('consulting')) {
+          continue;
+        }
+        
+        if (addonLabel.includes('consultoria') || addonLabel.includes('consulting')) {
           if (consultingQty === 0) {
             consultingQty = addonQty;
-            consultingPrice = addonPrice > 0 ? addonPrice : 200;
-            console.log('[EDIT] Consulting restored from API array:', { qty: addonQty, price: consultingPrice });
+            consultingPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 200;
+            console.log('[EDIT] Consulting restored from API array:', { qty: addonQty, unitPrice: consultingPrice });
           }
-        } else if (addonName === 'dba' || addonName.includes('dba ')) {
+          continue;
+        }
+        
+        if (addonLabel === 'dba') {
           if (dbaQty === 0) {
             dbaQty = addonQty;
-            dbaPrice = addonPrice > 0 ? addonPrice : 250;
-            console.log('[EDIT] DBA restored from API array:', { qty: addonQty, price: dbaPrice });
+            dbaPrice = addonQty > 0 && addonPrice > 0 ? Math.round(addonPrice / addonQty) : 250;
+            console.log('[EDIT] DBA restored from API array:', { qty: addonQty, unitPrice: dbaPrice });
+          }
+          continue;
+        }
+        
+        // ============================================
+        // Windows Server (config_id 17)
+        // ============================================
+        if (configId === 17 || addonLabel.includes('winserver') || addonLabel.includes('windows')) {
+          if (winserverQty === 0) {
+            winserverQty = addonQty;
+            console.log('[EDIT] WindowsServer restored from API array:', addonQty);
+          }
+          continue;
+        }
+        
+        // ============================================
+        // Backup (config_id 15)
+        // ============================================
+        if (configId === 15 || addonLabel.includes('backup')) {
+          if (backupPlan === 'none') {
+            if (addonLabel.includes('30')) backupPlan = '30';
+            else if (addonLabel.includes('15')) backupPlan = '15';
+            else if (addonLabel.includes('7')) backupPlan = '7';
+            else backupPlan = '7';
+            backupGbRaw = addonQty;
+            console.log('[EDIT] Backup restored from API array: plan=', backupPlan, ', gb=', addonQty);
+          }
+          continue;
+        }
+        
+        // ============================================
+        // Standard Add-ons
+        // ============================================
+        if (addonLabel.includes('antivirus')) {
+          if (antivirusQty === 0) {
+            antivirusQty = addonQty;
+            console.log('[EDIT] Antivirus restored from API array:', addonQty);
+          }
+        } else if (addonLabel.includes('firewall') || addonLabel.includes('pfsense')) {
+          if (firewallQty === 0) {
+            firewallQty = addonQty > 0 ? addonQty : 1;
+            console.log('[EDIT] Firewall restored from API array:', firewallQty);
+          }
+        } else if (addonLabel.includes('tsplus') || addonLabel.includes('ts plus')) {
+          if (tsplusQty === 0) {
+            tsplusQty = addonQty;
+            console.log('[EDIT] TSPlus restored from API array:', addonQty);
+          }
+        } else if ((addonLabel.includes('cal') || addonLabel === 'cal') && !addonLabel.includes('technical')) {
+          if (calQty === 0) {
+            calQty = addonQty;
+            console.log('[EDIT] CAL restored from API array:', addonQty);
+          }
+        } else if (addonLabel.includes('veeam') && addonLabel.includes('vm')) {
+          if (veeamVmQty === 0) {
+            veeamVmQty = addonQty;
+            console.log('[EDIT] Veeam VM restored from API array:', addonQty);
+          }
+        } else if (addonLabel.includes('veeam') && addonLabel.includes('agent')) {
+          if (veeamAgQty === 0) {
+            veeamAgQty = addonQty;
+            console.log('[EDIT] Veeam Agent restored from API array:', addonQty);
           }
         }
       }

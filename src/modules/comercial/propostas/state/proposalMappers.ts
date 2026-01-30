@@ -545,36 +545,20 @@ function hydrateAddons(raw: any): AddonsStateV2 {
 /**
  * Hydrate addons from legacy API response (addons[] array).
  * 
- * STRATEGY: Build a map using config_id:item_id as key.
- * Then match based on:
- * 1. config_id + item_id (new API format)
- * 2. code OR name (legacy fallback)
+ * STRATEGY: The NEW FLAT API (Janeiro 2026) returns addons with:
+ * - config_id: ID from calculator_configs table
+ * - label: The item label from config
+ * - quantity: Quantity
+ * 
+ * We match based on:
+ * 1. config_id (direct match - most reliable)
+ * 2. label (normalized fuzzy match)
+ * 3. Legacy code/name fields (backward compatibility)
  */
 function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
   const result: AddonsStateV2 = { ...DEFAULT_ADDONS };
   
-  // Step 1: Build addonsByKey map for config_id:item_id lookup
-  const addonsByKey: Map<string, number> = new Map();
-  
-  for (const addon of addons) {
-    // CRITICAL: Skip if addon is null/undefined (sparse arrays)
-    if (!addon || typeof addon !== 'object') continue;
-    
-    const configId = addon.config_id ?? addon.configId;
-    const itemId = addon.item_id ?? addon.itemId;
-    const qty = toNum(addon.quantity ?? addon.qty, 1);
-    
-    if (configId !== undefined && itemId !== undefined) {
-      const key = `${configId}:${itemId}`;
-      addonsByKey.set(key, qty);
-      console.log(`[hydrateAddonsFromLegacy] Mapped ${key} -> qty=${qty}`);
-    }
-  }
-  
-  console.log('[hydrateAddonsFromLegacy] Built addonsByKey with', addonsByKey.size, 'entries');
-  
   // Helper to normalize strings for matching (lowercase, remove accents, trim)
-  // CRITICAL: Handle undefined/null by using toStr first
   const normalize = (str: unknown): string => {
     const safeStr = toStr(str, '');
     if (!safeStr) return '';
@@ -586,211 +570,243 @@ function hydrateAddonsFromLegacy(addons: any[]): AddonsStateV2 {
       .trim();
   };
   
+  console.log('[hydrateAddonsFromLegacy] Processing', addons.length, 'addons');
+  
   for (const addon of addons) {
     // CRITICAL: Skip if addon is null/undefined (can happen with sparse arrays)
     if (!addon || typeof addon !== 'object') continue;
     
-    // Get code, name, AND label for matching (API returns 'label' not 'name')
-    // CRITICAL: Use toStr to safely convert to string before calling toLowerCase
+    // Get all possible identifiers for matching
     const code = toStr(addon.code, '').toLowerCase().trim();
     const name = toStr(addon.name ?? addon.label, '').toLowerCase().trim();
     const label = toStr(addon.label, '').toLowerCase().trim();
-    const nameNormalized = normalize(addon.name ?? addon.label ?? '');
     const labelNormalized = normalize(addon.label ?? '');
+    const nameNormalized = normalize(addon.name ?? addon.label ?? '');
     const qty = toNum(addon.quantity ?? addon.qty, 1);
     const price = toNum(addon.price, 0);
-    
-    // Also check for config_id/item_id based lookup (new format)
     const configId = addon.config_id ?? addon.configId;
-    const itemId = addon.item_id ?? addon.itemId;
     
     console.log(`[hydrateAddonsFromLegacy] Processing addon:`, { 
-      code, name, label, qty, configId, itemId 
+      configId, label, qty, price 
     });
     
     // Skip if no identifier at all
     if (!code && !name && !label && configId === undefined) continue;
     
-    // Windows Server - match by code, name, label, or known item_id patterns
-    if (code === 'winserver_2vcpu_unit' || 
-        name.includes('winserver') || 
-        name.includes('windows server') || 
-        name.includes('win server') ||
-        name.includes('windows') ||
-        label.includes('winserver') ||
+    // ============================================================
+    // SQL Server (config_id 7) - CRITICAL: Match by config_id first
+    // API returns labels like "WEB", "STD" (uppercase)
+    // ============================================================
+    if (configId === 7 || 
+        code?.startsWith('sql_') || 
+        name.includes('sql') || 
+        labelNormalized.includes('sql') ||
+        label === 'web' || label === 'std' ||
+        labelNormalized === 'web' || labelNormalized === 'std') {
+      if (label === 'web' || labelNormalized === 'web' || code?.includes('web') || name.includes('web')) {
+        result.sql = 'web';
+      } else if (label === 'std' || labelNormalized === 'std' || code?.includes('std') || name.includes('standard') || name.includes('std')) {
+        result.sql = 'std';
+      } else if (code?.includes('we') || name.includes('we')) {
+        // Fallback: legacy WE maps to WEB
+        result.sql = 'web';
+      } else {
+        // Default to std if config_id matches but no clear type
+        result.sql = 'std';
+      }
+      result.sqlQty = qty > 0 ? qty : 1;
+      console.log('[EDIT] SQL restored: type=' + result.sql + ' qty=' + result.sqlQty);
+      continue;
+    }
+    
+    // ============================================================
+    // Serviços Especializados (config_id 16)
+    // Labels: "Suporte Básico", "Suporte Intermediário", "Suporte Avançado",
+    //         "Consultoria Técnica", "DBA"
+    // ============================================================
+    
+    // Support - match by various patterns
+    if (configId === 16 || 
+        labelNormalized.includes('suporte') || 
+        nameNormalized.includes('suporte') ||
+        code.includes('support') ||
+        label.includes('support')) {
+      // Detect support level
+      if (labelNormalized.includes('basico') || nameNormalized.includes('basico') || 
+          code.includes('basic') || label.includes('basic')) {
+        result.support.level = 'basic';
+        result.support.price = price;
+        console.log('[EDIT] Support restored: level=basic price=' + price);
+        continue;
+      } else if (labelNormalized.includes('intermediario') || nameNormalized.includes('intermediario') || 
+                 code.includes('intermediate') || label.includes('intermediate')) {
+        result.support.level = 'intermediate';
+        result.support.price = price;
+        console.log('[EDIT] Support restored: level=intermediate price=' + price);
+        continue;
+      } else if (labelNormalized.includes('avancado') || nameNormalized.includes('avancado') || 
+                 code.includes('advanced') || label.includes('advanced')) {
+        result.support.level = 'advanced';
+        result.support.price = price;
+        console.log('[EDIT] Support restored: level=advanced price=' + price);
+        continue;
+      }
+    }
+    
+    // Consultoria Técnica
+    if (labelNormalized.includes('consultoria') || 
+        nameNormalized.includes('consultoria') ||
+        code === 'consulting_hours' ||
+        code === 'consulting') {
+      result.consulting.quantity = qty;
+      result.consulting.unitPrice = price > 0 ? Math.round(price / qty) : 200;
+      console.log('[EDIT] Consulting restored: qty=' + qty + ' unitPrice=' + result.consulting.unitPrice);
+      continue;
+    }
+    
+    // DBA
+    if (labelNormalized === 'dba' || 
+        label === 'dba' || 
+        nameNormalized === 'dba' ||
+        code === 'dba_hours' ||
+        code === 'dba') {
+      result.dba.quantity = qty;
+      result.dba.unitPrice = price > 0 ? Math.round(price / qty) : 250;
+      console.log('[EDIT] DBA restored: qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
+      continue;
+    }
+    
+    // ============================================================
+    // Windows Server (config_id 17)
+    // ============================================================
+    if (configId === 17 ||
+        code === 'winserver_2vcpu_unit' || 
         labelNormalized.includes('winserver') || 
-        labelNormalized.includes('windows')) {
+        labelNormalized.includes('windows') ||
+        nameNormalized.includes('winserver') ||
+        nameNormalized.includes('windows')) {
       result.winserver = qty;
       console.log('[EDIT] WindowsServer units restored:', qty);
       continue;
     }
     
-    // Support - match by code OR normalized name/label
-    if (code === 'support_basic' || nameNormalized === 'suporte basico' || labelNormalized === 'suporte basico') {
-      result.support.level = 'basic';
-      result.support.price = price;
-      console.log('[EDIT] support restored from addons[]: level=basic price=' + price);
-      continue;
-    }
-    if (code === 'support_intermediate' || nameNormalized === 'suporte intermediario' || labelNormalized === 'suporte intermediario') {
-      result.support.level = 'intermediate';
-      result.support.price = price;
-      console.log('[EDIT] support restored from addons[]: level=intermediate price=' + price);
-      continue;
-    }
-    if (code === 'support_advanced' || nameNormalized === 'suporte avancado' || labelNormalized === 'suporte avancado') {
-      result.support.level = 'advanced';
-      result.support.price = price;
-      console.log('[EDIT] support restored from addons[]: level=advanced price=' + price);
-      continue;
-    }
-    // Generic support matching
-    if (name.includes('suporte') || label.includes('suporte') || code.includes('support')) {
-      if (name.includes('basico') || label.includes('basico') || name.includes('basic') || code.includes('basic')) {
-        result.support.level = 'basic';
-      } else if (name.includes('intermediario') || label.includes('intermediario') || name.includes('intermediate') || code.includes('intermediate')) {
-        result.support.level = 'intermediate';
-      } else if (name.includes('avancado') || label.includes('avancado') || name.includes('advanced') || code.includes('advanced')) {
-        result.support.level = 'advanced';
-      }
-      result.support.price = price;
-      console.log('[EDIT] support restored (generic): level=' + result.support.level + ' price=' + price);
-      continue;
-    }
-    
-    // Consultoria Técnica - match by code, name, or label
-    if (code === 'consulting_hours' || 
-        nameNormalized === 'consultoria tecnica' || 
-        nameNormalized.includes('consultoria') ||
-        labelNormalized.includes('consultoria')) {
-      result.consulting.quantity = qty;
-      result.consulting.unitPrice = price > 0 ? price : 200;
-      console.log('[EDIT] consulting restored from addons[]: qty=' + qty + ' unitPrice=' + result.consulting.unitPrice);
-      continue;
-    }
-    
-    // DBA - match by code, name, or label
-    if (code === 'dba_hours' || name === 'dba' || label === 'dba' || nameNormalized === 'dba' || labelNormalized === 'dba') {
-      result.dba.quantity = qty;
-      result.dba.unitPrice = price > 0 ? price : 250;
-      console.log('[EDIT] dba restored from addons[]: qty=' + qty + ' unitPrice=' + result.dba.unitPrice);
-      continue;
-    }
-    
-    // Backup - match by code, name, or label pattern
-    if (code?.startsWith('backup_') || name.startsWith('backup ') || name.includes('backup') || 
-        label.includes('backup')) {
-      const planMatch = (code || name || label).match(/backup[_\s]*(\d+)/i);
+    // ============================================================
+    // Backup (config_id 15) - by retention
+    // Labels: "7 dias", "15 dias", "30 dias"
+    // ============================================================
+    if (configId === 15 ||
+        labelNormalized.includes('backup') || 
+        nameNormalized.includes('backup') ||
+        code?.startsWith('backup_')) {
+      // Extract retention days from label
+      const planMatch = (label || name || code).match(/(\d+)/);
       if (planMatch) {
         const plan = planMatch[1];
         if (plan === '7' || plan === '15' || plan === '30') {
           result.backupPlan = plan as '7' | '15' | '30';
           result.backupGb = qty;
-          console.log('[EDIT] Backup restored: plan=', result.backupPlan, ', gb=', result.backupGb);
+          console.log('[EDIT] Backup restored: plan=' + result.backupPlan + ' gb=' + result.backupGb);
+          continue;
         }
+      }
+      // Default to 7 days if no clear plan
+      if (result.backupPlan === 'none') {
+        result.backupPlan = '7';
+        result.backupGb = qty;
+        console.log('[EDIT] Backup restored (default): plan=7 gb=' + qty);
       }
       continue;
     }
     
-    // Antivirus - match by code, name, or label
-    if (code === 'antivirus' || name.includes('antivirus') || name.includes('antivírus') || 
-        nameNormalized.includes('antivirus') || label.includes('antivirus') || labelNormalized.includes('antivirus')) {
+    // ============================================================
+    // Standard Add-ons (config_id 6)
+    // ============================================================
+    
+    // Antivirus
+    if (code === 'antivirus' || 
+        labelNormalized.includes('antivirus') || 
+        nameNormalized.includes('antivirus')) {
       result.antivirus = qty;
       console.log('[EDIT] Antivirus restored:', qty);
       continue;
     }
     
-    // Firewall - now supports quantity - match by code, name, or label
-    if (code === 'firewall' || name.includes('firewall') || code.includes('pfsense') ||
-        label.includes('firewall') || labelNormalized.includes('pfsense')) {
-      result.firewall = qty > 0 ? qty : 1; // If qty not set, default to 1 for old boolean data
+    // Firewall
+    if (code === 'firewall' || code.includes('pfsense') ||
+        labelNormalized.includes('firewall') || 
+        labelNormalized.includes('pfsense') ||
+        nameNormalized.includes('firewall')) {
+      result.firewall = qty > 0 ? qty : 1;
       console.log('[EDIT] Firewall restored: qty=' + result.firewall);
       continue;
     }
     
-    // TSplus - match by code, name, or label
-    if (code === 'tsplus' || name.includes('tsplus') || name.includes('ts plus') ||
-        label.includes('tsplus') || labelNormalized.includes('tsplus')) {
+    // TSplus
+    if (code === 'tsplus' || 
+        labelNormalized.includes('tsplus') || 
+        nameNormalized.includes('tsplus') ||
+        nameNormalized.includes('ts plus')) {
       result.tsplus = qty;
       console.log('[EDIT] TSplus restored:', qty);
       continue;
     }
     
-    // CAL - match by code, name, or label
-    if (code === 'cal' || name === 'cal' || label === 'cal' || 
-        name.includes('cal rds') || name.includes('ts-cal') ||
-        labelNormalized === 'cal') {
+    // CAL
+    if (code === 'cal' || 
+        label === 'cal' || 
+        labelNormalized === 'cal' ||
+        nameNormalized.includes('cal rds') || 
+        nameNormalized.includes('ts-cal')) {
       result.cal = qty;
       console.log('[EDIT] CAL restored:', qty);
       continue;
     }
     
-    // Veeam VM - match by code, name, or label
-    if (code === 'veeam_vm' || name.includes('veeam vm') || name.includes('veeam backup') ||
-        label.includes('veeam vm') || labelNormalized.includes('veeam vm')) {
+    // Veeam VM
+    if (code === 'veeam_vm' || 
+        labelNormalized.includes('veeam vm') || 
+        nameNormalized.includes('veeam vm') ||
+        (labelNormalized.includes('veeam') && !labelNormalized.includes('agent'))) {
       result.veeamVm = qty;
       console.log('[EDIT] Veeam VM restored:', qty);
       continue;
     }
     
-    // Veeam Agent - match by code, name, or label
-    if (code === 'veeam_agent' || name.includes('veeam agent') ||
-        label.includes('veeam agent') || labelNormalized.includes('veeam agent')) {
+    // Veeam Agent
+    if (code === 'veeam_agent' || 
+        labelNormalized.includes('veeam agent') || 
+        nameNormalized.includes('veeam agent')) {
       result.veeamAg = qty;
       console.log('[EDIT] Veeam Agent restored:', qty);
       continue;
     }
     
-    // SQL (WE removido - apenas WEB e STD per API spec)
-    // Per OpenAPI spec: SQL addon requires quantity >= 1
-    // API returns label like "STD" or "WEB" for SQL items (config_id 7)
-    if (code?.startsWith('sql_') || name.includes('sql') || name.includes('licença sql') ||
-        nameNormalized.includes('sql') || configId === 7 ||
-        label === 'std' || label === 'web' || labelNormalized === 'std' || labelNormalized === 'web') {
-      if (code?.includes('web') || name.includes('web') || label === 'web' || labelNormalized === 'web') {
-        result.sql = 'web';
-      } else if (code?.includes('std') || name.includes('std') || name.includes('standard') || 
-                 label === 'std' || labelNormalized === 'std') {
-        result.sql = 'std';
-      }
-      // Fallback: propostas antigas com WE mapeiam para WEB
-      else if (code?.includes('we') || name.includes('we')) result.sql = 'web';
-      // CRITICAL: Ensure at least qty 1 when SQL is selected (API requirement)
-      result.sqlQty = qty > 0 ? qty : 1;
-      console.log('[EDIT] SQL restored from addons[]: type=' + result.sql + ' qty=' + result.sqlQty);
-      continue;
-    }
+    // Unknown addon - log for debugging
+    console.warn('[hydrateAddonsFromLegacy] Unknown addon not mapped:', { configId, label, qty });
   }
   
-  // CRITICAL POST-PROCESSING: Enforce OpenAPI minimums
-  // Per api-docs-29-jan-26.json: addons require quantity >= 1 when selected
+  // ============================================================
+  // POST-PROCESSING: Enforce OpenAPI minimums
+  // ============================================================
   
   // If SQL type is selected but qty is 0, set to 1
   if (result.sql !== 'none' && result.sqlQty === 0) {
     result.sqlQty = 1;
-    console.log('[EDIT] SQL qty was 0, enforced minimum=1 (OpenAPI requirement)');
+    console.log('[EDIT] SQL qty was 0, enforced minimum=1');
   }
   // If backup plan is selected but GB is 0, set to 1
   if (result.backupPlan !== 'none' && result.backupGb === 0) {
     result.backupGb = 1;
-    console.log('[EDIT] Backup GB was 0, enforced minimum=1 (OpenAPI requirement)');
+    console.log('[EDIT] Backup GB was 0, enforced minimum=1');
   }
   
   console.log('[hydrateAddonsFromLegacy] Final result:', {
-    winserver: result.winserver,
-    sql: result.sql,
-    sqlQty: result.sqlQty,
-    backupPlan: result.backupPlan,
-    backupGb: result.backupGb,
-    antivirus: result.antivirus,
-    firewall: result.firewall,
-    support: result.support,
-    consulting: result.consulting,
-    dba: result.dba,
-    cal: result.cal,
-    tsplus: result.tsplus,
-    veeamVm: result.veeamVm,
-    veeamAg: result.veeamAg,
+    sql: result.sql, sqlQty: result.sqlQty,
+    backupPlan: result.backupPlan, backupGb: result.backupGb,
+    winserver: result.winserver, antivirus: result.antivirus,
+    firewall: result.firewall, tsplus: result.tsplus, cal: result.cal,
+    veeamVm: result.veeamVm, veeamAg: result.veeamAg,
+    support: result.support, consulting: result.consulting, dba: result.dba,
   });
   
   return result;
