@@ -610,8 +610,12 @@ function extractOpenSaasSubtotal(openSaas: unknown): number {
 
 /**
  * Build CalculationResult from normalized data
- * CRITICAL: Prioritizes snapshot result rows when available (they have correct prices)
- * FALLBACK: Uses buildProposalLineItems to build from API servers[] and addons[]
+ * 
+ * NEW ARCHITECTURE: Backend is the source of truth for prices.
+ * PRIORITY ORDER:
+ * 1. proposal.servers[] and proposal.addons[] from API (backend-calculated prices)
+ * 2. dados_proposta.result.rows (legacy snapshot, only if API arrays empty)
+ * 3. Normalized data fallback (last resort)
  */
 function buildResultFromNormalized(
   servers: NormalizedServer[],
@@ -620,72 +624,18 @@ function buildResultFromNormalized(
   dadosProposta: Record<string, unknown> | null,
   rawProposal: Record<string, unknown>
 ): CalculationResult {
-  // CRITICAL: If dados_proposta has a result with rows, use those directly
-  // They were saved during calculation and have correct prices
-  const snapshotResult = dadosProposta?.result as { 
-    rows?: any[]; 
-    subRec?: number;
-    subIps?: number;
-    subServices?: number;
-    subBackup?: number;
-    subKubernetes?: number;
-    subStorage?: number;
-    subOpenSaas?: number;
-    discountPct?: number;
-    discountValue?: number;
-    grandTotal?: number;
-  } | undefined;
-  
-  const hasValidSnapshotRows = snapshotResult?.rows && 
-    Array.isArray(snapshotResult.rows) && 
-    snapshotResult.rows.length > 0 &&
-    snapshotResult.rows.some((r: any) => toNum(r.subtotal) > 0 || toNum(r.unitPrice) > 0);
-  
-  if (hasValidSnapshotRows && snapshotResult?.rows) {
-    console.log('[buildResultFromNormalized] Using snapshot result rows (', snapshotResult.rows.length, ' rows)');
-    
-    // Use snapshot rows directly - they have correct prices
-    const rows: SummaryRow[] = snapshotResult.rows.map((row: any) => ({
-      label: row.label || 'Item',
-      qty: toNum(row.qty, 1),
-      unitPrice: toNum(row.unitPrice),
-      subtotal: toNum(row.subtotal),
-      finalTotal: toNum(row.finalTotal ?? row.subtotal),
-      rowKey: row.rowKey,
-      baseTotal: row.baseTotal,
-      overrideTotal: row.overrideTotal,
-    }));
-    
-    return {
-      rows,
-      subRec: toNum(snapshotResult.subRec, totals.subtotalRecursos),
-      subIps: toNum(snapshotResult.subIps, totals.subtotalIps),
-      subServices: toNum(snapshotResult.subServices, totals.subtotalServices),
-      subBackup: toNum(snapshotResult.subBackup, totals.subtotalBackup),
-      subKubernetes: toNum(snapshotResult.subKubernetes, totals.subtotalKubernetes),
-      subStorage: toNum(snapshotResult.subStorage, totals.subtotalStorage),
-      subOpenSaas: toNum(snapshotResult.subOpenSaas, totals.subtotalOpenSaas),
-      discountPct: toNum(snapshotResult.discountPct, totals.discountPct),
-      discountValue: toNum(snapshotResult.discountValue, totals.discountValue),
-      grandTotal: toNum(snapshotResult.grandTotal, totals.totalMensal),
-      totalServers: servers.reduce((sum, s) => sum + s.quantity, 0),
-      gpuUsdTotal: 0,
-      gpuBrlTotal: 0,
-      subtotalPriceList: toNum(snapshotResult.subRec, 0) + toNum(snapshotResult.subIps, 0) + toNum(snapshotResult.subServices, 0),
-      overValue: 0,
-      overPercent: 0,
-      totalWithOver: toNum(snapshotResult.grandTotal, totals.totalMensal),
-    };
-  }
-  
   // ============================================
-  // FALLBACK: Build from API proposal.servers[] and proposal.addons[]
-  // This is the PRIMARY source of truth per API documentation
+  // PRIORITY 1: Build from API proposal.servers[] and proposal.addons[]
+  // These have backend-calculated prices - THE SOURCE OF TRUTH
   // ============================================
   const lineItems = buildProposalLineItems(rawProposal);
   
-  if (lineItems.hasItems) {
-    console.log('[buildResultFromNormalized] Using buildProposalLineItems (', lineItems.items.length, ' items from API arrays)');
+  // Check if API arrays have items with valid prices
+  const hasValidApiItems = lineItems.hasItems && 
+    lineItems.items.some(item => item.unitPrice > 0 || item.subtotal > 0);
+  
+  if (hasValidApiItems) {
+    console.log('[buildResultFromNormalized] ✓ Using API arrays (', lineItems.items.length, ' items with backend-calculated prices)');
     
     const rows: SummaryRow[] = lineItems.items.map(item => ({
       label: item.label,
@@ -718,6 +668,66 @@ function buildResultFromNormalized(
       overValue: 0,
       overPercent: 0,
       totalWithOver: apiTotal > 0 ? apiTotal : lineItems.grandTotal,
+    };
+  }
+  
+  // ============================================
+  // PRIORITY 2: Legacy snapshot rows (dados_proposta.result.rows)
+  // Only used if API arrays don't have valid prices
+  // ============================================
+  const snapshotResult = dadosProposta?.result as { 
+    rows?: any[]; 
+    subRec?: number;
+    subIps?: number;
+    subServices?: number;
+    subBackup?: number;
+    subKubernetes?: number;
+    subStorage?: number;
+    subOpenSaas?: number;
+    discountPct?: number;
+    discountValue?: number;
+    grandTotal?: number;
+  } | undefined;
+  
+  const hasValidSnapshotRows = snapshotResult?.rows && 
+    Array.isArray(snapshotResult.rows) && 
+    snapshotResult.rows.length > 0 &&
+    snapshotResult.rows.some((r: any) => toNum(r.subtotal) > 0 || toNum(r.unitPrice) > 0);
+  
+  if (hasValidSnapshotRows && snapshotResult?.rows) {
+    console.log('[buildResultFromNormalized] Using legacy snapshot rows (', snapshotResult.rows.length, ' rows) - API arrays had no valid prices');
+    
+    // Use snapshot rows directly - they have correct prices
+    const rows: SummaryRow[] = snapshotResult.rows.map((row: any) => ({
+      label: row.label || 'Item',
+      qty: toNum(row.qty, 1),
+      unitPrice: toNum(row.unitPrice),
+      subtotal: toNum(row.subtotal),
+      finalTotal: toNum(row.finalTotal ?? row.subtotal),
+      rowKey: row.rowKey,
+      baseTotal: row.baseTotal,
+      overrideTotal: row.overrideTotal,
+    }));
+    
+    return {
+      rows,
+      subRec: toNum(snapshotResult.subRec, totals.subtotalRecursos),
+      subIps: toNum(snapshotResult.subIps, totals.subtotalIps),
+      subServices: toNum(snapshotResult.subServices, totals.subtotalServices),
+      subBackup: toNum(snapshotResult.subBackup, totals.subtotalBackup),
+      subKubernetes: toNum(snapshotResult.subKubernetes, totals.subtotalKubernetes),
+      subStorage: toNum(snapshotResult.subStorage, totals.subtotalStorage),
+      subOpenSaas: toNum(snapshotResult.subOpenSaas, totals.subtotalOpenSaas),
+      discountPct: toNum(snapshotResult.discountPct, totals.discountPct),
+      discountValue: toNum(snapshotResult.discountValue, totals.discountValue),
+      grandTotal: toNum(snapshotResult.grandTotal, totals.totalMensal),
+      totalServers: servers.reduce((sum, s) => sum + s.quantity, 0),
+      gpuUsdTotal: 0,
+      gpuBrlTotal: 0,
+      subtotalPriceList: toNum(snapshotResult.subRec, 0) + toNum(snapshotResult.subIps, 0) + toNum(snapshotResult.subServices, 0),
+      overValue: 0,
+      overPercent: 0,
+      totalWithOver: toNum(snapshotResult.grandTotal, totals.totalMensal),
     };
   }
   
