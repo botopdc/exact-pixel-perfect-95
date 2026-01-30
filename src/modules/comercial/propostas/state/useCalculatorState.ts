@@ -77,8 +77,19 @@ export interface UseCalculatorStateReturn {
   removeStorage: (id: string) => void;
   updateStorage: (id: string, updates: Partial<StorageItemV2>) => void;
   
-  // Serialization
-  getSerializedPayload: (channelType: 'CLIENTE' | 'PARCEIRO', grandTotal: number, discountPct?: number) => ApiProposalPayload;
+  // Serialization - configIdStore is now REQUIRED
+  getSerializedPayload: (
+    channelType: 'CLIENTE' | 'PARCEIRO',
+    grandTotal: number,
+    discountPct: number,
+    configIdStore: {
+      vm?: { configId: number; items: Record<string, number> } | null;
+      addons?: { configId: number; items: Record<string, number> } | null;
+      sqlServer?: { configId: number; items: Record<string, number> } | null;
+      backup?: { configId: number; items: Record<string, number> } | null;
+      specializedServices?: { configId: number; items: Record<string, number> } | null;
+    }
+  ) => ApiProposalPayload;
   
   // Reset
   resetToNew: () => void;
@@ -334,9 +345,16 @@ export function useCalculatorState(): UseCalculatorStateReturn {
   const getSerializedPayload = useCallback((
     channelType: 'CLIENTE' | 'PARCEIRO',
     grandTotal: number,
-    discountPct = 0
+    discountPct: number,
+    configIdStore: {
+      vm?: { configId: number; items: Record<string, number> } | null;
+      addons?: { configId: number; items: Record<string, number> } | null;
+      sqlServer?: { configId: number; items: Record<string, number> } | null;
+      backup?: { configId: number; items: Record<string, number> } | null;
+      specializedServices?: { configId: number; items: Record<string, number> } | null;
+    }
   ): ApiProposalPayload => {
-    return serializeProposal(state, channelType, grandTotal, discountPct);
+    return serializeProposal(state, channelType, grandTotal, discountPct, configIdStore);
   }, [state]);
   
   // ============================================
