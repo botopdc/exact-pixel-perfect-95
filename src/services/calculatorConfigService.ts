@@ -96,7 +96,7 @@ export interface CalculatorConfigUpdateRequest {
 }
 
 // ============================================================================
-// SERVICE FUNCTIONS
+// SERVICE FUNCTIONS (API calls)
 // ============================================================================
 
 /**
@@ -140,41 +140,10 @@ export async function updateCalculatorConfig(
 }
 
 // ============================================================================
-// HELPER - Find config entry by category and section
+// MAPPINGS AND HELPERS
 // ============================================================================
 
-export function findConfigEntry(
-  entries: CalculatorConfigEntry[],
-  category: string,
-  section: string
-): CalculatorConfigEntry | undefined {
-  return entries.find(e => e.category === category && e.section === section);
-}
-
-// ============================================================================
 // CATEGORY / SECTION MAPPING (aligned with actual database values from CSV)
-// ============================================================================
-
-/**
- * Standard category/section mappings used by the pricing configuration
- * IMPORTANT: These MUST match exactly the values in the database (calculator_configs table)
- * 
- * Database IDs:
- * 1  - VM / Preços de VM
- * 2  - BareMetal / Modelos de CPU
- * 3  - BareMetal / Opções de RAM
- * 4  - BareMetal / Opções de Disco
- * 5  - GPU / Preços de GPU
- * 6  - Add-ons / Add-ons
- * 7  - SQL Server / SQL Server
- * 8  - Storage / Storage SAS
- * 9  - Storage / SSD NVMe
- * 10 - Kubernetes / Preços Base dos Planos
- * 11 - Kubernetes / Add-ons Kubernetes
- * 12 - Geral / Taxa de Câmbio
- * 13 - Geral / Descontos por Vigência
- * 14 - Geral / OPEN SaaS
- */
 export const CONFIG_MAPPINGS = {
   // General settings (IDs 12, 13, 14)
   GERAL_FX: { category: 'Geral', section: 'Taxa de Câmbio' },
@@ -217,3 +186,12 @@ export const CONFIG_MAPPINGS = {
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
+
+// Helper functions
+export function findConfigEntry(
+  entries: CalculatorConfigEntry[],
+  category: string,
+  section: string
+): CalculatorConfigEntry | undefined {
+  return entries.find(e => e.category === category && e.section === section);
+}
