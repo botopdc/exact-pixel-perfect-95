@@ -221,6 +221,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
   }
   
   // Log status resolution for debugging
+  console.clear();
   console.log('[apiToLocal] Processing proposal', apiProposal.id, {
     proposal_status: apiProposal.proposal_status,
     dados_proposta_status: dadosProposta?.status,
