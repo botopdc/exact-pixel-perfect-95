@@ -1133,7 +1133,7 @@ export function serializeProposal(
     addAddon(configId, state.addons.winserver, 'WinServer');
   }
   
-  // Support
+  // Support (Serviços Especializados category)
   if (state.addons.support.level !== 'none') {
     const supportLabels: Record<string, string[]> = {
       'basic': ['Suporte Básico', 'support_basic'],
@@ -1141,19 +1141,25 @@ export function serializeProposal(
       'advanced': ['Suporte Avançado', 'support_advanced'],
     };
     const labels = supportLabels[state.addons.support.level] || supportLabels['basic'];
-    const configId = findConfigId(configStore, 'Add-ons', ...labels);
+    // Try Serviços Especializados first, then Add-ons as fallback
+    let configId = findConfigId(configStore, 'Serviços Especializados', ...labels);
+    if (!configId) configId = findConfigId(configStore, 'Add-ons', ...labels);
     addAddon(configId, 1, `Support ${state.addons.support.level}`);
   }
   
-  // Consultoria Técnica
+  // Consultoria Técnica (Serviços Especializados category)
   if (state.addons.consulting.quantity > 0) {
-    const configId = findConfigId(configStore, 'Add-ons', 'Consultoria Técnica', 'Consultoria');
+    // Try Serviços Especializados first, then Add-ons as fallback
+    let configId = findConfigId(configStore, 'Serviços Especializados', 'Consultoria Técnica', 'Consultoria', 'consulting');
+    if (!configId) configId = findConfigId(configStore, 'Add-ons', 'Consultoria Técnica', 'Consultoria');
     addAddon(configId, state.addons.consulting.quantity, 'Consulting');
   }
   
-  // DBA
+  // DBA (Serviços Especializados category)
   if (state.addons.dba.quantity > 0) {
-    const configId = findConfigId(configStore, 'Add-ons', 'DBA');
+    // Try Serviços Especializados first, then Add-ons as fallback
+    let configId = findConfigId(configStore, 'Serviços Especializados', 'DBA', 'dba');
+    if (!configId) configId = findConfigId(configStore, 'Add-ons', 'DBA');
     addAddon(configId, state.addons.dba.quantity, 'DBA');
   }
   

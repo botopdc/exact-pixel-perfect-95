@@ -219,6 +219,7 @@ export function getVmConfigIds(store: ConfigIdStore): {
 
 /**
  * Get addon config by code
+ * NOTE: Some addons are in 'Serviços Especializados' category (Support, Consulting, DBA)
  */
 export function getAddonConfig(
   store: ConfigIdStore,
@@ -239,7 +240,18 @@ export function getAddonConfig(
     'dba': ['DBA'],
   };
   
+  // Items in Serviços Especializados category
+  const servicosEspecializadosCodes = ['support_basic', 'support_intermediate', 'support_advanced', 'consulting', 'dba'];
+  
   const labels = codeToLabels[code] || [code];
+  
+  // Try Serviços Especializados first for specialized services
+  if (servicosEspecializadosCodes.includes(code)) {
+    const result = findConfigByLabels(store, 'Serviços Especializados', ...labels);
+    if (result) return result;
+  }
+  
+  // Fallback to Add-ons category
   return findConfigByLabels(store, 'Add-ons', ...labels);
 }
 
