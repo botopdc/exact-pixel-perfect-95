@@ -1,5 +1,6 @@
 // ============================================================================
-// CALCULATOR CONFIG SERVICE - CRUD operations for pricing configuration
+// CALCULATOR CONFIG SERVICE - CRUD operations for FLAT pricing configuration
+// Nova estrutura: id, label, value, meta (JSON)
 // ============================================================================
 
 import axios from 'axios';
@@ -31,37 +32,35 @@ apiClient.interceptors.request.use((config) => {
 });
 
 // ============================================================================
-// TYPES (based on API OpenAPI spec)
+// TYPES (based on NEW FLAT structure - January 2026)
 // ============================================================================
 
 /**
- * Config item structure for GET/PUT requests
- * Based on CalculatorConfig schema from API docs
- * 
- * IMPORTANT (API v12+): Each item now has a unique `id` for identification.
- * When updating, send the item `id` to update by ID.
- * When creating proposals, use `config_id` (entry ID) + `item_id` for pricing.
+ * Meta object for calculator config items
  */
-export interface ConfigItem {
-  id?: number;         // Unique ID of the config item (API v12+)
-  label: string;
-  by?: string;         // e.g., "unit", "GB", "TB", "month", "hour"
-  type?: string;       // e.g., "BRL", "USD", "percentage"
-  value?: number;
-  description?: string; // Used in Kubernetes plans
+export interface ConfigMeta {
+  category: string;         // VM, BareMetal, GPU, Add-ons, SQL Server, Storage, Backup, Kubernetes, Geral
+  section?: string;         // Preços de VM, Modelos de CPU, etc.
+  by?: string;              // unit, GB, TB, month, hour
+  type?: string;            // BRL, percentage
+  region?: string;          // Brasil, Estados Unidos
+  retention?: string;       // 7 dias, 15 dias, 30 dias
+  min?: number;             // Minimum range value
+  max?: number;             // Maximum range value
+  description?: string;     // Description (for Kubernetes plans)
 }
 
 /**
- * API response for a single config entry
+ * Single flat config item - NEW STRUCTURE
+ * Each row is an independent price item
  */
-export interface CalculatorConfigEntry {
-  id: number;
-  category: string;
-  section: string;
-  config: ConfigItem[];
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
+export interface CalculatorConfigItem {
+  id: number;               // Unique ID in database (PK, auto-increment)
+  label: string;            // Item name/description
+  value: number;            // Price/value (DECIMAL 12,4)
+  meta: ConfigMeta;         // JSON metadata
+  created_at?: string;
+  updated_at?: string;
 }
 
 /**
@@ -69,7 +68,7 @@ export interface CalculatorConfigEntry {
  */
 export interface PaginatedConfigResponse {
   current_page: number;
-  data: CalculatorConfigEntry[];
+  data: CalculatorConfigItem[];
   from: number;
   last_page: number;
   per_page: number;
@@ -81,18 +80,43 @@ export interface PaginatedConfigResponse {
  * Request payload for POST /api/calculator/config
  */
 export interface CalculatorConfigStoreRequest {
-  category: string;
-  section: string;
-  config: ConfigItem[];
+  label: string;
+  value: number;
+  meta: ConfigMeta;
 }
 
 /**
  * Request payload for PUT /api/calculator/config/{id}
  */
 export interface CalculatorConfigUpdateRequest {
-  category?: string;
-  section?: string;
-  config?: ConfigItem[];
+  label?: string;
+  value?: number;
+  meta?: ConfigMeta;
+}
+
+// ============================================================================
+// LEGACY TYPES (for backward compatibility during migration)
+// ============================================================================
+
+/** @deprecated Use CalculatorConfigItem instead */
+export interface ConfigItem {
+  id?: number;
+  label: string;
+  by?: string;
+  type?: string;
+  value?: number;
+  description?: string;
+}
+
+/** @deprecated Use CalculatorConfigItem instead */
+export interface CalculatorConfigEntry {
+  id: number;
+  category: string;
+  section: string;
+  config: ConfigItem[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
 
 // ============================================================================
@@ -100,12 +124,28 @@ export interface CalculatorConfigUpdateRequest {
 // ============================================================================
 
 /**
- * Fetch all calculator configurations from API
+ * Fetch all calculator configurations from API (FLAT structure)
  * GET /api/calculator/config
+ * 
+ * @returns Array of flat config items
  */
-export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
+export async function getCalculatorConfigs(): Promise<CalculatorConfigItem[]> {
   const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
-    params: { __perPage: 200 }
+    params: { __perPage: 500 } // Get all items
+  });
+  return response.data.data || [];
+}
+
+/**
+ * Fetch configs filtered by category
+ * GET /api/calculator/config?meta.category=VM
+ */
+export async function getConfigsByCategory(category: string): Promise<CalculatorConfigItem[]> {
+  const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
+    params: { 
+      '__perPage': 500,
+      'meta.category': category,
+    }
   });
   return response.data.data || [];
 }
@@ -114,80 +154,164 @@ export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
  * Fetch a single config by ID
  * GET /api/calculator/config/{id}
  */
-export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.get<CalculatorConfigEntry>(`/calculator/config/${id}`);
+export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigItem> {
+  const response = await apiClient.get<CalculatorConfigItem>(`/calculator/config/${id}`);
   return response.data;
 }
 
 /**
- * Update an existing calculator configuration
+ * Create a new calculator configuration item
+ * POST /api/calculator/config
+ */
+export async function createCalculatorConfig(
+  payload: CalculatorConfigStoreRequest
+): Promise<CalculatorConfigItem> {
+  const response = await apiClient.post<CalculatorConfigItem>('/calculator/config', payload);
+  return response.data;
+}
+
+/**
+ * Update an existing calculator configuration item
  * PUT /api/calculator/config/{id}
- * 
- * CRUD rules for config array (backend enforced):
- * - CREATE: items WITHOUT `id` field → backend generates id automatically
- * - UPDATE: items WITH existing `id` field → backend updates
- * - DELETE: items NOT included in array → backend removes automatically
- * 
- * @param id - The config entry ID (e.g., 1 for VM, 5 for GPU)
- * @param payload - Must contain `config` array with proper CRUD semantics
  */
 export async function updateCalculatorConfig(
   id: number,
   payload: CalculatorConfigUpdateRequest
-): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.put<CalculatorConfigEntry>(`/calculator/config/${id}`, payload);
+): Promise<CalculatorConfigItem> {
+  const response = await apiClient.put<CalculatorConfigItem>(`/calculator/config/${id}`, payload);
   return response.data;
 }
 
+/**
+ * Delete a calculator configuration item
+ * DELETE /api/calculator/config/{id}
+ */
+export async function deleteCalculatorConfig(id: number): Promise<void> {
+  await apiClient.delete(`/calculator/config/${id}`);
+}
+
 // ============================================================================
-// MAPPINGS AND HELPERS
+// CATEGORY CONSTANTS
 // ============================================================================
 
-// CATEGORY / SECTION MAPPING (aligned with actual database values from CSV)
+export const CONFIG_CATEGORIES = {
+  VM: 'VM',
+  BAREMETAL: 'BareMetal',
+  GPU: 'GPU',
+  ADDONS: 'Add-ons',
+  SQL_SERVER: 'SQL Server',
+  STORAGE: 'Storage',
+  BACKUP: 'Backup',
+  KUBERNETES: 'Kubernetes',
+  GERAL: 'Geral',
+} as const;
+
+export type ConfigCategory = typeof CONFIG_CATEGORIES[keyof typeof CONFIG_CATEGORIES];
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Group flat config items by category
+ */
+export function groupConfigsByCategory(
+  items: CalculatorConfigItem[]
+): Record<string, CalculatorConfigItem[]> {
+  const grouped: Record<string, CalculatorConfigItem[]> = {};
+  
+  for (const item of items) {
+    const category = item.meta?.category || 'Unknown';
+    if (!grouped[category]) {
+      grouped[category] = [];
+    }
+    grouped[category].push(item);
+  }
+  
+  return grouped;
+}
+
+/**
+ * Group flat config items by category and section
+ */
+export function groupConfigsByCategoryAndSection(
+  items: CalculatorConfigItem[]
+): Record<string, Record<string, CalculatorConfigItem[]>> {
+  const grouped: Record<string, Record<string, CalculatorConfigItem[]>> = {};
+  
+  for (const item of items) {
+    const category = item.meta?.category || 'Unknown';
+    const section = item.meta?.section || 'Default';
+    
+    if (!grouped[category]) {
+      grouped[category] = {};
+    }
+    if (!grouped[category][section]) {
+      grouped[category][section] = [];
+    }
+    grouped[category][section].push(item);
+  }
+  
+  return grouped;
+}
+
+/**
+ * Find config item by label in a list
+ */
+export function findConfigByLabel(
+  items: CalculatorConfigItem[],
+  label: string
+): CalculatorConfigItem | undefined {
+  const normalized = label.toLowerCase().trim();
+  return items.find(
+    item => item.label.toLowerCase().trim() === normalized
+  );
+}
+
+/**
+ * Find config item by label in a category
+ */
+export function findConfigByLabelInCategory(
+  items: CalculatorConfigItem[],
+  category: string,
+  label: string
+): CalculatorConfigItem | undefined {
+  const normalized = label.toLowerCase().trim();
+  return items.find(
+    item => 
+      (item.meta?.category || '').toLowerCase() === category.toLowerCase() &&
+      item.label.toLowerCase().trim() === normalized
+  );
+}
+
+// ============================================================================
+// LEGACY MAPPINGS (for backward compatibility)
+// @deprecated These will be removed in future versions
+// ============================================================================
+
 export const CONFIG_MAPPINGS = {
-  // General settings (IDs 12, 13, 14)
   GERAL_FX: { category: 'Geral', section: 'Taxa de Câmbio' },
   GERAL_DESCONTO: { category: 'Geral', section: 'Descontos por Vigência' },
   GERAL_SAAS: { category: 'Geral', section: 'OPEN SaaS' },
-  
-  // VM prices (ID 1)
   VM_PRICES: { category: 'VM', section: 'Preços de VM' },
-  
-  // GPU prices (ID 5)
   GPU_PRICES: { category: 'GPU', section: 'Preços de GPU' },
-  
-  // BareMetal (IDs 2, 3, 4)
   BAREMETAL_CPU: { category: 'BareMetal', section: 'Modelos de CPU' },
   BAREMETAL_RAM: { category: 'BareMetal', section: 'Opções de RAM' },
   BAREMETAL_DISK: { category: 'BareMetal', section: 'Opções de Disco' },
-  
-  // Add-ons (ID 6)
   ADDONS: { category: 'Add-ons', section: 'Add-ons' },
-  
-  // SQL Server (ID 7)
   SQL_SERVER: { category: 'SQL Server', section: 'SQL Server' },
-  
-  // Storage (IDs 8, 9)
   STORAGE_SAS: { category: 'Storage', section: 'Storage SAS' },
   STORAGE_NVME: { category: 'Storage', section: 'SSD NVMe' },
-  
-  // Kubernetes (IDs 10, 11)
   KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Preços Base dos Planos' },
   KUBERNETES_ADDONS: { category: 'Kubernetes', section: 'Add-ons Kubernetes' },
-  
-  // Backup pricing by retention (ID 15 - 7/15/30 days)
   BACKUP: { category: 'Backup', section: 'Backup por Retenção' },
-  
-  // Serviços Especializados (ID 16)
   SPECIALIZED_SERVICES: { category: 'Add-ons', section: 'Serviços Especializados' },
-  
-  // Windows Server (ID 17) - Note: Also duplicated in ADDONS (ID 6) for compatibility
   WINDOWS_SERVER: { category: 'Add-ons', section: 'Windows Server' },
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
 
-// Helper functions
+/** @deprecated Use findConfigByLabelInCategory instead */
 export function findConfigEntry(
   entries: CalculatorConfigEntry[],
   category: string,

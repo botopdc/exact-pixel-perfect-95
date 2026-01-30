@@ -84,21 +84,25 @@ export async function loadConfigIds(): Promise<ConfigIdStore> {
     store.items = items;
     
     for (const item of items) {
+      const category = item.meta?.category || 'Unknown';
+      const section = item.meta?.section;
+      const by = item.meta?.by;
+      const type = item.meta?.type;
+      
       const mapping: ConfigIdMapping = {
         configId: item.id,
         label: item.label,
         value: item.value,
-        category: item.meta.category || 'Unknown',
-        section: item.meta.section,
-        by: item.meta.by,
-        type: item.meta.type,
+        category,
+        section,
+        by,
+        type,
       };
       
       // Index by ID
       store.byId.set(item.id, mapping);
       
       // Group by category
-      const category = mapping.category;
       if (!store.byCategory.has(category)) {
         store.byCategory.set(category, []);
       }

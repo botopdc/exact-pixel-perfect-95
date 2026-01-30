@@ -23,6 +23,10 @@ import {
   getBackupItemId,
   getGpuItemId,
   getItemId,
+  findConfigByLabel,
+  getBaremetalCpuConfig,
+  getBaremetalRamConfig,
+  getBaremetalDiskConfig,
 } from '@/services/configIdsService';
 import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 
@@ -1396,8 +1400,9 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   }> = [];
   
   // Helper to get addon IDs from configIdStore - NO FALLBACKS
-  // API v12+ requires config_id and item_id to be valid integers from the API
+  // API v12+ requires config_id to be valid integer from the API
   // CRITICAL: Returns null if IDs are not found - addon MUST be skipped
+  // NOTE: In NEW flat structure, configId IS the itemId (no separate item_id needed)
   const getAddonIds = (code: string): { config_id: number; item_id: number } | null => {
     if (!configIdStore) {
       console.error('[localToApi] No configIdStore available - addon will be skipped:', code);
@@ -1406,8 +1411,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     const ids = getAddonItemId(configIdStore, code);
     if (!ids.configId || !ids.itemId) {
       console.error('[localToApi] SKIPPING addon - missing IDs:', code, 'configId:', ids.configId, 'itemId:', ids.itemId);
-      console.error('[localToApi] Available addons in store:', configIdStore.addons?.items);
-      console.error('[localToApi] Available specialized services:', configIdStore.specializedServices?.items);
+      console.error('[localToApi] Available categories in store:', Array.from(configIdStore.byCategory.keys()));
+      console.error('[localToApi] Addons in store:', configIdStore.byCategory.get('Add-ons')?.map(a => a.label));
       return null;
     }
     console.log('[localToApi] Found IDs for addon:', code, '→ config_id:', ids.configId, 'item_id:', ids.itemId);
@@ -1604,7 +1609,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // CRITICAL: Log available config items for debugging if IDs are missing
   if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
     console.error('[localToApi] ❌ CRITICAL: Missing VM IDs from API:', { vmConfigId, vcpuItemId, ramItemId, storageItemId });
-    console.error('[localToApi] Available VM items:', configIdStore?.vm?.items);
+    console.error('[localToApi] Available VM items:', configIdStore?.byCategory.get('VM')?.map(v => v.label));
     console.error('[localToApi] This will cause API 422 error - IDs must exist in the API');
   }
   
@@ -1681,61 +1686,42 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
         
-        // Get BareMetal config IDs from configIdStore
-        const bmCpuConfigId = configIdStore?.baremetal?.cpu?.configId;
-        const bmRamConfigId = configIdStore?.baremetal?.ram?.configId;
-        const bmDiskConfigId = configIdStore?.baremetal?.disk?.configId;
+        // Get BareMetal configs from flat configIdStore using helper functions
+        // In new flat structure, each CPU/RAM/Disk model is an individual config item with its own ID
+        const cpuConfig = configIdStore ? getBaremetalCpuConfig(configIdStore, bmCpuModel) : undefined;
+        const ramConfig = configIdStore ? getBaremetalRamConfig(configIdStore, bmRamTier) : undefined;
         
-        console.log('[localToApi] BareMetal configs:', {
-          cpuConfigId: bmCpuConfigId,
-          ramConfigId: bmRamConfigId,
-          diskConfigId: bmDiskConfigId,
+        console.log('[localToApi] BareMetal configs (flat):', {
+          cpuConfig: cpuConfig ? { id: cpuConfig.configId, label: cpuConfig.label } : null,
+          ramConfig: ramConfig ? { id: ramConfig.configId, label: ramConfig.label } : null,
         });
         
-        // Helper to find item ID by label
-        const findBmItemId = (
-          mapping: { configId: number; items: Record<string, number> } | null | undefined,
-          ...labels: string[]
-        ): number | undefined => {
-          if (!mapping) return undefined;
-          for (const label of labels) {
-            if (mapping.items[label] !== undefined) return mapping.items[label];
-            const lower = label.toLowerCase();
-            if (mapping.items[lower] !== undefined) return mapping.items[lower];
-            const normalized = lower.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-            if (mapping.items[normalized] !== undefined) return mapping.items[normalized];
-          }
-          return undefined;
-        };
-        
-        // Add CPU as addon
-        const cpuItemId = findBmItemId(configIdStore?.baremetal?.cpu, bmCpuModel);
-        if (bmCpuConfigId && cpuItemId) {
+        // Add CPU as addon - in flat structure, configId IS the item ID
+        if (cpuConfig?.configId) {
           addonsArray.push({
-            config_id: bmCpuConfigId,
-            item_id: cpuItemId,
+            config_id: cpuConfig.configId,
+            item_id: cpuConfig.configId, // In flat structure, configId = itemId
             name: `BareMetal CPU: ${bmCpuModel}`,
             price: 0, // Backend calculates price
             quantity: qtyServers,
           });
-          console.log(`[localToApi] Added BareMetal CPU: ${bmCpuModel}, config_id=${bmCpuConfigId}, item_id=${cpuItemId}, qty=${qtyServers}`);
+          console.log(`[localToApi] Added BareMetal CPU: ${bmCpuModel}, config_id=${cpuConfig.configId}, qty=${qtyServers}`);
         } else {
-          console.warn(`[localToApi] ⚠️ Could not find BareMetal CPU item_id for: ${bmCpuModel}`);
+          console.warn(`[localToApi] ⚠️ Could not find BareMetal CPU config for: ${bmCpuModel}`);
         }
         
         // Add RAM as addon
-        const ramBmItemId = findBmItemId(configIdStore?.baremetal?.ram, bmRamTier);
-        if (bmRamConfigId && ramBmItemId) {
+        if (ramConfig?.configId) {
           addonsArray.push({
-            config_id: bmRamConfigId,
-            item_id: ramBmItemId,
+            config_id: ramConfig.configId,
+            item_id: ramConfig.configId,
             name: `BareMetal RAM: ${bmRamTier}`,
             price: 0, // Backend calculates price
             quantity: qtyServers,
           });
-          console.log(`[localToApi] Added BareMetal RAM: ${bmRamTier}, config_id=${bmRamConfigId}, item_id=${ramBmItemId}, qty=${qtyServers}`);
+          console.log(`[localToApi] Added BareMetal RAM: ${bmRamTier}, config_id=${ramConfig.configId}, qty=${qtyServers}`);
         } else {
-          console.warn(`[localToApi] ⚠️ Could not find BareMetal RAM item_id for: ${bmRamTier}`);
+          console.warn(`[localToApi] ⚠️ Could not find BareMetal RAM config for: ${bmRamTier}`);
         }
         
         // Add each disk as addon (aggregated by type)
@@ -1747,16 +1733,16 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         }
         
         for (const [diskType, totalQty] of disksByType) {
-          const diskItemId = findBmItemId(configIdStore?.baremetal?.disk, diskType);
-          if (bmDiskConfigId && diskItemId) {
+          const diskConfig = configIdStore ? getBaremetalDiskConfig(configIdStore, diskType) : undefined;
+          if (diskConfig?.configId) {
             addonsArray.push({
-              config_id: bmDiskConfigId,
-              item_id: diskItemId,
+              config_id: diskConfig.configId,
+              item_id: diskConfig.configId,
               name: `BareMetal Disk: ${diskType}`,
               price: 0, // Backend calculates price
               quantity: totalQty,
             });
-            console.log(`[localToApi] Added BareMetal Disk: ${diskType}, config_id=${bmDiskConfigId}, item_id=${diskItemId}, qty=${totalQty}`);
+            console.log(`[localToApi] Added BareMetal Disk: ${diskType}, config_id=${diskConfig.configId}, qty=${totalQty}`);
           } else {
             console.warn(`[localToApi] ⚠️ Could not find BareMetal Disk item_id for: ${diskType}`);
           }
@@ -2087,11 +2073,10 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   // If there are validation errors, throw to prevent API request
   if (validationErrors.length > 0) {
     console.error('[localToApi] ❌ VALIDATION FAILED - Missing IDs:', validationErrors);
-    console.error('[localToApi] Available config store:', {
-      vmItems: configIdStore?.vm?.items,
-      addonsItems: configIdStore?.addons?.items,
-      sqlServerItems: configIdStore?.sqlServer?.items,
-    });
+    console.error('[localToApi] Available config store categories:', configIdStore ? Array.from(configIdStore.byCategory.keys()) : 'null');
+    console.error('[localToApi] VM items:', configIdStore?.byCategory.get('VM')?.map(v => `${v.configId}:${v.label}`));
+    console.error('[localToApi] Addon items:', configIdStore?.byCategory.get('Add-ons')?.map(a => `${a.configId}:${a.label}`));
+    console.error('[localToApi] SQL items:', configIdStore?.byCategory.get('SQL Server')?.map(s => `${s.configId}:${s.label}`));
     throw new Error(`IDs obrigatórios ausentes na configuração da API. Verifique o console para detalhes. Erros: ${validationErrors.join('; ')}`);
   }
   
