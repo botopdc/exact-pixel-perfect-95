@@ -881,63 +881,57 @@ function logAddonRestoration(addons: AddonsStateV2): void {
 // ============================================================================
 
 /**
- * Addon payload for API (v12+)
+ * Server spec payload for API (January 2026 FLAT structure)
  * 
  * Per OpenAPI spec (CalculatorProposalStoreRequest):
- * - addons requires config_id and item_id (REQUIRED for priced items)
- * - Backend calculates price automatically from config
- * - DO NOT send price field - backend ignores it
+ * - Each spec has config_id (ID from calculator_configs table) and value
+ * - Backend calculates price: spec.value × config.value
+ */
+export interface ApiServerSpec {
+  config_id: number;      // REQUIRED: ID do item no calculator_configs
+  value: number;          // REQUIRED: Quantidade/valor para essa spec
+}
+
+/**
+ * Addon payload for API (January 2026 FLAT structure)
+ * 
+ * Per OpenAPI spec:
+ * - addons requires only config_id and quantity
+ * - Backend busca label e price do config pelo ID
+ * - Backend calcula: config.value × quantity
  */
 export interface ApiAddonPayload {
-  config_id: number;      // REQUIRED: ID of the calculator config entry
-  item_id: number;        // REQUIRED: ID of the item within the config
-  quantity: number;       // REQUIRED: Quantity (defaults to 1)
+  config_id: number;      // REQUIRED: ID do item no calculator_configs
+  quantity: number;       // REQUIRED: Quantidade (padrão: 1, min: 1)
 }
 
 /**
- * Server payload for API (v12+)
+ * Server payload for API (January 2026 FLAT structure)
  * 
  * Per OpenAPI spec (CalculatorProposalStoreRequest):
- * - servers requires config_id, name, vcpu_item_id, ram_item_id, storage_item_id
- * - vcpu minimum: 1, ram minimum: 1
- * - Backend calculates price automatically from config
- * - DO NOT send price field - backend ignores it
+ * - servers requires name, specs[], and optional quantity
+ * - specs[] is array of {config_id, value}
+ * - Backend busca cada config e calcula preço
  */
 export interface ApiServerPayload {
-  config_id: number;        // REQUIRED: ID of the calculator config (VM category)
-  name: string;             // REQUIRED: Server name for identification
-  vcpu_item_id: number;     // REQUIRED: ID of the vCPU item in config
-  vcpu: number;             // REQUIRED: minimum 1
-  ram_item_id: number;      // REQUIRED: ID of the RAM item in config
-  ram: number;              // REQUIRED: minimum 1
-  storage_item_id: number;  // REQUIRED: ID of the storage item in config
-  storage: number;          // REQUIRED: minimum 0
-  quantity: number;         // REQUIRED: minimum 1
-  gpu?: { model: string; quantity: number };
+  name: string;             // REQUIRED: Nome do servidor
+  specs: ApiServerSpec[];   // REQUIRED: Array de specs (min 1)
+  quantity?: number;        // OPTIONAL: Quantidade (padrão: 1)
 }
 
 /**
- * Internal payload types for building (before API validation)
- * These allow optional IDs which will be filled with defaults if missing
+ * Internal payload types for building
  */
 interface InternalAddonPayload {
-  config_id: number;    // Will be filled with 0 if missing
-  item_id: number;      // Will be filled with 0 if missing
+  config_id: number;
   quantity: number;
-  label?: string;       // For debugging/display
+  label?: string;       // For debugging/display only
 }
 
 interface InternalServerPayload {
-  config_id: number;      // Will be filled with 0 if missing
   name: string;
-  vcpu_item_id: number;   // Will be filled with 0 if missing
-  vcpu: number;           // Minimum 1 enforced
-  ram_item_id: number;    // Will be filled with 0 if missing
-  ram: number;            // Minimum 1 enforced
-  storage_item_id: number;// Will be filled with 0 if missing
-  storage: number;        // Minimum 0
-  quantity: number;       // Minimum 1 enforced
-  gpu?: { model: string; quantity: number };
+  specs: ApiServerSpec[];
+  quantity: number;
 }
 
 export interface ApiProposalPayload {
@@ -972,23 +966,80 @@ export interface SerializationValidation {
 }
 
 /**
- * Validates that all required config_id and item_id are present
- * before serialization. Returns errors if any IDs are missing.
+ * Store for config_id lookups (simplified for flat structure)
+ */
+export interface FlatConfigStore {
+  // All configs indexed by ID
+  byId: Map<number, { id: number; label: string; value: number; category: string }>;
+  // Configs by category → label → id
+  byCategoryLabel: Map<string, Map<string, number>>;
+}
+
+/**
+ * Build a flat config store from API items
+ */
+export function buildFlatConfigStore(
+  items: Array<{ id: number; label: string; value: number; meta?: { category?: string } }>
+): FlatConfigStore {
+  const store: FlatConfigStore = {
+    byId: new Map(),
+    byCategoryLabel: new Map(),
+  };
+  
+  for (const item of items) {
+    const category = item.meta?.category || 'Unknown';
+    
+    store.byId.set(item.id, {
+      id: item.id,
+      label: item.label,
+      value: item.value,
+      category,
+    });
+    
+    if (!store.byCategoryLabel.has(category)) {
+      store.byCategoryLabel.set(category, new Map());
+    }
+    const categoryMap = store.byCategoryLabel.get(category)!;
+    
+    // Store with original label
+    categoryMap.set(item.label, item.id);
+    // Store with normalized label
+    const normalized = item.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+    categoryMap.set(normalized, item.id);
+  }
+  
+  return store;
+}
+
+/**
+ * Find config_id by label in a category
+ */
+function findConfigId(
+  store: FlatConfigStore,
+  category: string,
+  ...labels: string[]
+): number | undefined {
+  const categoryMap = store.byCategoryLabel.get(category);
+  if (!categoryMap) return undefined;
+  
+  for (const label of labels) {
+    if (categoryMap.has(label)) return categoryMap.get(label);
+    const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+    if (categoryMap.has(normalized)) return categoryMap.get(normalized);
+  }
+  return undefined;
+}
+
+/**
+ * Validates that all required config_id are present before serialization.
  */
 export function validateSerializationConfig(
   state: OpenCalculatorState,
-  configIdStore?: {
-    vm?: { configId: number; items: Record<string, number> } | null;
-    addons?: { configId: number; items: Record<string, number> } | null;
-    sqlServer?: { configId: number; items: Record<string, number> } | null;
-    backup?: { configId: number; items: Record<string, number> } | null;
-    specializedServices?: { configId: number; items: Record<string, number> } | null;
-  } | null
+  configStore?: FlatConfigStore | null
 ): SerializationValidation {
   const errors: string[] = [];
   
-  // Check if config IDs are loaded
-  if (!configIdStore) {
+  if (!configStore) {
     errors.push('Configuração de preços não carregada. Tente novamente.');
     return { isValid: false, errors };
   }
@@ -996,41 +1047,13 @@ export function validateSerializationConfig(
   // Check VM config if there are VM items
   const vmItems = state.items.filter(i => i.type === 'vm');
   if (vmItems.length > 0) {
-    if (!configIdStore.vm?.configId) {
-      errors.push('Configuração de VM não encontrada.');
-    }
-    if (!configIdStore.vm?.items?.['vCPU'] && !configIdStore.vm?.items?.['vcpu']) {
-      errors.push('Item vCPU não encontrado na configuração.');
-    }
-    if (!configIdStore.vm?.items?.['RAM'] && !configIdStore.vm?.items?.['ram']) {
-      errors.push('Item RAM não encontrado na configuração.');
-    }
-    if (!configIdStore.vm?.items?.['NVMe'] && !configIdStore.vm?.items?.['nvme']) {
-      errors.push('Item NVMe não encontrado na configuração.');
-    }
-  }
-  
-  // Check addons config if there are addons
-  const hasAddons = state.addons.winserver > 0 || 
-    state.addons.antivirus > 0 || 
-    state.addons.firewall > 0 ||
-    state.addons.tsplus > 0 ||
-    state.addons.cal > 0 ||
-    state.addons.veeamVm > 0 ||
-    state.addons.veeamAg > 0;
-  
-  if (hasAddons && !configIdStore.addons?.configId) {
-    errors.push('Configuração de Add-ons não encontrada.');
-  }
-  
-  // Check SQL config if SQL is selected
-  if (state.addons.sql !== 'none' && !configIdStore.sqlServer?.configId) {
-    errors.push('Configuração de SQL Server não encontrada.');
-  }
-  
-  // Check Backup config if backup is selected
-  if (state.addons.backupPlan !== 'none' && !configIdStore.backup?.configId) {
-    errors.push('Configuração de Backup não encontrada.');
+    const vcpuId = findConfigId(configStore, 'VM', 'vCPU', 'vcpu');
+    const ramId = findConfigId(configStore, 'VM', 'RAM', 'ram');
+    const storageId = findConfigId(configStore, 'VM', 'NVMe', 'nvme');
+    
+    if (!vcpuId) errors.push('Config vCPU não encontrado.');
+    if (!ramId) errors.push('Config RAM não encontrado.');
+    if (!storageId) errors.push('Config NVMe não encontrado.');
   }
   
   return { isValid: errors.length === 0, errors };
@@ -1039,38 +1062,25 @@ export function validateSerializationConfig(
 /**
  * Serializes the calculator state to API payload format.
  * 
- * CRITICAL: This is the ONLY function that should generate the save payload.
- * All items (WinServer, Backup, GPU) are explicitly serialized.
- * 
- * ARCHITECTURE CHANGE: Backend calculates prices from config_id + item_id.
- * Frontend does NOT send price fields - they are ignored by backend.
+ * ARCHITECTURE (January 2026 - FLAT structure):
+ * - Servers use specs[]: array of { config_id, value }
+ * - Addons use { config_id, quantity }
+ * - Backend calculates all prices from config_id
  * 
  * @param state - Calculator state
  * @param channelType - CLIENTE or PARCEIRO
  * @param grandTotal - Total value
  * @param discountPct - Discount percentage
- * @param configIdStore - REQUIRED: Config ID mappings for API
+ * @param configStore - REQUIRED: Flat config store with config_id mappings
  */
 export function serializeProposal(
   state: OpenCalculatorState,
   channelType: 'CLIENTE' | 'PARCEIRO',
   grandTotal: number,
   discountPct: number = 0,
-  configIdStore: {
-    vm?: { configId: number; items: Record<string, number> } | null;
-    gpu?: { configId: number; items: Record<string, number> } | null;
-    addons?: { configId: number; items: Record<string, number> } | null;
-    sqlServer?: { configId: number; items: Record<string, number> } | null;
-    backup?: { configId: number; items: Record<string, number> } | null;
-    specializedServices?: { configId: number; items: Record<string, number> } | null;
-    baremetal?: {
-      cpu?: { configId: number; items: Record<string, number> } | null;
-      ram?: { configId: number; items: Record<string, number> } | null;
-      disk?: { configId: number; items: Record<string, number> } | null;
-    } | null;
-  }
+  configStore: FlatConfigStore
 ): ApiProposalPayload {
-  console.log('[serializeProposal] Serializing state for save...');
+  console.log('[serializeProposal] Serializing state for save (FLAT structure)...');
   
   const datacenterNames: Record<string, string> = {
     'SP1': 'São Paulo',
@@ -1085,278 +1095,189 @@ export function serializeProposal(
   const dueAt = new Date(createdAt);
   dueAt.setDate(dueAt.getDate() + validityDays);
   
-  // Helper to find item ID by label (with fuzzy matching)
-  const findItemId = (
-    mapping: { configId: number; items: Record<string, number> } | null | undefined,
-    ...labels: string[]
-  ): number | undefined => {
-    if (!mapping) return undefined;
-    for (const label of labels) {
-      if (mapping.items[label] !== undefined) return mapping.items[label];
-      // Try lowercase
-      const lower = label.toLowerCase();
-      if (mapping.items[lower] !== undefined) return mapping.items[lower];
-      // Try normalized (remove accents)
-      const normalized = lower.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
-      if (mapping.items[normalized] !== undefined) return mapping.items[normalized];
-    }
-    return undefined;
-  };
-  
   // ============================================
-  // BUILD ADDONS ARRAY - Per OpenAPI spec: config_id and item_id are REQUIRED
-  // ARCHITECTURE: Backend calculates price from IDs, frontend sends no price
+  // BUILD ADDONS ARRAY - Per new OpenAPI spec: { config_id, quantity }
+  // Backend calculates price from config_id
   // ============================================
   const addonsArray: InternalAddonPayload[] = [];
   
-  // Get addons config IDs (defaults to 6 for Add-ons category per API)
-  const addonsConfigId = configIdStore.addons?.configId ?? 6;
-  const specializedConfigId = configIdStore.specializedServices?.configId ?? 16;
-  const sqlConfigId = configIdStore.sqlServer?.configId ?? 7;
-  const backupConfigId = configIdStore.backup?.configId ?? 15;
-  
-  // Helper to safely add addon - ALWAYS includes config_id and item_id per OpenAPI spec
-  // CRITICAL: Only add addons where we have REAL IDs from the API
-  const addAddon = (configId: number | undefined, itemId: number | undefined, qty: number, label: string) => {
-    if (qty <= 0) {
-      console.log(`[serializeProposal] Skipping ${label}: qty=${qty}`);
+  // Helper to safely add addon
+  const addAddon = (configId: number | undefined, qty: number, label: string) => {
+    if (qty <= 0 || !configId) {
+      if (!configId) console.warn(`[serializeProposal] ⚠️ Skipping ${label}: missing config_id`);
       return;
     }
-    
-    // Per OpenAPI spec: config_id and item_id are REQUIRED
-    // CRITICAL: We must have real IDs from the API - do not use invented fallbacks
-    if (!configId) {
-      console.warn(`[serializeProposal] ⚠️ Skipping ${label}: missing config_id from API`);
-      return;
-    }
-    if (!itemId) {
-      console.warn(`[serializeProposal] ⚠️ Skipping ${label}: missing item_id from API (config_id=${configId})`);
-      return;
-    }
-    
-    addonsArray.push({ 
-      config_id: configId, 
-      item_id: itemId, 
-      quantity: qty,
-      label: label // For debugging
-    });
-    console.log(`[serializeProposal] Added ${label}: qty=${qty}, config_id=${configId}, item_id=${itemId}`);
+    addonsArray.push({ config_id: configId, quantity: qty, label });
+    console.log(`[serializeProposal] Added ${label}: qty=${qty}, config_id=${configId}`);
   };
   
   // Windows Server
   if (state.addons.winserver > 0) {
-    const itemId = findItemId(configIdStore.addons, 'WinServer(2vCPU/unid.)', 'winserver_2vcpu_unit', 'Windows Server');
-    addAddon(addonsConfigId, itemId, state.addons.winserver, 'WinServer');
+    const configId = findConfigId(configStore, 'Add-ons', 'WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer');
+    addAddon(configId, state.addons.winserver, 'WinServer');
   }
   
   // Support
   if (state.addons.support.level !== 'none') {
     const supportLabels: Record<string, string[]> = {
-      'basic': ['support_basic', 'Suporte Básico'],
-      'intermediate': ['support_intermediate', 'Suporte Intermediário'],
-      'advanced': ['support_advanced', 'Suporte Avançado'],
+      'basic': ['Suporte Básico', 'support_basic'],
+      'intermediate': ['Suporte Intermediário', 'support_intermediate'],
+      'advanced': ['Suporte Avançado', 'support_advanced'],
     };
     const labels = supportLabels[state.addons.support.level] || supportLabels['basic'];
-    const itemId = findItemId(configIdStore.specializedServices ?? configIdStore.addons, ...labels);
-    addAddon(specializedConfigId, itemId, 1, `Support ${state.addons.support.level}`);
+    const configId = findConfigId(configStore, 'Add-ons', ...labels);
+    addAddon(configId, 1, `Support ${state.addons.support.level}`);
   }
   
   // Consultoria Técnica
   if (state.addons.consulting.quantity > 0) {
-    const itemId = findItemId(configIdStore.specializedServices ?? configIdStore.addons, 'Consultoria Técnica', 'consulting_hours');
-    addAddon(specializedConfigId, itemId, state.addons.consulting.quantity, 'Consulting');
+    const configId = findConfigId(configStore, 'Add-ons', 'Consultoria Técnica', 'Consultoria');
+    addAddon(configId, state.addons.consulting.quantity, 'Consulting');
   }
   
   // DBA
   if (state.addons.dba.quantity > 0) {
-    const itemId = findItemId(configIdStore.specializedServices ?? configIdStore.addons, 'DBA', 'dba_hours');
-    addAddon(specializedConfigId, itemId, state.addons.dba.quantity, 'DBA');
+    const configId = findConfigId(configStore, 'Add-ons', 'DBA');
+    addAddon(configId, state.addons.dba.quantity, 'DBA');
   }
   
-  // Backup - ensure at least 1GB when plan selected
+  // Backup
   if (state.addons.backupPlan !== 'none') {
     const backupGb = state.addons.backupGb > 0 ? state.addons.backupGb : 1;
-    const itemId = findItemId(configIdStore.backup, `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`, state.addons.backupPlan);
-    addAddon(backupConfigId, itemId, backupGb, `Backup ${state.addons.backupPlan}d`);
+    const configId = findConfigId(configStore, 'Backup', `${state.addons.backupPlan} dias`, `backup_${state.addons.backupPlan}`);
+    addAddon(configId, backupGb, `Backup ${state.addons.backupPlan}d`);
   }
   
   // Antivirus
   if (state.addons.antivirus > 0) {
-    const itemId = findItemId(configIdStore.addons, 'Antivírus', 'Antivirus', 'antivirus');
-    addAddon(addonsConfigId, itemId, state.addons.antivirus, 'Antivirus');
+    const configId = findConfigId(configStore, 'Add-ons', 'Antivírus', 'Antivirus');
+    addAddon(configId, state.addons.antivirus, 'Antivirus');
   }
   
   // Firewall
   if (state.addons.firewall > 0) {
-    const itemId = findItemId(configIdStore.addons, 'Firewall pfSense', 'Firewall (qtd)', 'firewall');
-    addAddon(addonsConfigId, itemId, state.addons.firewall, 'Firewall');
+    const configId = findConfigId(configStore, 'Add-ons', 'Firewall pfSense', 'Firewall (qtd)', 'Firewall');
+    addAddon(configId, state.addons.firewall, 'Firewall');
   }
   
   // TSplus
   if (state.addons.tsplus > 0) {
-    const itemId = findItemId(configIdStore.addons, 'TSplus', 'tsplus');
-    addAddon(addonsConfigId, itemId, state.addons.tsplus, 'TSplus');
+    const configId = findConfigId(configStore, 'Add-ons', 'TSplus');
+    addAddon(configId, state.addons.tsplus, 'TSplus');
   }
   
   // CAL
   if (state.addons.cal > 0) {
-    const itemId = findItemId(configIdStore.addons, 'CAL', 'cal');
-    addAddon(addonsConfigId, itemId, state.addons.cal, 'CAL');
+    const configId = findConfigId(configStore, 'Add-ons', 'CAL');
+    addAddon(configId, state.addons.cal, 'CAL');
   }
   
   // Veeam VM
   if (state.addons.veeamVm > 0) {
-    const itemId = findItemId(configIdStore.addons, 'Veeam VM', 'veeam_vm');
-    addAddon(addonsConfigId, itemId, state.addons.veeamVm, 'Veeam VM');
+    const configId = findConfigId(configStore, 'Add-ons', 'Veeam VM', 'Veeam Backup (VM)');
+    addAddon(configId, state.addons.veeamVm, 'Veeam VM');
   }
   
   // Veeam Agent
   if (state.addons.veeamAg > 0) {
-    const itemId = findItemId(configIdStore.addons, 'Veeam Agent', 'veeam_agent');
-    addAddon(addonsConfigId, itemId, state.addons.veeamAg, 'Veeam Agent');
+    const configId = findConfigId(configStore, 'Add-ons', 'Veeam Agent');
+    addAddon(configId, state.addons.veeamAg, 'Veeam Agent');
   }
   
-  // SQL - ensure at least qty 1 when type selected
+  // SQL
   if (state.addons.sql !== 'none') {
     const edition = state.addons.sql.toUpperCase();
     const sqlQty = state.addons.sqlQty > 0 ? state.addons.sqlQty : 1;
     const sqlLabel = edition === 'WEB' ? 'WEB (2vCPU)' : 'STD (8vCPU)';
-    const itemId = findItemId(configIdStore.sqlServer, sqlLabel, edition, `${edition} (2vCPU)`, `${edition} (8vCPU)`, `SQL ${edition}`);
-    addAddon(sqlConfigId, itemId, sqlQty, `SQL ${edition}`);
+    const configId = findConfigId(configStore, 'SQL Server', sqlLabel, edition);
+    addAddon(configId, sqlQty, `SQL ${edition}`);
   }
   
-  // Log for debugging
   console.log('[serializeProposal] Addons built:', addonsArray.length, 'items');
   
-  // NOTE: Storage, Kubernetes, OpenSaaS are stored in dados_proposta snapshot
-  // Backend will calculate their prices from snapshot data
-  
   // ============================================
-  // BUILD SERVERS ARRAY - Per OpenAPI spec: all *_item_id fields are REQUIRED
-  // vcpu >= 1, ram >= 1, storage >= 0, quantity >= 1
-  // 
-  // CRITICAL: ALL item IDs MUST come from the API - NO INVENTED IDS
-  // The backend validates that each item_id exists in the specified config_id
+  // BUILD SERVERS ARRAY - Per new OpenAPI spec: { name, specs[], quantity }
+  // specs[] is array of { config_id, value }
   // ============================================
   const serversArray: InternalServerPayload[] = [];
   
-  // Get VM config IDs from API - log warnings if not found
-  const vmConfigId = configIdStore.vm?.configId;
-  const vcpuItemId = findItemId(configIdStore.vm, 'vCPU', 'vcpu');
-  const ramItemId = findItemId(configIdStore.vm, 'RAM', 'ram');
-  const storageItemId = findItemId(configIdStore.vm, 'NVMe', 'nvme');
+  // Get VM config IDs
+  const vcpuConfigId = findConfigId(configStore, 'VM', 'vCPU', 'vcpu');
+  const ramConfigId = findConfigId(configStore, 'VM', 'RAM', 'ram');
+  const storageConfigId = findConfigId(configStore, 'VM', 'NVMe', 'nvme');
+  const ipConfigId = findConfigId(configStore, 'VM', 'IP Público', 'IP');
   
-  // Log detailed info about available IDs
-  console.log('[serializeProposal] VM Config IDs:', {
-    vmConfigId,
-    vcpuItemId,
-    ramItemId,
-    storageItemId,
-    availableVmItems: configIdStore.vm?.items ? Object.entries(configIdStore.vm.items) : 'N/A',
-  });
+  console.log('[serializeProposal] VM Config IDs:', { vcpuConfigId, ramConfigId, storageConfigId, ipConfigId });
   
-  // Validate required VM IDs are present
-  if (state.items.some(i => i.type === 'vm') && (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId)) {
-    console.error('[serializeProposal] ❌ Missing required VM item IDs! Cannot serialize VMs safely.');
-    console.error('[serializeProposal] Available VM items:', configIdStore.vm?.items);
-  }
-
   for (const [idx, item] of state.items.entries()) {
-    const hasGpu = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU' && item.gpuQty > 0;
-    const gpuObj = hasGpu ? { model: item.gpu, quantity: item.gpuQty } : undefined;
-
-    if (hasGpu) {
-      console.log(`[SERIALIZE] gpu.enabled=true model=${item.gpu} qty=${item.gpuQty}`);
-    }
-
     if (item.type === 'vm') {
-      // CRITICAL: Per OpenAPI spec, VMs MUST have vcpu >= 1 and ram >= 1, quantity >= 1
-      const vcpuValue = Math.max(1, item.vcpu || 1);
-      const ramValue = Math.max(1, item.ramGb || 1);
-      const qtyValue = Math.max(1, item.qtyServers || 1);
+      const specs: ApiServerSpec[] = [];
       
-      if (item.vcpu < 1 || item.ramGb < 1) {
-        console.warn(`[serializeProposal] VM #${idx + 1} had invalid values (vcpu=${item.vcpu}, ram=${item.ramGb}), enforced minimums`);
+      // vCPU (minimum 1)
+      if (vcpuConfigId) {
+        specs.push({ config_id: vcpuConfigId, value: Math.max(1, item.vcpu || 1) });
       }
       
-      // Per OpenAPI spec: ALL fields are REQUIRED
-      // CRITICAL: Only use IDs that were loaded from the API - never invent IDs
-      if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
-        console.error(`[serializeProposal] ❌ Cannot serialize VM #${idx + 1}: missing required config IDs from API`);
-        throw new Error('Configuração de VM não carregada. Por favor, recarregue a página e tente novamente.');
+      // RAM (minimum 1)
+      if (ramConfigId) {
+        specs.push({ config_id: ramConfigId, value: Math.max(1, item.ramGb || 1) });
       }
       
-      serversArray.push({
-        config_id: vmConfigId,
-        name: `VM #${idx + 1}`,
-        vcpu_item_id: vcpuItemId,
-        vcpu: vcpuValue,
-        ram_item_id: ramItemId,
-        ram: ramValue,
-        storage_item_id: storageItemId,
-        storage: Math.max(0, Math.round((item.nvmeTb || 0) * 1024)),
-        quantity: qtyValue,
-        gpu: gpuObj,
-      });
+      // Storage (NVMe in GB)
+      if (storageConfigId) {
+        const storageGb = Math.round((item.nvmeTb || 0) * 1024);
+        specs.push({ config_id: storageConfigId, value: Math.max(0, storageGb) });
+      }
+      
+      // IP if configured
+      if (ipConfigId && item.ips > 0) {
+        specs.push({ config_id: ipConfigId, value: item.ips });
+      }
+      
+      // GPU as addon (if present)
+      if (item.gpu && item.gpu !== 'Sem GPU' && item.gpuQty > 0) {
+        const gpuConfigId = findConfigId(configStore, 'GPU', item.gpu);
+        if (gpuConfigId) {
+          addonsArray.push({
+            config_id: gpuConfigId,
+            quantity: item.gpuQty * Math.max(1, item.qtyServers || 1),
+            label: `GPU: ${item.gpu}`,
+          });
+          console.log(`[serializeProposal] Added VM GPU: ${item.gpu}, qty=${item.gpuQty}`);
+        }
+      }
+      
+      if (specs.length > 0) {
+        serversArray.push({
+          name: `VM #${idx + 1}`,
+          specs,
+          quantity: Math.max(1, item.qtyServers || 1),
+        });
+      }
+      
     } else if (item.type === 'bm') {
       // ============================================
-      // BAREMETAL: Serialized as individual ADDONS
-      // 
-      // Per OpenAPI spec, servers[] requires all item_ids from SAME config_id.
-      // BareMetal has separate configs: CPU (2), RAM (3), Disk (4).
-      // 
-      // SOLUTION: Send BareMetal components as addons:
-      // - 1 addon for CPU model (config_id=2)
-      // - 1 addon for RAM tier (config_id=3)
-      // - N addons for disks (config_id=4, one per disk type)
-      // 
-      // dados_proposta stores the complete BareMetal state for hydration.
+      // BAREMETAL: Serialized as addons per new OpenAPI spec
+      // Each component (CPU, RAM, Disk) is a separate addon
       // ============================================
       const bmCpuModel = item.bmCpu || 'intel_xeon_e2136';
       const bmRamTier = item.bmRam || 'ram_128gb';
       const bmDisks = Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }];
       const qtyServers = Math.max(1, item.qtyServers || 1);
       
-      // Get BareMetal config IDs
-      const bmCpuConfigId = configIdStore.baremetal?.cpu?.configId;
-      const bmRamConfigId = configIdStore.baremetal?.ram?.configId;
-      const bmDiskConfigId = configIdStore.baremetal?.disk?.configId;
-      
-      console.log('[serializeProposal] BareMetal configs:', {
-        cpuConfigId: bmCpuConfigId,
-        ramConfigId: bmRamConfigId,
-        diskConfigId: bmDiskConfigId,
-      });
-      
-      // Add CPU as addon
-      const cpuItemId = findItemId(configIdStore.baremetal?.cpu, bmCpuModel);
-      if (bmCpuConfigId && cpuItemId) {
-        addonsArray.push({
-          config_id: bmCpuConfigId,
-          item_id: cpuItemId,
-          quantity: qtyServers,
-          label: `BareMetal CPU: ${bmCpuModel}`,
-        });
-        console.log(`[serializeProposal] Added BareMetal CPU: ${bmCpuModel}, config_id=${bmCpuConfigId}, item_id=${cpuItemId}, qty=${qtyServers}`);
-      } else {
-        console.warn(`[serializeProposal] ⚠️ Could not find BareMetal CPU item_id for: ${bmCpuModel}`);
+      // CPU as addon
+      const cpuConfigId = findConfigId(configStore, 'BareMetal', bmCpuModel);
+      if (cpuConfigId) {
+        addonsArray.push({ config_id: cpuConfigId, quantity: qtyServers, label: `BM CPU: ${bmCpuModel}` });
       }
       
-      // Add RAM as addon
-      const ramBmItemId = findItemId(configIdStore.baremetal?.ram, bmRamTier);
-      if (bmRamConfigId && ramBmItemId) {
-        addonsArray.push({
-          config_id: bmRamConfigId,
-          item_id: ramBmItemId,
-          quantity: qtyServers,
-          label: `BareMetal RAM: ${bmRamTier}`,
-        });
-        console.log(`[serializeProposal] Added BareMetal RAM: ${bmRamTier}, config_id=${bmRamConfigId}, item_id=${ramBmItemId}, qty=${qtyServers}`);
-      } else {
-        console.warn(`[serializeProposal] ⚠️ Could not find BareMetal RAM item_id for: ${bmRamTier}`);
+      // RAM as addon
+      const ramBmConfigId = findConfigId(configStore, 'BareMetal', bmRamTier);
+      if (ramBmConfigId) {
+        addonsArray.push({ config_id: ramBmConfigId, quantity: qtyServers, label: `BM RAM: ${bmRamTier}` });
       }
       
-      // Add each disk as addon (aggregated by type)
+      // Disks as addons (aggregated by type)
       const disksByType = new Map<string, number>();
       for (const disk of bmDisks) {
         const diskType = disk.type || 'nvme_1tb';
@@ -1365,75 +1286,44 @@ export function serializeProposal(
       }
       
       for (const [diskType, totalQty] of disksByType) {
-        const diskItemId = findItemId(configIdStore.baremetal?.disk, diskType);
-        if (bmDiskConfigId && diskItemId) {
-          addonsArray.push({
-            config_id: bmDiskConfigId,
-            item_id: diskItemId,
-            quantity: totalQty,
-            label: `BareMetal Disk: ${diskType}`,
-          });
-          console.log(`[serializeProposal] Added BareMetal Disk: ${diskType}, config_id=${bmDiskConfigId}, item_id=${diskItemId}, qty=${totalQty}`);
-        } else {
-          console.warn(`[serializeProposal] ⚠️ Could not find BareMetal Disk item_id for: ${diskType}`);
+        const diskConfigId = findConfigId(configStore, 'BareMetal', diskType);
+        if (diskConfigId) {
+          addonsArray.push({ config_id: diskConfigId, quantity: totalQty, label: `BM Disk: ${diskType}` });
         }
       }
       
-      // Add GPU for BareMetal if present
-      if (hasGpu && gpuObj) {
-        const gpuConfigId = configIdStore.gpu?.configId;
-        const gpuItemId = findItemId(configIdStore.gpu, item.gpu);
-        if (gpuConfigId && gpuItemId) {
+      // GPU for BareMetal
+      if (item.gpu && item.gpu !== 'Sem GPU' && item.gpuQty > 0) {
+        const gpuConfigId = findConfigId(configStore, 'GPU', item.gpu);
+        if (gpuConfigId) {
           addonsArray.push({
             config_id: gpuConfigId,
-            item_id: gpuItemId,
             quantity: item.gpuQty * qtyServers,
-            label: `BareMetal GPU: ${item.gpu}`,
+            label: `BM GPU: ${item.gpu}`,
           });
-          console.log(`[serializeProposal] Added BareMetal GPU: ${item.gpu}, qty=${item.gpuQty * qtyServers}`);
         }
       }
       
-      console.log(`[SERIALIZE] BareMetal #${idx + 1} sent as addons: cpu=${bmCpuModel}, ram=${bmRamTier}, disks=${bmDisks.length} types, qty=${qtyServers}`);
-      
-      // Note: BareMetal is NOT added to serversArray - it's fully represented as addons
-      // The complete state is preserved in dados_proposta.items[] for hydration
+      console.log(`[serializeProposal] BareMetal #${idx + 1} serialized as addons`);
     }
   }
   
-  // Add virtual servers for storage/k8s/saas if no real servers
-  // Per OpenAPI: servers[] requires at least 1 item with all REQUIRED fields
-  if (serversArray.length === 0) {
-    // Create a single virtual server with all required fields filled
+  // Add virtual server if no real servers (for K8s, Storage, SaaS only proposals)
+  if (serversArray.length === 0 && vcpuConfigId && ramConfigId && storageConfigId) {
     const virtualPayload: Record<string, unknown> = {};
     
-    if (state.storageItems.length > 0) {
-      virtualPayload.storage = state.storageItems;
-    }
-    if (state.kubernetes.enabled) {
-      virtualPayload.kubernetes = state.kubernetes;
-    }
-    if (state.openSaas.enabled && state.openSaas.users > 0) {
-      virtualPayload.openSaas = state.openSaas;
-    }
-    
-    // Per OpenAPI spec: ALL fields including IDs are REQUIRED
-    // CRITICAL: Only use IDs that were loaded from the API - never invent IDs
-    if (!vmConfigId || !vcpuItemId || !ramItemId || !storageItemId) {
-      console.error('[serializeProposal] ❌ Cannot serialize virtual server: missing required config IDs from API');
-      throw new Error('Configuração de VM não carregada. Por favor, recarregue a página e tente novamente.');
-    }
+    if (state.storageItems.length > 0) virtualPayload.storage = state.storageItems;
+    if (state.kubernetes.enabled) virtualPayload.kubernetes = state.kubernetes;
+    if (state.openSaas.enabled && state.openSaas.users > 0) virtualPayload.openSaas = state.openSaas;
     
     serversArray.push({
-      config_id: vmConfigId,
       name: `__VIRTUAL__BUNDLE__:${JSON.stringify(virtualPayload)}`,
-      vcpu_item_id: vcpuItemId,
-      vcpu: 1, // Minimum per OpenAPI
-      ram_item_id: ramItemId,
-      ram: 1, // Minimum per OpenAPI
-      storage_item_id: storageItemId,
-      storage: 0,
-      quantity: 1, // Minimum per OpenAPI
+      specs: [
+        { config_id: vcpuConfigId, value: 1 },
+        { config_id: ramConfigId, value: 1 },
+        { config_id: storageConfigId, value: 0 },
+      ],
+      quantity: 1,
     });
   }
   
@@ -1444,7 +1334,7 @@ export function serializeProposal(
   // ============================================
   const dadosProposta = {
     proposalId: state.meta.proposalDisplayId,
-    fx: 1, // Fixed BRL
+    fx: 1,
     selectedTerm: state.selectedTerm,
     datacenter: state.datacenter,
     client: state.client,
@@ -1481,7 +1371,7 @@ export function serializeProposal(
     commission_value: state.reseller.enabled ? state.reseller.overValue : null,
     commission_reason: state.reseller.enabled ? state.reseller.overReason : null,
     observations: state.observacao || null,
-    fx: 1, // Fixed BRL
+    fx: 1,
     datacenter: datacenterNames[state.datacenter] || 'São Paulo',
     contract_duration: parseInt(state.selectedTerm, 10),
     discount_pct: discountPct,

@@ -47,9 +47,12 @@ export {
   serializeProposal,
   stateToLegacyFormat,
   validateSerializationConfig,
+  buildFlatConfigStore,
   type ApiProposalPayload,
   type ApiAddonPayload,
   type ApiServerPayload,
+  type ApiServerSpec,
+  type FlatConfigStore,
   type SerializationValidation,
 } from './proposalMappers';
 
