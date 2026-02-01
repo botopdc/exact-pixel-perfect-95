@@ -297,11 +297,11 @@ const SavedProposals: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const handleEdit = async (proposal: SavedProposal) => {
-    // Block editing for architects (level 690) - they can create but not edit
+    // Block editing for architects (level 690)
     if (isArchitect) {
       toast({ 
-        title: 'Edição bloqueada', 
-        description: 'Arquitetos podem criar propostas, mas não podem editar propostas existentes', 
+        title: 'Acesso restrito', 
+        description: 'Arquitetos não podem editar propostas', 
         variant: 'destructive' 
       });
       return;

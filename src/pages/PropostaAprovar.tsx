@@ -65,7 +65,7 @@ const PropostaAprovar: React.FC = () => {
   const [finalStatus, setFinalStatus] = useState<FinalStatus>(null);
   // Keep dialog state only for rejection confirmation
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'Aprovado' | 'Recusado' | null>(null); // FIXED: "Recusado" per API spec
+  const [pendingAction, setPendingAction] = useState<'Aprovado' | 'Reprovado' | null>(null);
   
   // Debug logging on mount
   useEffect(() => {
@@ -117,11 +117,10 @@ const PropostaAprovar: React.FC = () => {
       setProposal(data);
       
       // Check if already approved/rejected
-      // CRITICAL: API uses 'Recusado' NOT 'Reprovado' per OpenAPI spec
       const status = data.status?.toUpperCase();
       if (status === 'APROVADO' || status === 'APPROVED') {
         setFinalStatus('approved');
-      } else if (status === 'RECUSADO' || status === 'REJECTED') {
+      } else if (status === 'REPROVADO' || status === 'REJECTED') {
         setFinalStatus('rejected');
       }
     } catch (error: any) {
@@ -279,7 +278,7 @@ const PropostaAprovar: React.FC = () => {
    */
   const handleRejectWithConfirmation = () => {
     if (actionInProgressRef.current || finalStatus === 'rejected') return;
-    setPendingAction('Recusado'); // FIXED: "Recusado" per API spec
+    setPendingAction('Reprovado');
     setConfirmDialogOpen(true);
   };
   
@@ -315,13 +314,13 @@ const PropostaAprovar: React.FC = () => {
     try {
       console.log('[PropostaAprovar] POST define-acceptance (rejection):', {
         proposal_id: numericId,
-        status: 'Recusado', // FIXED: "Recusado" per API spec
+        status: 'Reprovado',
       });
       
       await defineAcceptance({
         proposal_id: numericId,
         approval_token: approvalToken,
-        status: 'Recusado', // FIXED: "Recusado" per API spec
+        status: 'Reprovado',
       });
       
       console.log('[PropostaAprovar] POST define-acceptance (rejection) SUCCESS');
@@ -536,7 +535,7 @@ const PropostaAprovar: React.FC = () => {
                   onClick={handleRejectWithConfirmation}
                   disabled={isSubmitting}
                 >
-                  {isSubmitting && pendingAction === 'Recusado' ? (
+                  {isSubmitting && pendingAction === 'Reprovado' ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Processando...

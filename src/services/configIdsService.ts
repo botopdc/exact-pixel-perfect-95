@@ -1,52 +1,92 @@
 /**
- * Config IDs Service - Nova estrutura FLAT (Janeiro 2026)
+ * Config IDs Service
  * 
- * BREAKING CHANGE: A estrutura de calculator_configs agora é PLANA
- * - Cada linha = um único item de preço
- * - Referência direta pelo ID (config_id)
- * - Sem hierarquia: cada item é independente
+ * Provides mapping between config items and their API IDs for proposal creation.
+ * Required since API v12+ where addons[] and servers[] require config_id + item_id.
  * 
- * Servidores usam specs[]:
- *   { config_id: 1, value: 16 }  // 16 vCPUs do config ID 1
- * 
- * Addons usam config_id + quantity:
- *   { config_id: 28, quantity: 2 }  // 2x do config ID 28
+ * Database IDs (from calculator_configs table):
+ * 1  - VM / Preços de VM
+ * 2  - BareMetal / Modelos de CPU
+ * 3  - BareMetal / Opções de RAM
+ * 4  - BareMetal / Opções de Disco
+ * 5  - GPU / Preços de GPU
+ * 6  - Add-ons / Add-ons
+ * 7  - SQL Server / SQL Server
+ * 8  - Storage / Storage SAS
+ * 9  - Storage / SSD NVMe
+ * 10 - Kubernetes / Preços Base dos Planos
+ * 11 - Kubernetes / Add-ons Kubernetes
+ * 12 - Geral / Taxa de Câmbio
+ * 13 - Geral / Descontos por Vigência
+ * 14 - Geral / OPEN SaaS
  */
 
-import { getCalculatorConfigs, CalculatorConfigItem } from './calculatorConfigService';
+import { getCalculatorConfigs, CalculatorConfigEntry, ConfigItem } from './calculatorConfigService';
+
+// ============================================================================
+// KNOWN CONFIG IDS (fallback when API doesn't return them)
+// These match the database IDs from calculator_configs table
+// ============================================================================
+
+const KNOWN_CONFIG_IDS = {
+  VM: 1,
+  BAREMETAL_CPU: 2,
+  BAREMETAL_RAM: 3,
+  BAREMETAL_DISK: 4,
+  GPU: 5,
+  ADDONS: 6,
+  SQL_SERVER: 7,
+  STORAGE_SAS: 8,
+  STORAGE_NVME: 9,
+  KUBERNETES_PLANS: 10,
+  KUBERNETES_ADDONS: 11,
+  GERAL_FX: 12,
+  GERAL_DESCONTO: 13,
+  GERAL_SAAS: 14,
+  BACKUP: 15, // Assuming backup is ID 15, adjust if needed
+  SPECIALIZED_SERVICES: 16, // Assuming specialized services
+} as const;
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 export interface ConfigIdMapping {
-  configId: number;       // ID direto do item na tabela
-  label: string;
-  value: number;
+  configId: number;       // ID of the calculator config entry (category/section)
   category: string;
-  section?: string;
-  by?: string;
-  type?: string;
-  // Full meta object for backup/storage range lookups (min, max, retention, etc.)
-  min?: number;
-  max?: number;
-  retention?: string;
-  region?: string;
+  section: string;
+  items: Record<string, number>; // Map of item label (normalized) -> item_id
 }
 
 export interface ConfigIdStore {
-  // All configs indexed by ID for quick lookup
-  byId: Map<number, ConfigIdMapping>;
-  
-  // Configs grouped by category for UI display
-  byCategory: Map<string, ConfigIdMapping[]>;
-  
-  // Quick lookup by normalized label within category
-  byLabelInCategory: Map<string, Map<string, ConfigIdMapping>>;
-  
-  // Raw items from API
-  items: CalculatorConfigItem[];
+  vm: ConfigIdMapping | null;
+  gpu: ConfigIdMapping | null;
+  addons: ConfigIdMapping | null;
+  sqlServer: ConfigIdMapping | null;
+  backup: ConfigIdMapping | null;
+  storage: {
+    sas: ConfigIdMapping | null;
+    nvme: ConfigIdMapping | null;
+  };
+  kubernetes: {
+    plans: ConfigIdMapping | null;
+    addons: ConfigIdMapping | null;
+  };
+  baremetal: {
+    cpu: ConfigIdMapping | null;
+    ram: ConfigIdMapping | null;
+    disk: ConfigIdMapping | null;
+  };
+  specializedServices: ConfigIdMapping | null;
 }
+
+// ============================================================================
+// SINGLETON CACHE
+// ============================================================================
+
+let cachedStore: ConfigIdStore | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ============================================================================
 // HELPERS
@@ -64,550 +104,228 @@ function normalizeLabel(label: string): string {
     .trim();
 }
 
+/**
+ * Build item ID map from config entry
+ */
+function buildItemMap(entry: CalculatorConfigEntry): ConfigIdMapping {
+  const items: Record<string, number> = {};
+  
+  if (Array.isArray(entry.config)) {
+    for (const item of entry.config) {
+      if (item.id && item.label) {
+        // Store with normalized label
+        items[normalizeLabel(item.label)] = item.id;
+        // Also store with original label for exact matches
+        items[item.label] = item.id;
+      }
+    }
+  }
+  
+  return {
+    configId: entry.id,
+    category: entry.category,
+    section: entry.section,
+    items,
+  };
+}
+
+/**
+ * Find config entry by category and section (case-insensitive)
+ */
+function findEntry(entries: CalculatorConfigEntry[], category: string, section: string): CalculatorConfigEntry | undefined {
+  const catLower = category.toLowerCase().trim();
+  const secLower = section.toLowerCase().trim();
+  return entries.find(e => 
+    e.category.toLowerCase().trim() === catLower && 
+    e.section.toLowerCase().trim() === secLower
+  );
+}
+
+/**
+ * Create a fallback mapping with known config ID but empty items
+ * The items will be populated by the actual API response, but at least config_id will be valid
+ */
+function createFallbackMapping(configId: number, category: string, section: string): ConfigIdMapping {
+  return {
+    configId,
+    category,
+    section,
+    items: {},
+  };
+}
+
 // ============================================================================
 // MAIN FUNCTIONS
 // ============================================================================
 
 /**
- * Load config ID mappings from API - NO CACHE
- * Always fetches fresh data from the API.
+ * Load config ID mappings from API
+ * Falls back to known config IDs if API fails
  */
 export async function loadConfigIds(): Promise<ConfigIdStore> {
-  console.log('[configIdsService] Loading config IDs from API (flat structure)...');
+  // Check cache
+  if (cachedStore && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+    console.log('[configIdsService] Returning cached config IDs');
+    return cachedStore;
+  }
   
+  console.log('[configIdsService] Loading config IDs from API...');
+  
+  // Initialize store with fallback values
   const store: ConfigIdStore = {
-    byId: new Map(),
-    byCategory: new Map(),
-    byLabelInCategory: new Map(),
-    items: [],
+    vm: createFallbackMapping(KNOWN_CONFIG_IDS.VM, 'VM', 'Preços de VM'),
+    gpu: createFallbackMapping(KNOWN_CONFIG_IDS.GPU, 'GPU', 'Preços de GPU'),
+    addons: createFallbackMapping(KNOWN_CONFIG_IDS.ADDONS, 'Add-ons', 'Add-ons'),
+    sqlServer: createFallbackMapping(KNOWN_CONFIG_IDS.SQL_SERVER, 'SQL Server', 'SQL Server'),
+    backup: createFallbackMapping(KNOWN_CONFIG_IDS.BACKUP, 'Backup', 'Tabela de Preços'),
+    storage: {
+      sas: createFallbackMapping(KNOWN_CONFIG_IDS.STORAGE_SAS, 'Storage', 'Storage SAS'),
+      nvme: createFallbackMapping(KNOWN_CONFIG_IDS.STORAGE_NVME, 'Storage', 'SSD NVMe'),
+    },
+    kubernetes: {
+      plans: createFallbackMapping(KNOWN_CONFIG_IDS.KUBERNETES_PLANS, 'Kubernetes', 'Preços Base dos Planos'),
+      addons: createFallbackMapping(KNOWN_CONFIG_IDS.KUBERNETES_ADDONS, 'Kubernetes', 'Add-ons Kubernetes'),
+    },
+    baremetal: {
+      cpu: createFallbackMapping(KNOWN_CONFIG_IDS.BAREMETAL_CPU, 'BareMetal', 'Modelos de CPU'),
+      ram: createFallbackMapping(KNOWN_CONFIG_IDS.BAREMETAL_RAM, 'BareMetal', 'Opções de RAM'),
+      disk: createFallbackMapping(KNOWN_CONFIG_IDS.BAREMETAL_DISK, 'BareMetal', 'Opções de Disco'),
+    },
+    specializedServices: createFallbackMapping(KNOWN_CONFIG_IDS.ADDONS, 'Add-ons', 'Add-ons'), // Usually same as addons
   };
   
   try {
-    const items = await getCalculatorConfigs();
-    console.log('[configIdsService] Loaded', items.length, 'config items from API');
+    const entries = await getCalculatorConfigs();
+    console.log('[configIdsService] Loaded', entries.length, 'config entries from API');
     
-    store.items = items;
+    // Debug: log all entries
+    entries.forEach(e => {
+      const itemCount = Array.isArray(e.config) ? e.config.length : 0;
+      const itemsWithIds = Array.isArray(e.config) ? e.config.filter((i: ConfigItem) => i.id).length : 0;
+      console.log(`[configIdsService] Entry ${e.id}: ${e.category}/${e.section} (${itemsWithIds}/${itemCount} items with IDs)`);
+    });
     
-    for (const item of items) {
-      const category = item.meta?.category || 'Unknown';
-      const section = item.meta?.section;
-      const by = item.meta?.by;
-      const type = item.meta?.type;
-      
-      const mapping: ConfigIdMapping = {
-        configId: item.id,
-        label: item.label,
-        value: item.value,
-        category,
-        section,
-        by,
-        type,
-        // Extract range values from meta for backup/storage lookups
-        min: item.meta?.min,
-        max: item.meta?.max,
-        retention: item.meta?.retention,
-        region: item.meta?.region,
-      };
-      
-      // Index by ID
-      store.byId.set(item.id, mapping);
-      
-      // Group by category
-      if (!store.byCategory.has(category)) {
-        store.byCategory.set(category, []);
-      }
-      store.byCategory.get(category)!.push(mapping);
-      
-      // Index by label within category for quick lookup
-      if (!store.byLabelInCategory.has(category)) {
-        store.byLabelInCategory.set(category, new Map());
-      }
-      const categoryMap = store.byLabelInCategory.get(category)!;
-      
-      // Store with normalized label
-      categoryMap.set(normalizeLabel(item.label), mapping);
-      // Also store with original label
-      categoryMap.set(item.label, mapping);
+    // VM
+    const vmEntry = findEntry(entries, 'VM', 'Preços de VM');
+    if (vmEntry) {
+      store.vm = buildItemMap(vmEntry);
+      console.log('[configIdsService] VM config loaded:', store.vm.configId, 'with', Object.keys(store.vm.items).length, 'items');
     }
     
-    // Log category summary
-    const categorySummary: Record<string, number> = {};
-    store.byCategory.forEach((items, category) => {
-      categorySummary[category] = items.length;
-    });
-    console.log('[configIdsService] Config items by category:', categorySummary);
+    // GPU
+    const gpuEntry = findEntry(entries, 'GPU', 'Preços de GPU');
+    if (gpuEntry) store.gpu = buildItemMap(gpuEntry);
+    
+    // Add-ons
+    const addonsEntry = findEntry(entries, 'Add-ons', 'Add-ons');
+    if (addonsEntry) {
+      store.addons = buildItemMap(addonsEntry);
+      console.log('[configIdsService] Add-ons config loaded:', store.addons.configId, 'with', Object.keys(store.addons.items).length, 'items');
+      console.log('[configIdsService] Add-on items:', Object.keys(store.addons.items));
+    }
+    
+    // SQL Server
+    const sqlEntry = findEntry(entries, 'SQL Server', 'SQL Server');
+    if (sqlEntry) store.sqlServer = buildItemMap(sqlEntry);
+    
+    // Backup
+    const backupEntry = findEntry(entries, 'Backup', 'Tabela de Preços');
+    if (backupEntry) store.backup = buildItemMap(backupEntry);
+    
+    // Storage
+    const sasSasEntry = findEntry(entries, 'Storage', 'Storage SAS');
+    if (sasSasEntry) store.storage.sas = buildItemMap(sasSasEntry);
+    
+    const nvmeEntry = findEntry(entries, 'Storage', 'SSD NVMe');
+    if (nvmeEntry) store.storage.nvme = buildItemMap(nvmeEntry);
+    
+    // Kubernetes
+    const k8sPlansEntry = findEntry(entries, 'Kubernetes', 'Preços Base dos Planos');
+    if (k8sPlansEntry) store.kubernetes.plans = buildItemMap(k8sPlansEntry);
+    
+    const k8sAddonsEntry = findEntry(entries, 'Kubernetes', 'Add-ons Kubernetes');
+    if (k8sAddonsEntry) store.kubernetes.addons = buildItemMap(k8sAddonsEntry);
+    
+    // BareMetal
+    const bmCpuEntry = findEntry(entries, 'BareMetal', 'Modelos de CPU');
+    if (bmCpuEntry) store.baremetal.cpu = buildItemMap(bmCpuEntry);
+    
+    const bmRamEntry = findEntry(entries, 'BareMetal', 'Opções de RAM');
+    if (bmRamEntry) store.baremetal.ram = buildItemMap(bmRamEntry);
+    
+    const bmDiskEntry = findEntry(entries, 'BareMetal', 'Opções de Disco');
+    if (bmDiskEntry) store.baremetal.disk = buildItemMap(bmDiskEntry);
+    
+    // Specialized Services (often same as addons or in a dedicated section)
+    const specializedEntry = findEntry(entries, 'Serviços Especializados', 'Serviços Especializados');
+    if (specializedEntry) {
+      store.specializedServices = buildItemMap(specializedEntry);
+    } else {
+      // Fallback: specialized services are in Add-ons
+      store.specializedServices = store.addons;
+    }
     
   } catch (error) {
-    console.error('[configIdsService] Failed to load config IDs from API:', error);
-    throw error;
+    console.warn('[configIdsService] Failed to load from API, using fallback IDs:', error);
   }
+  
+  // Cache
+  cachedStore = store;
+  cacheTimestamp = Date.now();
+  
+  console.log('[configIdsService] Config IDs ready:', {
+    vm: store.vm?.configId,
+    gpu: store.gpu?.configId,
+    addons: store.addons?.configId,
+    vmItemsCount: store.vm ? Object.keys(store.vm.items).length : 0,
+    addonItemsCount: store.addons ? Object.keys(store.addons.items).length : 0,
+  });
   
   return store;
 }
 
 /**
- * Get config by ID
+ * Get cached store (will load if not available)
  */
-export function getConfigById(
-  store: ConfigIdStore,
-  id: number
-): ConfigIdMapping | undefined {
-  return store.byId.get(id);
+export function getConfigIdStore(): ConfigIdStore | null {
+  return cachedStore;
 }
 
 /**
- * Get all configs for a category
+ * Clear cached store
  */
-export function getConfigsByCategory(
-  store: ConfigIdStore,
-  category: string
-): ConfigIdMapping[] {
-  return store.byCategory.get(category) || [];
+export function clearConfigIdCache(): void {
+  cachedStore = null;
+  cacheTimestamp = 0;
 }
 
 /**
- * Find config by label in a category (with fuzzy matching)
+ * Get item ID from a mapping by label (with fuzzy matching)
  */
-export function findConfigByLabel(
-  store: ConfigIdStore,
-  category: string,
+export function getItemId(
+  mapping: ConfigIdMapping | null,
   label: string
-): ConfigIdMapping | undefined {
-  const categoryMap = store.byLabelInCategory.get(category);
-  if (!categoryMap) return undefined;
+): number | undefined {
+  if (!mapping) return undefined;
   
   // Try exact match first
-  if (categoryMap.has(label)) return categoryMap.get(label);
+  if (mapping.items[label] !== undefined) return mapping.items[label];
   
   // Try normalized match
   const normalized = normalizeLabel(label);
-  if (categoryMap.has(normalized)) return categoryMap.get(normalized);
+  if (mapping.items[normalized] !== undefined) return mapping.items[normalized];
   
-  // Try partial match - check if API label contains search OR vice versa
-  for (const [key, mapping] of categoryMap) {
-    const keyNormalized = normalizeLabel(key);
-    
-    // Exact normalized match
-    if (keyNormalized === normalized) return mapping;
-    
-    // Partial match (bidirectional)
-    if (keyNormalized.includes(normalized) || normalized.includes(keyNormalized)) {
-      return mapping;
-    }
+  // Try partial match (for labels like "vCPU" matching "vcpu")
+  for (const [key, id] of Object.entries(mapping.items)) {
+    if (normalizeLabel(key) === normalized) return id;
   }
   
   return undefined;
 }
 
 /**
- * Find config by multiple possible labels (first match wins)
- * Also tries a global fallback across all categories if not found in specified category
- */
-export function findConfigByLabels(
-  store: ConfigIdStore,
-  category: string,
-  ...labels: string[]
-): ConfigIdMapping | undefined {
-  // First try in the specified category
-  for (const label of labels) {
-    const found = findConfigByLabel(store, category, label);
-    if (found) return found;
-  }
-  
-  // Fallback: search ALL categories for any matching label
-  for (const label of labels) {
-    const normalized = normalizeLabel(label);
-    for (const [cat, configs] of store.byCategory) {
-      for (const config of configs) {
-        const configNormalized = normalizeLabel(config.label);
-        if (configNormalized === normalized || 
-            configNormalized.includes(normalized) || 
-            normalized.includes(configNormalized)) {
-          return config;
-        }
-      }
-    }
-  }
-  
-  return undefined;
-}
-
-// ============================================================================
-// SPECIALIZED LOOKUP FUNCTIONS (for backward compatibility)
-// ============================================================================
-
-/**
- * Get VM component config IDs
- */
-export function getVmConfigIds(store: ConfigIdStore): {
-  vcpu?: ConfigIdMapping;
-  ram?: ConfigIdMapping;
-  storage?: ConfigIdMapping;
-  ip?: ConfigIdMapping;
-} {
-  return {
-    vcpu: findConfigByLabels(store, 'VM', 'vCPU', 'vcpu', 'CPU'),
-    ram: findConfigByLabels(store, 'VM', 'RAM', 'ram', 'Memória'),
-    storage: findConfigByLabels(store, 'VM', 'NVMe', 'nvme', 'Storage', 'Disco', 'SSD'),
-    ip: findConfigByLabels(store, 'VM', 'IP Público', 'IP', 'ip'),
-  };
-}
-
-/**
- * Get addon config by code
- * NOTE: Some addons are in 'Serviços Especializados' category/section (Support, Consulting, DBA)
- */
-export function getAddonConfig(
-  store: ConfigIdStore,
-  code: string
-): ConfigIdMapping | undefined {
-  // Comprehensive mapping of code → possible labels in API
-  // CRITICAL: These labels must match EXACTLY what the API returns
-  const codeToLabels: Record<string, string[]> = {
-    // Standard Add-ons
-    'antivirus': ['Antivírus', 'Antivirus', 'Antivírus (unid.)', 'Antivirus (unid.)'],
-    'firewall': ['Firewall pfSense', 'Firewall', 'Firewall (qtd)', 'pfSense'],
-    'tsplus': ['TSplus', 'TS Plus', 'TSPlus', 'TSplus (unid.)'],
-    'cal': ['CAL', 'CAL / TS-CAL', 'TS-CAL', 'CAL (unid.)'],
-    'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)', 'Veeam (VM)', 'Veeam VM (unid.)'],
-    'veeam_agent': ['Veeam Agent', 'Veeam Agent (Workstation)', 'Veeam (Agent)', 'Veeam Agent (unid.)'],
-    // Windows Server - multiple possible labels
-    'winserver': ['WinServer(2vCPU/unid.)', 'WinServer 2vCPU/unid.', 'Windows Server', 'WinServer', 'WinServer (2vCPU)', 'Win Server'],
-    'winserver_2vcpu_unit': ['WinServer(2vCPU/unid.)', 'WinServer 2vCPU/unid.', 'Windows Server', 'WinServer', 'WinServer (2vCPU)'],
-    // Serviços Especializados - Support
-    'support_basic': ['Suporte Básico', 'Suporte Basico', 'Suporte (Básico)', 'Suporte (Basico)', 'Support Basic'],
-    'support_intermediate': ['Suporte Intermediário', 'Suporte Intermediario', 'Suporte (Intermediário)', 'Suporte (Intermediario)', 'Support Intermediate'],
-    'support_advanced': ['Suporte Avançado', 'Suporte Avancado', 'Suporte (Avançado)', 'Suporte (Avancado)', 'Support Advanced'],
-    // Serviços Especializados - Consulting & DBA
-    'consulting': ['Consultoria Técnica (horas)', 'Consultoria Técnica', 'Consultoria Tecnica (horas)', 'Consultoria Tecnica', 'Consultoria', 'Horas de Consultoria', 'Consulting'],
-    'consulting_hours': ['Consultoria Técnica (horas)', 'Consultoria Técnica', 'Consultoria Tecnica (horas)', 'Consultoria Tecnica', 'Consultoria', 'Horas de Consultoria'],
-    'dba': ['DBA (horas)', 'DBA', 'Horas de DBA', 'DBA Remoto', 'DBA as a Service'],
-    'dba_hours': ['DBA (horas)', 'DBA', 'Horas de DBA', 'DBA Remoto'],
-    // Independent products
-    'storage': ['Storage', 'Storage SAS', 'Storage NVMe', 'Bucket S3'],
-    'kubernetes': ['Kubernetes', 'K8s', 'Container'],
-    'open_saas': ['OPEN SaaS', 'Open SaaS', 'SaaS', 'OpenSaaS'],
-  };
-  
-  // Items that should be searched in Serviços Especializados first
-  const servicosEspecializadosCodes = ['support_basic', 'support_intermediate', 'support_advanced', 'consulting', 'consulting_hours', 'dba', 'dba_hours'];
-  
-  const labels = codeToLabels[code] || [code];
-  
-  // Try Serviços Especializados first for specialized services
-  if (servicosEspecializadosCodes.includes(code)) {
-    // Try as category "Serviços Especializados"
-    let result = findConfigByLabels(store, 'Serviços Especializados', ...labels);
-    if (result) {
-      console.log(`[configIdsService] Found ${code} in 'Serviços Especializados':`, result.configId, result.label);
-      return result;
-    }
-    
-    // Try in Add-ons category but with section "Serviços Especializados"
-    // (some configs have category=Add-ons, section=Serviços Especializados)
-    const allConfigs = getConfigsByCategory(store, 'Add-ons');
-    for (const config of allConfigs) {
-      if (config.section && config.section.toLowerCase().includes('especializado')) {
-        const normalizedLabel = config.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        for (const label of labels) {
-          const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          if (normalizedLabel === normalizedSearch || normalizedLabel.includes(normalizedSearch) || normalizedSearch.includes(normalizedLabel)) {
-            console.log(`[configIdsService] Found ${code} in Add-ons/Serviços Especializados:`, config.configId, config.label);
-            return config;
-          }
-        }
-      }
-    }
-    
-    // Also try Geral category
-    result = findConfigByLabels(store, 'Geral', ...labels);
-    if (result) {
-      console.log(`[configIdsService] Found ${code} in 'Geral':`, result.configId, result.label);
-      return result;
-    }
-  }
-  
-  // Try Add-ons category
-  let result = findConfigByLabels(store, 'Add-ons', ...labels);
-  if (result) {
-    console.log(`[configIdsService] Found ${code} in 'Add-ons':`, result.configId, result.label);
-    return result;
-  }
-  
-  // Fallback: search ALL categories for the labels (global search)
-  for (const [category, configs] of store.byCategory) {
-    for (const config of configs) {
-      const normalizedConfigLabel = config.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      for (const label of labels) {
-        const normalizedSearch = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        if (normalizedConfigLabel === normalizedSearch || normalizedConfigLabel.includes(normalizedSearch) || normalizedSearch.includes(normalizedConfigLabel)) {
-          console.log(`[configIdsService] Found ${code} via global search in '${category}':`, config.configId, config.label);
-          return config;
-        }
-      }
-    }
-  }
-  
-  console.warn(`[configIdsService] Addon NOT FOUND: ${code}, searched labels:`, labels);
-  return undefined;
-}
-
-/**
- * Get SQL config by edition
- */
-export function getSqlConfig(
-  store: ConfigIdStore,
-  edition: string
-): ConfigIdMapping | undefined {
-  const editionUpper = edition.toUpperCase();
-  const labels = [
-    edition,
-    `${editionUpper} (2vCPU)`,
-    `${editionUpper} (8vCPU)`,
-    `SQL ${editionUpper}`,
-    `WEB (2vCPU)`,
-    `STD (8vCPU)`,
-  ];
-  return findConfigByLabels(store, 'SQL Server', ...labels);
-}
-
-/**
- * Get backup config by RETENTION (7, 15, 30 dias) AND VOLUME (GB)
- * The API has items with meta.retention ("7 dias", "15 dias", "30 dias") 
- * AND meta.min/max for volume ranges
- */
-export function getBackupConfigByRetentionAndVolume(
-  store: ConfigIdStore,
-  retentionDays: string | number,
-  volumeGb: number
-): ConfigIdMapping | undefined {
-  // Normalize retention to match API format: "7 dias", "15 dias", "30 dias"
-  const retentionStr = typeof retentionDays === 'number' 
-    ? `${retentionDays} dias` 
-    : retentionDays.includes('dias') 
-      ? retentionDays 
-      : `${retentionDays} dias`;
-  
-  console.log(`[getBackupConfig] Searching for backup: retention="${retentionStr}", volume=${volumeGb} GB`);
-  
-  // Get all items from Backup category
-  const backupItems = store.byCategory.get('Backup') || [];
-  
-  console.log(`[getBackupConfig] Available Backup items:`, 
-    backupItems.map(c => ({ 
-      id: c.configId, 
-      label: c.label, 
-      retention: c.retention,
-      min: c.min,
-      max: c.max 
-    }))
-  );
-  
-  if (backupItems.length === 0) {
-    console.warn(`[getBackupConfig] ❌ No items in Backup category`);
-    return undefined;
-  }
-  
-  // Filter by matching retention first
-  const matchingRetention = backupItems.filter(item => {
-    if (!item.retention) return false;
-    const itemRetention = item.retention.toLowerCase().replace(/\s+/g, '');
-    const searchRetention = retentionStr.toLowerCase().replace(/\s+/g, '');
-    return itemRetention === searchRetention;
-  });
-  
-  console.log(`[getBackupConfig] Items matching retention "${retentionStr}":`, 
-    matchingRetention.map(c => ({ id: c.configId, label: c.label, min: c.min, max: c.max }))
-  );
-  
-  if (matchingRetention.length === 0) {
-    console.warn(`[getBackupConfig] ❌ No items found for retention: ${retentionStr}`);
-    // Fallback: return any backup item in the volume range (ignore retention)
-    return getBackupConfigByVolume(store, volumeGb);
-  }
-  
-  // Find the item where volume falls within min-max range
-  for (const config of matchingRetention) {
-    const minGb = config.min ?? 0;
-    const maxGb = config.max ?? Infinity;
-    
-    if (volumeGb >= minGb && volumeGb <= maxGb) {
-      console.log(`[getBackupConfig] ✓ Found Backup for ${retentionStr}, ${volumeGb}GB in range ${minGb}-${maxGb}:`, 
-        config.configId, config.label);
-      return config;
-    }
-  }
-  
-  // If no exact range match, find the highest range for this retention
-  let bestMatch: ConfigIdMapping | undefined;
-  let highestMax = 0;
-  let lowestMin = Infinity;
-  
-  for (const config of matchingRetention) {
-    const maxGb = config.max ?? 0;
-    const minGb = config.min ?? 0;
-    
-    if (volumeGb > maxGb && maxGb > highestMax) {
-      highestMax = maxGb;
-      bestMatch = config;
-    }
-    if (minGb < lowestMin) {
-      lowestMin = minGb;
-      if (!bestMatch) bestMatch = config;
-    }
-  }
-  
-  if (bestMatch) {
-    console.log(`[getBackupConfig] ✓ Using best match for ${retentionStr}, ${volumeGb}GB:`, 
-      bestMatch.configId, bestMatch.label);
-    return bestMatch;
-  }
-  
-  console.warn(`[getBackupConfig] ❌ Backup NOT FOUND for retention=${retentionStr}, volume=${volumeGb}GB`);
-  return undefined;
-}
-
-/**
- * Get backup config by VOLUME only (fallback when retention is not specified)
- * Uses meta.min/max to find the correct volume range
- */
-export function getBackupConfigByVolume(
-  store: ConfigIdStore,
-  volumeGb: number
-): ConfigIdMapping | undefined {
-  console.log(`[getBackupConfigByVolume] Searching for backup volume: ${volumeGb} GB (any retention)`);
-  
-  const backupItems = store.byCategory.get('Backup') || [];
-  
-  if (backupItems.length === 0) {
-    console.warn(`[getBackupConfigByVolume] ❌ No items in Backup category`);
-    return undefined;
-  }
-  
-  // Find first item where volume falls within min-max range
-  for (const config of backupItems) {
-    const minGb = config.min ?? 0;
-    const maxGb = config.max ?? Infinity;
-    
-    if (volumeGb >= minGb && volumeGb <= maxGb) {
-      console.log(`[getBackupConfigByVolume] ✓ Found Backup for ${volumeGb}GB in range ${minGb}-${maxGb}:`, 
-        config.configId, config.label, `(retention: ${config.retention})`);
-      return config;
-    }
-  }
-  
-  // Find smallest range as fallback
-  let smallestRange: ConfigIdMapping | undefined;
-  let smallestMin = Infinity;
-  
-  for (const config of backupItems) {
-    const minGb = config.min ?? Infinity;
-    if (minGb < smallestMin) {
-      smallestMin = minGb;
-      smallestRange = config;
-    }
-  }
-  
-  if (smallestRange) {
-    console.log(`[getBackupConfigByVolume] ✓ Using smallest range for ${volumeGb}GB:`, 
-      smallestRange.configId, smallestRange.label);
-    return smallestRange;
-  }
-  
-  console.warn(`[getBackupConfigByVolume] ❌ Backup NOT FOUND for volume: ${volumeGb}GB`);
-  return undefined;
-}
-
-/**
- * @deprecated Use getBackupConfigByVolume instead
- * Get backup config by retention plan (7, 15, 30 days) - LEGACY
- */
-export function getBackupConfig(
-  store: ConfigIdStore,
-  plan: string
-): ConfigIdMapping | undefined {
-  console.log(`[getBackupConfig] LEGACY: Searching for backup plan: "${plan}" - redirecting to volume-based search`);
-  // This function is deprecated - backup is now volume-based
-  // Return undefined to force using getBackupConfigByVolume
-  return undefined;
-}
-
-/**
- * Get GPU config by model
- */
-export function getGpuConfig(
-  store: ConfigIdStore,
-  model: string
-): ConfigIdMapping | undefined {
-  return findConfigByLabel(store, 'GPU', model);
-}
-
-/**
- * Get BareMetal CPU config
- */
-export function getBaremetalCpuConfig(
-  store: ConfigIdStore,
-  cpuModel: string
-): ConfigIdMapping | undefined {
-  return findConfigByLabel(store, 'BareMetal', cpuModel);
-}
-
-/**
- * Get BareMetal RAM config
- */
-export function getBaremetalRamConfig(
-  store: ConfigIdStore,
-  ramTier: string
-): ConfigIdMapping | undefined {
-  return findConfigByLabel(store, 'BareMetal', ramTier);
-}
-
-/**
- * Get BareMetal Disk config
- */
-export function getBaremetalDiskConfig(
-  store: ConfigIdStore,
-  diskType: string
-): ConfigIdMapping | undefined {
-  return findConfigByLabel(store, 'BareMetal', diskType);
-}
-
-/**
- * Get Kubernetes plan config
- */
-export function getKubernetesPlanConfig(
-  store: ConfigIdStore,
-  plan: string
-): ConfigIdMapping | undefined {
-  return findConfigByLabel(store, 'Kubernetes', plan);
-}
-
-/**
- * Get Storage config by type
- */
-export function getStorageConfig(
-  store: ConfigIdStore,
-  storageType: string
-): ConfigIdMapping | undefined {
-  return findConfigByLabel(store, 'Storage', storageType);
-}
-
-// ============================================================================
-// LEGACY COMPATIBILITY - Will be removed in future versions
-// ============================================================================
-
-/**
- * @deprecated Use findConfigByLabel instead
- */
-export function getItemId(
-  mapping: ConfigIdMapping | null | undefined,
-  _label: string
-): number | undefined {
-  return mapping?.configId;
-}
-
-/**
- * @deprecated Use getVmConfigIds instead
+ * Get VM component IDs for server payload
+ * Returns the config_id and item_ids for vCPU, RAM, and Storage
  */
 export function getVmItemIds(store: ConfigIdStore): {
   configId: number | undefined;
@@ -616,96 +334,175 @@ export function getVmItemIds(store: ConfigIdStore): {
   storageItemId: number | undefined;
   ipItemId: number | undefined;
 } {
-  const vmConfigs = getVmConfigIds(store);
-  return {
-    configId: vmConfigs.vcpu?.configId,  // Use vCPU as "config" for legacy compatibility
-    vcpuItemId: vmConfigs.vcpu?.configId,
-    ramItemId: vmConfigs.ram?.configId,
-    storageItemId: vmConfigs.storage?.configId,
-    ipItemId: vmConfigs.ip?.configId,
+  const vmMapping = store.vm;
+  
+  const result = {
+    configId: vmMapping?.configId,
+    vcpuItemId: getItemId(vmMapping, 'vCPU') ?? getItemId(vmMapping, 'vcpu'),
+    ramItemId: getItemId(vmMapping, 'RAM') ?? getItemId(vmMapping, 'ram'),
+    storageItemId: getItemId(vmMapping, 'NVMe') ?? getItemId(vmMapping, 'nvme') ?? getItemId(vmMapping, 'storage'),
+    ipItemId: getItemId(vmMapping, 'IP Público') ?? getItemId(vmMapping, 'ip_publico'),
   };
+  
+  console.log('[configIdsService] getVmItemIds:', result);
+  return result;
 }
 
 /**
- * @deprecated Use getAddonConfig instead
+ * Get addon item ID by code
+ * Maps common addon codes to their item IDs
  */
 export function getAddonItemId(
   store: ConfigIdStore,
   code: string
 ): { configId: number | undefined; itemId: number | undefined } {
-  const config = getAddonConfig(store, code);
-  return {
-    configId: config?.configId,
-    itemId: config?.configId,  // In flat structure, configId IS the itemId
+  const addonsMapping = store.addons;
+  const specializedMapping = store.specializedServices;
+  
+  // Code to label mapping - add variations for better matching
+  const codeToLabel: Record<string, string[]> = {
+    'antivirus': ['Antivírus', 'Antivirus', 'antivirus'],
+    'firewall': ['Firewall pfSense', 'Firewall (qtd)', 'firewall', 'Firewall'],
+    'tsplus': ['TSplus', 'TS Plus', 'tsplus', 'TS PLUS'],
+    'cal': ['CAL', 'cal', 'CAL / TS-CAL'],
+    'veeam_vm': ['Veeam VM', 'veeam_vm', 'Veeam Backup (VM)'],
+    'veeam_agent': ['Veeam Agent', 'veeam_agent', 'Veeam Agent (Workstation)'],
+    'winserver_2vcpu_unit': ['WinServer(2vCPU/unid.)', 'Windows Server', 'winserver', 'WinServer 2vCPU'],
+    'support_basic': ['Suporte Básico', 'support_basic'],
+    'support_intermediate': ['Suporte Intermediário', 'support_intermediate'],
+    'support_advanced': ['Suporte Avançado', 'support_advanced'],
+    'consulting_hours': ['Consultoria Técnica', 'consulting_hours', 'Consultoria'],
+    'dba_hours': ['DBA', 'dba_hours'],
+    // Independent products
+    'storage': ['Storage', 'storage'],
+    'kubernetes': ['Kubernetes', 'kubernetes', 'K8s'],
+    'open_saas': ['OPEN SaaS', 'open_saas', 'OpenSaaS'],
   };
+  
+  const possibleLabels = codeToLabel[code] || [code];
+  
+  // Try addons mapping first
+  for (const label of possibleLabels) {
+    const itemId = getItemId(addonsMapping, label);
+    if (itemId !== undefined) {
+      return { configId: addonsMapping?.configId, itemId };
+    }
+  }
+  
+  // Try specialized services mapping
+  for (const label of possibleLabels) {
+    const itemId = getItemId(specializedMapping, label);
+    if (itemId !== undefined) {
+      return { configId: specializedMapping?.configId, itemId };
+    }
+  }
+  
+  // Fallback: return config_id without item_id
+  // API will fail but at least we have something
+  console.warn('[configIdsService] Could not find item_id for addon code:', code);
+  return { configId: addonsMapping?.configId, itemId: undefined };
 }
 
 /**
- * @deprecated Use getBackupConfig instead
+ * Get backup item ID by plan
  */
 export function getBackupItemId(
   store: ConfigIdStore,
   plan: string
 ): { configId: number | undefined; itemId: number | undefined } {
-  const config = getBackupConfig(store, plan);
-  return {
-    configId: config?.configId,
-    itemId: config?.configId,
-  };
+  const backupMapping = store.backup;
+  
+  // Try variations
+  const labels = [
+    `${plan} dias`,
+    `backup_${plan}`,
+    plan,
+    `Backup ${plan} dias`,
+  ];
+  
+  for (const label of labels) {
+    const itemId = getItemId(backupMapping, label);
+    if (itemId !== undefined) {
+      return { configId: backupMapping?.configId, itemId };
+    }
+  }
+  
+  return { configId: backupMapping?.configId, itemId: undefined };
 }
 
 /**
- * @deprecated Use getSqlConfig instead
+ * Get SQL Server item ID by edition
  */
 export function getSqlItemId(
   store: ConfigIdStore,
   edition: string
 ): { configId: number | undefined; itemId: number | undefined } {
-  const config = getSqlConfig(store, edition);
-  return {
-    configId: config?.configId,
-    itemId: config?.configId,
-  };
+  const sqlMapping = store.sqlServer;
+  
+  // Normalize edition
+  const editionUpper = edition.toUpperCase();
+  const labels = [
+    edition,
+    editionUpper,
+    `${editionUpper} (2vCPU)`,
+    `${editionUpper} (8vCPU)`,
+    `SQL ${editionUpper}`,
+    `Licença SQL (${editionUpper})`,
+  ];
+  
+  for (const label of labels) {
+    const itemId = getItemId(sqlMapping, label);
+    if (itemId !== undefined) {
+      return { configId: sqlMapping?.configId, itemId };
+    }
+  }
+  
+  return { configId: sqlMapping?.configId, itemId: undefined };
 }
 
 /**
- * @deprecated Use getGpuConfig instead
+ * Get GPU item ID by model name
  */
 export function getGpuItemId(
   store: ConfigIdStore,
   model: string
 ): { configId: number | undefined; itemId: number | undefined } {
-  const config = getGpuConfig(store, model);
-  return {
-    configId: config?.configId,
-    itemId: config?.configId,
-  };
+  const gpuMapping = store.gpu;
+  const itemId = getItemId(gpuMapping, model);
+  return { configId: gpuMapping?.configId, itemId };
 }
 
 /**
- * @deprecated Use getKubernetesPlanConfig instead
+ * Get Kubernetes plan item ID
  */
 export function getKubernetesPlanItemId(
   store: ConfigIdStore,
   plan: string
 ): { configId: number | undefined; itemId: number | undefined } {
-  const config = getKubernetesPlanConfig(store, plan);
-  return {
-    configId: config?.configId,
-    itemId: config?.configId,
-  };
+  const k8sMapping = store.kubernetes.plans;
+  const itemId = getItemId(k8sMapping, plan);
+  return { configId: k8sMapping?.configId, itemId };
 }
 
 /**
- * @deprecated Use getStorageConfig instead
+ * Get Storage item ID by type
  */
 export function getStorageItemId(
   store: ConfigIdStore,
   storageType: string
 ): { configId: number | undefined; itemId: number | undefined } {
-  const config = getStorageConfig(store, storageType);
-  return {
-    configId: config?.configId,
-    itemId: config?.configId,
-  };
+  // Determine which storage mapping to use
+  const storageTypeLower = storageType.toLowerCase();
+  let mapping: ConfigIdMapping | null = null;
+  
+  if (storageTypeLower.includes('sas') || storageTypeLower.includes('s3')) {
+    mapping = store.storage.sas;
+  } else if (storageTypeLower.includes('nvme') || storageTypeLower.includes('ssd')) {
+    mapping = store.storage.nvme;
+  } else {
+    mapping = store.storage.sas; // Default to SAS
+  }
+  
+  const itemId = getItemId(mapping, storageType);
+  return { configId: mapping?.configId, itemId };
 }

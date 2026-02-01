@@ -224,7 +224,7 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         allowedLevels: [690, 700, 750, 1000],
         tabs: [
           { id: 'lista', title: 'Lista', url: '/modulos/comercial/propostas', allowedLevels: [690, 700, 750, 1000] },
-          { id: 'criar', title: 'Criar', url: '/modulos/comercial/propostas/criar', allowedLevels: [690, 700, 750, 1000] },
+          { id: 'criar', title: 'Criar', url: '/modulos/comercial/propostas/criar', allowedLevels: [700, 750, 1000] },
           { id: 'templates', title: 'Templates', url: '/modulos/comercial/propostas/templates', allowedLevels: [750, 1000] },
           { id: 'aprovacoes', title: 'Aprovações', url: '/modulos/comercial/propostas/aprovacoes', allowedLevels: [750, 1000] },
         ],

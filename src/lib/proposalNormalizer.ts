@@ -404,139 +404,8 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
   
   // ============================================
   // STEP 5: Extract addons from dedicated field
-  // CRITICAL: API returns addons as ARRAY with label field, not object.
-  // We must convert array format to object format for UI state.
   // ============================================
-  
-  // Helper to convert addon array to object format
-  // CRITICAL: Match by config_id FIRST (most reliable), then by label patterns
-  const convertAddonsArrayToObject = (addonsArray: any[]): Record<string, unknown> => {
-    const result: Record<string, unknown> = {};
-    const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    
-    for (const addon of addonsArray) {
-      if (!addon || typeof addon !== 'object') continue;
-      
-      const label = normalize(addon.label || addon.name || '');
-      const qty = addon.quantity ?? addon.qty ?? 1;
-      const price = addon.price ?? 0;
-      const configId = addon.config_id ?? addon.configId;
-      
-      console.log('[convertAddonsArrayToObject] Processing:', { configId, label, qty, price });
-      
-      // ============================================
-      // SQL Server (config_id 7) - PRIORITY: config_id match
-      // API labels: "WEB", "STD" (uppercase)
-      // ============================================
-      if (configId === 7 || label === 'std' || label === 'web' || label.includes('sql')) {
-        if (label === 'web' || label.includes('web')) {
-          result.sql = 'web';
-        } else {
-          result.sql = 'std';
-        }
-        result.sqlQty = qty > 0 ? qty : 1;
-        console.log('[convertAddonsArrayToObject] SQL:', result.sql, result.sqlQty);
-        continue;
-      }
-      
-      // ============================================
-      // Serviços Especializados (config_id 16)
-      // ============================================
-      if (configId === 16 || label.includes('suporte') || label.includes('support')) {
-        if (!result.support) result.support = { level: 'none', price: 0 };
-        if (label.includes('basico') || label.includes('basic')) {
-          (result.support as any).level = 'basic';
-        } else if (label.includes('intermediario') || label.includes('intermediate')) {
-          (result.support as any).level = 'intermediate';
-        } else if (label.includes('avancado') || label.includes('advanced')) {
-          (result.support as any).level = 'advanced';
-        }
-        (result.support as any).price = price;
-        console.log('[convertAddonsArrayToObject] Support:', result.support);
-        continue;
-      }
-      
-      if (label.includes('consultoria') || label.includes('consulting')) {
-        const unitPrice = qty > 0 && price > 0 ? Math.round(price / qty) : 200;
-        result.consulting = { quantity: qty, unitPrice };
-        console.log('[convertAddonsArrayToObject] Consulting:', result.consulting);
-        continue;
-      }
-      
-      if (label === 'dba') {
-        const unitPrice = qty > 0 && price > 0 ? Math.round(price / qty) : 250;
-        result.dba = { quantity: qty, unitPrice };
-        console.log('[convertAddonsArrayToObject] DBA:', result.dba);
-        continue;
-      }
-      
-      // ============================================
-      // Windows Server (config_id 17)
-      // ============================================
-      if (configId === 17 || label.includes('winserver') || label.includes('windows')) {
-        result.winserver = qty;
-        continue;
-      }
-      
-      // ============================================
-      // Backup (config_id 15)
-      // ============================================
-      if (configId === 15 || label.includes('backup')) {
-        const planMatch = label.match(/(\d+)/);
-        if (planMatch) {
-          result.backupPlan = planMatch[1];
-          result.backupGb = qty;
-        } else {
-          result.backupPlan = '7';
-          result.backupGb = qty;
-        }
-        continue;
-      }
-      
-      // ============================================
-      // Standard Add-ons (config_id 6)
-      // ============================================
-      if (label.includes('antivirus') || label.includes('antivírus')) {
-        result.antivirus = qty;
-        continue;
-      }
-      if (label.includes('firewall') || label.includes('pfsense')) {
-        result.firewall = qty;
-        continue;
-      }
-      if (label.includes('tsplus') || label.includes('ts plus')) {
-        result.tsplus = qty;
-        continue;
-      }
-      if (label === 'cal' || label.includes('cal rds')) {
-        result.cal = qty;
-        continue;
-      }
-      if (label.includes('veeam') && label.includes('vm')) {
-        result.veeamVm = qty;
-        continue;
-      }
-      if (label.includes('veeam') && label.includes('agent')) {
-        result.veeamAg = qty;
-        continue;
-      }
-      
-      console.warn('[convertAddonsArrayToObject] Unknown addon not mapped:', { configId, label, qty });
-    }
-    
-    console.log('[convertAddonsArrayToObject] Converted result:', result);
-    return result;
-  };
-  
-  // Check if addons is array (API format) or object (snapshot format)
-  let rawAddons: Record<string, unknown> | undefined;
-  if (Array.isArray(data.addons)) {
-    console.log('[normalizeProposalForEdit] Addons is ARRAY - converting to object');
-    rawAddons = convertAddonsArrayToObject(data.addons);
-  } else {
-    rawAddons = data.addons as Record<string, unknown> | undefined;
-  }
-  
+  const rawAddons = data.addons as Record<string, unknown> | undefined;
   // Parse customAddons ensuring values are numbers
   const parseCustomAddons = (obj: unknown): Record<string, number> => {
     if (!obj || typeof obj !== 'object') return {};
@@ -546,56 +415,22 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
     }
     return result;
   };
-  
-  // Log incoming addons for debugging
-  console.log('[normalizeProposalForEdit] Raw addons received:', {
-    hasAddons: !!rawAddons,
-    antivirus: rawAddons?.antivirus,
-    firewall: rawAddons?.firewall,
-    sql: rawAddons?.sql,
-    sqlQty: rawAddons?.sqlQty,
-    backupPlan: rawAddons?.backupPlan,
-    backupGb: rawAddons?.backupGb,
-    winserver: rawAddons?.winserver,
-    veeamVm: rawAddons?.veeamVm,
-    veeamAg: rawAddons?.veeamAg,
-    support: rawAddons?.support,
-    consulting: rawAddons?.consulting,
-    dba: rawAddons?.dba,
-  });
-  
-  // Extract addons with EXPLICIT value preservation
-  // CRITICAL: Use !== undefined checks to preserve 0 values and avoid losing them
-  const extractedAddons: AddonsState = rawAddons && typeof rawAddons === 'object'
+  const addons: AddonsState = rawAddons && typeof rawAddons === 'object'
     ? {
-        // Backup
-        backupPlan: (['7', '15', '30'].includes(String(rawAddons.backupPlan)) 
-          ? rawAddons.backupPlan as '7' | '15' | '30'
-          : 'none') as 'none' | '7' | '15' | '30',
+        backupPlan: (rawAddons.backupPlan as string) || 'none',
         backupGb: toNum(rawAddons.backupGb, 0),
-        
-        // Standard addons - PRESERVE 0 VALUES
-        antivirus: rawAddons.antivirus !== undefined ? toNum(rawAddons.antivirus, 0) : 0,
-        firewall: typeof rawAddons.firewall === 'boolean' 
-          ? (rawAddons.firewall ? 1 : 0) 
-          : (rawAddons.firewall !== undefined ? toNum(rawAddons.firewall, 0) : 0),
-        tsplus: rawAddons.tsplus !== undefined ? toNum(rawAddons.tsplus, 0) : 0,
-        cal: rawAddons.cal !== undefined ? toNum(rawAddons.cal, 0) : 0,
-        veeamVm: rawAddons.veeamVm !== undefined ? toNum(rawAddons.veeamVm, 0) : 0,
-        veeamAg: rawAddons.veeamAg !== undefined ? toNum(rawAddons.veeamAg, 0) : 0,
-        winserver: rawAddons.winserver !== undefined ? toNum(rawAddons.winserver, 0) : 0,
-        
-        // SQL - type and quantity
-        sql: (['web', 'std'].includes(String(rawAddons.sql).toLowerCase()) 
-          ? rawAddons.sql as 'web' | 'std'
-          : 'none') as 'none' | 'web' | 'std',
-        sqlQty: rawAddons.sqlQty !== undefined ? toNum(rawAddons.sqlQty, 0) : 0,
-        
-        // Specialized services
+        antivirus: toNum(rawAddons.antivirus, 0),
+        // Firewall: convert old boolean to number
+        firewall: typeof rawAddons.firewall === 'boolean' ? (rawAddons.firewall ? 1 : 0) : toNum(rawAddons.firewall, 0),
+        tsplus: toNum(rawAddons.tsplus, 0),
+        cal: toNum(rawAddons.cal, 0),
+        sql: (rawAddons.sql as string) || 'none',
+        sqlQty: toNum(rawAddons.sqlQty, 0),
+        veeamVm: toNum(rawAddons.veeamVm, 0),
+        veeamAg: toNum(rawAddons.veeamAg, 0),
+        winserver: toNum(rawAddons.winserver, 0),
         support: {
-          level: (['basic', 'intermediate', 'advanced'].includes(String((rawAddons.support as any)?.level))
-            ? (rawAddons.support as any)?.level
-            : 'none') as 'none' | 'basic' | 'intermediate' | 'advanced',
+          level: (rawAddons.support as any)?.level || 'none',
           price: toNum((rawAddons.support as any)?.price, 0),
         },
         consulting: {
@@ -609,20 +444,6 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
         customAddons: parseCustomAddons(rawAddons.customAddons),
       }
     : { ...DEFAULT_ADDONS };
-  
-  // CRITICAL: Ensure SQL has qty >= 1 when type is selected (prevent 0-qty loss)
-  if (extractedAddons.sql !== 'none' && extractedAddons.sqlQty === 0) {
-    extractedAddons.sqlQty = 1;
-    console.log('[normalizeProposalForEdit] [FIX] SQL qty forced to 1');
-  }
-  
-  // CRITICAL: Ensure Backup has GB >= 1 when plan is selected (prevent 0-GB loss)
-  if (extractedAddons.backupPlan !== 'none' && extractedAddons.backupGb === 0) {
-    extractedAddons.backupGb = 1;
-    console.log('[normalizeProposalForEdit] [FIX] Backup GB forced to 1');
-  }
-  
-  const addons: AddonsState = extractedAddons;
   
   // Log restored addons for debugging
   if (rawAddons) {
@@ -728,7 +549,7 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
     grandTotal: toNum(rawResult?.grandTotal || proposal.total, 0),
   };
   
-  // Log what we found - DETAILED for debugging addon issues
+  // Log what we found
   console.log('[normalizeProposalForEdit] Normalized result:', {
     vmCount: vmItems.length,
     bmCount: baremetalItems.length,
@@ -737,22 +558,6 @@ export function normalizeProposalForEdit(proposal: Record<string, unknown>): Nor
     openSaasEnabled: openSaas.enabled,
     selectedTerm,
     grandTotal: totals.grandTotal,
-    addons: {
-      antivirus: addons.antivirus,
-      firewall: addons.firewall,
-      sql: addons.sql,
-      sqlQty: addons.sqlQty,
-      backupPlan: addons.backupPlan,
-      backupGb: addons.backupGb,
-      veeamVm: addons.veeamVm,
-      veeamAg: addons.veeamAg,
-      winserver: addons.winserver,
-      tsplus: addons.tsplus,
-      cal: addons.cal,
-      support: addons.support,
-      consulting: addons.consulting,
-      dba: addons.dba,
-    },
   });
   
   return {

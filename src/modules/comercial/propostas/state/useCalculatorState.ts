@@ -37,7 +37,6 @@ import {
   hydrateProposalForEdit,
   serializeProposal,
   ApiProposalPayload,
-  FlatConfigStore,
 } from './proposalMappers';
 
 // ============================================================================
@@ -78,13 +77,8 @@ export interface UseCalculatorStateReturn {
   removeStorage: (id: string) => void;
   updateStorage: (id: string, updates: Partial<StorageItemV2>) => void;
   
-  // Serialization - FlatConfigStore is now REQUIRED
-  getSerializedPayload: (
-    channelType: 'CLIENTE' | 'PARCEIRO',
-    grandTotal: number,
-    discountPct: number,
-    configStore: FlatConfigStore
-  ) => ApiProposalPayload;
+  // Serialization
+  getSerializedPayload: (channelType: 'CLIENTE' | 'PARCEIRO', grandTotal: number, discountPct?: number) => ApiProposalPayload;
   
   // Reset
   resetToNew: () => void;
@@ -340,10 +334,9 @@ export function useCalculatorState(): UseCalculatorStateReturn {
   const getSerializedPayload = useCallback((
     channelType: 'CLIENTE' | 'PARCEIRO',
     grandTotal: number,
-    discountPct: number,
-    configStore: FlatConfigStore
+    discountPct = 0
   ): ApiProposalPayload => {
-    return serializeProposal(state, channelType, grandTotal, discountPct, configStore);
+    return serializeProposal(state, channelType, grandTotal, discountPct);
   }, [state]);
   
   // ============================================
