@@ -555,29 +555,31 @@ export async function getBackupConfigId(retention: string): Promise<number | nul
 
 /**
  * Mapping of frontend addon codes to their expected API labels
- * This is used to find the correct config_id for each addon type
+ * UPDATED: Uses EXACT labels from calculator_configs table
+ * Labels are matched case-insensitively for robustness
  */
 const ADDON_CODE_TO_LABELS: Record<string, string[]> = {
-  // Standard Add-ons
-  'antivirus': ['Antivírus', 'Antivirus'],
-  'firewall': ['Firewall (qtd)', 'Firewall pfSense', 'Firewall'],
-  'tsplus': ['TS PLUS', 'TSplus', 'TS Plus'],
-  'cal': ['CAL / TS-CAL', 'CAL', 'TS-CAL'],
-  'veeam_vm': ['Veeam Backup (VM)', 'Veeam VM'],
-  'veeam_agent': ['Veeam Agent (Workstation)', 'Veeam Agent'],
-  'winserver': ['WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer'],
+  // Standard Add-ons - EXACT labels from API
+  'antivirus': ['Antivirus', 'Antivírus'],
+  'firewall': ['Firewall'],
+  'tsplus': ['TSplus', 'TS PLUS', 'TS Plus'],
+  'cal': ['CAL'],
+  'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)'],
+  'veeam_agent': ['Veeam Agent', 'Veeam Agent (Workstation)'],
+  'winserver': ['WinServer(2vCPU/unid.)', 'WinServer', 'Windows Server'],
   
   // SQL Server editions
   'sql_web': ['WEB (2vCPU)', 'SQL WEB', 'WEB'],
+  'sql_std': ['STD (8vCPU)', 'SQL STD', 'STD', 'Standard'],
   'sql_standard': ['STD (8vCPU)', 'SQL STD', 'STD', 'Standard'],
   'sql_enterprise': ['Enterprise', 'SQL Enterprise'],
   
   // Backup plans (by retention days)
-  'backup_7': ['7 dias', 'Backup 7 dias', '7'],
-  'backup_15': ['15 dias', 'Backup 15 dias', '15'],
-  'backup_30': ['30 dias', 'Backup 30 dias', '30'],
+  'backup_7': ['Backup 7 dias', '7 dias', '7'],
+  'backup_15': ['Backup 15 dias', '15 dias', '15'],
+  'backup_30': ['Backup 30 dias', '30 dias', '30'],
   
-  // Specialized Services
+  // Specialized Services - EXACT labels from API
   'support_basic': ['Suporte Básico', 'Básico'],
   'support_intermediate': ['Suporte Intermediário', 'Intermediário'],
   'support_advanced': ['Suporte Avançado', 'Avançado'],
@@ -635,27 +637,54 @@ export async function getAddonConfigIdByCode(code: string): Promise<number | nul
 /**
  * Build a complete addon config ID map for proposal serialization
  * Returns a map of addon codes to their config_ids
+ * 
+ * IMPORTANT: This function MUST map every addon used in the calculator
+ * to its correct config_id from the API
  */
 export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
   const items = await loadFlatConfigs(false); // Force fresh load
   const map: Record<string, number> = {};
+  const missingCodes: string[] = [];
   
   console.log('[calculatorConfigService] Building addon config ID map from', items.length, 'items');
+  console.log('[calculatorConfigService] Available API labels:', items.map(i => `${i.id}:${i.label}`).join(', '));
   
   for (const [code, labels] of Object.entries(ADDON_CODE_TO_LABELS)) {
+    let found = false;
+    
     for (const label of labels) {
       const labelLower = label.toLowerCase().trim();
       
-      const item = items.find(i => 
-        i.label.toLowerCase().trim() === labelLower ||
-        i.label.toLowerCase().includes(labelLower)
+      // Try exact match first (case-insensitive)
+      let item = items.find(i => 
+        i.label.toLowerCase().trim() === labelLower
       );
+      
+      // If no exact match, try partial match (API label contains search term)
+      if (!item) {
+        item = items.find(i => 
+          i.label.toLowerCase().includes(labelLower)
+        );
+      }
+      
+      // If still no match, try reverse partial match (search term contains API label)
+      if (!item) {
+        item = items.find(i => 
+          labelLower.includes(i.label.toLowerCase().trim())
+        );
+      }
       
       if (item) {
         map[code] = item.id;
-        console.log(`  [map] ${code} -> ${item.id} (${item.label})`);
+        console.log(`  ✓ [map] ${code} -> ${item.id} (API label: "${item.label}")`);
+        found = true;
         break; // Found a match, move to next code
       }
+    }
+    
+    if (!found) {
+      missingCodes.push(code);
+      console.warn(`  ✗ [map] ${code} -> NOT FOUND (tried labels: ${labels.join(', ')})`);
     }
   }
   
@@ -674,5 +703,10 @@ export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
   }
   
   console.log('[calculatorConfigService] Addon config ID map built:', map);
+  
+  if (missingCodes.length > 0) {
+    console.error('[calculatorConfigService] WARNING: Missing config_ids for codes:', missingCodes);
+  }
+  
   return map;
 }
