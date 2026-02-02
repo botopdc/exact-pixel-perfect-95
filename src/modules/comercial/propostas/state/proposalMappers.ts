@@ -239,26 +239,42 @@ function hydrateServerItems(items: any[]): ServerItemV2[] {
     const gpu = typeof item.gpu === 'string' && item.gpu !== '' ? item.gpu : 'Sem GPU';
     const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty, 0);
     
+    // CRITICAL: Preserve IPs - value can be 0 which is valid
+    const ips = typeof item.ips === 'number' ? item.ips : toNum(item.ips, 1);
+    
     // Log GPU restoration
     if (gpu !== 'Sem GPU' && gpuQty > 0) {
       console.log('[EDIT] GPU restored on server ID=', id, ':', { gpu, gpuQty });
     }
     
-    if (item.type === 'bm' || item.bmCpu || item.bmRam) {
+    // Log IPs restoration
+    console.log('[EDIT] IPs restored on server ID=', id, ':', ips);
+    
+    // CRITICAL: Check for BareMetal - type field is the primary indicator
+    // Also check bmCpu/bmRam for legacy data and disks array for additional validation
+    const isBM = item.type === 'bm' || 
+                 item.type === 'baremetal' || 
+                 !!item.bmCpu || 
+                 !!item.bmRam || 
+                 (Array.isArray(item.disks) && item.disks.length > 0);
+    
+    if (isBM) {
+      console.log('[EDIT] Server ID=', id, 'identified as BareMetal');
       return {
         type: 'bm' as const,
         id,
         gpu,
         gpuQty,
-        bmCpu: toStr(item.bmCpu, 'intel_xeon_e2136'),
-        bmRam: toStr(item.bmRam, 'ram_128gb'),
+        bmCpu: toStr(item.bmCpu, '2x Intel Xeon E5-2680v4 28c/56t 2.4GHz/3.3GHz - Disponível'),
+        bmRam: toStr(item.bmRam, '128GB'),
         disks: hydrateDisks(item.disks),
         trafficTb: toNum(item.trafficTb, 5),
-        ips: toNum(item.ips, 0),
+        ips,
         qtyServers: toNum(item.qtyServers, 1),
       } as BMItemV2;
     }
     
+    console.log('[EDIT] Server ID=', id, 'identified as VM');
     return {
       type: 'vm' as const,
       id,
@@ -268,7 +284,7 @@ function hydrateServerItems(items: any[]): ServerItemV2[] {
       ramGb: toNum(item.ramGb, 128),
       nvmeTb: toNum(item.nvmeTb, 0.09765625), // 100GB default
       trafficTb: toNum(item.trafficTb, 5),
-      ips: toNum(item.ips, 0),
+      ips,
       qtyServers: toNum(item.qtyServers, 1),
     } as VMItemV2;
   });

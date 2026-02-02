@@ -241,26 +241,43 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       if (itemGpu !== 'Sem GPU' && itemGpuQty > 0) {
         console.log(`[EDIT] GPU restored: model=${itemGpu} qty=${itemGpuQty}`);
       }
+      
+      // ============================================
+      // SERVER TYPE PRESERVATION: Check type field first, then fallback indicators
+      // ============================================
+      const isBM = item.type === 'bm' || 
+                   item.type === 'baremetal' || 
+                   !!item.bmCpu || 
+                   !!item.bmRam || 
+                   (Array.isArray(item.disks) && item.disks.length > 0);
+      
+      // ============================================
+      // IPs PRESERVATION: Keep the original value (can be 0, 1, 2, 3, etc.)
+      // ============================================
+      const ips = typeof item.ips === 'number' ? item.ips : toNum(item.ips, 1);
+      console.log(`[EDIT] Server #${idx + 1} type=${isBM ? 'bm' : 'vm'} ips=${ips}`);
 
-      if (item.type === 'bm') {
+      if (isBM) {
         return {
           ...item,
+          type: 'bm', // CRITICAL: Ensure type is always set
           gpu: itemGpu,
           gpuQty: itemGpuQty,
           disks: Array.isArray(item.disks) ? item.disks : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
           qtyServers: toNum(item.qtyServers, 1),
-          ips: toNum(item.ips, 0),
+          ips,
         };
       }
       return {
         ...item,
+        type: 'vm', // CRITICAL: Ensure type is always set
         gpu: itemGpu,
         gpuQty: itemGpuQty,
         vcpu: toNum(item.vcpu, 16),
         ramGb: toNum(item.ramGb, 128),
         nvmeTb: toNum(item.nvmeTb, 0.09765625), // 100GB default
         qtyServers: toNum(item.qtyServers, 1),
-        ips: toNum(item.ips, 0),
+        ips,
       };
     });
     
@@ -1347,44 +1364,70 @@ function localToApi(proposal: SavedProposal, addonConfigIdMap?: Record<string, n
           specs.push({ config_id: IP_CONFIG_ID, value: ips });
         }
         
-        // GPU - add as spec if present (GPU config IDs not yet in map, use fallback)
+        // GPU - extract model and quantity for serialization
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
           ? item.gpu
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
         
-        // GPU is handled separately - for now we log but don't add to specs
-        // until we have a proper GPU config ID lookup
+        // Build GPU object for server payload
+        let gpuPayload: { model: string; quantity: number } | undefined = undefined;
         if (gpuModel && gpuQty > 0) {
-          console.log(`[SERIALIZE] VM GPU (not added to specs yet): model=${gpuModel} qty=${gpuQty}`);
+          gpuPayload = { model: gpuModel, quantity: gpuQty };
+          console.log(`[SERIALIZE] VM GPU: model=${gpuModel} qty=${gpuQty}`);
         }
         
-        const server = {
+        const server: any = {
           name: `VM #${idx + 1}`,
           specs,
           quantity: toNum(item.qtyServers, 1),
         };
         
+        // Add GPU to server payload if present
+        if (gpuPayload) {
+          server.gpu = gpuPayload;
+        }
+        
         console.log(`[SERIALIZE] VM #${idx + 1}:`, server);
         serversArray.push(server);
         
       } else if (item.type === 'bm') {
-        // BareMetal - serialize with specs (using same pattern as VM for now)
-        // Full BareMetal support requires CPU/RAM/Disk config ID lookups
+        // BareMetal - serialize with specs including CPU, RAM, Disks, IPs
         const specs: Array<{ config_id: number; value: number }> = [];
         
-        // For BareMetal, we add placeholder specs
-        // Full implementation requires mapping CPU/RAM/Disk models to config IDs
-        specs.push({ config_id: VCPU_CONFIG_ID, value: 1 });
-        specs.push({ config_id: RAM_CONFIG_ID, value: 1 });
+        // For BareMetal, we use the same config IDs but the values represent the selection
+        // The actual CPU/RAM models are stored in the dados_proposta for reconstruction
+        specs.push({ config_id: VCPU_CONFIG_ID, value: 1 }); // Placeholder for CPU model
+        specs.push({ config_id: RAM_CONFIG_ID, value: 1 }); // Placeholder for RAM model
         
-        console.log(`[SERIALIZE] BareMetal #${idx + 1}: simplified specs (full mapping not yet implemented)`);
+        // IP addresses for BareMetal
+        const ips = typeof item.ips === 'number' ? item.ips : toNum(item.ips, 0);
+        if (ips > 0 && IP_CONFIG_ID) {
+          specs.push({ config_id: IP_CONFIG_ID, value: ips });
+        }
         
-        const server = {
+        // GPU - extract model and quantity for BareMetal
+        const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
+          ? item.gpu
+          : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
+        const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
+        
+        let gpuPayload: { model: string; quantity: number } | undefined = undefined;
+        if (gpuModel && gpuQty > 0) {
+          gpuPayload = { model: gpuModel, quantity: gpuQty };
+          console.log(`[SERIALIZE] BareMetal GPU: model=${gpuModel} qty=${gpuQty}`);
+        }
+        
+        const server: any = {
           name: `BareMetal #${idx + 1}`,
           specs,
           quantity: toNum(item.qtyServers, 1),
         };
+        
+        // Add GPU to server payload if present
+        if (gpuPayload) {
+          server.gpu = gpuPayload;
+        }
         
         console.log(`[SERIALIZE] BareMetal #${idx + 1}:`, server);
         serversArray.push(server);
