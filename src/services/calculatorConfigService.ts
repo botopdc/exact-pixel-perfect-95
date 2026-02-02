@@ -31,28 +31,60 @@ apiClient.interceptors.request.use((config) => {
 });
 
 // ============================================================================
-// TYPES (based on API OpenAPI spec)
+// TYPES (based on API OpenAPI spec - NEW FLAT FORMAT)
 // ============================================================================
 
 /**
- * Config item structure for GET/PUT requests
- * Based on CalculatorConfig schema from API docs
- * 
- * IMPORTANT (API v12+): Each item now has a unique `id` for identification.
- * When updating, send the item `id` to update by ID.
- * When creating proposals, use `config_id` (entry ID) + `item_id` for pricing.
+ * FLAT config item structure from API
+ * Each item is independent with its own id, label, value, and meta
+ */
+export interface CalculatorConfigFlatItem {
+  id: number;
+  label: string;
+  value: number;
+  meta: {
+    category: string;
+    section: string;
+    by?: string;
+    type?: string;
+    region?: string;
+    retention?: string;
+    min?: number;
+    max?: number;
+    description?: string;
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * Paginated response from GET /api/calculator/config
+ * Returns array of flat items, not grouped entries
+ */
+export interface PaginatedConfigResponse {
+  current_page: number;
+  data: CalculatorConfigFlatItem[];
+  from: number;
+  last_page: number;
+  per_page: number;
+  to: number;
+  total: number;
+}
+
+/**
+ * Config item structure for backwards compatibility (legacy grouped format)
  */
 export interface ConfigItem {
-  id?: number;         // Unique ID of the config item (API v12+)
+  id?: number;         // Unique ID of the config item
   label: string;
   by?: string;         // e.g., "unit", "GB", "TB", "month", "hour"
   type?: string;       // e.g., "BRL", "USD", "percentage"
   value?: number;
-  description?: string; // Used in Kubernetes plans
+  description?: string;
 }
 
 /**
- * API response for a single config entry
+ * Legacy grouped entry format (for backwards compatibility)
  */
 export interface CalculatorConfigEntry {
   id: number;
@@ -65,34 +97,43 @@ export interface CalculatorConfigEntry {
 }
 
 /**
- * Paginated response from GET /api/calculator/config
+ * Request payload for PUT /api/calculator/config/{id}
+ * Updates a single config item directly
  */
-export interface PaginatedConfigResponse {
-  current_page: number;
-  data: CalculatorConfigEntry[];
-  from: number;
-  last_page: number;
-  per_page: number;
-  to: number;
-  total: number;
+export interface CalculatorConfigUpdateRequest {
+  label?: string;
+  value?: number;
+  meta?: {
+    category?: string;
+    section?: string;
+    by?: string;
+    type?: string;
+    region?: string;
+    retention?: string;
+    min?: number;
+    max?: number;
+    description?: string;
+  };
 }
 
 /**
  * Request payload for POST /api/calculator/config
+ * Creates a new config item
  */
-export interface CalculatorConfigStoreRequest {
-  category: string;
-  section: string;
-  config: ConfigItem[];
-}
-
-/**
- * Request payload for PUT /api/calculator/config/{id}
- */
-export interface CalculatorConfigUpdateRequest {
-  category?: string;
-  section?: string;
-  config?: ConfigItem[];
+export interface CalculatorConfigCreateRequest {
+  label: string;
+  value: number;
+  meta: {
+    category: string;
+    section: string;
+    by?: string;
+    type?: string;
+    region?: string;
+    retention?: string;
+    min?: number;
+    max?: number;
+    description?: string;
+  };
 }
 
 // ============================================================================
@@ -102,41 +143,161 @@ export interface CalculatorConfigUpdateRequest {
 /**
  * Fetch all calculator configurations from API
  * GET /api/calculator/config
+ * Returns FLAT items directly from API
  */
-export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
+export async function getCalculatorConfigsFlat(): Promise<CalculatorConfigFlatItem[]> {
   const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
-    params: { __perPage: 200 }
+    params: { __perPage: 500 }
   });
   return response.data.data || [];
+}
+
+/**
+ * Fetch all calculator configurations grouped by category/section
+ * For backwards compatibility - groups flat items into entries
+ */
+export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
+  const flatItems = await getCalculatorConfigsFlat();
+  return groupFlatItemsToEntries(flatItems);
+}
+
+/**
+ * Group flat items into legacy entry format
+ */
+function groupFlatItemsToEntries(items: CalculatorConfigFlatItem[]): CalculatorConfigEntry[] {
+  const groupMap = new Map<string, CalculatorConfigEntry>();
+  
+  for (const item of items) {
+    const key = `${item.meta.category}/${item.meta.section}`;
+    
+    if (!groupMap.has(key)) {
+      groupMap.set(key, {
+        id: item.id, // Use first item's ID as group ID
+        category: item.meta.category,
+        section: item.meta.section,
+        config: [],
+        created_at: item.created_at || '',
+        updated_at: item.updated_at || '',
+        deleted_at: null,
+      });
+    }
+    
+    const entry = groupMap.get(key)!;
+    entry.config.push({
+      id: item.id,
+      label: item.label,
+      value: item.value,
+      by: item.meta.by,
+      type: item.meta.type,
+      description: item.meta.description,
+    });
+  }
+  
+  return Array.from(groupMap.values());
 }
 
 /**
  * Fetch a single config by ID
  * GET /api/calculator/config/{id}
  */
-export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.get<CalculatorConfigEntry>(`/calculator/config/${id}`);
+export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigFlatItem> {
+  const response = await apiClient.get<CalculatorConfigFlatItem>(`/calculator/config/${id}`);
   return response.data;
 }
 
 /**
- * Update an existing calculator configuration
+ * Update a single calculator configuration item
  * PUT /api/calculator/config/{id}
  * 
- * CRUD rules for config array (backend enforced):
- * - CREATE: items WITHOUT `id` field → backend generates id automatically
- * - UPDATE: items WITH existing `id` field → backend updates
- * - DELETE: items NOT included in array → backend removes automatically
- * 
- * @param id - The config entry ID (e.g., 1 for VM, 5 for GPU)
- * @param payload - Must contain `config` array with proper CRUD semantics
+ * @param id - The config item ID (individual item, not group)
+ * @param payload - { label?, value?, meta? }
  */
-export async function updateCalculatorConfig(
+export async function updateCalculatorConfigItem(
   id: number,
   payload: CalculatorConfigUpdateRequest
-): Promise<CalculatorConfigEntry> {
-  const response = await apiClient.put<CalculatorConfigEntry>(`/calculator/config/${id}`, payload);
+): Promise<CalculatorConfigFlatItem> {
+  const response = await apiClient.put<CalculatorConfigFlatItem>(`/calculator/config/${id}`, payload);
   return response.data;
+}
+
+/**
+ * Create a new calculator configuration item
+ * POST /api/calculator/config
+ */
+export async function createCalculatorConfigItem(
+  payload: CalculatorConfigCreateRequest
+): Promise<CalculatorConfigFlatItem> {
+  const response = await apiClient.post<CalculatorConfigFlatItem>('/calculator/config', payload);
+  return response.data;
+}
+
+/**
+ * Delete a calculator configuration item
+ * DELETE /api/calculator/config/{id}
+ */
+export async function deleteCalculatorConfigItem(id: number): Promise<void> {
+  await apiClient.delete(`/calculator/config/${id}`);
+}
+
+/**
+ * Update an existing calculator configuration (legacy grouped format)
+ * For backwards compatibility - updates multiple items individually
+ * 
+ * @deprecated Use updateCalculatorConfigItem instead
+ */
+export async function updateCalculatorConfig(
+  entryId: number,
+  payload: { category?: string; section?: string; config?: ConfigItem[] }
+): Promise<CalculatorConfigEntry> {
+  // For the new FLAT API, we need to update each item individually
+  // This is a compatibility shim - the caller should use updateCalculatorConfigItem
+  
+  if (payload.config && Array.isArray(payload.config)) {
+    for (const item of payload.config) {
+      if (item.id) {
+        // Update existing item
+        await updateCalculatorConfigItem(item.id, {
+          label: item.label,
+          value: item.value,
+          meta: {
+            category: payload.category,
+            section: payload.section,
+            by: item.by,
+            type: item.type,
+          }
+        });
+      } else {
+        // Create new item
+        await createCalculatorConfigItem({
+          label: item.label,
+          value: item.value ?? 0,
+          meta: {
+            category: payload.category || '',
+            section: payload.section || '',
+            by: item.by,
+            type: item.type || 'BRL',
+          }
+        });
+      }
+    }
+  }
+  
+  // Return updated entries grouped
+  const entries = await getCalculatorConfigs();
+  const entry = entries.find(e => 
+    e.category.toLowerCase() === payload.category?.toLowerCase() && 
+    e.section.toLowerCase() === payload.section?.toLowerCase()
+  );
+  
+  return entry || {
+    id: entryId,
+    category: payload.category || '',
+    section: payload.section || '',
+    config: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    deleted_at: null,
+  };
 }
 
 // ============================================================================
