@@ -15,15 +15,9 @@ import { buildResultFromSnapshot, canBuildResult } from '@/lib/proposalResultBui
 import { generateOpenPDFBlob } from '@/lib/pdfGenerator';
 import { persistArchitectCommission, getProposalsByParticipant } from '@/services/proposalParticipantService';
 import { 
-  loadConfigIds, 
-  ConfigIdStore, 
-  getAddonItemId, 
-  getVmItemIds, 
-  getSqlItemId, 
-  getBackupItemId,
-  getGpuItemId,
-  getItemId,
-} from '@/services/configIdsService';
+  buildAddonConfigIdMap,
+  loadFlatConfigs,
+} from '@/services/calculatorConfigService';
 import { extractNumericId, toDisplayId } from '@/lib/proposalIdUtils';
 
 // Proposal status type - STANDARDIZED to 6 canonical values matching API
@@ -1126,7 +1120,10 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
 // Uses NEW FLAT API FORMAT (January 2026):
 // - Servers: name, specs: [{config_id, value}, ...], quantity
 // - Addons: {config_id, quantity} - NO price, NO item_id (backend calculates everything)
-function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | null): Record<string, unknown> {
+// 
+// @param proposal - The local proposal to convert
+// @param addonConfigIdMap - Pre-built map of addon codes to config_ids (from buildAddonConfigIdMap)
+function localToApi(proposal: SavedProposal, addonConfigIdMap?: Record<string, number> | null): Record<string, unknown> {
   // Map selectedTerm to contract_duration (MUST include all valid plans: 1, 12, 24, 36, 48)
   const termAsNumber = parseInt(proposal.selectedTerm, 10);
   const contractDuration = isValidContractMonth(termAsNumber) ? termAsNumber : 1;
@@ -1153,18 +1150,17 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   const dueAt = new Date(createdAt);
   dueAt.setDate(dueAt.getDate() + validityDays);
   
+  // Helper to get config_id from the pre-built map
+  const getConfigId = (code: string): number | null => {
+    if (!addonConfigIdMap) return null;
+    return addonConfigIdMap[code] ?? null;
+  };
+  
   // ============================================
   // ADDONS - NEW FLAT FORMAT: {config_id, quantity}
-  // NO price, NO item_id - backend calculates everything
+  // Each addon type has its own unique config_id from the API
   // ============================================
   const addonsArray: Array<{ config_id: number; quantity: number }> = [];
-  
-  // Helper to get config_id from configIdStore
-  const getConfigId = (code: string): number | null => {
-    if (!configIdStore) return null;
-    const result = getAddonItemId(configIdStore, code);
-    return result.configId ?? null;
-  };
   
   // Storage items - add each storage configuration as an addon
   if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
@@ -1172,7 +1168,8 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       const volumeTB = toNum(storage.volumeTB, 0);
       const volumeGB = toNum(storage.volumeGB, 0);
       if (volumeTB > 0 || volumeGB > 0) {
-        const configId = getConfigId('storage');
+        const storageType = storage.storageType || 'sas';
+        const configId = getConfigId(`storage_${storageType}`);
         if (configId) {
           // Quantity is in GB for storage
           const qty = volumeGB > 0 ? volumeGB : Math.round(volumeTB * 1024);
@@ -1201,9 +1198,9 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   if (proposal.addons && typeof proposal.addons === 'object') {
     const addons = proposal.addons;
     
-    // WinServer
+    // WinServer - uses specific config_id from API
     if (typeof addons.winserver === 'number' && addons.winserver > 0) {
-      const configId = getConfigId('winserver_2vcpu_unit');
+      const configId = getConfigId('winserver');
       if (configId) {
         addonsArray.push({ config_id: configId, quantity: addons.winserver });
       }
@@ -1258,25 +1255,28 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
       }
     }
     
-    // Backup
+    // Backup - uses plan-specific config_id (backup_7, backup_15, backup_30)
     if (addons.backupPlan && addons.backupPlan !== 'none' && typeof addons.backupGb === 'number' && addons.backupGb > 0) {
-      const backupIds = configIdStore ? getBackupItemId(configIdStore, addons.backupPlan) : { configId: undefined };
-      if (backupIds.configId) {
-        addonsArray.push({ config_id: backupIds.configId, quantity: addons.backupGb });
+      const backupCode = `backup_${addons.backupPlan}`;
+      const configId = getConfigId(backupCode);
+      if (configId) {
+        addonsArray.push({ config_id: configId, quantity: Math.max(addons.backupGb, 1) });
       }
     }
     
-    // SQL Server
+    // SQL Server - uses edition-specific config_id (sql_web, sql_standard, sql_enterprise)
     if (addons.sql && addons.sql !== 'none' && typeof addons.sqlQty === 'number' && addons.sqlQty > 0) {
-      const sqlIds = configIdStore ? getSqlItemId(configIdStore, addons.sql) : { configId: undefined };
-      if (sqlIds.configId) {
-        addonsArray.push({ config_id: sqlIds.configId, quantity: addons.sqlQty });
+      const sqlCode = `sql_${addons.sql.toLowerCase()}`;
+      const configId = getConfigId(sqlCode);
+      if (configId) {
+        addonsArray.push({ config_id: configId, quantity: addons.sqlQty });
       }
     }
     
-    // Support - specialized service
+    // Support - specialized service (support_basic, support_intermediate, support_advanced)
     if (addons.support && addons.support.level !== 'none' && addons.support.price > 0) {
-      const configId = getConfigId(`support_${addons.support.level}`);
+      const supportCode = `support_${addons.support.level}`;
+      const configId = getConfigId(supportCode);
       if (configId) {
         addonsArray.push({ config_id: configId, quantity: 1 });
       }
@@ -1284,7 +1284,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     
     // Consulting - specialized service
     if (addons.consulting && typeof addons.consulting.quantity === 'number' && addons.consulting.quantity > 0) {
-      const configId = getConfigId('consulting_hours');
+      const configId = getConfigId('consulting');
       if (configId) {
         addonsArray.push({ config_id: configId, quantity: addons.consulting.quantity });
       }
@@ -1292,7 +1292,7 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
     
     // DBA - specialized service
     if (addons.dba && typeof addons.dba.quantity === 'number' && addons.dba.quantity > 0) {
-      const configId = getConfigId('dba_hours');
+      const configId = getConfigId('dba');
       if (configId) {
         addonsArray.push({ config_id: configId, quantity: addons.dba.quantity });
       }
@@ -1300,22 +1300,19 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
   }
   
   console.log('[localToApi] Addons (FLAT format):', addonsArray);
+  console.log('[localToApi] Using addon config ID map:', addonConfigIdMap);
   
   // ============================================
   // SERVERS - NEW FLAT FORMAT: name, specs: [{config_id, value}, ...], quantity
-  // NO price - backend calculates everything based on config values
+  // Config IDs are fetched from the addonConfigIdMap which includes VM components
   // ============================================
   const serversArray: Array<{ name: string; specs: Array<{ config_id: number; value: number }>; quantity: number }> = [];
   
-  // Get config IDs for VM components
-  const vmItemIds = configIdStore ? getVmItemIds(configIdStore) : null;
-  
-  // Config IDs for specs - these map to calculator_configs table
-  // vCPU = ID 1, RAM = ID 2, NVMe = ID 3, IP = ID 4 (typical setup)
-  const VCPU_CONFIG_ID = vmItemIds?.vcpuItemId ?? 1;
-  const RAM_CONFIG_ID = vmItemIds?.ramItemId ?? 2;
-  const NVME_CONFIG_ID = vmItemIds?.storageItemId ?? 3;
-  const IP_CONFIG_ID = vmItemIds?.ipItemId ?? 4;
+  // Config IDs for VM specs - fetched from the pre-built map
+  const VCPU_CONFIG_ID = getConfigId('vcpu') ?? 1;
+  const RAM_CONFIG_ID = getConfigId('ram') ?? 2;
+  const NVME_CONFIG_ID = getConfigId('nvme') ?? 3;
+  const IP_CONFIG_ID = getConfigId('ip') ?? 4;
   
   console.log('[localToApi] VM Config IDs:', { VCPU_CONFIG_ID, RAM_CONFIG_ID, NVME_CONFIG_ID, IP_CONFIG_ID });
   
@@ -1350,18 +1347,16 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
           specs.push({ config_id: IP_CONFIG_ID, value: ips });
         }
         
-        // GPU - add as spec if present
+        // GPU - add as spec if present (GPU config IDs not yet in map, use fallback)
         const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
           ? item.gpu
           : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
         const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
         
-        if (gpuModel && gpuQty > 0 && configIdStore) {
-          const gpuIds = getGpuItemId(configIdStore, gpuModel);
-          if (gpuIds.itemId) {
-            specs.push({ config_id: gpuIds.itemId, value: gpuQty });
-            console.log(`[SERIALIZE] VM GPU: model=${gpuModel} qty=${gpuQty} config_id=${gpuIds.itemId}`);
-          }
+        // GPU is handled separately - for now we log but don't add to specs
+        // until we have a proper GPU config ID lookup
+        if (gpuModel && gpuQty > 0) {
+          console.log(`[SERIALIZE] VM GPU (not added to specs yet): model=${gpuModel} qty=${gpuQty}`);
         }
         
         const server = {
@@ -1374,49 +1369,16 @@ function localToApi(proposal: SavedProposal, configIdStore?: ConfigIdStore | nul
         serversArray.push(server);
         
       } else if (item.type === 'bm') {
-        // BareMetal - serialize components as specs
+        // BareMetal - serialize with specs (using same pattern as VM for now)
+        // Full BareMetal support requires CPU/RAM/Disk config ID lookups
         const specs: Array<{ config_id: number; value: number }> = [];
         
-        // CPU model
-        if (item.cpu && configIdStore?.baremetal?.cpu) {
-          const cpuId = getItemId(configIdStore.baremetal.cpu, item.cpu);
-          if (cpuId) {
-            specs.push({ config_id: cpuId, value: 1 });
-          }
-        }
+        // For BareMetal, we add placeholder specs
+        // Full implementation requires mapping CPU/RAM/Disk models to config IDs
+        specs.push({ config_id: VCPU_CONFIG_ID, value: 1 });
+        specs.push({ config_id: RAM_CONFIG_ID, value: 1 });
         
-        // RAM
-        if (item.ram && configIdStore?.baremetal?.ram) {
-          const ramId = getItemId(configIdStore.baremetal.ram, item.ram);
-          if (ramId) {
-            specs.push({ config_id: ramId, value: 1 });
-          }
-        }
-        
-        // Disks
-        if (item.disks && Array.isArray(item.disks)) {
-          for (const disk of item.disks) {
-            if (disk.type && configIdStore?.baremetal?.disk) {
-              const diskId = getItemId(configIdStore.baremetal.disk, disk.type);
-              if (diskId) {
-                specs.push({ config_id: diskId, value: toNum(disk.qty, 1) });
-              }
-            }
-          }
-        }
-        
-        // GPU
-        const gpuModel = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU'
-          ? item.gpu
-          : (item.gpu && typeof item.gpu === 'object' ? (item.gpu as any).model : null);
-        const gpuQty = typeof item.gpuQty === 'number' ? item.gpuQty : toNum(item.gpuQty ?? (item.gpu as any)?.quantity, 0);
-        
-        if (gpuModel && gpuQty > 0 && configIdStore) {
-          const gpuIds = getGpuItemId(configIdStore, gpuModel);
-          if (gpuIds.itemId) {
-            specs.push({ config_id: gpuIds.itemId, value: gpuQty });
-          }
-        }
+        console.log(`[SERIALIZE] BareMetal #${idx + 1}: simplified specs (full mapping not yet implemented)`);
         
         const server = {
           name: `BareMetal #${idx + 1}`,
@@ -1950,16 +1912,16 @@ export function useSaveProposal() {
 
   return useMutation({
     mutationFn: async ({ proposal, pdfBlob }: { proposal: SavedProposal; pdfBlob?: Blob }) => {
-      // Load config IDs for API v12+ compliance
-      let configIdStore: ConfigIdStore | null = null;
+      // Load addon config ID map for NEW FLAT API format
+      let addonConfigIdMap: Record<string, number> | null = null;
       try {
-        configIdStore = await loadConfigIds();
-        console.log('[SaveProposal] Config IDs loaded for payload');
+        addonConfigIdMap = await buildAddonConfigIdMap();
+        console.log('[SaveProposal] Addon config ID map built:', Object.keys(addonConfigIdMap).length, 'codes mapped');
       } catch (error) {
-        console.warn('[SaveProposal] Failed to load config IDs, proceeding without them:', error);
+        console.warn('[SaveProposal] Failed to build addon config ID map, proceeding with fallbacks:', error);
       }
 
-      const apiData = localToApi(proposal, configIdStore);
+      const apiData = localToApi(proposal, addonConfigIdMap);
 
       // CRITICAL: Only use proposal.id (the API numeric ID) for update detection
       // DO NOT use proposal.proposal.id - that's the local display ID (OPEN-ABC123)
@@ -1983,7 +1945,8 @@ export function useSaveProposal() {
         'proposal.id type': typeof proposal.id,
         'proposal.proposal.id': proposal.proposal?.id,
         channel_type: (apiData as any).channel_type,
-        configIdsLoaded: !!configIdStore,
+        configIdsLoaded: !!addonConfigIdMap,
+        configIdMapSize: addonConfigIdMap ? Object.keys(addonConfigIdMap).length : 0,
         hasPdfFile: !!pdfBlob,
         pdfFileSize: pdfBlob?.size,
         dados_proposta_summary: {
@@ -2029,18 +1992,18 @@ export function useUpdateProposal() {
 
   return useMutation({
     mutationFn: async ({ id, proposal }: { id: string; proposal: SavedProposal }) => {
-      // Load config IDs for API v12+ compliance
-      let configIdStore: ConfigIdStore | null = null;
+      // Load addon config ID map for NEW FLAT API format
+      let addonConfigIdMap: Record<string, number> | null = null;
       try {
-        configIdStore = await loadConfigIds();
+        addonConfigIdMap = await buildAddonConfigIdMap();
       } catch (error) {
-        console.warn('[UpdateProposal] Failed to load config IDs:', error);
+        console.warn('[UpdateProposal] Failed to build addon config ID map:', error);
       }
 
       // Parse numeric ID
       const numericId = parseInt(id, 10);
       if (!isNaN(numericId)) {
-        const apiData = localToApi(proposal, configIdStore);
+        const apiData = localToApi(proposal, addonConfigIdMap);
         const result = await openApi.updateProposal(numericId, apiData);
         return { success: true, data: result };
       }
@@ -2050,7 +2013,7 @@ export function useUpdateProposal() {
       const existing = (response.data as ApiProposal[]).find(p => `PROP-${p.id}` === id);
       
       if (existing) {
-        const apiData = localToApi(proposal, configIdStore);
+        const apiData = localToApi(proposal, addonConfigIdMap);
         const result = await openApi.updateProposal(existing.id, apiData);
         return { success: true, data: result };
       }
