@@ -250,16 +250,18 @@ function hydrateServerItems(items: any[]): ServerItemV2[] {
     // Log IPs restoration
     console.log('[EDIT] IPs restored on server ID=', id, ':', ips);
     
-    // CRITICAL: Check for BareMetal - type field is the primary indicator
-    // Also check bmCpu/bmRam for legacy data and disks array for additional validation
-    const isBM = item.type === 'bm' || 
-                 item.type === 'baremetal' || 
-                 !!item.bmCpu || 
-                 !!item.bmRam || 
-                 (Array.isArray(item.disks) && item.disks.length > 0);
+    // CRITICAL: Use 'type' field as PRIMARY source for server type detection
+    // Supported types: 'vm', 'bm', 'baremetal', 'kubernetes', 'storage', 'opensaas'
+    const serverType = toStr(item.type, '').toLowerCase();
     
-    if (isBM) {
-      console.log('[EDIT] Server ID=', id, 'identified as BareMetal');
+    // Check for BareMetal - type field is the primary indicator
+    const isBM = serverType === 'bm' || serverType === 'baremetal';
+    
+    // Legacy fallback for old data without type field
+    const legacyIsBM = !serverType && (!!item.bmCpu || !!item.bmRam || (Array.isArray(item.disks) && item.disks.length > 0));
+    
+    if (isBM || legacyIsBM) {
+      console.log('[EDIT] Server ID=', id, 'identified as BareMetal (type:', serverType || 'legacy', ')');
       return {
         type: 'bm' as const,
         id,
@@ -274,7 +276,7 @@ function hydrateServerItems(items: any[]): ServerItemV2[] {
       } as BMItemV2;
     }
     
-    console.log('[EDIT] Server ID=', id, 'identified as VM');
+    console.log('[EDIT] Server ID=', id, 'identified as VM (type:', serverType || 'default', ')');
     return {
       type: 'vm' as const,
       id,
@@ -299,8 +301,17 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
     })
     .map((server, idx) => {
       const id = crypto.randomUUID();
+      
+      // CRITICAL: Use 'type' field as PRIMARY source for server type detection
+      const serverType = toStr(server.type, '').toLowerCase();
+      
+      // Determine if it's a BareMetal using type field first
+      const isBM = serverType === 'bm' || serverType === 'baremetal';
+      
+      // Legacy fallback: check name only if type field is not set
       const name = toStr(server.name, '').toLowerCase();
-      const isVM = name.includes('vm') || toNum(server.vcpu, 0) > 0;
+      const legacyIsVM = !serverType && (name.includes('vm') || toNum(server.vcpu, 0) > 0);
+      const legacyIsBM = !serverType && (name.includes('baremetal') || name.includes('bm'));
 
       // CRITICAL: support GPU stored as object: { model, quantity }
       let gpu = 'Sem GPU';
@@ -321,33 +332,39 @@ function hydrateServerItemsFromLegacy(servers: any[]): ServerItemV2[] {
         console.log(`[EDIT] GPU restored: model=${gpu} qty=${gpuQty}`);
       }
 
-      if (isVM) {
+      // Determine server type: type field > legacy name check > fallback to VM
+      const isBareMetal = isBM || legacyIsBM;
+      const isVM = serverType === 'vm' || (!isBareMetal && (legacyIsVM || !serverType));
+      
+      console.log(`[EDIT LEGACY] Server #${idx} type="${serverType}" name="${name}" → isBareMetal=${isBareMetal} isVM=${isVM}`);
+
+      if (isBareMetal) {
         return {
-          type: 'vm' as const,
+          type: 'bm' as const,
           id,
           gpu,
           gpuQty,
-          vcpu: toNum(server.vcpu, 16),
-          ramGb: toNum(server.ram, 128),
-          nvmeTb: toNum(server.storage, 50) / 1024,
+          bmCpu: 'intel_xeon_e2136',
+          bmRam: 'ram_128gb',
+          disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }],
           trafficTb: 5,
           ips: toNum(server.ips, 0),
           qtyServers: toNum(server.quantity, 1),
-        } as VMItemV2;
+        } as BMItemV2;
       }
 
       return {
-        type: 'bm' as const,
+        type: 'vm' as const,
         id,
         gpu,
         gpuQty,
-        bmCpu: 'intel_xeon_e2136',
-        bmRam: 'ram_128gb',
-        disks: [{ type: 'nvme_1tb', qty: 1, desc: '' }],
+        vcpu: toNum(server.vcpu, 16),
+        ramGb: toNum(server.ram, 128),
+        nvmeTb: toNum(server.storage, 50) / 1024,
         trafficTb: 5,
         ips: toNum(server.ips, 0),
         qtyServers: toNum(server.quantity, 1),
-      } as BMItemV2;
+      } as VMItemV2;
     });
 }
 
