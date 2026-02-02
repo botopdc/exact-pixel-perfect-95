@@ -144,11 +144,90 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
   
   // ============================================
   // STEP 5: Extract server items (VMs / BareMetals)
+  // CRITICAL: We now ALWAYS use apiProposal.servers as the source of truth for 'type'
+  // because dados_proposta may have stale type information
   // ============================================
-  if (hasDadosProposta && Array.isArray((dadosProposta as any).items)) {
+  if (Array.isArray(apiProposal.servers) && (apiProposal.servers as any[]).length > 0) {
+    // PRIORITY 1: Use API servers (source of truth for type)
+    const apiServers = apiProposal.servers as any[];
+    const snapshotItems = hasDadosProposta && Array.isArray((dadosProposta as any).items) 
+      ? (dadosProposta as any).items 
+      : [];
+    
+    // Merge: use type from API, but keep detailed fields (gpu, gpuQty, bmCpu, bmRam, disks) from snapshot
+    state.items = apiServers
+      .filter(s => {
+        const name = toStr(s.name, '').toLowerCase();
+        return !name.startsWith('__virtual__') && !name.startsWith('virtual_product');
+      })
+      .map((apiServer, idx) => {
+        // Find matching snapshot item by index or name
+        const snapshotItem = snapshotItems[idx] || snapshotItems.find((si: any) => 
+          toStr(si.name, '').toLowerCase() === toStr(apiServer.name, '').toLowerCase()
+        );
+        
+        // CRITICAL: Use type from API as the PRIMARY source
+        const apiType = toStr(apiServer.type, '').toLowerCase();
+        const isBM = apiType === 'bm' || apiType === 'baremetal';
+        const isVM = apiType === 'vm' || (!isBM && !apiType); // Default to VM if no type
+        
+        console.log(`[HYDRATE] Server #${idx} name="${apiServer.name}" apiType="${apiType}" → isBM=${isBM}`);
+        
+        // Extract GPU from API or snapshot
+        let gpu = 'Sem GPU';
+        let gpuQty = 0;
+        
+        if (apiServer.gpu && typeof apiServer.gpu === 'object') {
+          gpu = apiServer.gpu.model || 'Sem GPU';
+          gpuQty = toNum(apiServer.gpu.quantity, 0);
+        } else if (snapshotItem?.gpu) {
+          gpu = typeof snapshotItem.gpu === 'string' ? snapshotItem.gpu : 'Sem GPU';
+          gpuQty = toNum(snapshotItem.gpuQty, 0);
+        }
+        
+        // Extract IPs from specs or snapshot
+        const specsArray = Array.isArray(apiServer.specs) ? apiServer.specs : [];
+        const ipSpec = specsArray.find((s: any) => toStr(s.label, '').toLowerCase().includes('ip'));
+        const ips = ipSpec ? toNum(ipSpec.value, 1) : toNum(snapshotItem?.ips, 1);
+        
+        const id = snapshotItem?.id || crypto.randomUUID();
+        
+        if (isBM) {
+          return {
+            type: 'bm' as const,
+            id,
+            gpu,
+            gpuQty,
+            bmCpu: toStr(snapshotItem?.bmCpu, '2x Intel Xeon E5-2680v4 28c/56t 2.4GHz/3.3GHz - Disponível'),
+            bmRam: toStr(snapshotItem?.bmRam, '128GB'),
+            disks: hydrateDisks(snapshotItem?.disks),
+            trafficTb: toNum(snapshotItem?.trafficTb, 5),
+            ips,
+            qtyServers: toNum(apiServer.quantity, 1),
+          } as BMItemV2;
+        }
+        
+        // Extract specs for VM
+        const vcpuSpec = specsArray.find((s: any) => toStr(s.label, '').toLowerCase().includes('vcpu') || toStr(s.label, '').toLowerCase().includes('cpu'));
+        const ramSpec = specsArray.find((s: any) => toStr(s.label, '').toLowerCase().includes('ram'));
+        const nvmeSpec = specsArray.find((s: any) => toStr(s.label, '').toLowerCase().includes('nvme') || toStr(s.label, '').toLowerCase().includes('disco'));
+        
+        return {
+          type: 'vm' as const,
+          id,
+          gpu,
+          gpuQty,
+          vcpu: toNum(vcpuSpec?.value, snapshotItem?.vcpu ?? 16),
+          ramGb: toNum(ramSpec?.value, snapshotItem?.ramGb ?? 128),
+          nvmeTb: toNum(nvmeSpec?.value, snapshotItem?.nvmeTb ? snapshotItem.nvmeTb * 1024 : 100) / 1024, // Convert GB to TB
+          trafficTb: toNum(snapshotItem?.trafficTb, 5),
+          ips,
+          qtyServers: toNum(apiServer.quantity, 1),
+        } as VMItemV2;
+      });
+  } else if (hasDadosProposta && Array.isArray((dadosProposta as any).items)) {
+    // FALLBACK: Use snapshot items only if no API servers available
     state.items = hydrateServerItems((dadosProposta as any).items);
-  } else if (Array.isArray(apiProposal.servers)) {
-    state.items = hydrateServerItemsFromLegacy(apiProposal.servers as any[]);
   }
   
   // ============================================
