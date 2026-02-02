@@ -378,3 +378,159 @@ export const CONFIG_MAPPINGS = {
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
+
+// ============================================================================
+// CONFIG ID LOOKUP - Get config_id by category and label
+// ============================================================================
+
+/**
+ * Cache for flat config items to avoid repeated API calls
+ */
+let cachedFlatItems: CalculatorConfigFlatItem[] | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Load flat config items (with caching)
+ */
+async function loadFlatConfigs(): Promise<CalculatorConfigFlatItem[]> {
+  if (cachedFlatItems && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+    return cachedFlatItems;
+  }
+  
+  cachedFlatItems = await getCalculatorConfigsFlat();
+  cacheTimestamp = Date.now();
+  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items');
+  return cachedFlatItems;
+}
+
+/**
+ * Clear the config cache
+ */
+export function clearConfigCache(): void {
+  cachedFlatItems = null;
+  cacheTimestamp = 0;
+}
+
+/**
+ * Find config_id by category and label
+ * Returns the ID from calculator_configs table
+ */
+export async function findConfigId(
+  category: string,
+  label: string
+): Promise<number | null> {
+  const items = await loadFlatConfigs();
+  const catLower = category.toLowerCase().trim();
+  const labelLower = label.toLowerCase().trim();
+  
+  const item = items.find(i => 
+    i.meta.category.toLowerCase().trim() === catLower &&
+    i.label.toLowerCase().trim() === labelLower
+  );
+  
+  return item?.id ?? null;
+}
+
+/**
+ * Get all config IDs for VM components
+ * Returns { vcpu, ram, nvme, ip } IDs from calculator_configs
+ */
+export async function getVmConfigIds(): Promise<{
+  vcpu: number | null;
+  ram: number | null;
+  nvme: number | null;
+  ip: number | null;
+}> {
+  const items = await loadFlatConfigs();
+  const vmItems = items.filter(i => 
+    i.meta.category.toLowerCase() === 'vm' && 
+    i.meta.section.toLowerCase().includes('preços')
+  );
+  
+  let vcpu: number | null = null;
+  let ram: number | null = null;
+  let nvme: number | null = null;
+  let ip: number | null = null;
+  
+  for (const item of vmItems) {
+    const labelLower = item.label.toLowerCase();
+    if (labelLower === 'vcpu') vcpu = item.id;
+    else if (labelLower === 'ram') ram = item.id;
+    else if (labelLower === 'nvme') nvme = item.id;
+    else if (labelLower.includes('ip')) ip = item.id;
+  }
+  
+  console.log('[calculatorConfigService] VM Config IDs:', { vcpu, ram, nvme, ip });
+  return { vcpu, ram, nvme, ip };
+}
+
+/**
+ * Get config_id for a specific addon by label
+ */
+export async function getAddonConfigId(label: string): Promise<number | null> {
+  const items = await loadFlatConfigs();
+  const labelLower = label.toLowerCase().trim();
+  
+  // Try exact match first in Add-ons category
+  let item = items.find(i => 
+    i.meta.category.toLowerCase() === 'add-ons' &&
+    i.label.toLowerCase().trim() === labelLower
+  );
+  
+  // Try partial match
+  if (!item) {
+    item = items.find(i => 
+      i.meta.category.toLowerCase() === 'add-ons' &&
+      i.label.toLowerCase().includes(labelLower)
+    );
+  }
+  
+  return item?.id ?? null;
+}
+
+/**
+ * Get config_id for GPU by model name
+ */
+export async function getGpuConfigId(model: string): Promise<number | null> {
+  const items = await loadFlatConfigs();
+  const modelLower = model.toLowerCase().trim();
+  
+  const item = items.find(i => 
+    i.meta.category.toLowerCase() === 'gpu' &&
+    i.label.toLowerCase().trim() === modelLower
+  );
+  
+  return item?.id ?? null;
+}
+
+/**
+ * Get config_id for SQL Server by edition
+ */
+export async function getSqlConfigId(edition: string): Promise<number | null> {
+  const items = await loadFlatConfigs();
+  const editionLower = edition.toLowerCase().trim();
+  
+  const item = items.find(i => 
+    i.meta.category.toLowerCase() === 'sql server' &&
+    i.label.toLowerCase().includes(editionLower)
+  );
+  
+  return item?.id ?? null;
+}
+
+/**
+ * Get config_id for Backup by retention (7, 15, 30 days)
+ */
+export async function getBackupConfigId(retention: string): Promise<number | null> {
+  const items = await loadFlatConfigs();
+  const retentionLower = retention.toLowerCase().trim();
+  
+  const item = items.find(i => 
+    i.meta.category.toLowerCase() === 'backup' &&
+    (i.label.toLowerCase().includes(retentionLower) || 
+     i.meta.retention?.toLowerCase() === retentionLower)
+  );
+  
+  return item?.id ?? null;
+}
