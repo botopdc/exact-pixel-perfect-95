@@ -380,27 +380,26 @@ export const CONFIG_MAPPINGS = {
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
 
 // ============================================================================
-// CONFIG ID LOOKUP - Get config_id by category and label
+// CONFIG ID LOOKUP - Get config_id by category and label (FLAT API)
 // ============================================================================
 
 /**
- * Cache for flat config items to avoid repeated API calls
+ * Cache for flat config items - NO TTL, must be cleared explicitly
+ * This ensures we always have fresh data when making proposals
  */
 let cachedFlatItems: CalculatorConfigFlatItem[] | null = null;
-let cacheTimestamp = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Load flat config items (with caching)
+ * Load flat config items (direct from API, no caching by default)
+ * Set useCache=true to use cached data (useful for multiple lookups in same operation)
  */
-async function loadFlatConfigs(): Promise<CalculatorConfigFlatItem[]> {
-  if (cachedFlatItems && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+export async function loadFlatConfigs(useCache = false): Promise<CalculatorConfigFlatItem[]> {
+  if (useCache && cachedFlatItems) {
     return cachedFlatItems;
   }
   
   cachedFlatItems = await getCalculatorConfigsFlat();
-  cacheTimestamp = Date.now();
-  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items');
+  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items from API');
   return cachedFlatItems;
 }
 
@@ -409,7 +408,13 @@ async function loadFlatConfigs(): Promise<CalculatorConfigFlatItem[]> {
  */
 export function clearConfigCache(): void {
   cachedFlatItems = null;
-  cacheTimestamp = 0;
+}
+
+/**
+ * Get cached flat items (returns null if not loaded)
+ */
+export function getCachedFlatItems(): CalculatorConfigFlatItem[] | null {
+  return cachedFlatItems;
 }
 
 /**
@@ -467,9 +472,10 @@ export async function getVmConfigIds(): Promise<{
 
 /**
  * Get config_id for a specific addon by label
+ * Searches across all categories with flexible matching
  */
 export async function getAddonConfigId(label: string): Promise<number | null> {
-  const items = await loadFlatConfigs();
+  const items = await loadFlatConfigs(true);
   const labelLower = label.toLowerCase().trim();
   
   // Try exact match first in Add-ons category
@@ -478,11 +484,19 @@ export async function getAddonConfigId(label: string): Promise<number | null> {
     i.label.toLowerCase().trim() === labelLower
   );
   
-  // Try partial match
+  // Try partial match in Add-ons
   if (!item) {
     item = items.find(i => 
       i.meta.category.toLowerCase() === 'add-ons' &&
       i.label.toLowerCase().includes(labelLower)
+    );
+  }
+  
+  // Try global search with partial match
+  if (!item) {
+    item = items.find(i => 
+      i.label.toLowerCase().includes(labelLower) ||
+      labelLower.includes(i.label.toLowerCase())
     );
   }
   
@@ -493,7 +507,7 @@ export async function getAddonConfigId(label: string): Promise<number | null> {
  * Get config_id for GPU by model name
  */
 export async function getGpuConfigId(model: string): Promise<number | null> {
-  const items = await loadFlatConfigs();
+  const items = await loadFlatConfigs(true);
   const modelLower = model.toLowerCase().trim();
   
   const item = items.find(i => 
@@ -508,7 +522,7 @@ export async function getGpuConfigId(model: string): Promise<number | null> {
  * Get config_id for SQL Server by edition
  */
 export async function getSqlConfigId(edition: string): Promise<number | null> {
-  const items = await loadFlatConfigs();
+  const items = await loadFlatConfigs(true);
   const editionLower = edition.toLowerCase().trim();
   
   const item = items.find(i => 
@@ -523,7 +537,7 @@ export async function getSqlConfigId(edition: string): Promise<number | null> {
  * Get config_id for Backup by retention (7, 15, 30 days)
  */
 export async function getBackupConfigId(retention: string): Promise<number | null> {
-  const items = await loadFlatConfigs();
+  const items = await loadFlatConfigs(true);
   const retentionLower = retention.toLowerCase().trim();
   
   const item = items.find(i => 
@@ -533,4 +547,132 @@ export async function getBackupConfigId(retention: string): Promise<number | nul
   );
   
   return item?.id ?? null;
+}
+
+// ============================================================================
+// ADDON CONFIG ID MAP - Map frontend codes to API config_ids
+// ============================================================================
+
+/**
+ * Mapping of frontend addon codes to their expected API labels
+ * This is used to find the correct config_id for each addon type
+ */
+const ADDON_CODE_TO_LABELS: Record<string, string[]> = {
+  // Standard Add-ons
+  'antivirus': ['Antivírus', 'Antivirus'],
+  'firewall': ['Firewall (qtd)', 'Firewall pfSense', 'Firewall'],
+  'tsplus': ['TS PLUS', 'TSplus', 'TS Plus'],
+  'cal': ['CAL / TS-CAL', 'CAL', 'TS-CAL'],
+  'veeam_vm': ['Veeam Backup (VM)', 'Veeam VM'],
+  'veeam_agent': ['Veeam Agent (Workstation)', 'Veeam Agent'],
+  'winserver': ['WinServer(2vCPU/unid.)', 'Windows Server', 'WinServer'],
+  
+  // SQL Server editions
+  'sql_web': ['WEB (2vCPU)', 'SQL WEB', 'WEB'],
+  'sql_standard': ['STD (8vCPU)', 'SQL STD', 'STD', 'Standard'],
+  'sql_enterprise': ['Enterprise', 'SQL Enterprise'],
+  
+  // Backup plans (by retention days)
+  'backup_7': ['7 dias', 'Backup 7 dias', '7'],
+  'backup_15': ['15 dias', 'Backup 15 dias', '15'],
+  'backup_30': ['30 dias', 'Backup 30 dias', '30'],
+  
+  // Specialized Services
+  'support_basic': ['Suporte Básico', 'Básico'],
+  'support_intermediate': ['Suporte Intermediário', 'Intermediário'],
+  'support_advanced': ['Suporte Avançado', 'Avançado'],
+  'consulting': ['Consultoria Técnica', 'Consultoria'],
+  'dba': ['DBA'],
+  
+  // Independent products
+  'storage_sas': ['Storage SAS'],
+  'storage_nvme': ['SSD NVMe', 'NVMe'],
+  'storage_s3': ['S3 Object Storage', 'S3'],
+  'kubernetes': ['Kubernetes'],
+  'open_saas': ['OPEN SaaS', 'OpenSaaS'],
+};
+
+/**
+ * Get config_id for an addon by its frontend code
+ * Uses the ADDON_CODE_TO_LABELS mapping to find the correct API config_id
+ */
+export async function getAddonConfigIdByCode(code: string): Promise<number | null> {
+  const items = await loadFlatConfigs(true);
+  const labels = ADDON_CODE_TO_LABELS[code];
+  
+  if (!labels || labels.length === 0) {
+    console.warn(`[calculatorConfigService] No label mapping for addon code: ${code}`);
+    return null;
+  }
+  
+  // Try each label until we find a match
+  for (const label of labels) {
+    const labelLower = label.toLowerCase().trim();
+    
+    // Try exact match first
+    let item = items.find(i => 
+      i.label.toLowerCase().trim() === labelLower
+    );
+    
+    // Try partial match
+    if (!item) {
+      item = items.find(i => 
+        i.label.toLowerCase().includes(labelLower) ||
+        labelLower.includes(i.label.toLowerCase())
+      );
+    }
+    
+    if (item) {
+      console.log(`[calculatorConfigService] Found config_id ${item.id} for code "${code}" (label: "${item.label}")`);
+      return item.id;
+    }
+  }
+  
+  console.warn(`[calculatorConfigService] Could not find config_id for addon code: ${code}, tried labels:`, labels);
+  return null;
+}
+
+/**
+ * Build a complete addon config ID map for proposal serialization
+ * Returns a map of addon codes to their config_ids
+ */
+export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
+  const items = await loadFlatConfigs(false); // Force fresh load
+  const map: Record<string, number> = {};
+  
+  console.log('[calculatorConfigService] Building addon config ID map from', items.length, 'items');
+  
+  for (const [code, labels] of Object.entries(ADDON_CODE_TO_LABELS)) {
+    for (const label of labels) {
+      const labelLower = label.toLowerCase().trim();
+      
+      const item = items.find(i => 
+        i.label.toLowerCase().trim() === labelLower ||
+        i.label.toLowerCase().includes(labelLower)
+      );
+      
+      if (item) {
+        map[code] = item.id;
+        console.log(`  [map] ${code} -> ${item.id} (${item.label})`);
+        break; // Found a match, move to next code
+      }
+    }
+  }
+  
+  // Also add VM component IDs
+  const vmItems = items.filter(i => 
+    i.meta.category.toLowerCase() === 'vm' && 
+    i.meta.section.toLowerCase().includes('preços')
+  );
+  
+  for (const item of vmItems) {
+    const labelLower = item.label.toLowerCase();
+    if (labelLower === 'vcpu') map['vcpu'] = item.id;
+    else if (labelLower === 'ram') map['ram'] = item.id;
+    else if (labelLower === 'nvme') map['nvme'] = item.id;
+    else if (labelLower.includes('ip')) map['ip'] = item.id;
+  }
+  
+  console.log('[calculatorConfigService] Addon config ID map built:', map);
+  return map;
 }
