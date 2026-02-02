@@ -1379,6 +1379,7 @@ function localToApi(proposal: SavedProposal, addonConfigIdMap?: Record<string, n
         
         const server: any = {
           name: `VM #${idx + 1}`,
+          type: 'vm',
           specs,
           quantity: toNum(item.qtyServers, 1),
         };
@@ -1420,6 +1421,7 @@ function localToApi(proposal: SavedProposal, addonConfigIdMap?: Record<string, n
         
         const server: any = {
           name: `BareMetal #${idx + 1}`,
+          type: 'baremetal',
           specs,
           quantity: toNum(item.qtyServers, 1),
         };
