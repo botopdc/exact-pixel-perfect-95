@@ -1438,39 +1438,84 @@ function localToApi(proposal: SavedProposal, addonConfigIdMap?: Record<string, n
   }
   
   // ============================================
+  // STORAGE ITEMS - Added as servers with type: 'storage'
+  // ============================================
+  if (proposal.storageItems && Array.isArray(proposal.storageItems)) {
+    for (const [idx, storage] of proposal.storageItems.entries()) {
+      const volumeGb = toNum(storage.volumeGB, 0) || Math.round(toNum(storage.volumeTB, 0) * 1024);
+      if (volumeGb > 0) {
+        const specs: Array<{ config_id: number; value: number }> = [];
+        // Storage uses NVME config_id with the volume in GB
+        specs.push({ config_id: NVME_CONFIG_ID, value: volumeGb });
+        
+        serversArray.push({
+          name: storage.name || `Storage #${idx + 1}`,
+          type: 'storage',
+          specs,
+          quantity: toNum(storage.quantity, 1),
+        } as any);
+        console.log(`[SERIALIZE] Storage #${idx + 1}: volumeGb=${volumeGb}`);
+      }
+    }
+  }
+  
+  // ============================================
+  // KUBERNETES - Added as server with type: 'kubernetes'
+  // ============================================
+  if (proposal.kubernetes?.enabled) {
+    const k8s = proposal.kubernetes;
+    const specs: Array<{ config_id: number; value: number }> = [];
+    
+    // Add CPU and RAM specs for the Kubernetes cluster
+    const cpuCores = toNum(k8s.cpuCores, 0) || toNum(k8s.vcpu, 0);
+    const ramGb = toNum(k8s.ramGb, 0) || toNum(k8s.ram, 0);
+    
+    if (cpuCores > 0) specs.push({ config_id: VCPU_CONFIG_ID, value: cpuCores });
+    if (ramGb > 0) specs.push({ config_id: RAM_CONFIG_ID, value: ramGb });
+    
+    serversArray.push({
+      name: k8s.name || 'Kubernetes Cluster',
+      type: 'kubernetes',
+      specs: specs.length > 0 ? specs : [{ config_id: VCPU_CONFIG_ID, value: 1 }],
+      quantity: toNum(k8s.nodes, 1),
+    } as any);
+    console.log(`[SERIALIZE] Kubernetes: cpuCores=${cpuCores}, ramGb=${ramGb}, nodes=${k8s.nodes}`);
+  }
+  
+  // ============================================
+  // OPEN SAAS - Added as server with type: 'opensaas'
+  // ============================================
+  if (proposal.openSaas?.enabled && toNum(proposal.openSaas.users, 0) > 0) {
+    const saas = proposal.openSaas;
+    const specs: Array<{ config_id: number; value: number }> = [];
+    
+    // OpenSaas uses user count as the primary spec
+    specs.push({ config_id: VCPU_CONFIG_ID, value: 1 }); // Placeholder
+    
+    serversArray.push({
+      name: saas.name || 'OPEN SaaS',
+      type: 'opensaas',
+      specs,
+      quantity: toNum(saas.users, 1),
+    } as any);
+    console.log(`[SERIALIZE] OpenSaaS: users=${saas.users}`);
+  }
+  
+  // ============================================
   // WORKAROUND: API requires servers array to have at least 1 item
-  // When there are no VMs/BMs but there are independent products,
-  // add virtual server entries to satisfy API requirement
+  // When there are no VMs/BMs/Storage/K8s/SaaS, add placeholder
   // ============================================
   if (serversArray.length === 0) {
-    // Check for independent products
-    const hasStorage = (proposal.storageItems || []).some((s: any) => toNum(s.volumeTB, 0) > 0 || toNum(s.volumeGB, 0) > 0);
-    const hasK8s = proposal.kubernetes?.enabled;
-    const hasSaas = proposal.openSaas?.enabled && proposal.openSaas.users > 0;
-    
-    if (hasStorage || hasK8s || hasSaas) {
-      // Add virtual server placeholder with minimum specs
-      serversArray.push({
-        name: '__VIRTUAL__BUNDLE__:{}',
-        specs: [
-          { config_id: VCPU_CONFIG_ID, value: 1 },
-          { config_id: RAM_CONFIG_ID, value: 1 },
-        ],
-        quantity: 1,
-      });
-      console.log('[localToApi] Added virtual server for independent products');
-    } else {
-      // Fallback: add minimal placeholder
-      console.warn('[localToApi] No items found, adding virtual placeholder');
-      serversArray.push({
-        name: '__VIRTUAL__BUNDLE__:{}',
-        specs: [
-          { config_id: VCPU_CONFIG_ID, value: 1 },
-          { config_id: RAM_CONFIG_ID, value: 1 },
-        ],
-        quantity: 1,
-      });
-    }
+    console.warn('[localToApi] No items found, adding virtual placeholder');
+    serversArray.push({
+      name: '__VIRTUAL__BUNDLE__:{}',
+      type: 'vm', // Use 'vm' as default type for placeholder
+      specs: [
+        { config_id: VCPU_CONFIG_ID, value: 1 },
+        { config_id: RAM_CONFIG_ID, value: 1 },
+      ],
+      quantity: 1,
+    } as any);
   }
   
   console.log('[localToApi] Servers (FLAT format):', serversArray);
