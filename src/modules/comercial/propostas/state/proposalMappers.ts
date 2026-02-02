@@ -145,7 +145,7 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
   // ============================================
   // STEP 5: Extract server items (VMs / BareMetals)
   // CRITICAL: We use apiProposal.servers as the source of truth
-  // Priority: API server fields > dados_proposta.items (snapshot)
+  // Priority: API server specs[] > dados_proposta.items (snapshot)
   // ============================================
   if (Array.isArray(apiProposal.servers) && (apiProposal.servers as any[]).length > 0) {
     const apiServers = apiProposal.servers as any[];
@@ -170,16 +170,27 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
         
         console.log(`[HYDRATE] Server #${idx} name="${apiServer.name}" apiType="${apiType}" → isBM=${isBM}`);
         
+        // Parse specs[] array for custom fields
+        const specsArray = Array.isArray(apiServer.specs) ? apiServer.specs : [];
+        
+        // Helper to find custom spec by key
+        const findCustomSpec = (key: string): any => {
+          return specsArray.find((s: any) => s.key === key);
+        };
+        
         // ============================================
-        // GPU: Priority order - apiServer.gpu > snapshotItem.gpu
+        // GPU: Priority - specs[] custom keys > snapshot
         // ============================================
         let gpu = 'Sem GPU';
         let gpuQty = 0;
         
-        if (apiServer.gpu && typeof apiServer.gpu === 'object') {
-          gpu = apiServer.gpu.model || 'Sem GPU';
-          gpuQty = toNum(apiServer.gpu.quantity, 0);
-          console.log(`[HYDRATE] Server #${idx} GPU from API: model="${gpu}" qty=${gpuQty}`);
+        const gpuModelSpec = findCustomSpec('gpu_model');
+        const gpuQtySpec = findCustomSpec('gpu_qty');
+        
+        if (gpuModelSpec?.string_value) {
+          gpu = gpuModelSpec.string_value;
+          gpuQty = gpuQtySpec?.value || toNum(gpuQtySpec?.value, 1);
+          console.log(`[HYDRATE] Server #${idx} GPU from specs[]: model="${gpu}" qty=${gpuQty}`);
         } else if (snapshotItem?.gpu) {
           gpu = typeof snapshotItem.gpu === 'string' ? snapshotItem.gpu : 'Sem GPU';
           gpuQty = toNum(snapshotItem.gpuQty, 0);
@@ -187,34 +198,45 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
         }
         
         // ============================================
-        // IPs: Priority order - apiServer.ips > specs[] > snapshotItem.ips
+        // IPs: Priority - specs[] with config_id matching IP > snapshot
         // ============================================
-        const specsArray = Array.isArray(apiServer.specs) ? apiServer.specs : [];
         let ips = 1;
+        const ipSpec = specsArray.find((s: any) => 
+          toStr(s.label, '').toLowerCase().includes('ip') || 
+          (s.config_id && !s.key) // Assume numeric spec without key could be IP
+        );
         if (typeof apiServer.ips === 'number') {
           ips = apiServer.ips;
+        } else if (ipSpec) {
+          ips = toNum(ipSpec.value, 1);
         } else {
-          const ipSpec = specsArray.find((s: any) => toStr(s.label, '').toLowerCase().includes('ip'));
-          ips = ipSpec ? toNum(ipSpec.value, 1) : toNum(snapshotItem?.ips, 1);
+          ips = toNum(snapshotItem?.ips, 1);
         }
         
         const id = snapshotItem?.id || crypto.randomUUID();
         
         if (isBM) {
           // ============================================
-          // BareMetal: Priority order - apiServer > snapshotItem for bmCpu, bmRam, disks
+          // BareMetal: Priority - specs[] custom keys > snapshot
           // ============================================
-          const bmCpu = toStr(
-            apiServer.bmCpu || snapshotItem?.bmCpu, 
-            '2x Intel Xeon E5-2680v4 28c/56t 2.4GHz/3.3GHz - Disponível'
-          );
-          const bmRam = toStr(
-            apiServer.bmRam || snapshotItem?.bmRam, 
-            '128GB'
-          );
-          const disks = hydrateDisks(apiServer.disks || snapshotItem?.disks);
+          const bmCpuSpec = findCustomSpec('bm_cpu');
+          const bmRamSpec = findCustomSpec('bm_ram');
+          const bmDisksSpec = findCustomSpec('bm_disks');
           
-          console.log(`[HYDRATE] BareMetal #${idx}: bmCpu="${bmCpu}" bmRam="${bmRam}" disks=${JSON.stringify(disks)}`);
+          const bmCpu = bmCpuSpec?.string_value || toStr(snapshotItem?.bmCpu, '2x Intel Xeon E5-2680v4 28c/56t 2.4GHz/3.3GHz - Disponível');
+          const bmRam = bmRamSpec?.string_value || toStr(snapshotItem?.bmRam, '128GB');
+          
+          // Disks: parse from json_value or fallback to snapshot
+          let disks: DiskItemV2[] = [];
+          if (bmDisksSpec?.json_value) {
+            disks = hydrateDisks(bmDisksSpec.json_value);
+            console.log(`[HYDRATE] BareMetal #${idx} disks from specs[]: ${JSON.stringify(disks)}`);
+          } else if (snapshotItem?.disks) {
+            disks = hydrateDisks(snapshotItem.disks);
+            console.log(`[HYDRATE] BareMetal #${idx} disks from snapshot: ${JSON.stringify(disks)}`);
+          }
+          
+          console.log(`[HYDRATE] BareMetal #${idx}: bmCpu="${bmCpu}" bmRam="${bmRam}" disks=${disks.length}`);
           
           return {
             type: 'bm' as const,
@@ -231,42 +253,29 @@ export function hydrateProposalForEdit(apiProposal: Record<string, unknown>): Op
         }
         
         // ============================================
-        // VM: Priority order - apiServer legacy fields > specs[] > snapshotItem
+        // VM: Priority - specs[] with config_id > snapshot
         // ============================================
         let vcpu = 16;
         let ramGb = 128;
         let nvmeGb = 100;
         
-        // Try legacy fields first (from serialization)
-        if (typeof apiServer.vcpu === 'number' && apiServer.vcpu > 0) {
-          vcpu = apiServer.vcpu;
-        } else {
-          const vcpuSpec = specsArray.find((s: any) => 
-            toStr(s.label, '').toLowerCase().includes('vcpu') || 
-            toStr(s.label, '').toLowerCase().includes('cpu')
-          );
-          vcpu = vcpuSpec ? toNum(vcpuSpec.value, snapshotItem?.vcpu ?? 16) : toNum(snapshotItem?.vcpu, 16);
-        }
+        // Extract from specs[] array
+        const vcpuSpec = specsArray.find((s: any) => 
+          toStr(s.label, '').toLowerCase().includes('vcpu') || 
+          toStr(s.label, '').toLowerCase().includes('cpu')
+        );
+        const ramSpec = specsArray.find((s: any) => 
+          toStr(s.label, '').toLowerCase().includes('ram')
+        );
+        const nvmeSpec = specsArray.find((s: any) => 
+          toStr(s.label, '').toLowerCase().includes('nvme') || 
+          toStr(s.label, '').toLowerCase().includes('disco')
+        );
         
-        if (typeof apiServer.ram === 'number' && apiServer.ram > 0) {
-          ramGb = apiServer.ram;
-        } else {
-          const ramSpec = specsArray.find((s: any) => 
-            toStr(s.label, '').toLowerCase().includes('ram')
-          );
-          ramGb = ramSpec ? toNum(ramSpec.value, snapshotItem?.ramGb ?? 128) : toNum(snapshotItem?.ramGb, 128);
-        }
-        
-        if (typeof apiServer.storage === 'number' && apiServer.storage > 0) {
-          nvmeGb = apiServer.storage;
-        } else {
-          const nvmeSpec = specsArray.find((s: any) => 
-            toStr(s.label, '').toLowerCase().includes('nvme') || 
-            toStr(s.label, '').toLowerCase().includes('disco')
-          );
-          nvmeGb = nvmeSpec ? toNum(nvmeSpec.value, snapshotItem?.nvmeTb ? snapshotItem.nvmeTb * 1024 : 100) 
-                           : (snapshotItem?.nvmeTb ? snapshotItem.nvmeTb * 1024 : 100);
-        }
+        vcpu = vcpuSpec ? toNum(vcpuSpec.value, snapshotItem?.vcpu ?? 16) : toNum(snapshotItem?.vcpu, 16);
+        ramGb = ramSpec ? toNum(ramSpec.value, snapshotItem?.ramGb ?? 128) : toNum(snapshotItem?.ramGb, 128);
+        nvmeGb = nvmeSpec ? toNum(nvmeSpec.value, snapshotItem?.nvmeTb ? snapshotItem.nvmeTb * 1024 : 100) 
+                         : (snapshotItem?.nvmeTb ? snapshotItem.nvmeTb * 1024 : 100);
         
         console.log(`[HYDRATE] VM #${idx}: vcpu=${vcpu} ramGb=${ramGb} nvmeGb=${nvmeGb} gpu="${gpu}" gpuQty=${gpuQty}`);
         
@@ -806,37 +815,29 @@ export interface ApiAddonPayload {
 
 /**
  * Server spec for API (v12+ - FLAT structure)
- * Each spec is a pair of config_id + value
+ * Each spec is a pair of config_id + value OR custom key-value pairs
+ * 
+ * IMPORTANT: The API allows custom key-value pairs in specs[]
+ * We use this to persist GPU, BareMetal CPU/RAM/Disks
  */
 export interface ApiServerSpec {
-  config_id: number;      // ID of the calculator config item
-  value: number;          // Quantity/capacity of this component
+  config_id?: number;      // ID of the calculator config item (optional for custom specs)
+  value?: number;          // Quantity/capacity of this component
+  // Custom fields for roundtrip persistence
+  key?: string;            // Custom key for non-config specs (e.g., 'gpu_model', 'bm_cpu')
+  string_value?: string;   // String value for custom specs
+  json_value?: unknown;    // JSON value for complex data (e.g., disks array)
 }
 
 /**
  * Server payload for API (v12+ - FLAT structure)
- * Uses specs[] array with config_id + value pairs
+ * Uses specs[] array with config_id + value pairs AND custom key-value specs
  */
 export interface ApiServerPayload {
   name: string;           // Server name
   type: string;           // Server type: 'vm', 'baremetal', 'storage', 'kubernetes', 'opensaas'
   specs: ApiServerSpec[]; // Array of specifications with config IDs and values
   quantity: number;       // Number of identical servers
-  // Legacy fields (kept for backward compatibility with old API versions)
-  config_id?: number;
-  vcpu_item_id?: number;
-  vcpu?: number;
-  ram_item_id?: number;
-  ram?: number;
-  storage_item_id?: number;
-  storage?: number;
-  price?: number;
-  gpu?: { model: string; quantity: number };
-  ips?: number;
-  // BareMetal specific fields for dados_proposta snapshot
-  bmCpu?: string;
-  bmRam?: string;
-  disks?: Array<{ type: string; qty: number; desc?: string }>;
 }
 
 export interface ApiProposalPayload {
@@ -1149,6 +1150,7 @@ export function serializeProposal(
   
   // ============================================
   // BUILD SERVERS ARRAY (FLAT API v12+ format with type + specs[])
+  // CRITICAL: GPU, BareMetal CPU/RAM/Disks are stored as custom specs
   // ============================================
   const serversArray: ApiServerPayload[] = [];
   
@@ -1168,7 +1170,6 @@ export function serializeProposal(
 
   for (const [idx, item] of state.items.entries()) {
     const hasGpu = typeof item.gpu === 'string' && item.gpu !== '' && item.gpu !== 'Sem GPU' && item.gpuQty > 0;
-    const gpuObj = hasGpu ? { model: item.gpu, quantity: item.gpuQty } : undefined;
 
     if (hasGpu) {
       console.log(`[SERIALIZE] gpu.enabled=true model=${item.gpu} qty=${item.gpuQty}`);
@@ -1198,13 +1199,17 @@ export function serializeProposal(
         vmSpecs.push({ config_id: vmIpConfigId, value: item.ips });
       }
       
-      // GPU (if applicable - add to specs or keep as separate field)
-      if (hasGpu && gpuConfigId) {
-        // Find GPU model config ID
-        const gpuModelConfigId = findItemId(configIdStore?.gpu, item.gpu);
-        if (gpuModelConfigId) {
-          vmSpecs.push({ config_id: gpuModelConfigId, value: item.gpuQty });
+      // GPU - add as config_id if available, otherwise as custom spec
+      if (hasGpu) {
+        if (gpuConfigId) {
+          const gpuModelConfigId = findItemId(configIdStore?.gpu, item.gpu);
+          if (gpuModelConfigId) {
+            vmSpecs.push({ config_id: gpuModelConfigId, value: item.gpuQty });
+          }
         }
+        // ALWAYS add custom spec for GPU to ensure roundtrip
+        vmSpecs.push({ key: 'gpu_model', string_value: item.gpu });
+        vmSpecs.push({ key: 'gpu_qty', value: item.gpuQty });
       }
       
       serversArray.push({
@@ -1212,15 +1217,9 @@ export function serializeProposal(
         type: 'vm',
         specs: vmSpecs,
         quantity: item.qtyServers,
-        // Keep legacy fields for backward compatibility and dados_proposta
-        vcpu: item.vcpu,
-        ram: item.ramGb,
-        storage: Math.round(item.nvmeTb * 1024),
-        ips: item.ips,
-        gpu: gpuObj,
       });
       
-      console.log(`[SERIALIZE] VM #${idx + 1}: specs=${JSON.stringify(vmSpecs)} gpu=${JSON.stringify(gpuObj)}`);
+      console.log(`[SERIALIZE] VM #${idx + 1}: specs=${JSON.stringify(vmSpecs)}`);
       
     } else if (item.type === 'bm') {
       // Build specs[] array for BareMetal
@@ -1233,6 +1232,10 @@ export function serializeProposal(
           bmSpecs.push({ config_id: cpuItemId, value: 1 });
         }
       }
+      // ALWAYS add custom spec for BM CPU to ensure roundtrip
+      if (item.bmCpu) {
+        bmSpecs.push({ key: 'bm_cpu', string_value: item.bmCpu });
+      }
       
       // RAM Model
       if (bmRamConfigId && item.bmRam) {
@@ -1241,28 +1244,41 @@ export function serializeProposal(
           bmSpecs.push({ config_id: ramItemId, value: 1 });
         }
       }
-      
-      // Disks
-      if (bmDiskConfigId && Array.isArray(item.disks)) {
-        for (const disk of item.disks) {
-          const diskItemId = findItemId(configIdStore?.baremetal?.disk, disk.type);
-          if (diskItemId) {
-            bmSpecs.push({ config_id: diskItemId, value: disk.qty });
-          }
-        }
+      // ALWAYS add custom spec for BM RAM to ensure roundtrip
+      if (item.bmRam) {
+        bmSpecs.push({ key: 'bm_ram', string_value: item.bmRam });
       }
       
-      // IP Público (use VM IP config if BareMetal doesn't have its own)
+      // Disks - store both as config_id (if found) and as custom spec
+      if (Array.isArray(item.disks) && item.disks.length > 0) {
+        if (bmDiskConfigId) {
+          for (const disk of item.disks) {
+            const diskItemId = findItemId(configIdStore?.baremetal?.disk, disk.type);
+            if (diskItemId) {
+              bmSpecs.push({ config_id: diskItemId, value: disk.qty });
+            }
+          }
+        }
+        // ALWAYS add custom spec for disks array to ensure roundtrip
+        bmSpecs.push({ key: 'bm_disks', json_value: item.disks });
+      }
+      
+      // IP Público
       if (vmIpConfigId && item.ips > 0) {
         bmSpecs.push({ config_id: vmIpConfigId, value: item.ips });
       }
       
       // GPU
-      if (hasGpu && gpuConfigId) {
-        const gpuModelConfigId = findItemId(configIdStore?.gpu, item.gpu);
-        if (gpuModelConfigId) {
-          bmSpecs.push({ config_id: gpuModelConfigId, value: item.gpuQty });
+      if (hasGpu) {
+        if (gpuConfigId) {
+          const gpuModelConfigId = findItemId(configIdStore?.gpu, item.gpu);
+          if (gpuModelConfigId) {
+            bmSpecs.push({ config_id: gpuModelConfigId, value: item.gpuQty });
+          }
         }
+        // ALWAYS add custom spec for GPU to ensure roundtrip
+        bmSpecs.push({ key: 'gpu_model', string_value: item.gpu });
+        bmSpecs.push({ key: 'gpu_qty', value: item.gpuQty });
       }
       
       serversArray.push({
@@ -1270,15 +1286,9 @@ export function serializeProposal(
         type: 'baremetal',
         specs: bmSpecs,
         quantity: item.qtyServers,
-        // Keep BareMetal-specific fields for dados_proposta roundtrip
-        bmCpu: item.bmCpu,
-        bmRam: item.bmRam,
-        disks: item.disks,
-        ips: item.ips,
-        gpu: gpuObj,
       });
       
-      console.log(`[SERIALIZE] BareMetal #${idx + 1}: specs=${JSON.stringify(bmSpecs)} bmCpu=${item.bmCpu} bmRam=${item.bmRam} disks=${JSON.stringify(item.disks)} gpu=${JSON.stringify(gpuObj)}`);
+      console.log(`[SERIALIZE] BareMetal #${idx + 1}: specs=${JSON.stringify(bmSpecs)}`);
     }
   }
   
