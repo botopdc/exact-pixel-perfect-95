@@ -148,7 +148,28 @@ export interface ApiArticle {
   updated_at: string;
 }
 
-// Calculator config from API
+// Calculator config from API - NEW FLAT FORMAT
+// Each item in the API response is: { id, label, value, meta: { category, section, by, type, ... } }
+export interface CalculatorConfigFlatItem {
+  id: number;
+  label: string;
+  value: number;
+  meta: {
+    category: string;
+    section: string;
+    by?: string;
+    type?: string;
+    region?: string;
+    retention?: string;
+    min?: number;
+    max?: number;
+    description?: string;
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Transformed config for internal use
 export interface CalculatorConfigApiResponse {
   fx_default: number;
   discount: Record<string, number>;
@@ -175,7 +196,7 @@ export interface CalculatorConfigApiResponse {
     };
     nvme: { pricePerGB: number };
   };
-  kubernetes_pricing?: Record<string, { basePriceMonthly: number }>;
+  kubernetes_pricing?: Record<string, { basePriceMonthly: number; description?: string }>;
   kubernetes_addons_pricing?: Record<string, number>;
 }
 
@@ -325,17 +346,21 @@ class OpenApiClient {
 
   async getCalculatorConfig(): Promise<CalculatorConfigApiResponse> {
     // API returns paginated response with 'data' array
-    const response = await this.client.get<{ data: Array<{ category: string; section: string; config: unknown }> }>('/calculator/config', {
-      params: { __perPage: 100 }
+    // NEW FLAT FORMAT: each item is { id, label, value, meta: { category, section, by, type, ... } }
+    const response = await this.client.get<{ data: CalculatorConfigFlatItem[]; total?: number }>('/calculator/config', {
+      params: { __perPage: 500 } // Increased to ensure all items are fetched
     });
     
-    // Transform paginated config items into flat config object
+    console.log('[openApi] Calculator config raw response:', response.data.data?.length || 0, 'items');
+    
+    // Transform flat config items into structured config object
     const configItems = response.data.data || [];
-    return this.parseConfigItems(configItems);
+    return this.parseFlatConfigItems(configItems);
   }
 
-  // Parse config items from API into CalculatorConfigApiResponse
-  private parseConfigItems(items: Array<{ category: string; section: string; config: unknown }>): CalculatorConfigApiResponse {
+  // Parse FLAT config items from API into CalculatorConfigApiResponse
+  // NEW FORMAT: Each item has { id, label, value, meta: { category, section, ... } }
+  private parseFlatConfigItems(items: CalculatorConfigFlatItem[]): CalculatorConfigApiResponse {
     const config: CalculatorConfigApiResponse = {
       fx_default: 1.0, // Fixed at 1 - all prices are now in BRL
       discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.12, '48': 0.15 },
@@ -357,253 +382,219 @@ class OpenApiClient {
       // Initialize storage_pricing structure
       storage_pricing: {
         sas: {
-          br: { pricePerTB_1_10: 119, pricePerTB_11_100: 99, pricePerTB_101_500: 75, pricePerTB_501_1024: 55, pricePerTB_gt_1024: 45 },
-          usa: { pricePerTB_1_10: 99, pricePerTB_11_100: 79, pricePerTB_101_500: 55, pricePerTB_501_1024: 45, pricePerTB_gt_1024: 42 },
+          br: { pricePerTB_1_10: 0, pricePerTB_11_100: 0, pricePerTB_101_500: 0, pricePerTB_501_1024: 0, pricePerTB_gt_1024: 0 },
+          usa: { pricePerTB_1_10: 0, pricePerTB_11_100: 0, pricePerTB_101_500: 0, pricePerTB_501_1024: 0, pricePerTB_gt_1024: 0 },
         },
-        nvme: { pricePerGB: 0.90 },
+        nvme: { pricePerGB: 0 },
       },
+      kubernetes_pricing: {},
+      kubernetes_addons_pricing: {},
     };
 
-    for (const item of items) {
-      const category = String(item.category ?? '').trim().toLowerCase();
-      const section = String(item.section ?? '').trim().toLowerCase();
-      const configData = Array.isArray(item.config) ? (item.config as any[]) : [];
+    console.log('[openApi] Parsing', items.length, 'flat config items');
 
-      // Helper: get value from entry (API uses `value`, but accept `price` for backward compat)
-      const getValue = (entry: any, defaultValue: number = 0): number => {
-        return entry.value ?? entry.price ?? defaultValue;
-      };
+    for (const item of items) {
+      if (!item.meta) {
+        console.warn('[openApi] Config item missing meta:', item);
+        continue;
+      }
+
+      const category = String(item.meta.category ?? '').trim().toLowerCase();
+      const section = String(item.meta.section ?? '').trim().toLowerCase();
+      const label = String(item.label ?? '').trim();
+      const value = Number(item.value) || 0;
 
       switch (category) {
         case 'geral':
-          if (section === 'configurações gerais') {
-            // FX is now fixed at 1, ignore API value
-            config.fx_default = 1.0;
+          if (section === 'taxa de câmbio') {
+            // FX is now fixed at 1, but store it anyway
+            config.fx_default = value || 1.0;
           }
-          if (section === 'descontos por prazo') {
-            for (const entry of configData || []) {
-              const months = entry.label?.replace(' meses', '').replace(' mês', '');
-              if (months) config.discount[months] = getValue(entry) / 100;
+          if (section === 'descontos por vigência') {
+            // Parse "12 meses" or "1 mês" → key "12" or "1"
+            const months = label.replace(' meses', '').replace(' mês', '');
+            if (months) {
+              // Value is already percentage (e.g., 5 for 5%), convert to decimal
+              config.discount[months] = value / 100;
             }
           }
           break;
 
         case 'vm':
           if (section === 'preços de vm') {
-            for (const entry of configData || []) {
-              const v = getValue(entry);
-              if (entry.label === 'vCPU') config.vm_prices_brl.vcpu = v;
-              // CSV uses "RAM" with "by: GB", not "RAM por GB"
-              if (entry.label === 'RAM') config.vm_prices_brl.ram_per_gb = v;
-              // CSV uses "NVMe" with "by: GB", not "NVMe por GB"
-              if (entry.label === 'NVMe') config.vm_prices_brl.nvme_per_gb = v;
-              if (entry.label === 'IP Público') config.vm_prices_brl.ip_public = v;
-            }
+            if (label === 'vCPU') config.vm_prices_brl.vcpu = value;
+            if (label === 'RAM') config.vm_prices_brl.ram_per_gb = value;
+            if (label === 'NVMe') config.vm_prices_brl.nvme_per_gb = value;
+            if (label === 'IP Público') config.vm_prices_brl.ip_public = value;
           }
           break;
 
         case 'gpu':
-          for (const entry of configData || []) {
-            if (entry?.label) config.gpu_usd[entry.label] = getValue(entry);
+          if (section === 'preços de gpu' && label) {
+            config.gpu_usd[label] = value;
           }
           break;
-          
+
         case 'baremetal':
-          // Match case-insensitive section names
-          if (section === 'modelos de cpu') {
-            config.baremetal.cpu_models = (configData || []).map((e: any) => ({
-              id: e.label || '',
-              label: e.label || '',
-              price: getValue(e),
-            }));
-          }
-          // Match exact section name from API: "Opções de RAM"
-          if (section === 'opções de ram') {
-            config.baremetal.ram_tiers = (configData || []).map((e: any) => {
-              // Extract GB from label if not provided (e.g., "128GB" -> 128)
-              let gb = e.gb || 0;
-              if (!gb && e.label) {
-                const match = e.label.match(/^(\d+)GB$/i);
-                if (match) gb = parseInt(match[1], 10);
-              }
-              return {
-                id: e.label || '',
-                label: e.label || '',
-                gb,
-                price: getValue(e),
-              };
+          if (section === 'modelos de cpu' && label) {
+            config.baremetal.cpu_models.push({
+              id: String(item.id),
+              label,
+              price: value,
             });
           }
-          // Match exact section name from API: "Opções de Disco"
-          if (section === 'opções de disco') {
-            config.baremetal.disks = (configData || []).map((e: any) => {
-              // Extract TB from label if not provided (e.g., "1TB NVMe" -> 1)
-              let tb = e.tb || 0;
-              if (!tb && e.label) {
-                const match = e.label.match(/^(\d+)TB/i);
-                if (match) tb = parseInt(match[1], 10);
-              }
-              return {
-                id: e.label || '',
-                label: e.label || '',
-                tb,
-                price: getValue(e),
-              };
+          if (section === 'opções de ram' && label) {
+            // Extract GB from label if not provided (e.g., "128GB" -> 128)
+            let gb = 0;
+            const match = label.match(/^(\d+)GB$/i);
+            if (match) gb = parseInt(match[1], 10);
+            
+            config.baremetal.ram_tiers.push({
+              id: String(item.id),
+              label,
+              gb,
+              price: value,
+            });
+          }
+          if (section === 'opções de disco' && label) {
+            // Extract TB from label if not provided (e.g., "1TB NVMe" -> 1)
+            let tb = 0;
+            const match = label.match(/^(\d+)TB/i);
+            if (match) tb = parseInt(match[1], 10);
+            
+            config.baremetal.disks.push({
+              id: String(item.id),
+              label,
+              tb,
+              price: value,
             });
           }
           break;
-          
+
         case 'add-ons':
-          // Handle different Add-ons sections
-          if (section === 'serviços especializados') {
-            // ID 16 - Serviços Especializados
-            // Labels from API: support_basic, support_intermediate, support_advanced, consulting_hours, dba_hours
-            for (const entry of configData || []) {
-              if (entry.label) {
-                const v = getValue(entry);
-                // Map API labels directly to addons_brl keys
-                if (entry.label === 'support_basic') config.addons_brl.support_basic = v;
-                else if (entry.label === 'support_intermediate') config.addons_brl.support_intermediate = v;
-                else if (entry.label === 'support_advanced') config.addons_brl.support_advanced = v;
-                else if (entry.label === 'consulting_hours') config.addons_brl.consulting_hours = v;
-                else if (entry.label === 'dba_hours') config.addons_brl.dba_hours = v;
-              }
+          if (section === 'add-ons') {
+            // Map labels to technical keys
+            const technicalKey = ADDON_LABEL_TO_KEY[label] || label;
+            if (technicalKey !== 'sql') {
+              config.addons_brl[technicalKey] = value;
             }
-          } else if (section === 'windows server') {
-            // ID 17 - Windows Server (standalone config)
-            for (const entry of configData || []) {
-              if (entry.label === 'winserver_2vcpu_unit') {
-                config.addons_brl.winserver_2vcpu_unit = getValue(entry);
-              }
-            }
-          } else {
-            // ID 6 - Standard Add-ons
-            // Use technical keys, not visual labels
-            // NOTE: Preserve the sql object when adding other addons
-            for (const entry of configData || []) {
-              if (entry.label) {
-                const technicalKey = ADDON_LABEL_TO_KEY[entry.label] || entry.label;
-                // Don't overwrite sql object with a scalar
-                if (technicalKey !== 'sql') {
-                  config.addons_brl[technicalKey] = getValue(entry);
-                }
-              }
+          }
+          if (section === 'serviços especializados' && label) {
+            // Map API labels directly to addons_brl keys
+            config.addons_brl[label] = value;
+          }
+          if (section === 'windows server' && label) {
+            if (label === 'winserver_2vcpu_unit' || label === 'WinServer(2vCPU/unid.)') {
+              config.addons_brl.winserver_2vcpu_unit = value;
             }
           }
           break;
-          
-        case 'storage':
-          // Handle legacy "Preços de Storage"
-          if (section === 'preços de storage') {
-            if (!config.storage_prices) config.storage_prices = {};
-            for (const entry of configData || []) {
-              if (entry.label) config.storage_prices[entry.label] = getValue(entry);
-            }
-          }
-          // Handle new "Storage Avançado" or "Storage SAS" or "SSD NVMe"
-          if (section === 'storage avançado' || section === 'storage sas' || section === 'ssd nvme') {
-            // Ensure storage_pricing is initialized
-            if (!config.storage_pricing) {
-              config.storage_pricing = {
-                sas: {
-                  br: { pricePerTB_1_10: 119, pricePerTB_11_100: 99, pricePerTB_101_500: 75, pricePerTB_501_1024: 55, pricePerTB_gt_1024: 45 },
-                  usa: { pricePerTB_1_10: 99, pricePerTB_11_100: 79, pricePerTB_101_500: 55, pricePerTB_501_1024: 45, pricePerTB_gt_1024: 42 },
-                },
-                nvme: { pricePerGB: 0.90 },
-              };
-            }
-            
-            for (const entry of configData || []) {
-              const mapping = STORAGE_LABEL_TO_KEY[entry.label];
-              if (mapping) {
-                const v = getValue(entry);
-                if ('type' in mapping && mapping.type === 'nvme') {
-                  config.storage_pricing.nvme.pricePerGB = v;
-                } else if ('region' in mapping) {
-                  (config.storage_pricing.sas[mapping.region] as any)[mapping.tier] = v;
-                }
-              }
-            }
-          }
-          break;
-          
-        case 'kubernetes':
-          if (!config.kubernetes_pricing) config.kubernetes_pricing = {};
-          if (!config.kubernetes_addons_pricing) config.kubernetes_addons_pricing = {};
-          
-          if (section === 'planos kubernetes') {
-            for (const entry of configData || []) {
-              const v = getValue(entry);
-              config.kubernetes_pricing[entry.label] = { basePriceMonthly: v };
-            }
-          }
-          if (section === 'add-ons kubernetes') {
-            for (const entry of configData || []) {
-              const v = getValue(entry);
-              config.kubernetes_addons_pricing[entry.label] = v;
-            }
-          }
-          break;
-          
+
         case 'sql server':
-          // SQL prices go into addons_brl.sql
-          // Ensure sql is always an object (already initialized above, but defensive check)
-          if (!config.addons_brl.sql || typeof config.addons_brl.sql !== 'object') {
-            config.addons_brl.sql = {};
-          }
-          for (const entry of configData || []) {
-            if (entry.label) {
-              const sqlKey = entry.label.toLowerCase() === 'nenhum' ? 'none' : entry.label.toLowerCase();
-              (config.addons_brl.sql as Record<string, number>)[sqlKey] = getValue(entry);
-            }
+          if (label) {
+            const sqlKey = label.toLowerCase() === 'nenhum' ? 'none' : label.toLowerCase();
+            (config.addons_brl.sql as Record<string, number>)[sqlKey] = value;
           }
           break;
-          
-        case 'backup':
-          // Parse backup pricing table from API format
-          // Format: label = "7_dias_1_100" or "7_dias_501_plus", value = 0.5
-          for (const entry of configData || []) {
-            if (!entry.label) continue;
+
+        case 'storage':
+          if (section === 'storage sas') {
+            // Get region from meta
+            const region = String(item.meta.region ?? '').toLowerCase();
             
-            // Parse label like "7_dias_1_100" → retention=7, min=1, max=100
-            // Also handle "7_dias_501_plus" → retention=7, min=501, max=999999
-            const matchStandard = entry.label.match(/^(\d+)_dias_(\d+)_(\d+)$/);
-            const matchPlus = entry.label.match(/^(\d+)_dias_(\d+)_plus$/);
+            // Map labels to tier keys
+            let tierKey = '';
+            if (label === '1-10 TB') tierKey = 'pricePerTB_1_10';
+            else if (label === '11-100 TB') tierKey = 'pricePerTB_11_100';
+            else if (label === '101-500 TB') tierKey = 'pricePerTB_101_500';
+            else if (label === '501-1024 TB') tierKey = 'pricePerTB_501_1024';
+            else if (label === '>1024 TB') tierKey = 'pricePerTB_gt_1024';
             
-            let retention: string | null = null;
-            let min = 0;
-            let max = 0;
-            
-            if (matchStandard) {
-              retention = matchStandard[1];
-              min = parseInt(matchStandard[2], 10);
-              max = parseInt(matchStandard[3], 10);
-            } else if (matchPlus) {
-              retention = matchPlus[1];
-              min = parseInt(matchPlus[2], 10);
-              max = 999999; // "plus" means unlimited
+            if (tierKey) {
+              if (region === 'brasil' || region === 'br') {
+                (config.storage_pricing!.sas.br as any)[tierKey] = value;
+              } else if (region === 'estados unidos' || region === 'usa') {
+                (config.storage_pricing!.sas.usa as any)[tierKey] = value;
+              }
             }
+          }
+          if (section === 'ssd nvme' && (label === 'Preço por GB' || label === 'pricePerGB')) {
+            config.storage_pricing!.nvme.pricePerGB = value;
+          }
+          break;
+
+        case 'kubernetes':
+          if (section === 'preços base dos planos' && label) {
+            config.kubernetes_pricing![label] = { 
+              basePriceMonthly: value,
+              description: item.meta.description 
+            };
+          }
+          if (section === 'add-ons kubernetes' && label) {
+            config.kubernetes_addons_pricing![label] = value;
+          }
+          break;
+
+        case 'backup':
+          // Parse backup pricing from meta fields (retention, min, max) or label
+          if (section === 'backup por retenção') {
+            const retention = item.meta.retention?.replace(' dias', '') ?? '';
+            const min = item.meta.min ?? 0;
+            const max = item.meta.max ?? 999999;
             
             if (retention) {
-              const price = getValue(entry);
-              
               if (!config.backup_tables_brl_per_gb[retention]) {
                 config.backup_tables_brl_per_gb[retention] = [];
               }
-              
-              config.backup_tables_brl_per_gb[retention].push({ min, max, price });
+              config.backup_tables_brl_per_gb[retention].push({ min, max, price: value });
             }
-          }
-          
-          // Sort each retention's ranges by min value
-          for (const retention of Object.keys(config.backup_tables_brl_per_gb)) {
-            config.backup_tables_brl_per_gb[retention].sort((a, b) => a.min - b.min);
           }
           break;
       }
     }
 
+    // Sort backup ranges by min value
+    for (const retention of Object.keys(config.backup_tables_brl_per_gb)) {
+      config.backup_tables_brl_per_gb[retention].sort((a, b) => a.min - b.min);
+    }
+
+    console.log('[openApi] Parsed config:', {
+      vm: config.vm_prices_brl,
+      gpu_count: Object.keys(config.gpu_usd).length,
+      cpu_count: config.baremetal.cpu_models.length,
+      ram_count: config.baremetal.ram_tiers.length,
+      disk_count: config.baremetal.disks.length,
+    });
+
     return config;
+  }
+
+  // Legacy method for backwards compatibility - delegates to new parser
+  private parseConfigItems(items: Array<{ category: string; section: string; config: unknown }>): CalculatorConfigApiResponse {
+    // Convert old format to new flat format for parsing
+    const flatItems: CalculatorConfigFlatItem[] = [];
+    
+    for (const item of items) {
+      const category = item.category;
+      const section = item.section;
+      const configData = Array.isArray(item.config) ? (item.config as any[]) : [];
+      
+      for (const entry of configData) {
+        flatItems.push({
+          id: entry.id ?? 0,
+          label: entry.label ?? '',
+          value: entry.value ?? entry.price ?? 0,
+          meta: {
+            category,
+            section,
+            by: entry.by,
+            type: entry.type,
+          }
+        });
+      }
+    }
+    
+    return this.parseFlatConfigItems(flatItems);
   }
 
   // ============================================================================
