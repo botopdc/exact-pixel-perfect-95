@@ -49,6 +49,7 @@ export {
   type ApiProposalPayload,
   type ApiAddonPayload,
   type ApiServerPayload,
+  type ApiServerSpec,
 } from './proposalMappers';
 
 export {
