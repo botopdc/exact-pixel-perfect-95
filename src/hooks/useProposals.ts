@@ -225,6 +225,19 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
     // NEW FORMAT: Complete calculator state was saved - use it directly with normalization
     console.log('[apiToLocal] Using complete dados_proposta for proposal', apiProposal.id);
     
+    // ============================================
+    // CRITICAL: Build a type map from apiProposal.servers for authoritative type info
+    // The 'type' field in servers[] from API is the SOURCE OF TRUTH
+    // ============================================
+    const apiServers = (apiProposal.servers || []) as any[];
+    const apiServerTypeMap: Record<number, string> = {};
+    apiServers.forEach((srv: any, i: number) => {
+      if (srv.type) {
+        apiServerTypeMap[i] = srv.type.toLowerCase();
+      }
+    });
+    console.log('[apiToLocal] API server type map:', apiServerTypeMap);
+    
     // Normalize items to ensure all required fields exist (especially disks for BM)
     const normalizedItems = (dadosProposta.items || []).map((item: any, idx: number) => {
       // ============================================
@@ -243,10 +256,17 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       }
       
       // ============================================
-      // SERVER TYPE PRESERVATION: Check type field first, then fallback indicators
+      // SERVER TYPE DETECTION: Use API type as PRIMARY source, then snapshot, then fallbacks
       // ============================================
-      const isBM = item.type === 'bm' || 
-                   item.type === 'baremetal' || 
+      // Priority 1: Type from API servers[] (most authoritative)
+      const apiType = apiServerTypeMap[idx] || '';
+      
+      // Priority 2: Type from dados_proposta item
+      const snapshotType = (item.type || '').toLowerCase();
+      
+      // Determine if BareMetal
+      const isBM = apiType === 'bm' || apiType === 'baremetal' ||
+                   snapshotType === 'bm' || snapshotType === 'baremetal' ||
                    !!item.bmCpu || 
                    !!item.bmRam || 
                    (Array.isArray(item.disks) && item.disks.length > 0);
@@ -255,7 +275,7 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       // IPs PRESERVATION: Keep the original value (can be 0, 1, 2, 3, etc.)
       // ============================================
       const ips = typeof item.ips === 'number' ? item.ips : toNum(item.ips, 1);
-      console.log(`[EDIT] Server #${idx + 1} type=${isBM ? 'bm' : 'vm'} ips=${ips}`);
+      console.log(`[EDIT] Server #${idx + 1} apiType="${apiType}" snapshotType="${snapshotType}" → isBM=${isBM} ips=${ips}`);
 
       if (isBM) {
         return {
@@ -930,8 +950,15 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
       
       serversSubtotal += subtotal;
       
-      // Detect if VM or BareMetal based on name and specs
-      const isVM = serverName.toLowerCase().includes('vm') || vcpu > 0;
+      // ============================================
+      // CRITICAL: Detect if VM or BareMetal using 'type' field as PRIMARY source
+      // Fallback to name/spec detection ONLY for legacy data without type field
+      // ============================================
+      const serverType = (server.type || '').toLowerCase();
+      const isBM = serverType === 'bm' || serverType === 'baremetal';
+      const isVM = serverType === 'vm' || (!isBM && (serverName.toLowerCase().includes('vm') || vcpu > 0));
+      
+      console.log(`[apiToLocal] Server "${serverName}" type="${serverType}" → isBM=${isBM} isVM=${isVM}`);
       
       // ============================================
       // GPU RECONSTRUCTION: Extract GPU from server object
@@ -953,20 +980,8 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
         console.log(`[EDIT] GPU restored: model=${serverGpu} qty=${serverGpuQty}`);
       }
 
-      if (isVM) {
-        return {
-          type: 'vm' as const,
-          id: crypto.randomUUID(),
-          gpu: serverGpu,
-          gpuQty: serverGpuQty,
-          vcpu: vcpu || 16,
-          ramGb: ram || 128,
-          nvmeTb: (storage || 100) / 1024, // Convert GB to TB
-          trafficTb: 5,
-          ips: toNum(server.ips, 1),
-          qtyServers: quantity,
-        };
-      } else {
+      // CRITICAL: Use isBM (not isVM) to ensure proper type assignment
+      if (isBM) {
         return {
           type: 'bm' as const,
           id: crypto.randomUUID(),
@@ -977,6 +992,19 @@ export function apiToLocal(apiProposal: ApiProposal): SavedProposal {
           disks: Array.isArray(server.disks) && server.disks.length > 0 
             ? server.disks 
             : [{ type: 'nvme_1tb', qty: 1, desc: '' }],
+          trafficTb: 5,
+          ips: toNum(server.ips, 1),
+          qtyServers: quantity,
+        };
+      } else {
+        return {
+          type: 'vm' as const,
+          id: crypto.randomUUID(),
+          gpu: serverGpu,
+          gpuQty: serverGpuQty,
+          vcpu: vcpu || 16,
+          ramGb: ram || 128,
+          nvmeTb: (storage || 100) / 1024, // Convert GB to TB
           trafficTb: 5,
           ips: toNum(server.ips, 1),
           qtyServers: quantity,
