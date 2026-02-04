@@ -1,4 +1,4 @@
-import OpenCalculator from '@/components/OpenCalculator';
+import OpenCalculator from '@/components/OpenCalculatorNovo';
 
 export default function CalculadoraPage() {
   return (
