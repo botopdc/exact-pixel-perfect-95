@@ -86,6 +86,7 @@ export interface CalculatorProposal {
 
   /** Proposal status */
   status: ProposalStatus;
+  proposal_notes?: string;
 
   /** Channel information */
   channel_type: ChannelType;
@@ -116,9 +117,12 @@ export interface CalculatorProposal {
   deleted_at?: string;
 
   /** Relationships */
+  architect_id?: number;
+  architect?: UserRef;
   created_by?: number;
   creator?: UserRef;
   files?: CalculatorProposalFile[];
+
 }
 
 /** Request format for creating a proposal */

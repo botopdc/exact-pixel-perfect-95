@@ -1,27 +1,39 @@
 /**
  * Architect Selector Component
- * 
+ *
  * Dropdown for selecting a Solutions Architect (level 690) for a proposal.
  * Used in the OpenCalculator component for proposal creation/editing.
  */
 
-import { useState, useEffect } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Users, Info } from 'lucide-react';
-import { useUsers } from '@/hooks/useUsers';
-import { ApiUser } from '@/lib/openApi';
+import { useState, useEffect } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Users, Info } from "lucide-react";
+import { useUsers } from "@/hooks/useUsers";
+import { ApiUser } from "@/lib/openApi";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface ArchitectSelectorProps {
-  value: number | null;
-  onChange: (architectId: number | null) => void;
+  value?: number | null;
+  setValue?: (architectId: number | null) => void;
+  onChange?: (architectId: number | null) => void;
   disabled?: boolean;
 }
 
@@ -29,20 +41,28 @@ interface ArchitectSelectorProps {
 // COMPONENT
 // ============================================================================
 
-export function ArchitectSelector({ value, onChange, disabled = false }: ArchitectSelectorProps) {
+export function ArchitectSelector({
+  value,
+  onChange,
+  setValue,
+  disabled = false,
+}: ArchitectSelectorProps) {
   // Fetch users with level 690 (Arquiteto de Soluções)
   const { data: usersResponse, isLoading, error } = useUsers({ level: 690 });
-  
+
   const architects = (usersResponse?.data || []) as ApiUser[];
-  
+
   // Handle selection change
   const handleValueChange = (selectedValue: string) => {
-    if (selectedValue === 'none') {
-      onChange(null);
+    if (selectedValue === "none") {
+      onChange && onChange(null);
+      setValue && setValue(null);
     } else {
       const architectId = parseInt(selectedValue, 10);
+      console.log(architectId);
       if (!isNaN(architectId)) {
-        onChange(architectId);
+        onChange && onChange(architectId);
+        setValue && setValue(architectId);
       }
     }
   };
@@ -66,7 +86,9 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
           <Users className="h-4 w-4" />
           Arquiteto de Soluções
         </Label>
-        <div className="text-sm text-destructive">Erro ao carregar arquitetos</div>
+        <div className="text-sm text-destructive">
+          Erro ao carregar arquitetos
+        </div>
       </div>
     );
   }
@@ -87,7 +109,7 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
   }
 
   // Find selected architect name for display
-  const selectedArchitect = architects.find(a => a.id === value);
+  const selectedArchitect = architects.find((a) => a.id === value);
 
   return (
     <div className="space-y-2">
@@ -101,7 +123,8 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
               <p className="text-sm">
-                Selecione um Arquiteto de Soluções para participar desta proposta.
+                Selecione um Arquiteto de Soluções para participar desta
+                proposta.
                 <br />
                 <span className="text-muted-foreground">
                   Comissão: 12m = 1% | 24/36/48m = 0,5% do TCV
@@ -110,17 +133,21 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        {value && <Badge variant="secondary" className="ml-2 text-xs">Vinculado</Badge>}
+        {value && (
+          <Badge variant="secondary" className="ml-2 text-xs">
+            Vinculado
+          </Badge>
+        )}
       </Label>
-      
+
       <Select
-        value={value ? String(value) : 'none'}
+        value={value ? String(value) : "none"}
         onValueChange={handleValueChange}
         disabled={disabled}
       >
         <SelectTrigger className="w-full">
           <SelectValue placeholder="Selecione um arquiteto (opcional)">
-            {selectedArchitect ? selectedArchitect.name : 'Sem arquiteto'}
+            {selectedArchitect ? selectedArchitect.name : "Sem arquiteto"}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>

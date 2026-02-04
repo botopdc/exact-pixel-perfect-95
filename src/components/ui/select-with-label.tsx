@@ -18,7 +18,7 @@ export interface InputWithLabelProps {
   onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   label?: string | number;
   asNumber?: boolean;
-  options?: { label: string | number; value: string | number }[];
+  options?: ({ label: string | number; value: string | number })[];
 }
 
 export const SelectWithLabel = React.forwardRef<
