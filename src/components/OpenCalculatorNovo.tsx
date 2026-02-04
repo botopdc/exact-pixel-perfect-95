@@ -132,6 +132,7 @@ import { InputWithLabel } from "./ui/input-with-label";
 import { SelectWithLabel } from "./ui/select-with-label";
 import { OpenCard } from "./ui/open-card";
 import { ToggleOptions } from "./ui/toggle-options";
+import { TextareaWithLabel } from "./ui/textarea-with-label";
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -152,7 +153,20 @@ type FormData = CalculatorProposal & {
 const OpenCalculator: React.FC = () => {
   const { toast } = useToast();
   const { ...cConfig } = useCalculatorConfig();
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [collapsedItems, setCollapsedItems] = useState<Set<string>>(new Set());
+  const INITIAL_SERVERS = {
+    vm: {
+      type: "vm" as any,
+      name: "VM #1",
+      quantity: 1,
+      specs: [
+        { config_id: cConfig.ipPublico?.id || 0, quantity: 1 },
+        { config_id: cConfig.vcpu?.id || 0, quantity: 16 },
+        { config_id: cConfig.ram?.id || 0, quantity: 128 },
+        { config_id: cConfig.nvme?.id || 0, quantity: 100 },
+      ],
+    },
+  };
   const INITIAL_DATA: Partial<FormData> = {
     contract_duration: 12,
     datacenter: "SP1",
@@ -161,19 +175,7 @@ const OpenCalculator: React.FC = () => {
     addonSqlServer: cConfig.sqlNone?.key,
     addonSqlServerQty: 0,
     planK8s: null,
-    servers: [
-      {
-        type: "vm",
-        name: "VM #1",
-        quantity: 1,
-        specs: [
-          { config_id: cConfig.ipPublico?.id || 0, quantity: 1 },
-          { config_id: cConfig.vcpu?.id || 0, quantity: 16 },
-          { config_id: cConfig.ram?.id || 0, quantity: 128 },
-          { config_id: cConfig.nvme?.id || 0, quantity: 100 },
-        ],
-      },
-    ],
+    servers: [INITIAL_SERVERS.vm],
     addons: [
       { config_id: cConfig.antivirus?.id || 0, quantity: 0 },
       { config_id: cConfig.tsplus?.id || 0, quantity: 0 },
@@ -550,25 +552,21 @@ const OpenCalculator: React.FC = () => {
   const showArchitectSelector =
     !isPartnerContext && userContext.userLevel && userContext.userLevel >= 700;
 
-  // FX is now fixed at 1 (removed - all prices are BRL)
-
-  // Add VM
-  const addVM = useCallback(() => {
-    const newItem: VMItem = {
-      type: "vm",
-      id: crypto.randomUUID(),
-      gpu: "Sem GPU",
-      gpuQty: 0,
-      vcpu: 16,
-      ramGb: 128,
-      nvmeTb: 0.09765625, // 100GB = 100/1024 TB (stored in TB for calculation compatibility)
-      trafficTb: 5,
-      ips: 1,
-      qtyServers: 1,
-    };
-    setItems((prev) => [...prev, newItem]);
-    setExpandedItems((prev) => new Set([...prev, newItem.id]));
-  }, []);
+  function addServer(type: "vm" | "baremetal") {
+    form.setData({
+      ...form.data,
+      servers: [
+        ...form.data.servers,
+        {
+          ...INITIAL_SERVERS[type],
+          name: INITIAL_SERVERS[type].name.replace(
+            "#1",
+            `#${form.data.servers.length + 1}`,
+          ),
+        },
+      ],
+    });
+  }
 
   // Add BareMetal
   const addBM = useCallback(() => {
@@ -597,7 +595,6 @@ const OpenCalculator: React.FC = () => {
       qtyServers: 1,
     };
     setItems((prev) => [...prev, newItem]);
-    setExpandedItems((prev) => new Set([...prev, newItem.id]));
   }, [config, toast]);
 
   // Add Storage
@@ -626,14 +623,16 @@ const OpenCalculator: React.FC = () => {
     [],
   );
 
+  function removeServer(index: number) {
+    form.setData({
+      ...form.data,
+      servers: form.data.servers.filter((_, i) => i !== index),
+    });
+  }
+
   // Remove item
   const removeItem = useCallback((id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
-    setExpandedItems((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
   }, []);
 
   // Update item
@@ -708,7 +707,7 @@ const OpenCalculator: React.FC = () => {
 
   // Toggle expand
   const toggleExpand = useCallback((id: string) => {
-    setExpandedItems((prev) => {
+    setCollapsedItems((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -1438,7 +1437,6 @@ const OpenCalculator: React.FC = () => {
 
       // Expand all loaded items
       const allItemIds = allItems.map((item: any) => item.id);
-      setExpandedItems(new Set(allItemIds));
 
       // Mark as edit mode with API numeric ID (critical for updates)
       setIsEditMode(true);
@@ -1647,14 +1645,12 @@ const OpenCalculator: React.FC = () => {
 
       // Only add default VM for NEW proposals, not edits
       // Do NOT create default BareMetal when editing proposals without servers
-      addVM();
       setInitialized(true);
     }
   }, [
     configLoading,
     initialized,
     items.length,
-    addVM,
     location.state,
     toast,
     isUrlEditMode,
@@ -1806,9 +1802,6 @@ const OpenCalculator: React.FC = () => {
       });
       return;
     }
-    console.log("[OpenCalculator] Saving with selectedTerm=", selectedTerm);
-
-    setSaving(true);
     try {
       // Get owner info for tracking
       const ownerInfo = getOwnerInfo();
@@ -2460,47 +2453,37 @@ const OpenCalculator: React.FC = () => {
                 />
               </div>
 
-              {/* Architect Selector - only for internal users level 700+ */}
               {showArchitectSelector && (
-                <div className="mt-4 pt-4 border-t border-border">
-                  <ArchitectSelector
-                    value={selectedArchitectId}
-                    onChange={setSelectedArchitectId}
-                  />
-                </div>
+                <ArchitectSelector {...form.register("architect_id")} />
               )}
 
-              {/* Observação field */}
-              <div className="mt-4">
-                <LabelSecondary>Observação</LabelSecondary>
-                <textarea
-                  value={form.data.observations}
-                  onChange={(e) =>
-                    form.handleChange(
-                      e.target.value.slice(0, 2000),
-                      "observations",
-                    )
-                  }
-                  placeholder="Digite aqui informações relevantes para o cliente (escopo, premissas, prazos, ressalvas etc.)"
-                  className="w-full min-h-[100px] p-3 rounded-md bg-input border border-border text-foreground placeholder:text-muted-foreground resize-y"
-                  maxLength={2000}
-                />
-                <p className="text-xs text-muted-foreground mt-1 text-right">
-                  {form.data.observations?.length ?? 0}/2000 caracteres
-                </p>
-              </div>
+              <TextareaWithLabel
+                label="Observação"
+                {...form.register("proposal_notes")}
+                setValue={(v) =>
+                  form.handleChange(v.slice(0, 2000), "proposal_notes")
+                }
+                placeholder="Digite aqui informações relevantes para o cliente (escopo, premissas, prazos, ressalvas etc.)"
+                sub={`${form.data.proposal_notes?.length ?? 0}/2000 caracteres`}
+              />
             </OpenCard>
 
-            {/* Servers */}
-            <div className="open-card">
-              <SectionTitle>Servidores</SectionTitle>
+            <OpenCard title="Servidores">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex gap-2 flex-wrap">
-                  <Button variant="server-badge" size="badge" onClick={addVM}>
+                  <Button
+                    variant="server-badge"
+                    size="badge"
+                    onClick={() => addServer("vm")}
+                  >
                     <ProductIcon type="vm" size={14} className="text-white" />
                     <Plus className="w-3 h-3" /> VM
                   </Button>
-                  <Button variant="server-badge" size="badge" onClick={addBM}>
+                  <Button
+                    variant="server-badge"
+                    size="badge"
+                    onClick={() => addServer("baremetal")}
+                  >
                     <ProductIcon
                       type="baremetal"
                       size={14}
@@ -2550,31 +2533,36 @@ const OpenCalculator: React.FC = () => {
                   </Button>
                 </div>
               </div>
+
               {form.data.servers.map((server, idx) => (
                 <ServerVm
                   key={server.name}
                   form={form}
                   index={idx}
-                  expandedItems={expandedItems}
+                  collapsedItems={collapsedItems}
                   toggleExpand={toggleExpand}
                   server={server}
                   config={cConfig}
-                  remove={() => {}}
+                  remove={() => removeServer(idx)}
                   getServerSpecValue={getServerSpecValue}
                   onServerSpecChange={onServerSpecChange}
                 />
               ))}
-            </div>
+            </OpenCard>
 
             <div className="open-card">
               <SectionTitle>Servidores</SectionTitle>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex gap-2 flex-wrap">
-                  <Button variant="server-badge" size="badge" onClick={addVM}>
+                  <Button variant="server-badge" size="badge">
                     <ProductIcon type="vm" size={14} className="text-white" />
                     <Plus className="w-3 h-3" /> VM
                   </Button>
-                  <Button variant="server-badge" size="badge" onClick={addBM}>
+                  <Button
+                    variant="server-badge"
+                    size="badge"
+                    onClick={() => addServer("baremetal")}
+                  >
                     <ProductIcon
                       type="baremetal"
                       size={14}
@@ -2628,7 +2616,7 @@ const OpenCalculator: React.FC = () => {
               <div className="space-y-3">
                 {/* VM and BareMetal items */}
                 {items.map((item, idx) => {
-                  const isExpanded = expandedItems.has(item.id);
+                  const isExpanded = !collapsedItems.has(item.id);
                   const gpuOptions = Object.keys(config.gpu_usd);
                   const isEmptyVM = item.type === "vm" && !isVMValid(item);
 
@@ -4468,7 +4456,7 @@ export default OpenCalculator;
 
 const ServerVm = (props: {
   server: CalculatorProposalServer;
-  expandedItems: Set<string>;
+  collapsedItems: Set<string>;
   toggleExpand: (name: string) => void;
   remove: (name: string) => void;
   form: UseFormReturn<CalculatorProposal>;
@@ -4481,10 +4469,106 @@ const ServerVm = (props: {
     config: { id: number },
   ) => void;
 }) => {
+  const gpusIds = props.config?.gpus?.map((g) => g?.id);
+
+  function getGpuKey() {
+    const srv = props.form.data.servers[props.index];
+    const gpuSpec = srv.specs.find((spec) => gpusIds?.includes(spec.config_id));
+    if (!gpuSpec) return null;
+    const gpuConfig = props.config.gpus.find((g) => g.id === gpuSpec.config_id);
+    return gpuConfig?.key || null;
+  }
+
+  function onGpuChange(newKey: string) {
+    const srv = props.form.data.servers[props.index];
+    const hasGpuConfig = srv.specs.find((spec) =>
+      gpusIds?.includes(spec.config_id),
+    );
+
+    if (newKey === "none" && !!hasGpuConfig) {
+      // Remove GPU spec
+      props.form.setData({
+        ...props.form.data,
+        servers: props.form.data.servers.map((srv, idx) =>
+          idx === props.index
+            ? {
+                ...srv,
+                specs: srv.specs.filter(
+                  (spec) => !gpusIds?.includes(spec.config_id),
+                ),
+              }
+            : srv,
+        ),
+      });
+      return;
+    }
+
+    const config = props.config.gpus.find((g) => g.key === newKey);
+
+    if (!hasGpuConfig) {
+      // Add GPU spec
+      props.form.setData({
+        ...props.form.data,
+        servers: props.form.data.servers.map((srv, idx) =>
+          idx === props.index
+            ? {
+                ...srv,
+                specs: [
+                  ...srv.specs,
+                  { config_id: Number(config.id), quantity: 1 },
+                ],
+              }
+            : srv,
+        ),
+      });
+      return;
+    }
+
+    props.form.setData({
+      ...props.form.data,
+      servers: props.form.data.servers.map((srv, idx) =>
+        idx === props.index
+          ? {
+              ...srv,
+              specs: srv.specs.map((spec) =>
+                gpusIds?.includes(spec.config_id)
+                  ? { ...spec, config_id: Number(config.id) }
+                  : spec,
+              ),
+            }
+          : srv,
+      ),
+    });
+  }
+
+  function getGPU() {
+    const srv = props.form.data.servers[props.index];
+    const gpuSpec = srv.specs.find((spec) => gpusIds?.includes(spec.config_id));
+    return gpuSpec;
+  }
+
+  function setGPUQuantity(newQty: number) {
+    props.form.setData({
+      ...props.form.data,
+      servers: props.form.data.servers.map((srv, idx) =>
+        idx === props.index
+          ? {
+              ...srv,
+              specs: srv.specs.map((spec) =>
+                gpusIds?.includes(spec.config_id)
+                  ? { ...spec, quantity: newQty }
+                  : spec,
+              ),
+            }
+          : srv,
+      ),
+    });
+  }
+
   return (
     <BaseServer
       server={props.server}
-      expandedItems={props.expandedItems}
+      collapsedItems={props.collapsedItems}
       toggleExpand={props.toggleExpand}
       remove={props.remove}
     >
@@ -4518,11 +4602,26 @@ const ServerVm = (props: {
 
         <SelectWithLabel
           label="GPU"
-          options={props.config.gpus.map((config) => ({
-            label: config?.label,
-            value: config?.key,
-          }))}
+          setValue={onGpuChange}
+          value={getGpuKey()}
+          options={[{ label: "Sem GPU", value: "none" }].concat(
+            props.config.gpus.map((config) => ({
+              label: config?.label,
+              value: config?.key,
+            })),
+          )}
         />
+
+        {!!getGPU()?.config_id ? (
+          <InputWithLabel
+            type="number"
+            label="Qtd GPU"
+            value={getGPU()?.quantity || 0}
+            onChange={(e) => setGPUQuantity(parseInt(e.target.value) || 1)}
+          />
+        ) : (
+          <div></div>
+        )}
 
         <InputWithLabel
           type="number"
@@ -4564,12 +4663,12 @@ const ServerVm = (props: {
 
 const BaseServer = (props: {
   server: CalculatorProposalServer;
-  expandedItems: Set<string>;
+  collapsedItems: Set<string>;
   toggleExpand: (name: string) => void;
   remove: (name: string) => void;
   children?: React.ReactNode;
 }) => {
-  const isExpanded = props.expandedItems.has(props.server.name);
+  const isExpanded = !props.collapsedItems.has(props.server.name);
   const isEmptyVM = props.server.type === "vm" && false; //!isVMValid(item);
 
   return (
@@ -4631,7 +4730,7 @@ const BaseServer = (props: {
         </div>
       </div>
 
-      <div className="p-4 space-y-4">{props.children}</div>
+      {!!isExpanded && <div className="p-4 space-y-4">{props.children}</div>}
     </div>
   );
 };
