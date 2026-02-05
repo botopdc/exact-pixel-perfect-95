@@ -133,6 +133,7 @@ import { SelectWithLabel } from "./ui/select-with-label";
 import { OpenCard } from "./ui/open-card";
 import { ToggleOptions } from "./ui/toggle-options";
 import { TextareaWithLabel } from "./ui/textarea-with-label";
+import { useProposalCalculator } from "@/hooks/use-proposal-calculator";
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -196,6 +197,7 @@ const OpenCalculator: React.FC = () => {
       console.log(data);
     },
   });
+  const calc = useProposalCalculator({ proposal: form.data, config: cConfig });
 
   function getAddonValue(config: { id: number }) {
     return (
@@ -544,9 +546,6 @@ const OpenCalculator: React.FC = () => {
   const [selectedArchitectId, setSelectedArchitectId] = useState<number | null>(
     null,
   );
-
-  // Check if user can edit prices (markup)
-  const canEditMarkup = canEditPriceMarkup(userContext.userLevel);
 
   // Only show architect selector for internal users (not partners)
   const showArchitectSelector =
@@ -2134,23 +2133,6 @@ const OpenCalculator: React.FC = () => {
       setSendingEmail(false);
     }
   };
-
-  // Handle price override change from EditablePriceCell
-  const handleOverrideChange = useCallback(
-    (rowIndex: number, newTotal: number | null, rowKey?: string) => {
-      if (!rowKey) return;
-      setPriceOverrides((prev) => {
-        const next = { ...prev };
-        if (newTotal === null) {
-          delete next[rowKey];
-        } else {
-          next[rowKey] = newTotal;
-        }
-        return next;
-      });
-    },
-    [],
-  );
 
   // Add OPEN SaaS (only 1 allowed) - starts with minimum 5 users
   const addOpenSaas = useCallback(() => {
@@ -3774,6 +3756,7 @@ const OpenCalculator: React.FC = () => {
               <SectionTitle>Add-ons & Serviços</SectionTitle>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.antivirus?.label}
                   value={getAddonValue(cConfig.antivirus)}
                   onChange={(e) => onAddonChange(e, cConfig.antivirus)}
@@ -3781,6 +3764,7 @@ const OpenCalculator: React.FC = () => {
                 />
 
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.tsplus?.label}
                   value={getAddonValue(cConfig.tsplus)}
                   onChange={(e) => onAddonChange(e, cConfig.tsplus)}
@@ -3788,6 +3772,7 @@ const OpenCalculator: React.FC = () => {
                 />
 
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.cal?.label}
                   value={getAddonValue(cConfig.cal)}
                   onChange={(e) => onAddonChange(e, cConfig.cal)}
@@ -3795,6 +3780,7 @@ const OpenCalculator: React.FC = () => {
                 />
 
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.firewall?.label}
                   value={getAddonValue(cConfig.firewall)}
                   onChange={(e) => onAddonChange(e, cConfig.firewall)}
@@ -3817,6 +3803,7 @@ const OpenCalculator: React.FC = () => {
 
                 {form.data.addonSqlServer !== cConfig.sqlNone?.key && (
                   <InputWithLabel
+                    type="number"
                     label="Qtd Licenças SQL"
                     value={form.data.addonSqlServerQty}
                     onChange={(e) =>
@@ -3828,6 +3815,7 @@ const OpenCalculator: React.FC = () => {
 
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.veeamVm?.label}
                   value={getAddonValue(cConfig.veeamVm)}
                   onChange={(e) => onAddonChange(e, cConfig.veeamVm)}
@@ -3835,6 +3823,7 @@ const OpenCalculator: React.FC = () => {
                 />
 
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.veeamAgent?.label}
                   value={getAddonValue(cConfig.veeamAgent)}
                   onChange={(e) => onAddonChange(e, cConfig.veeamAgent)}
@@ -3844,6 +3833,7 @@ const OpenCalculator: React.FC = () => {
 
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <InputWithLabel
+                  type="number"
                   label={cConfig?.winserver2vcpuunid?.label}
                   value={getAddonValue(cConfig.winserver2vcpuunid)}
                   onChange={(e) => onAddonChange(e, cConfig.winserver2vcpuunid)}
@@ -3897,7 +3887,6 @@ const OpenCalculator: React.FC = () => {
                   Serviços Especializados
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Suporte - dropdown apenas, preço vem do Admin */}
                   <div className="p-3 border border-border rounded-lg bg-muted/20">
                     <LabelSecondary>Suporte</LabelSecondary>
                     <Select
@@ -3953,6 +3942,7 @@ const OpenCalculator: React.FC = () => {
 
                   <div className="p-3 border border-border rounded-lg bg-muted/20">
                     <InputWithLabel
+                      type="number"
                       label={cConfig?.consultoriaTecnica?.label}
                       value={getAddonValue(cConfig.consultoriaTecnica)}
                       onChange={(e) =>
@@ -3964,6 +3954,7 @@ const OpenCalculator: React.FC = () => {
 
                   <div className="p-3 border border-border rounded-lg bg-muted/20">
                     <InputWithLabel
+                      type="number"
                       label={cConfig?.dba?.label}
                       value={getAddonValue(cConfig.dba)}
                       onChange={(e) => onAddonChange(e, cConfig.dba)}
@@ -4218,28 +4209,39 @@ const OpenCalculator: React.FC = () => {
           {/* Right Column - Summary */}
           <div className="lg:sticky lg:top-24 space-y-6">
             <OpenCard title="Resumo">
-              {result && (
+              {calc.result && (
                 <>
                   {/* Summary rows with editable prices */}
                   <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4">
-                    {result.rows.map((row, idx) => (
+                    {calc.result.map((row, idx) => (
                       <div
-                        key={row.rowKey || idx}
+                        key={idx}
                         className="group flex justify-between items-center text-sm py-1 border-b border-border/50"
                       >
                         <span className="text-muted-foreground flex-1 pr-2">
-                          {row.label}
+                          {cConfig.findById(row.config_id)?.label}
                         </span>
                         <EditablePriceCell
                           rowIndex={idx}
-                          label={row.label}
-                          baseTotal={row.baseTotal || row.subtotal}
-                          currentTotal={row.finalTotal || row.subtotal}
-                          overrideTotal={row.overrideTotal || null}
-                          canEdit={canEditMarkup}
-                          onOverrideChange={(rowIdx, newTotal) =>
-                            handleOverrideChange(rowIdx, newTotal, row.rowKey)
-                          }
+                          label=""
+                          baseTotal={row.original_price}
+                          currentTotal={row.current_price}
+                          overrideTotal={row.current_price}
+                          canEdit={canEditPriceMarkup(userContext.userLevel)}
+                          onOverrideChange={(rowIdx, newTotal) => {
+                            console.log("Price override:", {
+                              rowIdx,
+                              newTotal,
+                            });
+                            calc.setResult((prev) => {
+                              const updated = [...prev];
+                              updated[rowIdx] = {
+                                ...updated[rowIdx],
+                                current_price: newTotal,
+                              };
+                              return updated;
+                            });
+                          }}
                         />
                       </div>
                     ))}
@@ -4252,7 +4254,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal Recursos
                       </span>
                       <span className="text-foreground">
-                        {formatCurrencyBRL(result.subRec)}
+                        {/* {formatCurrencyBRL(result.subRec)} */}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -4260,7 +4262,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal IPs
                       </span>
                       <span className="text-foreground">
-                        {formatCurrencyBRL(result.subIps)}
+                        {/* {formatCurrencyBRL(result.subIps)} */}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -4268,7 +4270,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal Serviços
                       </span>
                       <span className="text-foreground">
-                        {formatCurrencyBRL(result.subServices)}
+                        {/* {formatCurrencyBRL(result.subServices)} */}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -4276,10 +4278,10 @@ const OpenCalculator: React.FC = () => {
                         Subtotal Backup
                       </span>
                       <span className="text-foreground">
-                        {formatCurrencyBRL(result.subBackup)}
+                        {/* {formatCurrencyBRL(result.subBackup)} */}
                       </span>
                     </div>
-                    {(result.subKubernetes ?? 0) > 0 && (
+                    {/* {(result.subKubernetes ?? 0) > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
                           Subtotal Kubernetes
@@ -4288,8 +4290,8 @@ const OpenCalculator: React.FC = () => {
                           {formatCurrencyBRL(result.subKubernetes)}
                         </span>
                       </div>
-                    )}
-                    {(result.subStorage ?? 0) > 0 && (
+                    )} */}
+                    {/* {(result.subStorage ?? 0) > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
                           Subtotal Storage
@@ -4319,8 +4321,8 @@ const OpenCalculator: React.FC = () => {
                           -{formatCurrencyBRL(result.partnerDiscountValue)}
                         </span>
                       </div>
-                    )}
-                    <div className="flex justify-between text-sm">
+                    )} */}
+                    {/* <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Vigência</span>
                       <span className="text-foreground">
                         {selectedTerm}{" "}
@@ -4330,11 +4332,11 @@ const OpenCalculator: React.FC = () => {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Datacenter</span>
                       <span className="text-foreground">{datacenter}</span>
-                    </div>
+                    </div> */}
                   </div>
 
                   {/* Total */}
-                  <div className="py-4 border-t border-border">
+                  {/* <div className="py-4 border-t border-border">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-semibold text-foreground">
                         TOTAL MENSAL
@@ -4343,10 +4345,10 @@ const OpenCalculator: React.FC = () => {
                         {formatCurrencyBRL(result.grandTotal)}
                       </span>
                     </div>
-                  </div>
+                  </div> */}
 
                   {/* Comissão Parceiro section - only in PARCEIRO mode */}
-                  {reseller.viewMode === "INTERNO" &&
+                  {/* {reseller.viewMode === "INTERNO" &&
                     (result.overValue ?? 0) > 0 && (
                       <div className="py-3 border-t border-border space-y-2">
                         <div className="flex justify-between text-sm">
@@ -4372,22 +4374,22 @@ const OpenCalculator: React.FC = () => {
                           </div>
                         )}
                       </div>
-                    )}
+                    )} */}
 
                   {/* GPU info */}
-                  {(result.gpuUsdTotal ?? 0) > 0 && (
+                  {/* {(result.gpuUsdTotal ?? 0) > 0 && (
                     <div className="text-xs text-muted-foreground py-2 border-t border-border">
                       GPU: USD {formatCurrency(result.gpuUsdTotal)} × {fx} = R${" "}
                       {formatCurrency(result.gpuBrlTotal)}
                     </div>
-                  )}
+                  )} */}
                 </>
               )}
 
               {/* Actions */}
               <div className="space-y-2 pt-4 border-t border-border">
                 {/* Commission checkbox - only show if there's commission configured */}
-                {result && (result.overValue ?? 0) > 0 && (
+                {/* {result && (result.overValue ?? 0) > 0 && (
                   <div className="flex items-center gap-2 pb-2">
                     <input
                       type="checkbox"
@@ -4405,7 +4407,7 @@ const OpenCalculator: React.FC = () => {
                       Incluir comissão no PDF
                     </label>
                   </div>
-                )}
+                )} */}
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     variant="open-outline"

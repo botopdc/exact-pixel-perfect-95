@@ -71,18 +71,18 @@ export const EditablePriceCell: React.FC<EditablePriceCellProps> = ({
   // Validate and apply change
   const handleConfirm = () => {
     const newValue = parseBRLInput(inputValue);
-    
+
     // Validation rules
     if (newValue <= 0 || !Number.isFinite(newValue)) {
       setError('Valor inválido');
       return;
     }
-    
+
     if (newValue < baseTotal) {
       setError(`Mínimo: ${formatCurrencyBRL(baseTotal)}`);
       return;
     }
-    
+
     // Optional: cap at 10x base to prevent gross errors
     const maxAllowed = baseTotal * 10;
     if (newValue > maxAllowed) {
@@ -92,11 +92,11 @@ export const EditablePriceCell: React.FC<EditablePriceCellProps> = ({
 
     // Apply override (or clear if equal to base)
     if (Math.abs(newValue - baseTotal) < 0.01) {
-      onOverrideChange(rowIndex, null); // Clear override if equal to base
+      onOverrideChange(rowIndex, baseTotal); // Clear override if equal to base
     } else {
       onOverrideChange(rowIndex, newValue);
     }
-    
+
     setIsEditing(false);
     setError(null);
   };
@@ -120,7 +120,7 @@ export const EditablePriceCell: React.FC<EditablePriceCellProps> = ({
   // Clear override on double click when has override
   const handleClearOverride = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onOverrideChange(rowIndex, null);
+    onOverrideChange(rowIndex, baseTotal);
   };
 
   if (isEditing) {
