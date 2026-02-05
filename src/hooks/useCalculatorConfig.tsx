@@ -68,6 +68,10 @@ export function useCalculatorConfig() {
     loadAll();
   }, []);
 
+  function findById(id: number) {
+    return configs.find((config) => config.id === id);
+  }
+
   function findByKey(key: string) {
     return configs.find((config) => config.key === key);
   }
@@ -79,6 +83,7 @@ export function useCalculatorConfig() {
 
   return {
     configs,
+    findById,
     findByKey,
     filterByKey,
 
