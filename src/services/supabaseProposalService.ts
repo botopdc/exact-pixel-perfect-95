@@ -434,7 +434,9 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
 
   if (proposalError) {
     console.error('[supabaseProposalService] getProposalWithItems proposal error:', proposalError);
-    throw new Error(`Erro ao buscar proposta: ${proposalError.message}`);
+    throw new Error(
+      `Erro ao buscar proposta: ${proposalError.message} (code: ${proposalError.code || 'unknown'})`
+    );
   }
 
   if (!proposal) {
@@ -451,6 +453,9 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
 
   if (serversError) {
     console.error('[supabaseProposalService] getProposalWithItems servers error:', serversError);
+    throw new Error(
+      `Erro ao buscar itens (servers): ${serversError.message} (code: ${serversError.code || 'unknown'})`
+    );
   }
 
   // Fetch addons
@@ -462,9 +467,12 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
 
   if (addonsError) {
     console.error('[supabaseProposalService] getProposalWithItems addons error:', addonsError);
+    throw new Error(
+      `Erro ao buscar itens (addons): ${addonsError.message} (code: ${addonsError.code || 'unknown'})`
+    );
   }
 
-  // Fetch files
+  // Fetch files (non-blocking for edit)
   const { data: files, error: filesError } = await supabase
     .from('calculator_proposal_files')
     .select('*')

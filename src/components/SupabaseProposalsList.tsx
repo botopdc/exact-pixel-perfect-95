@@ -35,10 +35,7 @@ import { formatCurrency } from '@/lib/calculatorConfig';
 import {
   useSupabaseProposals,
   useDeleteSupabaseProposal,
-  useSupabaseProposal,
 } from '@/hooks/useSupabaseProposals';
-import { supabaseToCalculatorState } from '@/services/proposalFormatConverters';
-import { getProposalWithItems } from '@/services/supabaseProposalService';
 import type { CalculatorProposalRow } from '@/types/calculatorProposal';
 
 // Status badge helper
@@ -194,7 +191,7 @@ const SupabaseProposalsList: React.FC = () => {
     navigate(ROUTES.modulos.comercial.proposalView(proposalId));
   };
   
-  const handleEdit = async (proposal: CalculatorProposalRow) => {
+  const handleEdit = (proposal: CalculatorProposalRow) => {
     if (proposal.status === 'Aprovado') {
       toast({ title: 'Edição bloqueada', description: 'Propostas aprovadas não podem ser editadas', variant: 'destructive' });
       return;
@@ -203,40 +200,17 @@ const SupabaseProposalsList: React.FC = () => {
       toast({ title: 'Edição bloqueada', description: 'Propostas recusadas não podem ser editadas', variant: 'destructive' });
       return;
     }
-    
-    setEditingId(proposal.id);
-    
-    try {
-      // Fetch complete proposal with items from Supabase
-      const fullProposal = await getProposalWithItems(proposal.id);
-      
-      if (!fullProposal) {
-        toast({ title: 'Erro', description: 'Proposta não encontrada', variant: 'destructive' });
-        return;
-      }
-      
-      console.log('[SupabaseProposalsList] Loaded proposal for edit:', {
-        id: fullProposal.id,
-        serversCount: fullProposal.servers?.length || 0,
-        addonsCount: fullProposal.addons?.length || 0,
-      });
-      
-      // Convert to calculator state
-      const calculatorState = supabaseToCalculatorState(fullProposal);
-      
-      // Navigate to calculator with state
-      const editPath = getProposalEditRoute(proposal.id, false);
-      navigate(editPath, { state: { editProposal: calculatorState, supabaseId: proposal.id } });
-    } catch (error: any) {
-      console.error('[SupabaseProposalsList] Error loading proposal:', error);
-      toast({
-        title: 'Erro ao carregar proposta',
-        description: error.message || 'Falha ao buscar dados da proposta',
-        variant: 'destructive',
-      });
-    } finally {
-      setEditingId(null);
-    }
+
+    // REQUIRED DEBUG: ensure we always pass the Supabase UUID
+    const proposalId = proposal.id;
+    console.log('[EDIT NAV] supabase proposalId', proposalId);
+
+    setEditingId(proposalId);
+
+    // IMPORTANT: do NOT rely on navigation state for items/addons hydration.
+    // The calculator will fetch proposal + servers + addons directly from Supabase.
+    const editPath = getProposalEditRoute(proposalId, false);
+    navigate(editPath, { state: { supabaseId: proposalId } });
   };
   
   const handleDelete = async () => {
