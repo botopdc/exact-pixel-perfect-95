@@ -1111,7 +1111,13 @@ const OpenCalculator: React.FC = () => {
       consulting: supaAddons.consulting || { quantity: 0, unitPrice: 200 },
       dba: supaAddons.dba || { quantity: 0, unitPrice: 250 },
     });
-    
+
+    // REQUIRED DEBUG: log what we just applied (avoid relying on async React state)
+    console.log('[EDIT APPLY] items/addons', {
+      items: convertedItems.length,
+      addons: Object.keys(supaAddons || {}).length,
+    });
+
     // Apply Kubernetes
     if (supabaseState.kubernetes) {
       setKubernetes({
@@ -1191,19 +1197,31 @@ const OpenCalculator: React.FC = () => {
     // This is the PRIMARY source of truth for edit mode
     if (isUrlEditMode && urlIdParam) {
       console.log('[OpenCalculator] EDIT_MODE_DETECTED via URL:', { edit: urlEditParam, id: urlIdParam });
-      
+      console.log('[EDIT LOAD] proposalId', urlIdParam);
+
       // Check if we have proposal data from navigation state (optimization)
       const editProposalFromState = location.state?.editProposal;
       const supabaseIdFromState = location.state?.supabaseId;
-      
-      // SUPABASE PATH: If we have supabaseId, use Supabase-specific hydration
+
+      // SUPABASE PATH: If we have a hydrated state AND it actually contains items,
+      // we can use it. Otherwise, fallback to a fetch to avoid "empty calculator".
       if (supabaseIdFromState && editProposalFromState?.flags?.isHydrated) {
-        console.log('[OpenCalculator] SUPABASE_HYDRATION: Using OpenCalculatorState from navigation');
-        initializedEditModeRef.current = true;
-        applySupabaseState(editProposalFromState, supabaseIdFromState);
-        return;
+        const itemsCount = editProposalFromState.items?.length || 0;
+        const storageCount = editProposalFromState.storageItems?.length || 0;
+
+        if (itemsCount > 0 || storageCount > 0) {
+          console.log('[OpenCalculator] SUPABASE_HYDRATION: Using OpenCalculatorState from navigation');
+          initializedEditModeRef.current = true;
+          applySupabaseState(editProposalFromState, supabaseIdFromState);
+          return;
+        }
+
+        console.warn('[OpenCalculator] SUPABASE_HYDRATION state is empty — falling back to fetch', {
+          supabaseIdFromState,
+          itemsCount,
+          storageCount,
+        });
       }
-      
       if (editProposalFromState) {
         // We have proposal data from navigation - use it directly
         console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_STATE');
@@ -1232,22 +1250,45 @@ const OpenCalculator: React.FC = () => {
         // SUPABASE PATH: Fetch from Supabase and apply directly
         const fetchFromSupabase = async () => {
           try {
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'unknown';
+            const { supabase } = await import('@/integrations/supabase/client');
+            const { data: authData, error: authError } = await supabase.auth.getUser();
+
+            console.log('[EDIT LOAD] supabase context', {
+              supabaseUrl: `${supabaseUrl.substring(0, 30)}...`,
+              hasUser: !!authData?.user,
+              userId: authData?.user?.id?.substring(0, 8) || null,
+              authError: authError?.message || null,
+            });
+
             const { getProposalWithItems } = await import('@/services/supabaseProposalService');
             const { supabaseToCalculatorState } = await import('@/services/proposalFormatConverters');
-            
+
+            console.log('[EDIT LOAD] proposalId', urlIdParam);
+
             const proposal = await getProposalWithItems(urlIdParam);
-            
+
             if (!proposal) {
               throw new Error('Proposta não encontrada no Supabase');
             }
-            
-            console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_SUPABASE:', {
-              id: proposal.id,
-              serversCount: proposal.servers?.length || 0,
-              addonsCount: proposal.addons?.length || 0,
-              total: proposal.total,
-            });
-            
+
+            const serversCount = proposal.servers?.length || 0;
+            const addonsCount = proposal.addons?.length || 0;
+
+            console.log('[EDIT LOAD] counts', { servers: serversCount, addons: addonsCount });
+            console.log('[EDIT LOAD] firstServer', proposal.servers?.[0]);
+            console.log('[EDIT LOAD] firstAddon', proposal.addons?.[0]);
+
+            if (serversCount === 0 && addonsCount === 0) {
+              // REQUIRED: differentiate "empty" from silent failure
+              console.error('[EDIT LOAD] Supabase returned 0 items for this proposal', {
+                proposalId: urlIdParam,
+                total: proposal.total,
+                status: proposal.status,
+              });
+              alert('Supabase retornou 0 itens para esta proposta. Verifique proposalId/RLS.');
+            }
+
             const calculatorState = supabaseToCalculatorState(proposal);
             applySupabaseState(calculatorState, urlIdParam);
           } catch (error: any) {
