@@ -1,8 +1,8 @@
 /**
  * Supabase Proposals List Component
  * 
- * This component displays proposals from Supabase (the source of truth).
- * It replaces the API-based proposal list for the new proposal system.
+ * This component displays proposals using Edge Functions with Service Role.
+ * The CORE auth token is passed to the Edge Functions for authorization.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -33,10 +33,10 @@ import { authService } from '@/services/authService';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import {
-  useSupabaseProposals,
-  useDeleteSupabaseProposal,
-} from '@/hooks/useSupabaseProposals';
-import type { CalculatorProposalRow } from '@/types/calculatorProposal';
+  useProposalList,
+  useDeleteProposal,
+} from '@/hooks/useProposalApi';
+import type { ProposalRow } from '@/services/proposalApi';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -137,9 +137,9 @@ const SupabaseProposalsList: React.FC = () => {
     setCurrentPage(1);
   }, [statusFilter, perPage]);
   
-  // Fetch proposals - NOTE: status filter is handled in the service
-  const { data, isLoading, error: queryError, refetch } = useSupabaseProposals(currentPage, {
-    status: statusFilter, // Pass as-is, service handles 'all' check
+  // Fetch proposals via Edge Function (uses Service Role, no RLS issues)
+  const { data, isLoading, error: queryError, refetch } = useProposalList(currentPage, {
+    status: statusFilter === 'all' ? undefined : statusFilter,
     search: debouncedSearch || undefined,
     limit: perPage,
   });
@@ -150,37 +150,40 @@ const SupabaseProposalsList: React.FC = () => {
       console.error('[SupabaseProposalsList] Query error:', queryError);
       toast({
         title: 'Erro ao carregar propostas',
-        description: queryError.message || 'Falha na comunicação com o banco de dados',
+        description: queryError.message || 'Falha na comunicação com o servidor',
         variant: 'destructive',
       });
     }
   }, [queryError, toast]);
   
+  // Handle API-level errors (when success=false)
+  useEffect(() => {
+    if (data && !data.success && data.error) {
+      console.error('[SupabaseProposalsList] API error:', data.error);
+      toast({
+        title: 'Erro na API',
+        description: data.error,
+        variant: 'destructive',
+      });
+    }
+  }, [data, toast]);
+  
   const proposals = data?.proposals || [];
+  const totalPages = data?.total ? Math.ceil(data.total / perPage) : 1;
   const pagination = {
     currentPage: data?.page || 1,
-    lastPage: data?.totalPages || 1,
+    lastPage: totalPages,
     total: data?.total || 0,
   };
   
-  // Track if we have a real RLS/auth issue vs just empty data
-  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'no-session'>('checking');
+  // Check if CORE token exists
+  const hasCoreToken = !!(
+    localStorage.getItem('open_token') || 
+    localStorage.getItem('auth_token') || 
+    localStorage.getItem('token')
+  );
   
-  useEffect(() => {
-    const checkSupabaseAuth = async () => {
-      const { supabase } = await import('@/integrations/supabase/client');
-      const { data: authData } = await supabase.auth.getUser();
-      if (authData?.user) {
-        setAuthStatus('authenticated');
-      } else {
-        setAuthStatus('no-session');
-        console.warn('[SupabaseProposalsList] No Supabase session - RLS may block reads');
-      }
-    };
-    checkSupabaseAuth();
-  }, []);
-  
-  const deleteProposalMutation = useDeleteSupabaseProposal();
+  const deleteProposalMutation = useDeleteProposal();
   
   // State for actions
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
@@ -191,7 +194,7 @@ const SupabaseProposalsList: React.FC = () => {
     navigate(ROUTES.modulos.comercial.proposalView(proposalId));
   };
   
-  const handleEdit = (proposal: CalculatorProposalRow) => {
+  const handleEdit = (proposal: ProposalRow) => {
     if (proposal.status === 'Aprovado') {
       toast({ title: 'Edição bloqueada', description: 'Propostas aprovadas não podem ser editadas', variant: 'destructive' });
       return;
@@ -207,8 +210,7 @@ const SupabaseProposalsList: React.FC = () => {
 
     setEditingId(proposalId);
 
-    // IMPORTANT: do NOT rely on navigation state for items/addons hydration.
-    // The calculator will fetch proposal + servers + addons directly from Supabase.
+    // Navigate to edit - calculator will fetch via Edge Function
     const editPath = getProposalEditRoute(proposalId, false);
     navigate(editPath, { state: { supabaseId: proposalId } });
   };
@@ -310,12 +312,12 @@ const SupabaseProposalsList: React.FC = () => {
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : authStatus === 'no-session' && proposals.length === 0 ? (
+          ) : !hasCoreToken && proposals.length === 0 ? (
             <div className="text-center py-12">
               <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-6 max-w-md mx-auto">
-                <p className="text-orange-600 font-medium">Sem sessão Supabase / acesso negado (RLS)</p>
+                <p className="text-orange-600 font-medium">Token CORE não encontrado</p>
                 <p className="text-sm text-muted-foreground mt-2">
-                  As propostas estão no banco, mas você precisa estar autenticado no Supabase para visualizá-las.
+                  Faça login no sistema para visualizar as propostas.
                 </p>
               </div>
             </div>

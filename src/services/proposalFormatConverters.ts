@@ -543,3 +543,205 @@ export function rowToSavedProposal(row: CalculatorProposalWithRelations): any {
     },
   };
 }
+
+// ============================================================================
+// EDGE FUNCTION RESPONSE → CALCULATOR STATE (for hydrating edit mode)
+// ============================================================================
+
+import type { ProposalGetResult, ProposalServer, ProposalAddon } from '@/services/proposalApi';
+
+/**
+ * Converts Edge Function response to OpenCalculatorState.
+ * This is similar to supabaseToCalculatorState but works with the API response types.
+ */
+export function edgeFunctionToCalculatorState(result: ProposalGetResult): OpenCalculatorState {
+  console.log('[edgeFunctionToCalculatorState] Converting proposal:', result.proposal.id);
+
+  const proposal = result.proposal;
+  const servers = result.servers || [];
+  const addonsArr = result.addons || [];
+
+  // Convert servers to items
+  const items: ServerItemV2[] = servers
+    .filter((s) => s.server_type !== 'storage')
+    .map((server) => {
+      if (server.server_type === 'bm') {
+        // Map disks with required 'desc' field
+        const disks = Array.isArray(server.disks) 
+          ? (server.disks as Array<{ type: string; qty: number; desc?: string }>).map(d => ({
+              type: d.type,
+              qty: d.qty,
+              desc: d.desc || '',
+            }))
+          : [{ type: 'nvme_1tb', qty: 1, desc: '' }];
+        
+        const bmItem: BMItemV2 = {
+          type: 'bm',
+          id: server.id || crypto.randomUUID(),
+          gpu: server.gpu || 'Sem GPU',
+          gpuQty: server.gpu_qty || 0,
+          bmCpu: server.bm_cpu || 'intel_xeon_e2136',
+          bmRam: server.bm_ram || 'ram_128gb',
+          disks,
+          trafficTb: server.traffic_tb || 5,
+          ips: server.ips || 1,
+          qtyServers: server.qty_servers || 1,
+        };
+        return bmItem;
+      }
+
+      const vmItem: VMItemV2 = {
+        type: 'vm',
+        id: server.id || crypto.randomUUID(),
+        gpu: server.gpu || 'Sem GPU',
+        gpuQty: server.gpu_qty || 0,
+        vcpu: server.vcpu || 16,
+        ramGb: server.ram_gb || 128,
+        nvmeTb: server.nvme_tb || 0.09765625,
+        trafficTb: server.traffic_tb || 5,
+        ips: server.ips || 1,
+        qtyServers: server.qty_servers || 1,
+      };
+      return vmItem;
+    });
+
+  // Convert storage servers to storageItems
+  const storageItems: StorageItemV2[] = servers
+    .filter((s) => s.server_type === 'storage')
+    .map((server) => {
+      let storageType: 'sas' | 's3' | 'nvme' = 'sas';
+      if (server.storage_type === 'nvme') storageType = 'nvme';
+      else if (server.storage_type === 's3') storageType = 's3';
+      
+      let region: 'BR' | 'USA' = 'BR';
+      if (server.storage_region === 'USA' || server.storage_region === 'US') region = 'USA';
+      
+      return {
+        id: server.id || crypto.randomUUID(),
+        storageType,
+        region,
+        volumeTB: server.volume_tb || 1,
+      };
+    });
+
+  // Convert addons
+  const addonsMap: Record<string, ProposalAddon> = {};
+  addonsArr.forEach((addon) => {
+    addonsMap[addon.addon_key] = addon;
+  });
+
+  // Map addons to state format
+  const addons: AddonsStateV2 = {
+    backupPlan: (addonsMap['backup']?.metadata as any)?.plan || 'none',
+    backupGb: addonsMap['backup']?.quantity || 0,
+    antivirus: addonsMap['antivirus']?.quantity || 0,
+    firewall: addonsMap['firewall']?.quantity || 0,
+    tsplus: addonsMap['tsplus']?.quantity || 0,
+    cal: addonsMap['cal']?.quantity || 0,
+    sql: (addonsMap['sql']?.metadata as any)?.edition || 'none',
+    sqlQty: addonsMap['sql']?.quantity || 0,
+    veeamVm: addonsMap['veeam_vm']?.quantity || 0,
+    veeamAg: addonsMap['veeam_ag']?.quantity || 0,
+    winserver: addonsMap['winserver']?.quantity || 0,
+    support: {
+      level: (addonsMap['support']?.metadata as any)?.level || 'none',
+      price: addonsMap['support']?.unit_price || 0,
+    },
+    consulting: {
+      quantity: addonsMap['consulting']?.quantity || 0,
+      unitPrice: addonsMap['consulting']?.unit_price || 200,
+    },
+    dba: {
+      quantity: addonsMap['dba']?.quantity || 0,
+      unitPrice: addonsMap['dba']?.unit_price || 250,
+    },
+    customAddons: {},
+  };
+
+  // Build kubernetes state
+  const k8sAddon = addonsMap['kubernetes'];
+  const kubernetesEnabled = k8sAddon?.enabled || false;
+  const k8sMetadata = k8sAddon?.metadata as any || {};
+  
+  const kubernetes: KubernetesStateV2 = {
+    enabled: kubernetesEnabled,
+    plan: (k8sMetadata.plan || 'k8s_small') as K8sPlan,
+    addons: {
+      support_24x7: k8sMetadata.addons?.support_24x7 || false,
+      backup_velero: k8sMetadata.addons?.backup_velero || false,
+      dr_multisite: k8sMetadata.addons?.dr_multisite || false,
+      observability: k8sMetadata.addons?.observability || false,
+      cicd_managed: k8sMetadata.addons?.cicd_managed || false,
+      devops_hours: k8sMetadata.addons?.devops_hours || 0,
+    },
+    extras: {
+      vcpu: k8sMetadata.extras?.vcpu || 0,
+      ramGB: k8sMetadata.extras?.ramGB || 0,
+      diskGB: k8sMetadata.extras?.diskGB || 0,
+    },
+  };
+
+  // Map contract_duration to selectedTerm
+  const durationToTerm: Record<number, '1' | '12' | '24' | '36' | '48'> = {
+    1: '1',
+    12: '12',
+    24: '24',
+    36: '36',
+    48: '48',
+  };
+  const selectedTerm = durationToTerm[proposal.contract_duration] || '12';
+
+  const state: OpenCalculatorState = {
+    client: {
+      name: proposal.name || '',
+      company: proposal.company || '',
+      phone: proposal.phone || '',
+      email: proposal.email || '',
+    },
+    meta: {
+      apiId: null, // Edge Function proposals don't have numeric API ID
+      proposalDisplayId: proposal.display_id || proposal.id.substring(0, 8).toUpperCase(),
+      createdAt: proposal.created_at || new Date().toISOString(),
+      validityDays: 7,
+    },
+    datacenter: (proposal.datacenter as 'SP1' | 'SP2' | 'FL1' | 'CE1') || 'SP1',
+    selectedTerm,
+    items,
+    storageItems,
+    addons,
+    kubernetes,
+    openSaas: {
+      enabled: addonsMap['open_saas']?.enabled || false,
+      users: addonsMap['open_saas']?.quantity || 0,
+    },
+    reseller: {
+      enabled: proposal.channel_type === 'PARCEIRO',
+      viewMode: 'INTERNO',
+      resellerName: proposal.reseller_name || '',
+      overValue: proposal.commission_value || 0,
+      overReason: proposal.commission_reason || '',
+      observations: proposal.observations || '',
+      approvalRequired: false,
+      approvalStatus: 'Pendente',
+      approver: '',
+      approvedAt: null,
+    },
+    priceOverrides: {},
+    observacao: proposal.observations || '',
+    flags: {
+      isLoading: false,
+      isEditMode: true,
+      isHydrated: true,
+      isSaving: false,
+    },
+  };
+
+  console.log('[edgeFunctionToCalculatorState] Converted state:', {
+    client: state.client,
+    itemsCount: state.items.length,
+    storageCount: state.storageItems.length,
+    hasAddons: Object.keys(addonsMap).length,
+  });
+
+  return state;
+}

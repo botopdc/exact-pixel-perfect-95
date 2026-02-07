@@ -138,6 +138,7 @@ export type Database = {
         Row: {
           addon_key: string
           created_at: string
+          created_by: string | null
           enabled: boolean
           id: string
           label: string
@@ -151,6 +152,7 @@ export type Database = {
         Insert: {
           addon_key: string
           created_at?: string
+          created_by?: string | null
           enabled?: boolean
           id?: string
           label: string
@@ -164,6 +166,7 @@ export type Database = {
         Update: {
           addon_key?: string
           created_at?: string
+          created_by?: string | null
           enabled?: boolean
           id?: string
           label?: string
@@ -224,6 +227,7 @@ export type Database = {
           bm_cpu: string | null
           bm_ram: string | null
           created_at: string
+          created_by: string | null
           disks: Json | null
           gpu: string | null
           gpu_qty: number
@@ -249,6 +253,7 @@ export type Database = {
           bm_cpu?: string | null
           bm_ram?: string | null
           created_at?: string
+          created_by?: string | null
           disks?: Json | null
           gpu?: string | null
           gpu_qty?: number
@@ -274,6 +279,7 @@ export type Database = {
           bm_cpu?: string | null
           bm_ram?: string | null
           created_at?: string
+          created_by?: string | null
           disks?: Json | null
           gpu?: string | null
           gpu_qty?: number
