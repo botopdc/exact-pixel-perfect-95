@@ -1,22 +1,22 @@
-# PLANO 7 PASSOS — Migração de Preços para Supabase (Next.js API)
+# PLANO 7 PASSOS — Migração de Preços para Supabase (Edge Functions)
 
 > **Objetivo**: Usar Supabase como fonte da verdade para configurações de preços (`calculator_configs`), removendo dependência do backend externo para CRUD de preços, mantendo autenticação atual via API/token e PIN (MVP).  
-> **Stack**: Next.js API Routes (server) + Supabase (DB).  
-> **Regra crítica**: `SUPABASE_SERVICE_ROLE_KEY` **nunca** pode ir para o client (somente server/API routes).
+> **Stack**: Edge Functions (server) + Supabase (DB).  
+> **Regra crítica**: `SUPABASE_SERVICE_ROLE_KEY` **nunca** pode ir para o client (somente Edge Functions).
 
 ---
 
 ## Resumo do Plano
 
-| Passo | Título                                                                                      | Status  |
-| ----: | ------------------------------------------------------------------------------------------- | ------- |
-|     1 | Criar/validar tabela Supabase `calculator_configs`                                          | ✅ DONE |
-|     2 | Criar Supabase Server Client (service role) no Next.js (server-only)                        | TODO    |
-|     3 | Criar Next.js API Routes GET/POST/PUT/DELETE `/api/admin/pricing` com validação Token + PIN | TODO    |
-|     4 | Trocar `calculatorConfigService.ts` para usar `/api/admin/pricing` (não usar API externa)   | TODO    |
-|     5 | Seed inicial: importar configs atuais para `calculator_configs`                             | TODO    |
-|     6 | Ajustar tela `Precos.tsx` / `useConfigPersistence.ts` e validar CRUD                        | TODO    |
-|     7 | Teste E2E: editar, salvar, recarregar, validar PIN + token                                  | TODO    |
+| Passo | Título                                                                                 | Status  |
+| ----: | -------------------------------------------------------------------------------------- | ------- |
+|     1 | Criar/validar tabela Supabase `calculator_configs`                                     | ✅ DONE |
+|     2 | Criar Edge Function `/pricing-admin` com SERVICE_ROLE_KEY                              | ✅ DONE |
+|     3 | Criar serviço client `pricingAdminService.ts` para consumir a Edge Function            | TODO    |
+|     4 | Trocar `calculatorConfigService.ts` para usar o novo serviço (não usar API externa)    | TODO    |
+|     5 | Seed inicial: importar configs atuais para `calculator_configs`                        | TODO    |
+|     6 | Ajustar tela `Precos.tsx` / `useConfigPersistence.ts` e validar CRUD                   | TODO    |
+|     7 | Teste E2E: editar, salvar, recarregar, validar PIN + token                             | TODO    |
 
 ---
 
