@@ -383,24 +383,43 @@ const SupabaseProposalsList: React.FC = () => {
                             <TooltipContent>Visualizar</TooltipContent>
                           </Tooltip>
                           
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleEdit(proposal)}
-                                disabled={editingId === proposal.id}
-                              >
-                                {editingId === proposal.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
+                          {/* Editar: só se NÃO for Aprovado/Recusado */}
+                          {proposal.status !== 'Aprovado' && proposal.status !== 'Recusado' ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleEdit(proposal)}
+                                  disabled={editingId === proposal.id}
+                                >
+                                  {editingId === proposal.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Pencil className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Editar</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 opacity-40 cursor-not-allowed"
+                                  disabled
+                                >
                                   <Pencil className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Editar</TooltipContent>
-                          </Tooltip>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {proposal.status === 'Aprovado' ? 'Propostas aprovadas não podem ser editadas' : 'Propostas recusadas não podem ser editadas'}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                           
                           {isAdmin && (
                             <Tooltip>
