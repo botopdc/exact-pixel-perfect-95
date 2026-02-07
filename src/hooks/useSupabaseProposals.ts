@@ -11,6 +11,7 @@ import {
   supabaseProposalService,
   listProposals,
   getProposal,
+  getProposalWithItems,
   saveProposal,
   deleteProposal,
   updateProposalStatus,
@@ -84,6 +85,28 @@ export function useSupabaseProposal(proposalId: string | undefined) {
     queryFn: () => (proposalId ? getProposal(proposalId) : Promise.resolve(null)),
     enabled: !!proposalId,
     staleTime: 60 * 1000, // 1 minute
+  });
+}
+
+// ============================================================================
+// GET PROPOSAL WITH ITEMS HOOK (for edit mode)
+// ============================================================================
+
+export function useSupabaseProposalWithItems(proposalId: string | undefined) {
+  return useQuery({
+    queryKey: [...SUPABASE_PROPOSAL_KEYS.detail(proposalId || ''), 'with-items'],
+    queryFn: async () => {
+      if (!proposalId) return null;
+      const result = await getProposalWithItems(proposalId);
+      console.log('[useSupabaseProposalWithItems] Loaded:', {
+        proposalId,
+        serversCount: result?.servers?.length || 0,
+        addonsCount: result?.addons?.length || 0,
+      });
+      return result;
+    },
+    enabled: !!proposalId,
+    staleTime: 60 * 1000,
   });
 }
 

@@ -1028,6 +1028,157 @@ const OpenCalculator: React.FC = () => {
     }
   }, [isUrlEditMode, isEditMode, editingProposalId]);
 
+  // Helper to detect UUID format (Supabase IDs are UUIDs, legacy API IDs are numeric)
+  const isUUID = useCallback((str: string): boolean => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
+  }, []);
+
+  // Helper function to apply Supabase state directly to calculator
+  const applySupabaseState = useCallback((supabaseState: any, supabaseId: string) => {
+    console.log('[OpenCalculator] SUPABASE_STATE_HYDRATION:', {
+      supabaseId,
+      itemsCount: supabaseState.items?.length || 0,
+      storageCount: supabaseState.storageItems?.length || 0,
+      kubernetesEnabled: supabaseState.kubernetes?.enabled,
+      openSaasEnabled: supabaseState.openSaas?.enabled,
+      addons: supabaseState.addons,
+    });
+
+    // Apply client info
+    setClient(supabaseState.client || { name: '', company: '', phone: '', email: '' });
+    
+    // Apply meta
+    setProposal({
+      id: supabaseState.meta?.proposalDisplayId || generateProposalId(),
+      validityDays: supabaseState.meta?.validityDays || 7,
+      createdAt: supabaseState.meta?.createdAt || new Date().toISOString(),
+    });
+    
+    // Apply datacenter and term
+    setDatacenter(supabaseState.datacenter || 'SP1');
+    setSelectedTerm(supabaseState.selectedTerm || '12');
+    
+    // Apply items (convert from OpenCalculatorState format to local ServerItem format)
+    const convertedItems = (supabaseState.items || []).map((item: any) => {
+      if (item.type === 'bm') {
+        return {
+          type: 'bm' as const,
+          id: item.id || crypto.randomUUID(),
+          gpu: item.gpu || 'Sem GPU',
+          gpuQty: item.gpuQty || 0,
+          bmCpu: item.bmCpu || (config?.baremetal?.cpu_models?.[0]?.id || ''),
+          bmRam: item.bmRam || (config?.baremetal?.ram_tiers?.[0]?.id || ''),
+          disks: item.disks || [{ type: config?.baremetal?.disks?.[0]?.id || 'nvme_1tb', qty: 1, desc: '' }],
+          trafficTb: item.trafficTb || 5,
+          ips: item.ips || 1,
+          qtyServers: item.qtyServers || 1,
+        };
+      }
+      return {
+        type: 'vm' as const,
+        id: item.id || crypto.randomUUID(),
+        gpu: item.gpu || 'Sem GPU',
+        gpuQty: item.gpuQty || 0,
+        vcpu: item.vcpu || 16,
+        ramGb: item.ramGb || 128,
+        nvmeTb: item.nvmeTb || 0.09765625,
+        trafficTb: item.trafficTb || 5,
+        ips: item.ips || 1,
+        qtyServers: item.qtyServers || 1,
+      };
+    });
+    setItems(convertedItems);
+    
+    // Expand all items
+    setExpandedItems(new Set(convertedItems.map((item: any) => item.id)));
+    
+    // Apply addons (convert from AddonsStateV2 to local AddonsState)
+    const supaAddons = supabaseState.addons || {};
+    setAddons({
+      backupPlan: supaAddons.backupPlan || 'none',
+      backupGb: supaAddons.backupGb || 0,
+      antivirus: supaAddons.antivirus || 0,
+      firewall: supaAddons.firewall || 0,
+      tsplus: supaAddons.tsplus || 0,
+      cal: supaAddons.cal || 0,
+      sql: supaAddons.sql || 'none',
+      sqlQty: supaAddons.sqlQty || 0,
+      veeamVm: supaAddons.veeamVm || 0,
+      veeamAg: supaAddons.veeamAg || 0,
+      winserver: supaAddons.winserver || 0,
+      support: supaAddons.support || { level: 'none', price: 0 },
+      consulting: supaAddons.consulting || { quantity: 0, unitPrice: 200 },
+      dba: supaAddons.dba || { quantity: 0, unitPrice: 250 },
+    });
+    
+    // Apply Kubernetes
+    if (supabaseState.kubernetes) {
+      setKubernetes({
+        enabled: supabaseState.kubernetes.enabled || false,
+        plan: supabaseState.kubernetes.plan || 'k8s_small',
+        addons: supabaseState.kubernetes.addons || {
+          support_24x7: false,
+          backup_velero: false,
+          dr_multisite: false,
+          observability: false,
+          cicd_managed: false,
+          devops_hours: 0,
+        },
+        extras: supabaseState.kubernetes.extras || { vcpu: 0, ramGB: 0, diskGB: 0 },
+      });
+    }
+    
+    // Apply storage items
+    setStorageItems((supabaseState.storageItems || []).map((s: any) => ({
+      id: s.id || crypto.randomUUID(),
+      storageType: s.storageType || 'sas',
+      region: s.region || 'BR',
+      volumeTB: s.volumeTB || 1,
+    })));
+    
+    // Apply OpenSaaS
+    if (supabaseState.openSaas) {
+      setOpenSaas({
+        enabled: supabaseState.openSaas.enabled || false,
+        users: supabaseState.openSaas.users || 0,
+      });
+    }
+    
+    // Apply reseller
+    if (supabaseState.reseller) {
+      setReseller({
+        enabled: supabaseState.reseller.enabled || false,
+        viewMode: supabaseState.reseller.viewMode || 'INTERNO',
+        resellerName: supabaseState.reseller.resellerName || '',
+        overValue: supabaseState.reseller.overValue || 0,
+        overReason: supabaseState.reseller.overReason || '',
+        observations: supabaseState.reseller.observations || '',
+        approvalRequired: supabaseState.reseller.approvalRequired || false,
+        approvalStatus: supabaseState.reseller.approvalStatus || 'Pendente',
+        approver: supabaseState.reseller.approver || '',
+        approvedAt: supabaseState.reseller.approvedAt || null,
+      });
+    }
+    
+    // Apply price overrides
+    setPriceOverrides(supabaseState.priceOverrides || {});
+    
+    // Apply observacao
+    setObservacao(supabaseState.observacao || '');
+    
+    // Set edit mode with Supabase UUID
+    setIsEditMode(true);
+    setEditingProposalId(supabaseId);
+    setInitialized(true);
+    
+    // Clear navigation state
+    window.history.replaceState({}, document.title);
+    
+    const displayId = supabaseState.meta?.proposalDisplayId || supabaseId.substring(0, 8);
+    toast({ title: 'Proposta carregada', description: `Editando proposta ${displayId}` });
+  }, [config, toast]);
+
   // MAIN INITIALIZATION: Add initial VM OR load proposal for editing
   // CRITICAL: This effect is now URL-based (edit=1&id=...) and self-sufficient
   useEffect(() => {
@@ -1043,14 +1194,21 @@ const OpenCalculator: React.FC = () => {
       
       // Check if we have proposal data from navigation state (optimization)
       const editProposalFromState = location.state?.editProposal;
+      const supabaseIdFromState = location.state?.supabaseId;
+      
+      // SUPABASE PATH: If we have supabaseId, use Supabase-specific hydration
+      if (supabaseIdFromState && editProposalFromState?.flags?.isHydrated) {
+        console.log('[OpenCalculator] SUPABASE_HYDRATION: Using OpenCalculatorState from navigation');
+        initializedEditModeRef.current = true;
+        applySupabaseState(editProposalFromState, supabaseIdFromState);
+        return;
+      }
       
       if (editProposalFromState) {
         // We have proposal data from navigation - use it directly
         console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_STATE');
         initializedEditModeRef.current = true;
         
-        // SUPABASE: Check if we have a Supabase UUID for updates
-        const supabaseIdFromState = location.state?.supabaseId;
         if (supabaseIdFromState) {
           console.log('[OpenCalculator] SUPABASE_ID from state:', supabaseIdFromState);
           setEditingProposalId(supabaseIdFromState);
@@ -1059,19 +1217,60 @@ const OpenCalculator: React.FC = () => {
         
         const normalized = normalizeProposalForEdit(editProposalFromState);
         applyNormalizedState(normalized, normalized.displayId);
-      } else {
-        // NO state data - MUST fetch from API
-        console.log('[OpenCalculator] FETCHING_FULL_PROPOSAL from API:', urlIdParam);
-        initializedEditModeRef.current = true;
-        setLoadingEditProposal(true);
-        setEditModeError(null);
+        return;
+      }
+      
+      // NO state data - Check if ID is UUID (Supabase) or numeric (legacy API)
+      const isSupabaseId = isUUID(urlIdParam);
+      console.log('[OpenCalculator] FETCHING_PROPOSAL:', { id: urlIdParam, isSupabase: isSupabaseId });
+      
+      initializedEditModeRef.current = true;
+      setLoadingEditProposal(true);
+      setEditModeError(null);
+      
+      if (isSupabaseId) {
+        // SUPABASE PATH: Fetch from Supabase and apply directly
+        const fetchFromSupabase = async () => {
+          try {
+            const { getProposalWithItems } = await import('@/services/supabaseProposalService');
+            const { supabaseToCalculatorState } = await import('@/services/proposalFormatConverters');
+            
+            const proposal = await getProposalWithItems(urlIdParam);
+            
+            if (!proposal) {
+              throw new Error('Proposta não encontrada no Supabase');
+            }
+            
+            console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_SUPABASE:', {
+              id: proposal.id,
+              serversCount: proposal.servers?.length || 0,
+              addonsCount: proposal.addons?.length || 0,
+              total: proposal.total,
+            });
+            
+            const calculatorState = supabaseToCalculatorState(proposal);
+            applySupabaseState(calculatorState, urlIdParam);
+          } catch (error: any) {
+            console.error('[OpenCalculator] ERROR fetching from Supabase:', error);
+            setEditModeError(error.message || 'Erro ao carregar proposta do Supabase');
+            toast({
+              title: 'Erro ao carregar proposta',
+              description: error.message || 'Não foi possível carregar os dados da proposta.',
+              variant: 'destructive',
+            });
+            setInitialized(true);
+          } finally {
+            setLoadingEditProposal(false);
+          }
+        };
         
-        // Fetch complete proposal from API
+        fetchFromSupabase();
+      } else {
+        // LEGACY PATH: Fetch from API
         const fetchProposal = async () => {
           try {
             const fullProposal = await openApi.getProposal(urlIdParam);
             
-            // Detailed logging for debugging dados_proposta issues
             const rawDadosProposta = (fullProposal as any)?.dados_proposta;
             const parsedDadosProposta = typeof rawDadosProposta === 'string' 
               ? (() => { try { return JSON.parse(rawDadosProposta); } catch { return null; } })()
@@ -1080,33 +1279,11 @@ const OpenCalculator: React.FC = () => {
             console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_API:', {
               id: (fullProposal as any)?.id,
               hasDadosProposta: Boolean(parsedDadosProposta),
-              dadosPropostaType: typeof rawDadosProposta,
-              dadosPropostaKeys: parsedDadosProposta ? Object.keys(parsedDadosProposta) : [],
-              hasStorageItems: Boolean(parsedDadosProposta?.storageItems?.length),
-              hasKubernetes: Boolean(parsedDadosProposta?.kubernetes?.enabled),
-              hasOpenSaas: Boolean(parsedDadosProposta?.openSaas?.enabled),
-              hasAddons: Boolean(parsedDadosProposta?.addons),
-              addonsCount: (fullProposal as any)?.addons?.length || 0,
               serversCount: (fullProposal as any)?.servers?.length || 0,
             });
             
-            // Convert API response to local format
-            // apiToLocal will handle both new format (dados_proposta) and legacy format (addons[])
             const localProposal = apiToLocal(fullProposal as any);
-            
-            // Log the converted proposal to verify reconstruction
-            console.log('[OpenCalculator] CONVERTED_LOCAL_PROPOSAL:', {
-              storageItemsCount: localProposal.storageItems?.length || 0,
-              kubernetesEnabled: Boolean((localProposal.kubernetes as any)?.enabled),
-              openSaasEnabled: Boolean((localProposal.openSaas as any)?.enabled),
-              openSaasUsers: (localProposal.openSaas as any)?.users || 0,
-              addons: localProposal.addons,
-              itemsCount: localProposal.items?.length || 0,
-            });
-            
-            // Normalize for calculator (cast to Record for normalizer compatibility)
             const normalized = normalizeProposalForEdit(localProposal as unknown as Record<string, unknown>);
-            
             applyNormalizedState(normalized, normalized.displayId);
           } catch (error: any) {
             console.error('[OpenCalculator] ERROR fetching proposal:', error);
@@ -1116,7 +1293,6 @@ const OpenCalculator: React.FC = () => {
               description: error.response?.data?.message || 'Não foi possível carregar os dados da proposta.',
               variant: 'destructive',
             });
-            // Reset to allow creating new proposal
             setInitialized(true);
           } finally {
             setLoadingEditProposal(false);
@@ -1131,18 +1307,13 @@ const OpenCalculator: React.FC = () => {
     
     // CASE 2: New proposal (no edit mode)
     // CRITICAL: Explicitly reset edit mode state when creating a new proposal
-    // This prevents residual state from previous edit sessions causing PUT instead of POST
     if (!initialized && items.length === 0) {
-      // Ensure we're in CREATE mode, not EDIT mode
       setIsEditMode(false);
       setEditingProposalId(null);
-      
-      // Only add default VM for NEW proposals, not edits
-      // Do NOT create default BareMetal when editing proposals without servers
       addVM();
       setInitialized(true);
     }
-  }, [configLoading, initialized, items.length, addVM, location.state, toast, isUrlEditMode, urlIdParam, urlEditParam, applyNormalizedState]);
+  }, [configLoading, initialized, items.length, addVM, location.state, toast, isUrlEditMode, urlIdParam, urlEditParam, applyNormalizedState, applySupabaseState, isUUID]);
 
   // Check if approval is required and pending
   const isApprovalPending = reseller.approvalRequired && reseller.approvalStatus !== 'Aprovado';
