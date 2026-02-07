@@ -38,7 +38,7 @@ import {
   useSupabaseProposal,
 } from '@/hooks/useSupabaseProposals';
 import { supabaseToCalculatorState } from '@/services/proposalFormatConverters';
-import { getProposal as getProposalFromSupabase } from '@/services/supabaseProposalService';
+import { getProposalWithItems } from '@/services/supabaseProposalService';
 import type { CalculatorProposalRow } from '@/types/calculatorProposal';
 
 // Status badge helper
@@ -207,13 +207,19 @@ const SupabaseProposalsList: React.FC = () => {
     setEditingId(proposal.id);
     
     try {
-      // Fetch complete proposal from Supabase
-      const fullProposal = await getProposalFromSupabase(proposal.id);
+      // Fetch complete proposal with items from Supabase
+      const fullProposal = await getProposalWithItems(proposal.id);
       
       if (!fullProposal) {
         toast({ title: 'Erro', description: 'Proposta não encontrada', variant: 'destructive' });
         return;
       }
+      
+      console.log('[SupabaseProposalsList] Loaded proposal for edit:', {
+        id: fullProposal.id,
+        serversCount: fullProposal.servers?.length || 0,
+        addonsCount: fullProposal.addons?.length || 0,
+      });
       
       // Convert to calculator state
       const calculatorState = supabaseToCalculatorState(fullProposal);

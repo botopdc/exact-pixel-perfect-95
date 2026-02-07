@@ -419,6 +419,83 @@ export async function getPdfSignedUrl(storagePath: string, expiresInSeconds: num
 }
 
 // ============================================================================
+// GET PROPOSAL WITH ITEMS (explicit fetch for edit mode)
+// ============================================================================
+
+export async function getProposalWithItems(proposalId: string): Promise<CalculatorProposalWithRelations | null> {
+  console.log('[supabaseProposalService] getProposalWithItems:', proposalId);
+
+  // Fetch proposal
+  const { data: proposal, error: proposalError } = await supabase
+    .from('calculator_proposals')
+    .select('*')
+    .eq('id', proposalId)
+    .maybeSingle();
+
+  if (proposalError) {
+    console.error('[supabaseProposalService] getProposalWithItems proposal error:', proposalError);
+    throw new Error(`Erro ao buscar proposta: ${proposalError.message}`);
+  }
+
+  if (!proposal) {
+    console.warn('[supabaseProposalService] getProposalWithItems: Proposal not found');
+    return null;
+  }
+
+  // Fetch servers
+  const { data: servers, error: serversError } = await supabase
+    .from('calculator_proposal_servers')
+    .select('*')
+    .eq('proposal_id', proposalId)
+    .order('sort_order', { ascending: true });
+
+  if (serversError) {
+    console.error('[supabaseProposalService] getProposalWithItems servers error:', serversError);
+  }
+
+  // Fetch addons
+  const { data: addons, error: addonsError } = await supabase
+    .from('calculator_proposal_addons')
+    .select('*')
+    .eq('proposal_id', proposalId)
+    .order('sort_order', { ascending: true });
+
+  if (addonsError) {
+    console.error('[supabaseProposalService] getProposalWithItems addons error:', addonsError);
+  }
+
+  // Fetch files
+  const { data: files, error: filesError } = await supabase
+    .from('calculator_proposal_files')
+    .select('*')
+    .eq('proposal_id', proposalId)
+    .order('created_at', { ascending: false });
+
+  if (filesError) {
+    console.error('[supabaseProposalService] getProposalWithItems files error:', filesError);
+  }
+
+  const result = {
+    ...(proposal as CalculatorProposalRow),
+    servers: (servers || []) as CalculatorProposalServerRow[],
+    addons: (addons || []) as CalculatorProposalAddonRow[],
+    files: (files || []) as CalculatorProposalFileRow[],
+  };
+
+  // Debug: log counts
+  console.log('[supabaseProposalService] getProposalWithItems result:', {
+    proposalId: result.id,
+    company: result.company,
+    serversCount: result.servers.length,
+    addonsCount: result.addons.length,
+    filesCount: result.files.length,
+    total: result.total,
+  });
+
+  return result;
+}
+
+// ============================================================================
 // EXPORT ALL
 // ============================================================================
 
@@ -426,6 +503,7 @@ export const supabaseProposalService = {
   listProposals,
   getProposal,
   getProposalByDisplayId,
+  getProposalWithItems,
   saveProposal,
   deleteProposal,
   updateProposalStatus,
