@@ -171,20 +171,25 @@ export interface ProposalDeleteResult {
 async function invokeFunction<T>(
   functionName: string,
   body: unknown,
-  logPrefix: string
+  logPrefix: string,
+  requireAuth: boolean = false
 ): Promise<T> {
-  const token = getCoreToken();
-  
   console.log(`[${logPrefix}] Calling ${functionName}`, body);
 
-  if (!token) {
-    console.error(`[${logPrefix}] No CORE token found`);
-    throw new Error('Não autenticado. Faça login no CORE.');
+  // Build headers - only include auth if required and available
+  const headers: Record<string, string> = {};
+  if (requireAuth) {
+    const token = getCoreToken();
+    if (!token) {
+      console.error(`[${logPrefix}] No CORE token found`);
+      throw new Error('Não autenticado. Faça login no CORE.');
+    }
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const { data, error } = await supabase.functions.invoke(functionName, {
     body,
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
 
   if (error) {
@@ -211,10 +216,12 @@ export const proposalGateway = {
    */
   async listProposals(params: ProposalListParams = {}): Promise<ProposalListResult> {
     try {
+      // No auth required for listing (public access)
       return await invokeFunction<ProposalListResult>(
         'proposal-list',
         params,
-        'proposalGateway.list'
+        'proposalGateway.list',
+        false // No auth required
       );
     } catch (err) {
       return {

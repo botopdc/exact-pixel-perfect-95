@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
-import { requireCoreAuth } from "../_shared/requireCoreAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,20 +21,6 @@ serve(async (req: Request) => {
   }
 
   try {
-    // Validate CORE token via backend introspection
-    const authResult = await requireCoreAuth(req);
-    if ("error" in authResult) {
-      // Add CORS headers to error response
-      const errorBody = await authResult.error.text();
-      return new Response(errorBody, {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { user } = authResult;
-    console.log("[proposal-list] Authenticated user:", user.id, user.email);
-
     // Parse request body
     const body = await req.json().catch(() => ({}));
     const { search, status, limit = 15, offset = 0 } = body as {
@@ -47,11 +32,11 @@ serve(async (req: Request) => {
 
     console.log("[proposal-list] Request params:", { search, status, limit, offset });
 
-    // Create Supabase client with Service Role (bypasses RLS)
+    // Create Supabase client with ANON KEY (public access)
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    const supabase = createClient(supabaseUrl, anonKey, {
       auth: { persistSession: false },
     });
 

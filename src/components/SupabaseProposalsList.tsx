@@ -108,7 +108,7 @@ const SupabaseProposalsList: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // Auth check
+  // Auth check for permissions (edit/delete only)
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const isAdmin = userLevel === 1000;
@@ -137,7 +137,7 @@ const SupabaseProposalsList: React.FC = () => {
     setCurrentPage(1);
   }, [statusFilter, perPage]);
   
-  // Fetch proposals via Edge Function (uses Service Role, no RLS issues)
+  // Fetch proposals via Edge Function (public access, no auth required)
   const { data, isLoading, error: queryError, refetch } = useProposalList(currentPage, {
     status: statusFilter === 'all' ? undefined : statusFilter,
     search: debouncedSearch || undefined,
@@ -150,7 +150,7 @@ const SupabaseProposalsList: React.FC = () => {
       console.error('[SupabaseProposalsList] Query error:', queryError);
       toast({
         title: 'Erro ao carregar propostas',
-        description: queryError.message || 'Falha na comunicação com o servidor',
+        description: 'Não foi possível carregar as propostas no momento',
         variant: 'destructive',
       });
     }
@@ -162,7 +162,7 @@ const SupabaseProposalsList: React.FC = () => {
       console.error('[SupabaseProposalsList] API error:', data.error);
       toast({
         title: 'Erro na API',
-        description: data.error,
+        description: 'Não foi possível carregar as propostas no momento',
         variant: 'destructive',
       });
     }
@@ -175,13 +175,6 @@ const SupabaseProposalsList: React.FC = () => {
     lastPage: totalPages,
     total: data?.total || 0,
   };
-  
-  // Check if CORE token exists
-  const hasCoreToken = !!(
-    localStorage.getItem('open_token') || 
-    localStorage.getItem('auth_token') || 
-    localStorage.getItem('token')
-  );
   
   const deleteProposalMutation = useDeleteProposal();
   
@@ -204,13 +197,11 @@ const SupabaseProposalsList: React.FC = () => {
       return;
     }
 
-    // REQUIRED DEBUG: ensure we always pass the Supabase UUID
     const proposalId = proposal.id;
     console.log('[EDIT NAV] supabase proposalId', proposalId);
 
     setEditingId(proposalId);
 
-    // Navigate to edit - calculator will fetch via Edge Function
     const editPath = getProposalEditRoute(proposalId, false);
     navigate(editPath, { state: { supabaseId: proposalId } });
   };
@@ -311,15 +302,6 @@ const SupabaseProposalsList: React.FC = () => {
           {isLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : !hasCoreToken && proposals.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-6 max-w-md mx-auto">
-                <p className="text-orange-600 font-medium">Token CORE não encontrado</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Faça login no sistema para visualizar as propostas.
-                </p>
-              </div>
             </div>
           ) : proposals.length === 0 ? (
             <div className="text-center py-12">
