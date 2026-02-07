@@ -1,7 +1,10 @@
-import SavedProposals from '@/components/SavedProposals';
+/**
+ * Propostas Page - Lists all proposals from Supabase (source of truth)
+ */
+import SupabaseProposalsList from '@/components/SupabaseProposalsList';
 
 const Propostas = () => {
-  return <SavedProposals />;
+  return <SupabaseProposalsList />;
 };
 
 export default Propostas;

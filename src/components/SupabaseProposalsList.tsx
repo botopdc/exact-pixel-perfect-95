@@ -162,7 +162,7 @@ const SupabaseProposalsList: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const handleView = (proposalId: string) => {
-    navigate(`/proposta/${proposalId}`);
+    navigate(ROUTES.modulos.comercial.proposalView(proposalId));
   };
   
   const handleEdit = async (proposal: CalculatorProposalRow) => {
