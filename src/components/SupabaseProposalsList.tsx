@@ -18,6 +18,7 @@ import {
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
 import { saveProposal } from '@/services/proposalApi';
+import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -291,6 +292,13 @@ const SupabaseProposalsList: React.FC = () => {
 
       console.log('[EMAIL SEND] Success:', data);
 
+      // Track email sent event
+      trackProposalEvent({
+        proposalId: proposal.id,
+        source: 'email_sent',
+        clientEmail: proposal.email,
+      });
+
       // If status is Rascunho, update to Enviado
       if (proposal.status === 'Rascunho') {
         console.log('[EMAIL SEND] Updating status from Rascunho to Enviado');
@@ -341,6 +349,11 @@ const SupabaseProposalsList: React.FC = () => {
       const result = await downloadProposalPdfFromApi(proposal.id);
       
       if (result.success) {
+        // Track PDF download event
+        trackProposalEvent({
+          proposalId: proposal.id,
+          source: 'pdf_download',
+        });
         toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
       } else {
         toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
@@ -366,6 +379,12 @@ const SupabaseProposalsList: React.FC = () => {
     try {
       const approvalLink = await getApprovalLink(proposal.id);
       const copySuccess = await copyToClipboard(approvalLink);
+      
+      // Track link copied event
+      trackProposalEvent({
+        proposalId: proposal.id,
+        source: 'link_copied',
+      });
       
       // Update status to Enviado if still Rascunho
       if (proposal.status === 'Rascunho') {
