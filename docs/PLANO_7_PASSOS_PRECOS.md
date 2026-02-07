@@ -8,7 +8,7 @@
 
 | Passo | Título | Status |
 |-------|--------|--------|
-| 1 | Criar tabela Supabase `calculator_configs` | TODO |
+| 1 | Criar tabela Supabase `calculator_configs` | ✅ DONE |
 | 2 | Criar Supabase server client (service role) | TODO |
 | 3 | Criar Edge Function GET/POST `/pricing-admin` | TODO |
 | 4 | Trocar `calculatorConfigService.ts` para usar Edge Function | TODO |
@@ -20,46 +20,45 @@
 
 ## Passo 1 — Criar tabela Supabase `calculator_configs`
 
-**Status**: TODO
+**Status**: ✅ DONE
 
 **Descrição**:
 Criar tabela `calculator_configs` no Supabase com estrutura compatível com o formato atual da API externa.
 
-**Estrutura esperada**:
+**Estrutura final**:
 ```sql
-CREATE TABLE IF NOT EXISTS public.calculator_configs (
-  id BIGSERIAL PRIMARY KEY,
-  category TEXT NOT NULL,
-  section TEXT NOT NULL,
-  config JSONB NOT NULL DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at TIMESTAMPTZ DEFAULT NULL,
-  UNIQUE(category, section)
-);
+-- Tabela já existia com:
+--   id BIGSERIAL PRIMARY KEY
+--   category TEXT NOT NULL
+--   section TEXT NOT NULL
+--   config JSONB NOT NULL DEFAULT '[]'::jsonb
+--   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+--   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+--   deleted_at TIMESTAMPTZ DEFAULT NULL
+--   UNIQUE(category, section)
 
--- Trigger para updated_at
-CREATE OR REPLACE FUNCTION update_calculator_configs_updated_at()
+-- Trigger adicionado:
+CREATE OR REPLACE FUNCTION public.update_calculator_configs_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
   NEW.updated_at = now();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
-CREATE TRIGGER calculator_configs_updated_at
+CREATE TRIGGER calculator_configs_updated_at_trigger
   BEFORE UPDATE ON public.calculator_configs
   FOR EACH ROW
-  EXECUTE FUNCTION update_calculator_configs_updated_at();
+  EXECUTE FUNCTION public.update_calculator_configs_updated_at();
 ```
 
 **Onde mudar**:
-- Supabase migration (criar via ferramenta de migração)
+- Supabase migration ✅
 
 **Critério de aceite**:
-- Tabela existe no Supabase
-- Constraint UNIQUE(category, section) funciona
-- Trigger de updated_at dispara ao fazer UPDATE
+- ✅ Tabela existe no Supabase
+- ✅ Constraint UNIQUE(category, section) funciona
+- ✅ Trigger de updated_at dispara ao fazer UPDATE
 
 ---
 
