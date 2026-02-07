@@ -116,11 +116,13 @@ const PropostaAprovar: React.FC = () => {
       
       setProposal(data);
       
-      // Check if already approved/rejected
-      const status = data.status?.toUpperCase();
+      // Check if already approved/rejected - normalize status case-insensitively
+      const status = (data.status || '').toUpperCase().trim();
       if (status === 'APROVADO' || status === 'APPROVED') {
+        console.log('[PropostaAprovar] Proposal already APPROVED, blocking actions');
         setFinalStatus('approved');
-      } else if (status === 'REPROVADO' || status === 'REJECTED') {
+      } else if (status === 'REPROVADO' || status === 'REJECTED' || status === 'RECUSADO') {
+        console.log('[PropostaAprovar] Proposal already REJECTED, blocking actions');
         setFinalStatus('rejected');
       }
     } catch (error: any) {
