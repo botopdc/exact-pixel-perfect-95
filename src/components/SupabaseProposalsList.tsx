@@ -13,9 +13,11 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  FileDown, Loader2,
+  FileDown, Loader2, Mail,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
+import { supabase } from '@/integrations/supabase/client';
+import { saveProposal } from '@/services/proposalApi';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -188,6 +190,7 @@ const SupabaseProposalsList: React.FC = () => {
   // State for actions
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const handleView = (proposalId: string) => {
@@ -213,6 +216,102 @@ const SupabaseProposalsList: React.FC = () => {
     // Navigate to edit - calculator will fetch via Edge Function
     const editPath = getProposalEditRoute(proposalId, false);
     navigate(editPath, { state: { supabaseId: proposalId } });
+  };
+
+  // Handle send email
+  const handleSendEmail = async (proposal: ProposalRow) => {
+    // Validate required fields
+    if (!proposal.id) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
+      return;
+    }
+    if (!proposal.email) {
+      toast({ title: 'Erro', description: 'E-mail do cliente não encontrado', variant: 'destructive' });
+      return;
+    }
+
+    setSendingEmailId(proposal.id);
+    console.log('[EMAIL SEND] Starting for proposal:', proposal.id);
+
+    try {
+      // Build proposal link using display_id or UUID
+      const proposalIdForLink = proposal.display_id || proposal.id.substring(0, 8);
+      // Use a simple token for now (can be enhanced with approval link service later)
+      const proposalLink = `https://core.opendata.center/proposta/aprovar?proposalId=${encodeURIComponent(proposal.id)}&token=${encodeURIComponent(proposal.id)}`;
+      
+      // Format validity date (30 days from now if not available)
+      const validityDate = new Date();
+      validityDate.setDate(validityDate.getDate() + 30);
+      const formattedValidity = validityDate.toLocaleDateString('pt-BR');
+
+      // Call Edge Function
+      const { data, error } = await supabase.functions.invoke('send-proposal-email', {
+        body: {
+          clientName: proposal.name,
+          clientEmail: proposal.email,
+          proposalId: proposalIdForLink,
+          proposalLink,
+          totalValue: formatCurrency(proposal.total),
+          validityDate: formattedValidity,
+        },
+      });
+
+      if (error) {
+        console.error('[EMAIL SEND] Edge Function error:', error);
+        toast({
+          title: 'Erro ao enviar e-mail',
+          description: error.message || 'Falha na comunicação com o servidor',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (!data?.success) {
+        console.error('[EMAIL SEND] API error:', data?.error);
+        toast({
+          title: 'Erro ao enviar e-mail',
+          description: data?.error || 'Falha no envio do e-mail',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      console.log('[EMAIL SEND] Success:', data);
+
+      // If status is Rascunho, update to Enviado
+      if (proposal.status === 'Rascunho') {
+        console.log('[EMAIL SEND] Updating status from Rascunho to Enviado');
+        const saveResult = await saveProposal({
+          proposal: {
+            id: proposal.id,
+            status: 'Enviado',
+          },
+          servers: [],
+          addons: [],
+        });
+
+        if (saveResult.success) {
+          console.log('[EMAIL SEND] Status updated successfully');
+          refetch(); // Refresh the list
+        } else {
+          console.warn('[EMAIL SEND] Failed to update status:', saveResult.error);
+        }
+      }
+
+      toast({
+        title: proposal.status === 'Aprovado' ? 'E-mail reenviado' : 'E-mail enviado',
+        description: `Proposta enviada para ${proposal.email}`,
+      });
+    } catch (err: any) {
+      console.error('[EMAIL SEND] Exception:', err);
+      toast({
+        title: 'Erro ao enviar e-mail',
+        description: err.message || 'Erro inesperado',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingEmailId(null);
+    }
   };
   
   const handleDelete = async () => {
@@ -420,6 +519,28 @@ const SupabaseProposalsList: React.FC = () => {
                               </TooltipContent>
                             </Tooltip>
                           )}
+                          
+                          {/* Enviar e-mail: sempre permitido, tooltip diferente se aprovado */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => handleSendEmail(proposal)}
+                                disabled={sendingEmailId === proposal.id}
+                              >
+                                {sendingEmailId === proposal.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Mail className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {proposal.status === 'Aprovado' ? 'Reenviar proposta aprovada' : 'Enviar por e-mail'}
+                            </TooltipContent>
+                          </Tooltip>
                           
                           {isAdmin && (
                             <Tooltip>
