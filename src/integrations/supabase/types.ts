@@ -134,6 +134,36 @@ export type Database = {
         }
         Relationships: []
       }
+      calculator_configs: {
+        Row: {
+          category: string
+          config: Json
+          created_at: string
+          deleted_at: string | null
+          id: number
+          section: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          config?: Json
+          created_at?: string
+          deleted_at?: string | null
+          id?: number
+          section: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          config?: Json
+          created_at?: string
+          deleted_at?: string | null
+          id?: number
+          section?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       calculator_proposal_addons: {
         Row: {
           addon_key: string

@@ -26,6 +26,7 @@ import {
 } from '@/services/calculatorProposalService';
 import { persistArchitectCommission } from '@/services/proposalParticipantService';
 import { formatCurrency } from '@/lib/calculatorConfig';
+import { trackProposalEvent } from '@/services/proposalTrackingService';
 
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -235,7 +236,13 @@ const PropostaAprovar: React.FC = () => {
         console.warn('[PropostaAprovar] Failed to persist architect commission (non-blocking):', commissionError);
       }
       
-      // 8. Update UI immediately
+      // 8. Track approval event
+      trackProposalEvent({
+        proposalId: String(numericId),
+        source: 'approved',
+      });
+      
+      // 9. Update UI immediately
       setFinalStatus('approved');
       
       toast({
@@ -326,6 +333,12 @@ const PropostaAprovar: React.FC = () => {
       });
       
       console.log('[PropostaAprovar] POST define-acceptance (rejection) SUCCESS');
+      
+      // Track rejection event
+      trackProposalEvent({
+        proposalId: String(numericId),
+        source: 'rejected',
+      });
       
       setFinalStatus('rejected');
       
