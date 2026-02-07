@@ -13,23 +13,32 @@ import { supabase } from '@/integrations/supabase/client';
 // TOKEN MANAGEMENT
 // ============================================================================
 
-const CORE_TOKEN_KEY = 'open_access_token';
+// All possible localStorage keys where CORE might store the token
+const TOKEN_KEYS = [
+  'open_access_token',
+  'open_token', 
+  'auth_token',
+  'token',
+  'access_token',
+  'jwt',
+  'core_token',
+];
 
 /**
  * Get CORE JWT token from localStorage
+ * Returns null if no valid token found
  */
 export function getCoreToken(): string | null {
-  // Primary key
-  let token = localStorage.getItem(CORE_TOKEN_KEY);
-  
-  // Fallback keys (in case CORE uses different storage)
-  if (!token) {
-    token = localStorage.getItem('open_token') 
-      || localStorage.getItem('auth_token')
-      || localStorage.getItem('token');
+  for (const key of TOKEN_KEYS) {
+    const token = localStorage.getItem(key);
+    if (token && token !== 'null' && token !== 'undefined' && token.includes('.')) {
+      console.log(`[getCoreToken] Found token in localStorage key: ${key}`);
+      return token;
+    }
   }
   
-  return token;
+  console.warn('[getCoreToken] No valid CORE token found in localStorage. Checked keys:', TOKEN_KEYS);
+  return null;
 }
 
 /**
@@ -177,14 +186,17 @@ async function invokeFunction<T>(
   
   console.log(`[${logPrefix}] Calling ${functionName}`, body);
 
-  if (!token) {
-    console.error(`[${logPrefix}] No CORE token found`);
-    throw new Error('Não autenticado. Faça login no CORE.');
+  // MVP: Allow calls without token (Edge Function will use anonymous mode)
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else {
+    console.warn(`[${logPrefix}] No CORE token found - calling in MVP anonymous mode`);
   }
 
   const { data, error } = await supabase.functions.invoke(functionName, {
     body,
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
 
   if (error) {

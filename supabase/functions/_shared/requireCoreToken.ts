@@ -1,6 +1,9 @@
 /**
  * MVP CORE JWT validation helper
  * 
+ * MVP MODE: Auth is OPTIONAL to allow development without CORE login.
+ * When AUTH_REQUIRED env is set to "true", auth becomes mandatory.
+ * 
  * Validates token WITHOUT signature verification:
  * - Token exists in Authorization header
  * - Token has 3 parts (header.payload.signature)
@@ -22,6 +25,23 @@ export interface TokenValidationResult {
   valid: boolean;
   payload?: CoreTokenPayload;
   error?: string;
+}
+
+// Default payload for anonymous access (MVP only)
+const ANONYMOUS_PAYLOAD: CoreTokenPayload = {
+  sub: "anonymous",
+  user_id: 0,
+  email: "anonymous@mvp.local",
+  name: "Anonymous (MVP)",
+  level: 0,
+};
+
+/**
+ * Check if auth is required (default: false for MVP)
+ */
+function isAuthRequired(): boolean {
+  const envValue = Deno.env.get("AUTH_REQUIRED");
+  return envValue === "true" || envValue === "1";
 }
 
 /**
@@ -55,12 +75,17 @@ export function validateCoreToken(authHeader: string | null): TokenValidationRes
     return { valid: false, error: "Invalid Authorization format (expected Bearer)" };
   }
 
-  const token = authHeader.substring(7); // Remove "Bearer "
+  const token = authHeader.substring(7).trim(); // Remove "Bearer " and trim
+
+  // Check token is not empty or "null"/"undefined"
+  if (!token || token === "null" || token === "undefined") {
+    return { valid: false, error: "Token is empty or null" };
+  }
 
   // Check token has 3 parts
   const parts = token.split(".");
   if (parts.length !== 3) {
-    return { valid: false, error: "Invalid token format (expected 3 parts)" };
+    return { valid: false, error: `Invalid token format (expected 3 parts, got ${parts.length})` };
   }
 
   try {
@@ -89,24 +114,33 @@ export function validateCoreToken(authHeader: string | null): TokenValidationRes
 }
 
 /**
- * Middleware-style function that validates token and returns error response if invalid
- * Returns the payload if valid, or null with the error response
+ * Middleware-style function that validates token and returns error response if invalid.
+ * 
+ * MVP MODE: If AUTH_REQUIRED is not set to "true", allows anonymous access with a warning.
+ * Returns the payload if valid, or an error response if auth is required but invalid.
  */
 export function requireCoreToken(req: Request): { payload: CoreTokenPayload } | { error: Response } {
   const authHeader = req.headers.get("authorization");
   const result = validateCoreToken(authHeader);
 
   if (!result.valid) {
-    console.error("[requireCoreToken] Validation failed:", result.error);
-    return {
-      error: new Response(
-        JSON.stringify({ success: false, error: result.error }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        }
-      ),
-    };
+    // Check if auth is required
+    if (isAuthRequired()) {
+      console.error("[requireCoreToken] Auth REQUIRED but validation failed:", result.error);
+      return {
+        error: new Response(
+          JSON.stringify({ success: false, error: result.error }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }
+        ),
+      };
+    }
+
+    // MVP MODE: Allow anonymous access with warning
+    console.warn("[requireCoreToken] MVP MODE: Auth skipped.", result.error, "Using anonymous payload.");
+    return { payload: ANONYMOUS_PAYLOAD };
   }
 
   console.log("[requireCoreToken] Token valid, payload:", {
