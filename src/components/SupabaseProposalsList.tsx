@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  FileDown, Loader2, Mail,
+  FileDown, Loader2, Mail, Link as LinkIcon,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
@@ -34,6 +34,10 @@ import {
 import { authService } from '@/services/authService';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
+import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
+import { useApprovalLink } from '@/hooks/useApprovalLink';
+import { copyToClipboard } from '@/lib/clipboard';
+import { LinkCopyModal } from '@/components/LinkCopyModal';
 import {
   useProposalList,
   useDeleteProposal,
@@ -114,7 +118,9 @@ const SupabaseProposalsList: React.FC = () => {
   const session = authService.getSession();
   const userLevel = session?.level || 0;
   const isAdmin = userLevel === 1000;
+  const isArchitect = userLevel === 690;
   const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel === 1000;
+  const canCopyLink = !isArchitect; // All internal users except architects
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -186,12 +192,19 @@ const SupabaseProposalsList: React.FC = () => {
   );
   
   const deleteProposalMutation = useDeleteProposal();
+  const { getApprovalLink, isLoading: isLoadingApprovalLink } = useApprovalLink();
   
   // State for actions
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
+  const [copyingLinkId, setCopyingLinkId] = useState<string | null>(null);
+  
+  // State for Safari fallback modal
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkModalUrl, setLinkModalUrl] = useState('');
   
   const handleView = (proposalId: string) => {
     navigate(ROUTES.modulos.comercial.proposalView(proposalId));
@@ -311,6 +324,73 @@ const SupabaseProposalsList: React.FC = () => {
       });
     } finally {
       setSendingEmailId(null);
+    }
+  };
+
+  // Handle PDF download
+  const handleDownloadPDF = async (proposal: ProposalRow) => {
+    if (!proposal.id) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
+      return;
+    }
+    
+    setPdfLoadingId(proposal.id);
+    console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
+    
+    try {
+      const result = await downloadProposalPdfFromApi(proposal.id);
+      
+      if (result.success) {
+        toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+      } else {
+        toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+      }
+    } catch (error: any) {
+      console.error('[PDF DOWNLOAD] Exception:', error);
+      toast({ title: 'Erro', description: error.message || 'Falha ao gerar PDF', variant: 'destructive' });
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
+  // Handle copy approval link
+  const handleCopyApprovalLink = async (proposal: ProposalRow) => {
+    if (!proposal.id) {
+      toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
+      return;
+    }
+    
+    setCopyingLinkId(proposal.id);
+    console.log('[COPY LINK] Getting approval link for:', proposal.id);
+    
+    try {
+      const approvalLink = await getApprovalLink(proposal.id);
+      const copySuccess = await copyToClipboard(approvalLink);
+      
+      // Update status to Enviado if still Rascunho
+      if (proposal.status === 'Rascunho') {
+        console.log('[COPY LINK] Updating status from Rascunho to Enviado');
+        await saveProposal({
+          proposal: { id: proposal.id, status: 'Enviado' },
+          servers: [],
+          addons: [],
+        });
+        refetch();
+      }
+      
+      if (copySuccess) {
+        toast({ title: 'Link copiado!', description: 'O link de aprovação foi copiado para a área de transferência' });
+      } else {
+        // Safari fallback - show modal
+        setLinkModalUrl(approvalLink);
+        setLinkModalOpen(true);
+        toast({ title: 'Copie o link manualmente', description: 'O Safari bloqueou a cópia automática.' });
+      }
+    } catch (error: any) {
+      console.error('[COPY LINK] Exception:', error);
+      toast({ title: 'Erro ao gerar link', description: error.message || 'Não foi possível gerar o link', variant: 'destructive' });
+    } finally {
+      setCopyingLinkId(null);
     }
   };
   
@@ -520,6 +600,28 @@ const SupabaseProposalsList: React.FC = () => {
                             </Tooltip>
                           )}
                           
+                          {/* Enviar para aprovação (link) - Hidden for architects */}
+                          {canCopyLink && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleCopyApprovalLink(proposal)}
+                                  disabled={copyingLinkId === proposal.id}
+                                >
+                                  {copyingLinkId === proposal.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <LinkIcon className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Enviar para aprovação (gerar link)</TooltipContent>
+                            </Tooltip>
+                          )}
+                          
                           {/* Enviar e-mail: sempre permitido, tooltip diferente se aprovado */}
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -540,6 +642,26 @@ const SupabaseProposalsList: React.FC = () => {
                             <TooltipContent>
                               {proposal.status === 'Aprovado' ? 'Reenviar proposta aprovada' : 'Enviar por e-mail'}
                             </TooltipContent>
+                          </Tooltip>
+                          
+                          {/* Download PDF - Always visible */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => handleDownloadPDF(proposal)}
+                                disabled={pdfLoadingId === proposal.id}
+                              >
+                                {pdfLoadingId === proposal.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <FileDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar PDF</TooltipContent>
                           </Tooltip>
                           
                           {isAdmin && (
@@ -642,6 +764,13 @@ const SupabaseProposalsList: React.FC = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        
+        {/* Link Copy Modal for Safari fallback */}
+        <LinkCopyModal
+          open={linkModalOpen}
+          onOpenChange={setLinkModalOpen}
+          link={linkModalUrl}
+        />
       </div>
     </TooltipProvider>
   );

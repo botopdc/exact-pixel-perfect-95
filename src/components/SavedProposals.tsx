@@ -190,6 +190,7 @@ const SavedProposals: React.FC = () => {
   // State for actions
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
   const [copyingLinkId, setCopyingLinkId] = useState<string | null>(null);
+  const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
   const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -222,18 +223,28 @@ const SavedProposals: React.FC = () => {
     
     console.log('[SavedProposals] Download PDF using numeric ID:', numericId, '(display:', displayId, ')');
     
-    // Track PDF download using display ID for analytics
-    if (displayId) {
-      trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
-    }
+    // Set loading state
+    setPdfLoadingId(displayId);
     
-    // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
-    const result = await downloadProposalPdfFromApi(numericId);
-    
-    if (result.success) {
-      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
-    } else {
-      toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+    try {
+      // Track PDF download using display ID for analytics
+      if (displayId) {
+        trackEvent.mutate({ proposalId: displayId, type: 'pdf_download', channel: 'ui' });
+      }
+      
+      // Use unified PDF service with NUMERIC ID - tries API first, then generates locally
+      const result = await downloadProposalPdfFromApi(numericId);
+      
+      if (result.success) {
+        toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
+      } else {
+        toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+      }
+    } catch (error: any) {
+      console.error('[SavedProposals] PDF download error:', error);
+      toast({ title: 'Erro', description: error.message || 'Falha ao gerar PDF', variant: 'destructive' });
+    } finally {
+      setPdfLoadingId(null);
     }
   };
 
@@ -700,7 +711,7 @@ const SavedProposals: React.FC = () => {
                               </Button>
                               {/* Copy Link - Hidden for architects (level 690) */}
                               {canCopyLink && (
-                                <Button variant="ghost" size="icon" onClick={() => handleCopyAcceptanceLink(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Copiar link de aprovação" disabled={copyingLinkId === proposalId}>
+                                <Button variant="ghost" size="icon" onClick={() => handleCopyAcceptanceLink(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Enviar para aprovação (gerar link)" disabled={copyingLinkId === proposalId}>
                                   {copyingLinkId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <LinkIcon className="w-4 h-4" />}
                                 </Button>
                               )}
@@ -711,8 +722,15 @@ const SavedProposals: React.FC = () => {
                                 </Button>
                               )}
                               {/* Download PDF - Always visible */}
-                              <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)} className="text-primary hover:text-primary hover:bg-primary/10" title="Baixar PDF">
-                                <FileDown className="w-4 h-4" />
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => handleDownloadPDF(p)} 
+                                className="text-primary hover:text-primary hover:bg-primary/10" 
+                                title="Baixar PDF"
+                                disabled={pdfLoadingId === proposalId}
+                              >
+                                {pdfLoadingId === proposalId ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
                               </Button>
                               {/* Create Contract - Only for approved proposals, non-architects */}
                               {p.status === 'APPROVED' && canEditProposal && (
