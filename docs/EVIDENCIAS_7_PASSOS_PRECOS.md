@@ -86,22 +86,83 @@
 
 ---
 
-## Passo 2 — Criar Supabase server client
+## Passo 2 — Criar Edge Function `/pricing-admin`
 
-**Data**: (pendente)
-**Status**: TODO
+**Data**: 2026-02-07
+**Status**: ✅ DONE
+
+### Decisão de Arquitetura
+
+O projeto usa **Vite + React**, não Next.js. Portanto, não existem API Routes server-side.
+A solução correta para manter a `SERVICE_ROLE_KEY` segura é usar **Edge Functions** do Supabase.
 
 ### O que foi feito
-(pendente)
+
+1. **Edge Function criada**: `supabase/functions/pricing-admin/index.ts`
+   - Usa `SUPABASE_SERVICE_ROLE_KEY` (acesso privilegiado)
+   - Valida `X-Admin-PIN` header (MVP security gate)
+   - Valida `Authorization` header (token externo)
+   - Suporta GET, POST, PUT, DELETE
+   - CORS configurado corretamente
+
+2. **Config atualizada**: `supabase/config.toml`
+   ```toml
+   [functions.pricing-admin]
+   verify_jwt = false
+   ```
+
+3. **Deploy realizado**: Edge Function deployada com sucesso
+
+### Trecho do código principal
+
+```typescript
+// Create Supabase client with SERVICE_ROLE_KEY (privileged access)
+const supabaseAdmin = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }
+);
+```
+
+### Testes realizados
+
+1. **GET com PIN correto**:
+   ```
+   Headers: Authorization: Bearer test-token, x-admin-pin: 5678
+   Response: 200 OK
+   Body: {"data": []}
+   ```
+
+2. **GET com PIN incorreto**:
+   ```
+   Headers: Authorization: Bearer test-token, x-admin-pin: wrong-pin
+   Response: 401 Unauthorized
+   Body: {"error": "Invalid admin PIN"}
+   ```
+
+3. **GET sem Authorization**:
+   ```
+   Headers: x-admin-pin: 5678
+   Response: 401 Unauthorized
+   Body: {"error": "Missing or invalid authorization token"}
+   ```
 
 ### Arquivos alterados
-(pendente)
 
-### Como testar
-(pendente)
+- `supabase/functions/pricing-admin/index.ts` (CRIADO)
+- `supabase/config.toml` (ATUALIZADO)
 
 ### Resultado
-(pendente)
+
+- ✅ Edge Function deployada e funcional
+- ✅ SERVICE_ROLE_KEY protegida (apenas server-side)
+- ✅ PIN bloqueia acesso não autorizado
+- ✅ CORS configurado para chamadas do frontend
 
 ---
 

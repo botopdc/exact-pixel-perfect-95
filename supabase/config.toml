@@ -1,1 +1,4 @@
 project_id = "macmkfoknhofnwhizsqc"
+
+[functions.pricing-admin]
+verify_jwt = false
