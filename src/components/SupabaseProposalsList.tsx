@@ -140,12 +140,24 @@ const SupabaseProposalsList: React.FC = () => {
     setCurrentPage(1);
   }, [statusFilter, perPage]);
   
-  // Fetch proposals
-  const { data, isLoading, refetch } = useSupabaseProposals(currentPage, {
-    status: statusFilter !== 'all' ? statusFilter : undefined,
+  // Fetch proposals - NOTE: status filter is handled in the service
+  const { data, isLoading, error: queryError, refetch } = useSupabaseProposals(currentPage, {
+    status: statusFilter, // Pass as-is, service handles 'all' check
     search: debouncedSearch || undefined,
     limit: perPage,
   });
+  
+  // Show error toast if query failed
+  useEffect(() => {
+    if (queryError) {
+      console.error('[SupabaseProposalsList] Query error:', queryError);
+      toast({
+        title: 'Erro ao carregar propostas',
+        description: queryError.message || 'Falha na comunicação com o banco de dados',
+        variant: 'destructive',
+      });
+    }
+  }, [queryError, toast]);
   
   const proposals = data?.proposals || [];
   const pagination = {
@@ -153,6 +165,23 @@ const SupabaseProposalsList: React.FC = () => {
     lastPage: data?.totalPages || 1,
     total: data?.total || 0,
   };
+  
+  // Track if we have a real RLS/auth issue vs just empty data
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'no-session'>('checking');
+  
+  useEffect(() => {
+    const checkSupabaseAuth = async () => {
+      const { supabase } = await import('@/integrations/supabase/client');
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) {
+        setAuthStatus('authenticated');
+      } else {
+        setAuthStatus('no-session');
+        console.warn('[SupabaseProposalsList] No Supabase session - RLS may block reads');
+      }
+    };
+    checkSupabaseAuth();
+  }, []);
   
   const deleteProposalMutation = useDeleteSupabaseProposal();
   
@@ -301,9 +330,21 @@ const SupabaseProposalsList: React.FC = () => {
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
+          ) : authStatus === 'no-session' && proposals.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-6 max-w-md mx-auto">
+                <p className="text-orange-600 font-medium">Sem sessão Supabase / acesso negado (RLS)</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  As propostas estão no banco, mas você precisa estar autenticado no Supabase para visualizá-las.
+                </p>
+              </div>
+            </div>
           ) : proposals.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">Nenhuma proposta encontrada</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {debouncedSearch ? `Nenhum resultado para "${debouncedSearch}"` : 'Crie sua primeira proposta clicando em "Nova Proposta"'}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">

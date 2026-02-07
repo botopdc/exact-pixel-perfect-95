@@ -51,9 +51,25 @@ export function useSupabaseProposals(page: number = 1, filters: Omit<ProposalLis
     offset,
   };
 
+  console.log('[useSupabaseProposals] Fetching with filters:', fullFilters);
+
   return useQuery({
     queryKey: SUPABASE_PROPOSAL_KEYS.list(fullFilters),
-    queryFn: () => listProposals(fullFilters),
+    queryFn: async () => {
+      console.log('[useSupabaseProposals] queryFn executing...');
+      try {
+        const result = await listProposals(fullFilters);
+        console.log('[useSupabaseProposals] queryFn result:', {
+          proposalsCount: result.proposals.length,
+          total: result.total,
+          page: result.page,
+        });
+        return result;
+      } catch (error) {
+        console.error('[useSupabaseProposals] queryFn ERROR:', error);
+        throw error;
+      }
+    },
     staleTime: 30 * 1000, // 30 seconds
   });
 }
