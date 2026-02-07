@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
+import { requireCoreToken } from "../_shared/requireCoreToken.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,12 +21,18 @@ serve(async (req: Request) => {
   }
 
   try {
-    // MVP: Require any Authorization header (CORE token)
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.error("[proposal-save] Missing or invalid Authorization header");
-      return json({ success: false, error: "Unauthorized" }, 401);
+    // Validate CORE JWT token (MVP - no signature verification)
+    const tokenResult = requireCoreToken(req);
+    if ("error" in tokenResult) {
+      const errorBody = await tokenResult.error.text();
+      return new Response(errorBody, {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+
+    const { payload } = tokenResult;
+    console.log("[proposal-save] Authenticated user:", payload.sub || payload.user_id);
 
     // Parse request body
     const body = await req.json().catch(() => ({}));
@@ -44,6 +51,7 @@ serve(async (req: Request) => {
       company: proposal.company,
       serversCount: servers.length,
       addonsCount: addons.length,
+      user: payload.sub || payload.user_id,
     });
 
     // Create Supabase client with Service Role (bypasses RLS)

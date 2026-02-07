@@ -2,18 +2,18 @@
  * useProposalApi - React Query hooks for proposals via Edge Functions
  * 
  * Replaces direct Supabase queries with Edge Function calls that use Service Role.
+ * Uses proposalGateway.ts for all API calls.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import {
-  listProposals,
-  getProposal,
-  saveProposal,
-  deleteProposal,
+import proposalGateway, {
   ProposalListParams,
   ProposalSavePayload,
-} from '@/services/proposalApi';
+  ProposalListResult,
+  ProposalGetResult,
+  ProposalRow,
+} from '@/services/proposalGateway';
 
 // ============================================================================
 // QUERY KEYS
@@ -43,7 +43,7 @@ export function useProposalList(page: number = 1, params: Omit<ProposalListParam
 
   return useQuery({
     queryKey: PROPOSAL_API_KEYS.list(fullParams),
-    queryFn: () => listProposals(fullParams),
+    queryFn: () => proposalGateway.listProposals(fullParams),
     staleTime: 30 * 1000, // 30 seconds
   });
 }
@@ -55,7 +55,14 @@ export function useProposalList(page: number = 1, params: Omit<ProposalListParam
 export function useProposalDetail(proposalId: string | undefined) {
   return useQuery({
     queryKey: PROPOSAL_API_KEYS.detail(proposalId || ''),
-    queryFn: () => (proposalId ? getProposal(proposalId) : Promise.resolve(null)),
+    queryFn: async () => {
+      if (!proposalId) return null;
+      const result = await proposalGateway.getProposalWithItems(proposalId);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch proposal');
+      }
+      return result;
+    },
     enabled: !!proposalId,
     staleTime: 60 * 1000, // 1 minute
   });
@@ -65,12 +72,12 @@ export function useProposalDetail(proposalId: string | undefined) {
 // SAVE PROPOSAL MUTATION
 // ============================================================================
 
-export function useSaveProposal() {
+export function useSaveProposalApi() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: (payload: ProposalSavePayload) => saveProposal(payload),
+    mutationFn: (payload: ProposalSavePayload) => proposalGateway.saveProposal(payload),
     onSuccess: (result, variables) => {
       if (result.success) {
         // Invalidate lists
@@ -96,7 +103,7 @@ export function useSaveProposal() {
       }
     },
     onError: (error: Error) => {
-      console.error('[useSaveProposal] Error:', error);
+      console.error('[useSaveProposalApi] Error:', error);
       toast({
         title: 'Erro ao salvar proposta',
         description: error.message,
@@ -115,7 +122,7 @@ export function useDeleteProposal() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: (proposalId: string) => deleteProposal(proposalId),
+    mutationFn: (proposalId: string) => proposalGateway.deleteProposal(proposalId),
     onSuccess: (result, proposalId) => {
       if (result.success) {
         queryClient.invalidateQueries({ queryKey: PROPOSAL_API_KEYS.lists() });
@@ -143,3 +150,6 @@ export function useDeleteProposal() {
     },
   });
 }
+
+// Re-export types for convenience
+export type { ProposalListParams, ProposalSavePayload, ProposalListResult, ProposalGetResult, ProposalRow };
