@@ -20,6 +20,7 @@ import VagaDetalhe from '@/pages/VagaDetalhe';
 import VagasJson from '@/pages/VagasJson';
 import Calculadora from '@/pages/Calculadora';
 import PropostaView from '@/pages/PropostaView';
+import PropostaViewSupabase from '@/pages/PropostaViewSupabase';
 import PropostaAceite from '@/pages/PropostaAceite';
 import PropostaAprovar from '@/pages/PropostaAprovar';
 import PropostaPdfPublic from '@/pages/PropostaPdfPublic';
@@ -207,10 +208,10 @@ const App = () => (
             <Route path="/modulos/comercial" element={<ComercialModuleHome />} />
             <Route path="/modulos/comercial/executivos" element={<Executivos />} />
             <Route path="/modulos/comercial/gestao-executivos" element={<GestaoExecutivos />} />
-            <Route path="/modulos/comercial/propostas" element={<PropostasExecutivos />} />
+            <Route path="/modulos/comercial/propostas" element={<Propostas />} />
             <Route path="/modulos/comercial/propostas/criar" element={<Calculadora />} />
-            {/* Rota de edição: /modulos/comercial/propostas/:id redireciona para calculadora com params */}
-            <Route path="/modulos/comercial/propostas/:id" element={<PropostaView />} />
+            {/* Visualização de proposta via Supabase (source of truth) */}
+            <Route path="/modulos/comercial/propostas/:id" element={<PropostaViewSupabase />} />
             <Route path="/modulos/comercial/propostas/templates" element={<PropostasTemplatesPage />} />
             <Route path="/modulos/comercial/propostas/aprovacoes" element={<PropostasAprovacoesPage />} />
             

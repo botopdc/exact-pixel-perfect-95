@@ -1049,6 +1049,14 @@ const OpenCalculator: React.FC = () => {
         console.log('[OpenCalculator] PROPOSAL_LOADED_FROM_STATE');
         initializedEditModeRef.current = true;
         
+        // SUPABASE: Check if we have a Supabase UUID for updates
+        const supabaseIdFromState = location.state?.supabaseId;
+        if (supabaseIdFromState) {
+          console.log('[OpenCalculator] SUPABASE_ID from state:', supabaseIdFromState);
+          setEditingProposalId(supabaseIdFromState);
+          setIsEditMode(true);
+        }
+        
         const normalized = normalizeProposalForEdit(editProposalFromState);
         applyNormalizedState(normalized, normalized.displayId);
       } else {
