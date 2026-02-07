@@ -64,6 +64,7 @@ import { useConfigWithFallback } from '@/hooks/useConfig';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSaveProposal, SavedProposal, apiToLocal } from '@/hooks/useProposals';
 import { useSavePartnerProposal } from '@/hooks/usePartnerProposals';
+import { useSaveProposalToSupabase, saveProposalToSupabase } from '@/hooks/useSaveProposalToSupabase';
 import { authService } from '@/services/authService';
 import { partnerAuthService } from '@/services/partnersService';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -225,6 +226,9 @@ const OpenCalculator: React.FC = () => {
   const partnerSession = isPartnerContext ? partnerAuthService.getSession() : null;
   
   // Use appropriate save mutation based on context
+  // SUPABASE: New primary save method - saves directly to Supabase
+  const saveToSupabaseMutation = useSaveProposalToSupabase();
+  // LEGACY: Keep API mutations for partner context (to be migrated later)
   const saveInternalProposalMutation = useSaveProposal();
   const savePartnerProposalMutation = useSavePartnerProposal();
 
@@ -1286,20 +1290,64 @@ const OpenCalculator: React.FC = () => {
         console.log('[OpenCalculator] Partner save result:', { isUpdate: saveResult.isUpdate, id: partnerApiId });
         // Note: Partner proposals don't include PDF in the same request yet (separate flow)
       } else {
-        // Internal context: use internal proposal hook
-        // For EDIT mode, pass the API numeric ID so the hook performs UPDATE
-        const proposalData: SavedProposal = {
-          id: numericApiId || undefined, // CRITICAL: API numeric ID for update detection
-          ...draftState, // Spread complete draftState
-          total: result?.grandTotal || 0,
-          savedAt: new Date().toISOString(),
-        };
+        // ============================================================================
+        // SUPABASE: PRIMARY SAVE - Save directly to Supabase (source of truth)
+        // ============================================================================
+        console.log('[OpenCalculator] 🚀 SAVING TO SUPABASE (source of truth)');
+        console.log('[OpenCalculator] Supabase save input:', {
+          proposalId: editingProposalId,
+          displayId: proposal.id,
+          client: { name: client.name, email: client.email },
+          total: result?.grandTotal,
+          itemsCount: items.length,
+          storageCount: storageItems.length,
+          hasKubernetes: kubernetes.enabled,
+          hasOpenSaas: openSaas.enabled,
+          addonsKeys: Object.keys(addons).filter(k => {
+            const v = addons[k as keyof typeof addons];
+            if (v === null || v === undefined) return false;
+            if (typeof v === 'string') return v !== 'none' && v !== '';
+            if (typeof v === 'number') return v > 0;
+            if (typeof v === 'object') return true;
+            return false;
+          }),
+        });
 
-        // Generate PDF blob to send along with the proposal data
-        let pdfBlob: Blob | undefined;
+        // Call Supabase RPC directly
+        const supabaseProposalId = await saveProposalToSupabase({
+          proposalId: editingProposalId || undefined,
+          displayId: proposal.id,
+          fx,
+          selectedTerm,
+          datacenter,
+          client,
+          proposal,
+          total: result?.grandTotal || 0,
+          items,
+          storageItems,
+          kubernetes,
+          openSaas,
+          addons,
+          reseller,
+          result,
+          observacao: observacao.trim() || undefined,
+          priceOverrides,
+        });
+
+        console.log('[OpenCalculator] ✅ SAVED TO SUPABASE, proposalId=', supabaseProposalId);
+
+        // Update edit mode state with Supabase UUID
+        if (!isEditMode && supabaseProposalId) {
+          setIsEditMode(true);
+          setEditingProposalId(supabaseProposalId);
+        }
+
+        // Generate and upload PDF to Supabase Storage (optional, non-blocking)
         try {
-          console.log('[OpenCalculator] Generating PDF blob for proposal save...');
+          console.log('[OpenCalculator] Generating PDF for Supabase Storage...');
           const { generateOpenPDFBlob } = await import('@/lib/pdfGenerator');
+          const { uploadPdfToStorage } = await import('@/services/supabaseProposalService');
+          
           const pdfResult = await generateOpenPDFBlob({
             client,
             proposal,
@@ -1310,39 +1358,24 @@ const OpenCalculator: React.FC = () => {
             includeCommission: includeCommissionInPdf,
             observacao: observacao.trim() || undefined,
           });
-          pdfBlob = pdfResult.blob;
-          console.log('[OpenCalculator] PDF blob generated:', { size: pdfBlob.size });
+
+          const { path, signedUrl } = await uploadPdfToStorage(
+            supabaseProposalId,
+            pdfResult.blob,
+            `proposta_${proposal.id}.pdf`
+          );
+          console.log('[OpenCalculator] PDF uploaded to Supabase Storage:', { path, signedUrl: signedUrl.substring(0, 50) + '...' });
         } catch (pdfError) {
-          console.warn('[OpenCalculator] Failed to generate PDF blob, will save without file:', pdfError);
-          // Don't fail the save if PDF generation fails
+          console.warn('[OpenCalculator] PDF generation/upload failed (non-blocking):', pdfError);
         }
 
-        // Save proposal with PDF file attached in the same request
-        const saveResult = await saveInternalProposalMutation.mutateAsync({ proposal: proposalData, pdfBlob });
-        const savedData = saveResult.data as { id?: number } | undefined;
-        console.log('[OpenCalculator] Internal save result:', { isUpdate: saveResult.isUpdate, id: savedData?.id, hadPdf: !!pdfBlob });
-        
-        // After successful save, update editingProposalId with the returned ID (for new proposals)
-        const savedProposalId = savedData?.id ? String(savedData.id) : editingProposalId;
-        if (!isEditMode && savedData?.id) {
-          setIsEditMode(true);
-          setEditingProposalId(String(savedData.id));
-        }
-        
-        // Link or unlink architect participant after proposal is saved
-        if (savedProposalId) {
+        // Link architect participant if selected
+        if (supabaseProposalId && selectedArchitectId) {
           try {
-            if (selectedArchitectId) {
-              await setArchitectParticipant(savedProposalId, selectedArchitectId);
-              console.log('[OpenCalculator] Architect linked:', { proposalId: savedProposalId, architectId: selectedArchitectId });
-            } else {
-              // If architect was removed, unlink from proposal
-              await removeArchitectParticipant(savedProposalId);
-              console.log('[OpenCalculator] Architect unlinked from proposal:', savedProposalId);
-            }
+            await setArchitectParticipant(supabaseProposalId, selectedArchitectId);
+            console.log('[OpenCalculator] Architect linked:', { proposalId: supabaseProposalId, architectId: selectedArchitectId });
           } catch (architectError) {
-            console.warn('[OpenCalculator] Failed to update architect participant:', architectError);
-            // Don't fail the save operation if architect linking fails
+            console.warn('[OpenCalculator] Failed to link architect (non-blocking):', architectError);
           }
         }
       }
