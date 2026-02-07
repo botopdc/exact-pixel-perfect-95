@@ -3,19 +3,18 @@
  * 
  * This hook manages the complete calculator state and provides:
  * - State initialization for new proposals
- * - Hydration from API for edit mode (with timeout, no infinite retry)
+ * - Hydration from API for edit mode
  * - Serialization for saving
  * - State update helpers
  * 
  * CRITICAL: In edit mode, all state MUST come from hydrateProposalForEdit()
- * CRITICAL: No infinite loops - single load attempt with manual retry option
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
+import { openApi } from '@/lib/openApi';
 import { generateProposalId } from '@/lib/calculatorConfig';
-import { loadProposalWithItems, convertToLegacyFormat } from '@/services/proposalLoadService';
 
 import {
   OpenCalculatorState,
@@ -81,9 +80,8 @@ export interface UseCalculatorStateReturn {
   // Serialization
   getSerializedPayload: (channelType: 'CLIENTE' | 'PARCEIRO', grandTotal: number, discountPct?: number) => ApiProposalPayload;
   
-  // Reset and Retry
+  // Reset
   resetToNew: () => void;
-  retryLoad: () => void;
 }
 
 // ============================================================================
@@ -134,29 +132,16 @@ export function useCalculatorState(): UseCalculatorStateReturn {
     // Check for state from navigation (optimization)
     const editProposalFromState = location.state?.editProposal;
     
-    const loadProposalData = async () => {
+    const loadProposal = async () => {
       try {
-        let apiProposal: Record<string, unknown> | null = null;
+        let apiProposal: Record<string, unknown>;
         
         if (editProposalFromState) {
           console.log('[useCalculatorState] Using proposal from navigation state');
           apiProposal = editProposalFromState;
         } else {
-          console.log('[useCalculatorState] Loading proposal via Edge Function:', urlIdParam);
-          
-          // Use the new unified loading service with timeout
-          const result = await loadProposalWithItems(urlIdParam);
-          
-          if (!result.success) {
-            throw new Error(result.error || 'Erro ao carregar proposta');
-          }
-          
-          // Convert to legacy format for hydration
-          apiProposal = convertToLegacyFormat(result);
-          
-          if (!apiProposal) {
-            throw new Error('Proposta não encontrada');
-          }
+          console.log('[useCalculatorState] Fetching proposal from API:', urlIdParam);
+          apiProposal = await openApi.getProposal(urlIdParam) as Record<string, unknown>;
         }
         
         // Hydrate state using the centralized function
@@ -174,10 +159,9 @@ export function useCalculatorState(): UseCalculatorStateReturn {
         
       } catch (error: any) {
         console.error('[useCalculatorState] Error loading proposal:', error);
-        const errorMessage = error.message || 'Erro ao carregar proposta';
-        setEditError(errorMessage);
+        setEditError(error.response?.data?.message || error.message || 'Erro ao carregar proposta');
         
-        // Stop loading - allow manual retry
+        // Reset to allow creating new proposal
         setState(prev => ({
           ...prev,
           flags: { ...prev.flags, isLoading: false },
@@ -185,14 +169,13 @@ export function useCalculatorState(): UseCalculatorStateReturn {
         
         toast({
           title: 'Erro ao carregar proposta',
-          description: errorMessage,
+          description: error.response?.data?.message || 'Não foi possível carregar os dados da proposta.',
           variant: 'destructive',
         });
       }
     };
     
-    // Single load attempt - no automatic retry
-    loadProposalData();
+    loadProposal();
   }, [isUrlEditMode, urlIdParam, location.state, toast]);
   
   // ============================================
@@ -369,72 +352,6 @@ export function useCalculatorState(): UseCalculatorStateReturn {
   }, []);
   
   // ============================================
-  // RETRY LOAD (for manual retry after error)
-  // ============================================
-  
-  const retryLoad = useCallback(async () => {
-    if (!isUrlEditMode || !urlIdParam) {
-      console.warn('[useCalculatorState] retryLoad called but not in edit mode');
-      return;
-    }
-    
-    console.log('[useCalculatorState] Manual retry triggered for:', urlIdParam);
-    
-    // Reset hydrated ref to allow re-loading
-    hydratedRef.current = false;
-    setEditError(null);
-    
-    // Set loading state
-    setState(prev => ({
-      ...prev,
-      flags: { ...prev.flags, isLoading: true, isEditMode: true },
-    }));
-    
-    try {
-      // Use the unified loading service with timeout
-      const result = await loadProposalWithItems(urlIdParam);
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Erro ao carregar proposta');
-      }
-      
-      // Convert to legacy format for hydration
-      const apiProposal = convertToLegacyFormat(result);
-      
-      if (!apiProposal) {
-        throw new Error('Proposta não encontrada');
-      }
-      
-      // Hydrate state using the centralized function
-      const hydratedState = hydrateProposalForEdit(apiProposal);
-      
-      setState(hydratedState);
-      hydratedRef.current = true;
-      
-      toast({
-        title: 'Proposta carregada',
-        description: `Editando proposta ${hydratedState.meta.proposalDisplayId}`,
-      });
-      
-    } catch (error: any) {
-      console.error('[useCalculatorState] Retry error:', error);
-      const errorMessage = error.message || 'Erro ao carregar proposta';
-      setEditError(errorMessage);
-      
-      setState(prev => ({
-        ...prev,
-        flags: { ...prev.flags, isLoading: false },
-      }));
-      
-      toast({
-        title: 'Erro ao carregar proposta',
-        description: errorMessage,
-        variant: 'destructive',
-      });
-    }
-  }, [isUrlEditMode, urlIdParam, toast]);
-  
-  // ============================================
   // RETURN
   // ============================================
   
@@ -466,6 +383,5 @@ export function useCalculatorState(): UseCalculatorStateReturn {
     updateStorage,
     getSerializedPayload,
     resetToNew,
-    retryLoad,
   };
 }
