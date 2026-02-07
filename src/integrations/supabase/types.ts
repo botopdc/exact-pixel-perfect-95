@@ -134,6 +134,258 @@ export type Database = {
         }
         Relationships: []
       }
+      calculator_proposal_addons: {
+        Row: {
+          addon_key: string
+          created_at: string
+          enabled: boolean
+          id: string
+          label: string
+          metadata: Json | null
+          proposal_id: string
+          quantity: number
+          sort_order: number
+          total_price: number
+          unit_price: number
+        }
+        Insert: {
+          addon_key: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          label: string
+          metadata?: Json | null
+          proposal_id: string
+          quantity?: number
+          sort_order?: number
+          total_price?: number
+          unit_price?: number
+        }
+        Update: {
+          addon_key?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          label?: string
+          metadata?: Json | null
+          proposal_id?: string
+          quantity?: number
+          sort_order?: number
+          total_price?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calculator_proposal_addons_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "calculator_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calculator_proposal_files: {
+        Row: {
+          created_at: string
+          file_name: string | null
+          file_path: string
+          file_type: string
+          id: string
+          proposal_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name?: string | null
+          file_path: string
+          file_type?: string
+          id?: string
+          proposal_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string | null
+          file_path?: string
+          file_type?: string
+          id?: string
+          proposal_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calculator_proposal_files_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "calculator_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calculator_proposal_servers: {
+        Row: {
+          bm_cpu: string | null
+          bm_ram: string | null
+          created_at: string
+          disks: Json | null
+          gpu: string | null
+          gpu_qty: number
+          id: string
+          ips: number
+          name: string
+          nvme_tb: number
+          proposal_id: string
+          qty_servers: number
+          ram_gb: number
+          server_type: string
+          sort_order: number
+          specs: Json | null
+          storage_region: string | null
+          storage_type: string | null
+          total_price: number
+          traffic_tb: number
+          unit_price: number
+          vcpu: number
+          volume_tb: number | null
+        }
+        Insert: {
+          bm_cpu?: string | null
+          bm_ram?: string | null
+          created_at?: string
+          disks?: Json | null
+          gpu?: string | null
+          gpu_qty?: number
+          id?: string
+          ips?: number
+          name?: string
+          nvme_tb?: number
+          proposal_id: string
+          qty_servers?: number
+          ram_gb?: number
+          server_type?: string
+          sort_order?: number
+          specs?: Json | null
+          storage_region?: string | null
+          storage_type?: string | null
+          total_price?: number
+          traffic_tb?: number
+          unit_price?: number
+          vcpu?: number
+          volume_tb?: number | null
+        }
+        Update: {
+          bm_cpu?: string | null
+          bm_ram?: string | null
+          created_at?: string
+          disks?: Json | null
+          gpu?: string | null
+          gpu_qty?: number
+          id?: string
+          ips?: number
+          name?: string
+          nvme_tb?: number
+          proposal_id?: string
+          qty_servers?: number
+          ram_gb?: number
+          server_type?: string
+          sort_order?: number
+          specs?: Json | null
+          storage_region?: string | null
+          storage_type?: string | null
+          total_price?: number
+          traffic_tb?: number
+          unit_price?: number
+          vcpu?: number
+          volume_tb?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calculator_proposal_servers_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "calculator_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calculator_proposals: {
+        Row: {
+          channel_type: string
+          commission_reason: string | null
+          commission_value: number | null
+          company: string
+          contract_duration: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          datacenter: string
+          discount_pct: number
+          display_id: string | null
+          due_at: string
+          email: string
+          external_id: number | null
+          fx: number
+          id: string
+          name: string
+          observations: string | null
+          pdf_path: string | null
+          phone: string
+          reseller_name: string | null
+          status: string
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          channel_type?: string
+          commission_reason?: string | null
+          commission_value?: number | null
+          company: string
+          contract_duration?: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          datacenter?: string
+          discount_pct?: number
+          display_id?: string | null
+          due_at?: string
+          email: string
+          external_id?: number | null
+          fx?: number
+          id?: string
+          name: string
+          observations?: string | null
+          pdf_path?: string | null
+          phone: string
+          reseller_name?: string | null
+          status?: string
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          channel_type?: string
+          commission_reason?: string | null
+          commission_value?: number | null
+          company?: string
+          contract_duration?: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          datacenter?: string
+          discount_pct?: number
+          display_id?: string | null
+          due_at?: string
+          email?: string
+          external_id?: number | null
+          fx?: number
+          id?: string
+          name?: string
+          observations?: string | null
+          pdf_path?: string | null
+          phone?: string
+          reseller_name?: string | null
+          status?: string
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cert_asset_access: {
         Row: {
           asset_id: string
@@ -1060,6 +1312,7 @@ export type Database = {
     Functions: {
       is_tech_admin: { Args: never; Returns: boolean }
       is_tech_team_member: { Args: never; Returns: boolean }
+      save_calculator_proposal: { Args: { payload: Json }; Returns: string }
     }
     Enums: {
       academy_enrollment_status:
