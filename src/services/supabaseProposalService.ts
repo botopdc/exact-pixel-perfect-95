@@ -35,24 +35,48 @@ export async function listProposals(filters: ProposalListFilters = {}): Promise<
     offset = 0,
   } = filters;
 
+  // 🔍 DEBUG: Log Supabase connection info
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'unknown';
+  console.log('[supabaseProposalService] listProposals DEBUG:', {
+    supabaseUrl: supabaseUrl.substring(0, 30) + '...',
+    filters: { status, search, channel_type, created_by, limit, offset },
+  });
+
+  // Check auth state
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  console.log('[supabaseProposalService] Auth state:', {
+    hasUser: !!authData?.user,
+    userId: authData?.user?.id?.substring(0, 8) || 'null',
+    authError: authError?.message || null,
+  });
+
+  // Build query - select minimal columns, order by updated_at desc
   let query = supabase
     .from('calculator_proposals')
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false });
+    .select('id, display_id, name, company, email, phone, status, total, datacenter, channel_type, created_at, updated_at', { count: 'exact' })
+    .order('updated_at', { ascending: false });
 
-  // Apply filters
-  if (status && status !== 'all') {
+  // Apply status filter ONLY if it's a real value (not 'all' or empty)
+  if (status && status !== 'all' && status.trim() !== '') {
+    console.log('[supabaseProposalService] Applying status filter:', status);
     query = query.eq('status', status);
   }
-  if (channel_type) {
+
+  // Apply channel_type filter
+  if (channel_type && channel_type.trim() !== '') {
     query = query.eq('channel_type', channel_type);
   }
-  if (created_by) {
+
+  // Apply created_by filter
+  if (created_by && created_by.trim() !== '') {
     query = query.eq('created_by', created_by);
   }
-  if (search) {
-    // Search in name, company, email, display_id
-    query = query.or(`name.ilike.%${search}%,company.ilike.%${search}%,email.ilike.%${search}%,display_id.ilike.%${search}%`);
+
+  // Apply search filter ONLY if not empty
+  if (search && search.trim() !== '') {
+    const searchTerm = search.trim();
+    console.log('[supabaseProposalService] Applying search filter:', searchTerm);
+    query = query.or(`company.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
   }
 
   // Pagination
@@ -60,9 +84,18 @@ export async function listProposals(filters: ProposalListFilters = {}): Promise<
 
   const { data, error, count } = await query;
 
+  // 🔍 DEBUG: Log results
+  console.log('[supabaseProposalService] listProposals result:', {
+    count: count,
+    returnedRows: data?.length || 0,
+    hasError: !!error,
+    errorCode: error?.code || null,
+    errorMessage: error?.message || null,
+  });
+
   if (error) {
-    console.error('[supabaseProposalService] listProposals error:', error);
-    throw new Error(error.message);
+    console.error('[supabaseProposalService] listProposals ERROR:', error);
+    throw new Error(`${error.message} (code: ${error.code})`);
   }
 
   const total = count || 0;
