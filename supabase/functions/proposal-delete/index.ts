@@ -16,7 +16,6 @@ function json(data: unknown, status = 200) {
 }
 
 serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -25,7 +24,6 @@ serve(async (req: Request) => {
     // Validate CORE JWT token (MVP - no signature verification)
     const tokenResult = requireCoreToken(req);
     if ("error" in tokenResult) {
-      // Add CORS headers to error response
       const errorBody = await tokenResult.error.text();
       return new Response(errorBody, {
         status: 401,
@@ -34,18 +32,17 @@ serve(async (req: Request) => {
     }
 
     const { payload } = tokenResult;
-    console.log("[proposal-list] Authenticated user:", payload.sub || payload.user_id);
+    console.log("[proposal-delete] Authenticated user:", payload.sub || payload.user_id);
 
     // Parse request body
     const body = await req.json().catch(() => ({}));
-    const { search, status, limit = 15, offset = 0 } = body as {
-      search?: string;
-      status?: string;
-      limit?: number;
-      offset?: number;
-    };
+    const { proposalId } = body as { proposalId?: string };
 
-    console.log("[proposal-list] Request params:", { search, status, limit, offset });
+    if (!proposalId) {
+      return json({ success: false, error: "proposalId is required" }, 400);
+    }
+
+    console.log("[proposal-delete] Deleting proposal:", proposalId);
 
     // Create Supabase client with Service Role (bypasses RLS)
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -55,43 +52,45 @@ serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
-    // Build query
-    let query = supabase
+    // Delete servers first (foreign key constraint)
+    const { error: serversError } = await supabase
+      .from("calculator_proposal_servers")
+      .delete()
+      .eq("proposal_id", proposalId);
+
+    if (serversError) {
+      console.error("[proposal-delete] Servers delete error:", serversError);
+    }
+
+    // Delete addons
+    const { error: addonsError } = await supabase
+      .from("calculator_proposal_addons")
+      .delete()
+      .eq("proposal_id", proposalId);
+
+    if (addonsError) {
+      console.error("[proposal-delete] Addons delete error:", addonsError);
+    }
+
+    // Delete proposal
+    const { error: proposalError } = await supabase
       .from("calculator_proposals")
-      .select("id, display_id, name, company, email, phone, status, total, datacenter, channel_type, created_at, updated_at", { count: "exact" })
-      .order("updated_at", { ascending: false });
+      .delete()
+      .eq("id", proposalId);
 
-    // Apply filters
-    if (status && status !== "all" && status !== "Todos" && status.trim() !== "") {
-      query = query.eq("status", status);
+    if (proposalError) {
+      console.error("[proposal-delete] Proposal delete error:", proposalError);
+      return json({ success: false, error: proposalError.message }, 500);
     }
 
-    if (search && search.trim() !== "") {
-      const term = search.trim();
-      query = query.or(`company.ilike.%${term}%,name.ilike.%${term}%,email.ilike.%${term}%`);
-    }
-
-    // Pagination
-    query = query.range(offset, offset + limit - 1);
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error("[proposal-list] Supabase error:", error);
-      return json({ success: false, error: error.message, code: error.code }, 500);
-    }
-
-    console.log("[proposal-list] Returned:", { count: data?.length, total: count });
+    console.log("[proposal-delete] Successfully deleted proposal:", proposalId);
 
     return json({
       success: true,
-      proposals: data || [],
-      total: count || 0,
-      page: Math.floor(offset / limit) + 1,
-      limit,
+      message: "Proposal deleted",
     });
   } catch (err) {
-    console.error("[proposal-list] Error:", err);
+    console.error("[proposal-delete] Error:", err);
     return json({ success: false, error: String(err) }, 500);
   }
 });
