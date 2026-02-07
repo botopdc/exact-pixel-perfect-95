@@ -17,6 +17,7 @@ interface SendProposalEmailRequest {
   senderEmail?: string;
   senderName?: string;
   isAcceptance?: boolean;
+  pdfUrl?: string; // Optional: Signed URL for PDF from Supabase Storage
 }
 
 const handler = async (req: Request): Promise<Response> => {
