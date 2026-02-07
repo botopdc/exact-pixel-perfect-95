@@ -1252,11 +1252,11 @@ const OpenCalculator: React.FC = () => {
           try {
             console.log('[EDIT LOAD] proposalId', urlIdParam);
             
-            // Use proposalGateway (Edge Functions with Service Role)
-            const { default: proposalGateway } = await import('@/services/proposalGateway');
+            // Use Edge Function instead of direct Supabase query
+            const { getProposal } = await import('@/services/proposalApi');
             const { edgeFunctionToCalculatorState } = await import('@/services/proposalFormatConverters');
 
-            const result = await proposalGateway.getProposalWithItems(urlIdParam);
+            const result = await getProposal(urlIdParam);
 
             if (!result.success || !result.proposal) {
               throw new Error(result.error || 'Proposta não encontrada');
