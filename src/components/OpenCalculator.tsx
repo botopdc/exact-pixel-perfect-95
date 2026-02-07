@@ -1247,53 +1247,43 @@ const OpenCalculator: React.FC = () => {
       setEditModeError(null);
       
       if (isSupabaseId) {
-        // SUPABASE PATH: Fetch from Supabase and apply directly
+        // SUPABASE PATH: Fetch via Edge Function (uses Service Role, no RLS issues)
         const fetchFromSupabase = async () => {
           try {
-            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'unknown';
-            const { supabase } = await import('@/integrations/supabase/client');
-            const { data: authData, error: authError } = await supabase.auth.getUser();
-
-            console.log('[EDIT LOAD] supabase context', {
-              supabaseUrl: `${supabaseUrl.substring(0, 30)}...`,
-              hasUser: !!authData?.user,
-              userId: authData?.user?.id?.substring(0, 8) || null,
-              authError: authError?.message || null,
-            });
-
-            const { getProposalWithItems } = await import('@/services/supabaseProposalService');
-            const { supabaseToCalculatorState } = await import('@/services/proposalFormatConverters');
-
             console.log('[EDIT LOAD] proposalId', urlIdParam);
+            
+            // Use Edge Function instead of direct Supabase query
+            const { getProposal } = await import('@/services/proposalApi');
+            const { edgeFunctionToCalculatorState } = await import('@/services/proposalFormatConverters');
 
-            const proposal = await getProposalWithItems(urlIdParam);
+            const result = await getProposal(urlIdParam);
 
-            if (!proposal) {
-              throw new Error('Proposta não encontrada no Supabase');
+            if (!result.success || !result.proposal) {
+              throw new Error(result.error || 'Proposta não encontrada');
             }
 
-            const serversCount = proposal.servers?.length || 0;
-            const addonsCount = proposal.addons?.length || 0;
+            const serversCount = result.servers?.length || 0;
+            const addonsCount = result.addons?.length || 0;
 
             console.log('[EDIT LOAD] counts', { servers: serversCount, addons: addonsCount });
-            console.log('[EDIT LOAD] firstServer', proposal.servers?.[0]);
-            console.log('[EDIT LOAD] firstAddon', proposal.addons?.[0]);
+            console.log('[EDIT LOAD] firstServer', result.servers?.[0]);
+            console.log('[EDIT LOAD] firstAddon', result.addons?.[0]);
 
             if (serversCount === 0 && addonsCount === 0) {
               // REQUIRED: differentiate "empty" from silent failure
-              console.error('[EDIT LOAD] Supabase returned 0 items for this proposal', {
+              console.error('[EDIT LOAD] Edge Function returned 0 items for this proposal', {
                 proposalId: urlIdParam,
-                total: proposal.total,
-                status: proposal.status,
+                total: result.proposal.total,
+                status: result.proposal.status,
               });
-              alert('Supabase retornou 0 itens para esta proposta. Verifique proposalId/RLS.');
+              alert('Edge Function retornou 0 itens para esta proposta. Verifique proposalId.');
             }
 
-            const calculatorState = supabaseToCalculatorState(proposal);
+            const calculatorState = edgeFunctionToCalculatorState(result);
             applySupabaseState(calculatorState, urlIdParam);
           } catch (error: any) {
-            console.error('[OpenCalculator] ERROR fetching from Supabase:', error);
-            setEditModeError(error.message || 'Erro ao carregar proposta do Supabase');
+            console.error('[OpenCalculator] ERROR fetching from Edge Function:', error);
+            setEditModeError(error.message || 'Erro ao carregar proposta');
             toast({
               title: 'Erro ao carregar proposta',
               description: error.message || 'Não foi possível carregar os dados da proposta.',
