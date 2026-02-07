@@ -12,7 +12,7 @@
 | ----: | -------------------------------------------------------------------------------------- | ------- |
 |     1 | Criar/validar tabela Supabase `calculator_configs`                                     | ✅ DONE |
 |     2 | Criar Edge Function `/pricing-admin` com SERVICE_ROLE_KEY                              | ✅ DONE |
-|     3 | Criar serviço client `pricingAdminService.ts` para consumir a Edge Function            | TODO    |
+|     3 | Criar serviço client `pricingAdminService.ts` para consumir a Edge Function            | ✅ DONE |
 |     4 | Trocar `calculatorConfigService.ts` para usar o novo serviço (não usar API externa)    | TODO    |
 |     5 | Seed inicial: importar configs atuais para `calculator_configs`                        | TODO    |
 |     6 | Ajustar tela `Precos.tsx` / `useConfigPersistence.ts` e validar CRUD                   | TODO    |

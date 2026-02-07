@@ -166,22 +166,71 @@ const supabaseAdmin = createClient(
 
 ---
 
-## Passo 3 — Criar Edge Function `/pricing-admin`
+## Passo 3 — Criar serviço client `pricingAdminService.ts`
 
-**Data**: (pendente)
-**Status**: TODO
+**Data**: 2026-02-07
+**Status**: ✅ DONE
 
 ### O que foi feito
-(pendente)
 
-### Arquivos alterados
-(pendente)
+1. **Serviço criado**: `src/services/pricingAdminService.ts`
+   - Consome Edge Function `/pricing-admin`
+   - Valida token de autenticação do localStorage
+   - Passa `X-Admin-PIN` em todas as requisições
+   - Suporta GET, POST, PUT, DELETE
 
-### Como testar
-(pendente)
+2. **Funções implementadas**:
+   - `getAllConfigs(pin, filters?)` - Lista configs
+   - `createConfig(pin, payload)` - Cria novo
+   - `updateConfig(pin, id, payload)` - Atualiza existente
+   - `deleteConfig(pin, id)` - Soft delete
+   - `getConfigByPath(pin, category, section)` - Busca específica
+   - `upsertConfig(pin, category, section, config)` - Create/Update
+   - `isValidPin(pin)` - Validação de PIN
+
+### Trecho do código principal
+
+```typescript
+function buildHeaders(adminPin: string): HeadersInit {
+  const token = getAuthToken();
+  
+  if (!token) {
+    throw new Error('Usuário não autenticado. Faça login novamente.');
+  }
+  
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'apikey': SUPABASE_ANON_KEY,
+    'x-admin-pin': adminPin,
+  };
+}
+```
+
+### Como usar
+
+```typescript
+import pricingAdminService from '@/services/pricingAdminService';
+
+// Listar todas as configs
+const configs = await pricingAdminService.getAllConfigs('5678');
+
+// Atualizar uma config específica
+await pricingAdminService.updateConfig('5678', 1, {
+  config: [{ label: 'vCPU', value: 50, by: 'unit', type: 'BRL' }]
+});
+```
+
+### Arquivos criados
+
+- `src/services/pricingAdminService.ts`
 
 ### Resultado
-(pendente)
+
+- ✅ Serviço client criado e tipado
+- ✅ Integração com Edge Function pricing-admin
+- ✅ Validação de auth token
+- ✅ Header X-Admin-PIN em todas as requisições
 
 ---
 
