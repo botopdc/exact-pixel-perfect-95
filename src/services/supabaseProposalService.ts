@@ -303,15 +303,21 @@ export async function updateProposalStatus(proposalId: string, status: string): 
 }
 
 // ============================================================================
-// UPDATE PDF PATH
+// UPDATE PDF PATH + GENERATED_AT
 // ============================================================================
 
 export async function updatePdfPath(proposalId: string, pdfPath: string): Promise<void> {
   console.log('[supabaseProposalService] updatePdfPath:', { proposalId, pdfPath });
 
+  const now = new Date().toISOString();
+
   const { error } = await supabase
     .from('calculator_proposals')
-    .update({ pdf_path: pdfPath, updated_at: new Date().toISOString() })
+    .update({
+      pdf_path: pdfPath,
+      pdf_generated_at: now,
+      updated_at: now,
+    })
     .eq('id', proposalId);
 
   if (error) {
