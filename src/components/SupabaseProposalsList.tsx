@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
+import { createSignedPdfUrl } from '@/services/supabaseStorageService';
 import { saveProposal, getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -346,19 +347,26 @@ const SupabaseProposalsList: React.FC = () => {
     console.log('[PDF DOWNLOAD] Starting for proposal (Storage only):', proposal.id);
 
     try {
-      // Fetch full proposal to get pdf_path
-      const res = await getProposalFromEdge(proposal.id);
+      // Prefer pdf_path from list (when available)
+      let pdfPath = proposal.pdf_path || null;
+      let displayId = proposal.display_id || proposal.id.substring(0, 8);
 
-      if (!res?.success) {
-        toast({
-          title: 'Erro',
-          description: res?.error || 'Falha ao buscar proposta',
-          variant: 'destructive',
-        });
-        return;
+      // If list row doesn't include it (or is null), fetch full proposal
+      if (!pdfPath) {
+        const res = await getProposalFromEdge(proposal.id);
+
+        if (!res?.success) {
+          toast({
+            title: 'Erro',
+            description: res?.error || 'Falha ao buscar proposta',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        pdfPath = res.proposal?.pdf_path || null;
+        displayId = res.proposal?.display_id || displayId;
       }
-
-      const pdfPath = res.proposal?.pdf_path;
 
       if (!pdfPath) {
         console.warn('[PDF DOWNLOAD] pdf_path is null/empty. PDF not generated yet.');
@@ -371,20 +379,12 @@ const SupabaseProposalsList: React.FC = () => {
 
       console.log('[PDF DOWNLOAD] Fetching signed URL for path:', pdfPath);
 
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('proposal-files')
-        .createSignedUrl(pdfPath, 60 * 60); // 1 hora
-
-      if (signedUrlError || !signedUrlData?.signedUrl) {
-        console.error('[PDF DOWNLOAD] signedUrl error:', signedUrlError);
-        throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
-      }
+      const signedUrl = await createSignedPdfUrl(pdfPath, 60 * 60 * 24); // 24h
 
       // Trigger download
-      const displayId = res.proposal.display_id || res.proposal.id.substring(0, 8);
       const filename = `OPEN_proposta_${displayId}.pdf`;
       const a = document.createElement('a');
-      a.href = signedUrlData.signedUrl;
+      a.href = signedUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       a.download = filename;

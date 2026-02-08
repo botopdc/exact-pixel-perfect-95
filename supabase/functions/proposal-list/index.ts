@@ -50,7 +50,10 @@ serve(async (req: Request) => {
     // Build query
     let query = supabase
       .from("calculator_proposals")
-      .select("id, display_id, name, company, email, phone, status, total, datacenter, channel_type, created_at, updated_at", { count: "exact" })
+      .select(
+        "id, display_id, name, company, email, phone, status, total, datacenter, channel_type, pdf_path, pdf_generated_at, created_at, updated_at",
+        { count: "exact" }
+      )
       .order("updated_at", { ascending: false });
 
     // Apply filters
