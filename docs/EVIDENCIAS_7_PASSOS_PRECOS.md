@@ -494,6 +494,25 @@ curl -X POST \
 - ✅ Upsert com UNIQUE(category, section) evita duplicatas
 - ✅ Relatório de sucesso/falhas na resposta
 - ✅ Suporte a seed customizado via body
+- ✅ **SEED EXECUTADO**: 14 registros inseridos em 2026-02-08
+
+**Registros inseridos:**
+| ID | Category | Section |
+|----|----------|---------|
+| 1 | VM | Preços de VM |
+| 2 | BareMetal | Modelos de CPU |
+| 3 | BareMetal | Opções de RAM |
+| 4 | BareMetal | Opções de Disco |
+| 5 | GPU | Preços de GPU |
+| 6 | Add-ons | Add-ons |
+| 7 | SQL Server | SQL Server |
+| 8 | Storage | Storage SAS |
+| 9 | Storage | SSD NVMe |
+| 10 | Kubernetes | Preços Base dos Planos |
+| 11 | Kubernetes | Add-ons Kubernetes |
+| 12 | Geral | Taxa de Câmbio |
+| 13 | Geral | Descontos por Vigência |
+| 14 | Geral | OPEN SaaS |
 
 ---
 
