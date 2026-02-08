@@ -343,6 +343,8 @@ export type Database = {
       }
       calculator_proposals: {
         Row: {
+          approval_token: string | null
+          approval_token_expires_at: string | null
           channel_type: string
           commission_reason: string | null
           commission_value: number | null
@@ -369,6 +371,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          approval_token?: string | null
+          approval_token_expires_at?: string | null
           channel_type?: string
           commission_reason?: string | null
           commission_value?: number | null
@@ -395,6 +399,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          approval_token?: string | null
+          approval_token_expires_at?: string | null
           channel_type?: string
           commission_reason?: string | null
           commission_value?: number | null

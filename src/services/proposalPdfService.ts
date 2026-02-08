@@ -22,6 +22,8 @@ import { getProposalPublic, CalculatorProposal } from '@/services/calculatorProp
 import { listAttachments, NormalizedAttachment } from '@/services/attachmentsService';
 import { openApi } from '@/lib/openApi';
 import { extractNumericId } from '@/lib/proposalIdUtils';
+import { supabase } from '@/integrations/supabase/client';
+import { getProposalWithItems } from '@/services/supabaseProposalService';
 
 interface PdfGenerationResult {
   success: boolean;
@@ -536,8 +538,10 @@ export async function uploadProposalPdf(proposalId: string | number): Promise<{ 
 export async function downloadProposalPdfFromApi(proposalId: string | number): Promise<PdfGenerationResult> {
   const numericId = extractNumericId(proposalId);
   
+  // CRITICAL FIX: If not numeric (UUID), fallback to Supabase PDF generation
   if (numericId === null) {
-    return { success: false, error: 'ID inválido para download de PDF' };
+    console.log('[proposalPdfService] Non-numeric ID detected, using Supabase fallback:', proposalId);
+    return downloadProposalPdfFromSupabase(String(proposalId));
   }
   
   try {
@@ -573,4 +577,244 @@ export async function downloadProposalPdfFromApi(proposalId: string | number): P
     // Fallback to local generation
     return downloadProposalPdf(proposalId);
   }
+}
+
+// ============================================================================
+// SUPABASE PDF GENERATION
+// ============================================================================
+
+/**
+ * Generate and download PDF for a Supabase proposal (UUID-based)
+ * This fetches data from Supabase and generates PDF locally
+ */
+export async function downloadProposalPdfFromSupabase(proposalUuid: string): Promise<PdfGenerationResult> {
+  console.log('[proposalPdfService] Generating PDF from Supabase data:', proposalUuid);
+
+  try {
+    // 1. Check if there's a stored PDF in Supabase storage
+    const { data: proposal, error: proposalError } = await supabase
+      .from('calculator_proposals')
+      .select('pdf_path, company, name, email, phone, total, contract_duration, datacenter, observations, display_id')
+      .eq('id', proposalUuid)
+      .maybeSingle();
+
+    if (proposalError) {
+      console.error('[proposalPdfService] Error fetching proposal:', proposalError);
+      return { success: false, error: `Erro ao buscar proposta: ${proposalError.message}` };
+    }
+
+    if (!proposal) {
+      return { success: false, error: 'Proposta não encontrada' };
+    }
+
+    // 2. Try to download from storage if pdf_path exists
+    if (proposal.pdf_path) {
+      try {
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+          .from('proposal-files')
+          .createSignedUrl(proposal.pdf_path, 60 * 60); // 1 hour
+
+        if (!signedUrlError && signedUrlData?.signedUrl) {
+          // Download the file
+          const response = await fetch(signedUrlData.signedUrl);
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `OPEN_proposta_${proposal.display_id || proposalUuid.substring(0, 8)}.pdf`;
+            link.click();
+            URL.revokeObjectURL(url);
+
+            console.log('[proposalPdfService] PDF downloaded from Supabase storage');
+            return { success: true };
+          }
+        }
+      } catch (storageError) {
+        console.warn('[proposalPdfService] Storage download failed, generating locally:', storageError);
+      }
+    }
+
+    // 3. No stored PDF, generate locally from proposal data
+    console.log('[proposalPdfService] Generating PDF locally from Supabase data...');
+
+    // Fetch full proposal with items
+    const fullProposal = await getProposalWithItems(proposalUuid);
+
+    if (!fullProposal) {
+      return { success: false, error: 'Proposta não encontrada para geração de PDF' };
+    }
+
+    // Build result from items
+    const dadosProposta = buildDadosPropostaFromSupabase(fullProposal);
+    let result = buildResultFromSnapshot(
+      dadosProposta,
+      fullProposal.total || 0,
+      fullProposal.contract_duration || 12
+    );
+
+    // Fallback if no items
+    if (!result || !result.rows || result.rows.length === 0) {
+      if (fullProposal.total && fullProposal.total > 0) {
+        result = {
+          rows: [{
+            label: `Proposta ${fullProposal.company || fullProposal.name || '#' + proposalUuid.substring(0, 8)}`,
+            qty: 1,
+            unitPrice: fullProposal.total,
+            subtotal: fullProposal.total,
+            finalTotal: fullProposal.total,
+          }],
+          subRec: fullProposal.total,
+          subIps: 0,
+          subServices: 0,
+          subBackup: 0,
+          subKubernetes: 0,
+          subStorage: 0,
+          subOpenSaas: 0,
+          discountPct: 0,
+          discountValue: 0,
+          grandTotal: fullProposal.total,
+          totalServers: 0,
+          gpuUsdTotal: 0,
+          gpuBrlTotal: 0,
+          subtotalPriceList: fullProposal.total,
+          overValue: 0,
+          overPercent: 0,
+          totalWithOver: fullProposal.total,
+        };
+      } else {
+        return { success: false, error: 'Dados insuficientes para gerar PDF' };
+      }
+    }
+
+    // Prepare client info
+    const client = {
+      name: fullProposal.name,
+      company: fullProposal.company,
+      email: fullProposal.email,
+      phone: fullProposal.phone,
+    };
+
+    // Prepare proposal meta
+    const proposalMeta = {
+      id: fullProposal.display_id || proposalUuid.substring(0, 8),
+      createdAt: fullProposal.created_at,
+      validityDays: 30,
+    };
+
+    // Generate and download PDF
+    await generateOpenPDF({
+      client,
+      proposal: proposalMeta,
+      result,
+      selectedTerm: String(fullProposal.contract_duration || 12),
+      datacenter: fullProposal.datacenter || 'SP1',
+      observacao: fullProposal.observations,
+      attachments: [],
+    });
+
+    console.log('[proposalPdfService] PDF generated from Supabase data successfully');
+    return { success: true };
+
+  } catch (error: any) {
+    console.error('[proposalPdfService] Error generating PDF from Supabase:', error);
+    return { success: false, error: error.message || 'Erro ao gerar PDF' };
+  }
+}
+
+/**
+ * Build dados_proposta structure from Supabase proposal with items
+ */
+function buildDadosPropostaFromSupabase(proposal: any): any {
+  const dadosProposta: any = {
+    items: [],
+    addons: {},
+  };
+
+  // Convert servers to items
+  if (Array.isArray(proposal.servers)) {
+    proposal.servers.forEach((server: any, idx: number) => {
+      const item: any = {
+        type: server.server_type === 'vm' ? 'VM' : 'BareMetal',
+        name: server.name || `Servidor ${idx + 1}`,
+        qty: server.qty_servers || 1,
+        unitPrice: server.unit_price || 0,
+        totalPrice: server.total_price || 0,
+      };
+
+      if (server.server_type === 'vm') {
+        item.vcpu = server.vcpu || 0;
+        item.ram = server.ram_gb || 0;
+        item.nvme = server.nvme_tb ? server.nvme_tb * 1024 : 0;
+        item.ipQty = server.ips || 0;
+        item.gpu = server.gpu || 'Sem GPU';
+        item.gpuQty = server.gpu_qty || 0;
+      } else {
+        item.cpu = server.bm_cpu || '';
+        item.ramTier = server.bm_ram || '';
+        item.disks = server.disks || [];
+        item.ipQty = server.ips || 0;
+      }
+
+      dadosProposta.items.push(item);
+    });
+  }
+
+  // Convert addons
+  if (Array.isArray(proposal.addons)) {
+    proposal.addons.forEach((addon: any) => {
+      const key = addon.addon_key || '';
+      const qty = addon.quantity || 0;
+      const price = addon.unit_price || 0;
+      const totalPrice = addon.total_price || (price * qty);
+
+      switch (key) {
+        case 'antivirus':
+          dadosProposta.addons.antivirus = qty;
+          dadosProposta.addons.antivirusPrice = price;
+          break;
+        case 'firewall':
+          dadosProposta.addons.firewall = qty;
+          dadosProposta.addons.firewallPrice = price;
+          break;
+        case 'tsplus':
+          dadosProposta.addons.tsplus = qty;
+          dadosProposta.addons.tsplusPrice = price;
+          break;
+        case 'cal':
+          dadosProposta.addons.cal = qty;
+          dadosProposta.addons.calPrice = price;
+          break;
+        case 'winserver':
+          dadosProposta.addons.winserver = qty;
+          dadosProposta.addons.winserverPrice = price;
+          break;
+        case 'sql':
+          dadosProposta.addons.sql = (addon.metadata as any)?.type || 'std';
+          dadosProposta.addons.sqlPrice = totalPrice;
+          break;
+        case 'veeam_vm':
+          dadosProposta.addons.veeamVm = qty;
+          dadosProposta.addons.veeamVmPrice = price;
+          break;
+        case 'veeam_ag':
+        case 'veeam_agent':
+          dadosProposta.addons.veeamAgent = qty;
+          dadosProposta.addons.veeamAgentPrice = price;
+          break;
+        case 'backup':
+          dadosProposta.addons.backupPlan = '7';
+          dadosProposta.addons.backupGb = qty;
+          dadosProposta.addons.backupPrice = totalPrice;
+          break;
+      }
+    });
+  }
+
+  console.log('[buildDadosPropostaFromSupabase] Built:', {
+    itemsCount: dadosProposta.items.length,
+    addonsKeys: Object.keys(dadosProposta.addons),
+  });
+
+  return dadosProposta;
 }
