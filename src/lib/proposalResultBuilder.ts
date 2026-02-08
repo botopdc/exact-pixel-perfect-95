@@ -3,9 +3,23 @@
  * 
  * Reconstructs a CalculationResult from dados_proposta snapshot
  * when the 'result' field is not present (legacy proposals or public access).
+ * 
+ * IMPORTANT (PASSO 8): This module uses SNAPSHOT prices saved with the proposal.
+ * Fallback values are ONLY used for legacy proposals that don't have prices saved.
+ * New proposals MUST have prices from Supabase saved at creation time.
  */
 
 import { CalculationResult, SummaryRow, getContractDiscount } from './calculatorConfig';
+
+// ============================================================================
+// PASSO 8: FALLBACK WARNING - Log when using hardcoded fallback instead of snapshot
+// ============================================================================
+
+const FALLBACK_WARNING_PREFIX = '[proposalResultBuilder] FALLBACK:';
+
+function warnFallback(item: string, fallbackValue: number) {
+  console.warn(`${FALLBACK_WARNING_PREFIX} ${item} using fallback R$${fallbackValue} (snapshot price missing)`);
+}
 
 interface DadosPropostaSnapshot {
   items?: Array<{
@@ -146,14 +160,19 @@ export function buildResultFromSnapshot(
           // GPU pricing would need config - estimate from total if available
         }
         
-        // IPs
+        // IPs - PASSO 8: use snapshot or warn fallback
         if (item.ipQty && item.ipQty > 0) {
-          const ipPrice = 30 * item.ipQty * qty; // Default IP price
+          const FALLBACK_IP_PRICE = 30;
+          const ipUnitPrice = (item as any).ipUnitPrice ?? FALLBACK_IP_PRICE;
+          if (!(item as any).ipUnitPrice) {
+            warnFallback('IP Público', FALLBACK_IP_PRICE);
+          }
+          const ipPrice = ipUnitPrice * item.ipQty * qty;
           subIps += ipPrice;
           rows.push({
             label: `IPs Públicos (${item.ipQty}/servidor)`,
             qty: item.ipQty * qty,
-            unitPrice: 30,
+            unitPrice: ipUnitPrice,
             subtotal: ipPrice,
             finalTotal: ipPrice,
           });
@@ -187,12 +206,14 @@ export function buildResultFromSnapshot(
     });
   }
 
-  // Process addons - use snapshot prices when available, otherwise use defaults
+  // Process addons - PASSO 8: use snapshot prices, warn on fallback
   if (dadosProposta.addons) {
     const addons = dadosProposta.addons;
     
     if (addons.antivirus && addons.antivirus > 0) {
-      const unitPrice = addons.antivirusPrice ?? 69.9;
+      const FALLBACK = 69.9;
+      const unitPrice = addons.antivirusPrice ?? FALLBACK;
+      if (!addons.antivirusPrice) warnFallback('Antivírus', FALLBACK);
       const price = unitPrice * addons.antivirus;
       rows.push({ label: 'Antivírus', qty: addons.antivirus, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
@@ -201,37 +222,47 @@ export function buildResultFromSnapshot(
     // Firewall (qtd) - now with quantity support
     const firewallQty = typeof addons.firewall === 'boolean' ? (addons.firewall ? 1 : 0) : (addons.firewall ?? 0);
     if (firewallQty > 0) {
-      const unitPrice = addons.firewallPrice ?? 199.9;
+      const FALLBACK = 199.9;
+      const unitPrice = addons.firewallPrice ?? FALLBACK;
+      if (!addons.firewallPrice) warnFallback('Firewall', FALLBACK);
       const price = unitPrice * firewallQty;
       rows.push({ label: 'Firewall (qtd)', qty: firewallQty, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.tsplus && addons.tsplus > 0) {
-      const unitPrice = addons.tsplusPrice ?? 40;
+      const FALLBACK = 40;
+      const unitPrice = addons.tsplusPrice ?? FALLBACK;
+      if (!addons.tsplusPrice) warnFallback('TSplus', FALLBACK);
       const price = unitPrice * addons.tsplus;
       rows.push({ label: 'TSplus', qty: addons.tsplus, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.cal && addons.cal > 0) {
-      const unitPrice = addons.calPrice ?? 55;
+      const FALLBACK = 55;
+      const unitPrice = addons.calPrice ?? FALLBACK;
+      if (!addons.calPrice) warnFallback('CAL RDS', FALLBACK);
       const price = unitPrice * addons.cal;
       rows.push({ label: 'CAL RDS', qty: addons.cal, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.winserver && addons.winserver > 0) {
-      const unitPrice = addons.winserverPrice ?? 45;
+      const FALLBACK = 45;
+      const unitPrice = addons.winserverPrice ?? FALLBACK;
+      if (!addons.winserverPrice) warnFallback('WinServer', FALLBACK);
       const price = unitPrice * addons.winserver;
       rows.push({ label: 'WinServer (2vCPU/unid.)', qty: addons.winserver, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.sql && addons.sql !== 'none') {
-      const sqlPrices: Record<string, number> = { web: 265, std: 2240 };
+      const sqlFallbacks: Record<string, number> = { web: 265, std: 2240 };
       const sqlLabels: Record<string, string> = { web: 'WEB (2vCPU)', std: 'STD (8vCPU)' };
-      const unitPrice = addons.sqlPrice ?? sqlPrices[addons.sql] ?? 0;
+      const FALLBACK = sqlFallbacks[addons.sql] ?? 0;
+      const unitPrice = addons.sqlPrice ?? FALLBACK;
+      if (!addons.sqlPrice && FALLBACK > 0) warnFallback(`SQL ${addons.sql}`, FALLBACK);
       const label = sqlLabels[addons.sql] || addons.sql.toUpperCase();
       if (unitPrice > 0) {
         rows.push({ label: `SQL Server ${label}`, qty: 1, unitPrice, subtotal: unitPrice, finalTotal: unitPrice });
@@ -240,14 +271,18 @@ export function buildResultFromSnapshot(
     }
     
     if (addons.veeamVm && addons.veeamVm > 0) {
-      const unitPrice = addons.veeamVmPrice ?? 50;
+      const FALLBACK = 50;
+      const unitPrice = addons.veeamVmPrice ?? FALLBACK;
+      if (!addons.veeamVmPrice) warnFallback('Veeam VM', FALLBACK);
       const price = unitPrice * addons.veeamVm;
       rows.push({ label: 'Veeam Backup (VM)', qty: addons.veeamVm, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
     }
     
     if (addons.veeamAgent && addons.veeamAgent > 0) {
-      const unitPrice = addons.veeamAgentPrice ?? 45;
+      const FALLBACK = 45;
+      const unitPrice = addons.veeamAgentPrice ?? FALLBACK;
+      if (!addons.veeamAgentPrice) warnFallback('Veeam Agent', FALLBACK);
       const price = unitPrice * addons.veeamAgent;
       rows.push({ label: 'Veeam Backup (Agente)', qty: addons.veeamAgent, unitPrice, subtotal: price, finalTotal: price });
       subServices += price;
