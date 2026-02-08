@@ -36,9 +36,10 @@ import type {
 export function supabaseToCalculatorState(proposal: CalculatorProposalWithRelations): OpenCalculatorState {
   console.log('[supabaseToCalculatorState] Converting proposal:', proposal.id);
 
-  // Convert servers to items
+  // Convert servers to items (filter out virtual/legacy items)
   const items: ServerItemV2[] = (proposal.servers || [])
     .filter((s) => s.server_type !== 'storage')
+    .filter((s) => !(s.name || '').startsWith('__VIRTUAL__'))
     .map((server) => {
       if (server.server_type === 'bm') {
         const bmItem: BMItemV2 = {
@@ -561,9 +562,10 @@ export function edgeFunctionToCalculatorState(result: ProposalGetResult): OpenCa
   const servers = result.servers || [];
   const addonsArr = result.addons || [];
 
-  // Convert servers to items
+  // Convert servers to items (filter out virtual/legacy items)
   const items: ServerItemV2[] = servers
     .filter((s) => s.server_type !== 'storage')
+    .filter((s) => !(s.name || '').startsWith('__VIRTUAL__'))
     .map((server) => {
       if (server.server_type === 'bm') {
         // Map disks with required 'desc' field
@@ -638,10 +640,15 @@ export function edgeFunctionToCalculatorState(result: ProposalGetResult): OpenCa
     firewall: addonsMap['firewall']?.quantity || 0,
     tsplus: addonsMap['tsplus']?.quantity || 0,
     cal: addonsMap['cal']?.quantity || 0,
-    sql: (addonsMap['sql']?.metadata as any)?.edition || 'none',
+    sql: (() => {
+      const rawSqlType = ((addonsMap['sql']?.metadata as any)?.type || '').toString().toLowerCase();
+      if (rawSqlType === 'web') return 'web';
+      if (rawSqlType === 'std' || rawSqlType === 'standard') return 'std';
+      return 'none';
+    })(),
     sqlQty: addonsMap['sql']?.quantity || 0,
     veeamVm: addonsMap['veeam_vm']?.quantity || 0,
-    veeamAg: addonsMap['veeam_ag']?.quantity || 0,
+    veeamAg: addonsMap['veeam_ag']?.quantity ?? addonsMap['veeam_agent']?.quantity ?? 0,
     winserver: addonsMap['winserver']?.quantity || 0,
     support: {
       level: (addonsMap['support']?.metadata as any)?.level || 'none',

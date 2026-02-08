@@ -175,40 +175,6 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     });
   });
 
-  // Add Kubernetes as virtual server if enabled
-  if (kubernetes.enabled) {
-    servers.push({
-      server_type: 'vm', // K8s is treated as VM for storage
-      name: `__VIRTUAL__KUBERNETES__:${JSON.stringify(kubernetes)}`,
-      vcpu: 0,
-      ram_gb: 0,
-      nvme_tb: 0,
-      traffic_tb: 0,
-      ips: 0,
-      qty_servers: 1,
-      unit_price: 0,
-      total_price: 0,
-      specs: { kubernetes },
-    });
-  }
-
-  // Add OpenSaaS as virtual server if enabled
-  if (openSaas.enabled && openSaas.users > 0) {
-    servers.push({
-      server_type: 'vm',
-      name: `__VIRTUAL__OPENSAAS__:${JSON.stringify(openSaas)}`,
-      vcpu: 0,
-      ram_gb: 0,
-      nvme_tb: 0,
-      traffic_tb: 0,
-      ips: 0,
-      qty_servers: 1,
-      unit_price: 0,
-      total_price: 0,
-      specs: { openSaas },
-    });
-  }
-
   // Build addons array
   const addonsArray: SaveProposalAddon[] = [];
   
@@ -374,6 +340,36 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
       quantity: addons.dba.quantity,
       unit_price: addons.dba.unitPrice || 250,
       total_price: addons.dba.quantity * (addons.dba.unitPrice || 250),
+    });
+  }
+
+  // Kubernetes — salvar como ADDON (não como server)
+  if (kubernetes?.enabled) {
+    addonsArray.push({
+      addon_key: 'kubernetes',
+      label: `Kubernetes ${kubernetes.plan}`,
+      enabled: true,
+      quantity: 1,
+      unit_price: 0,
+      total_price: 0,
+      metadata: {
+        plan: kubernetes.plan,
+        addons: kubernetes.addons,
+        extras: kubernetes.extras,
+      },
+    });
+  }
+
+  // OPEN SaaS — salvar como ADDON (não como server)
+  if (openSaas?.enabled && (openSaas.users || 0) > 0) {
+    addonsArray.push({
+      addon_key: 'open_saas',
+      label: `OPEN SaaS (${openSaas.users} usuários)`,
+      enabled: true,
+      quantity: openSaas.users,
+      unit_price: 0,
+      total_price: 0,
+      metadata: {},
     });
   }
 
