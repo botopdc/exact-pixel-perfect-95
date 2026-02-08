@@ -502,6 +502,7 @@ function configToApiPayloads(
 
 // ============================================================================
 // HOOK: useConfigPersistence
+// With DEDUPLICATION to prevent multiple API calls on mount/StrictMode
 // ============================================================================
 
 export function useConfigPersistence() {
@@ -520,6 +521,10 @@ export function useConfigPersistence() {
 
   // Track if we've initialized from API data (to distinguish first load from subsequent updates)
   const hasInitializedRef = useRef(false);
+  
+  // DEDUPLICATION: Track if API entries have been fetched
+  const apiEntriesFetchedRef = useRef(false);
+  const apiEntriesInFlightRef = useRef<Promise<void> | null>(null);
 
   // Initialize local config from API - ALWAYS sync when apiConfig changes
   useEffect(() => {
@@ -540,19 +545,44 @@ export function useConfigPersistence() {
     }
   }, [apiConfig, isDirty]);
 
-  // Fetch raw API entries for mapping IDs
-  const fetchApiEntries = useCallback(async () => {
-    try {
-      const entries = await getCalculatorConfigs();
-      setApiEntries(entries);
-    } catch (err) {
-      console.warn('[ConfigPersistence] Failed to fetch API entries:', err);
+  // Fetch raw API entries for mapping IDs (with deduplication)
+  const fetchApiEntries = useCallback(async (force = false) => {
+    // Already fetched and not forcing
+    if (!force && apiEntriesFetchedRef.current) {
+      console.log('[ConfigPersistence] API entries already fetched, skipping');
+      return;
     }
+    
+    // Request already in flight
+    if (apiEntriesInFlightRef.current) {
+      console.log('[ConfigPersistence] API entries request in flight, waiting...');
+      return apiEntriesInFlightRef.current;
+    }
+    
+    console.log('[ConfigPersistence] Fetching API entries...');
+    
+    apiEntriesInFlightRef.current = (async () => {
+      try {
+        const entries = await getCalculatorConfigs();
+        console.log('[ConfigPersistence] Received', entries.length, 'API entries');
+        setApiEntries(entries);
+        apiEntriesFetchedRef.current = true;
+      } catch (err) {
+        console.warn('[ConfigPersistence] Failed to fetch API entries:', err);
+        setError('Falha ao carregar configurações');
+      } finally {
+        apiEntriesInFlightRef.current = null;
+      }
+    })();
+    
+    return apiEntriesInFlightRef.current;
   }, []);
 
-  // Initial fetch of API entries
+  // Initial fetch of API entries (only once)
   useEffect(() => {
-    fetchApiEntries();
+    if (!apiEntriesFetchedRef.current) {
+      fetchApiEntries();
+    }
   }, [fetchApiEntries]);
 
   // The config to display/edit - NO DEFAULTS, only real API data
@@ -851,7 +881,7 @@ export function useConfigPersistence() {
       }
 
       // Refresh data from API
-      await fetchApiEntries();
+      await fetchApiEntries(true);
       await queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
       const result = await refetch();
 
@@ -964,8 +994,8 @@ export function useConfigPersistence() {
       setIsDirty(false);
       setError(null);
       
-      // Also refresh API entries
-      await fetchApiEntries();
+      // Also refresh API entries (force refresh)
+      await fetchApiEntries(true);
       
       toast({
         title: 'Configuração restaurada',
@@ -997,7 +1027,7 @@ export function useConfigPersistence() {
       
       modifiedSectionsRef.current = {};
       setIsDirty(false);
-      await fetchApiEntries();
+      await fetchApiEntries(true);
       
       toast({
         title: 'Atualizado',
