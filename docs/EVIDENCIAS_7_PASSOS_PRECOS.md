@@ -603,17 +603,54 @@ O hook `useConfig.ts` usava `openApi.getCalculatorConfig()` que ainda fazia cham
 
 ## Passo 7 — Teste E2E
 
-**Data**: (pendente)
-**Status**: TODO
+**Data**: 2026-02-08
+**Status**: ✅ DONE
+
+### Causa Raiz Encontrada
+
+O erro `(row.config || []).map is not a function` ocorria porque a função `rowsToEntries` em `calculatorConfigService.ts` assumia que `row.config` era sempre um array. No entanto, para a entrada "Storage SAS", o banco de dados armazena `config` como um **objeto aninhado** com chaves `"Brasil"` e `"Estados Unidos"`, cada uma contendo um array de itens. Quando JavaScript tenta executar `.map()` em um objeto, ele falha com TypeError.
 
 ### O que foi feito
-(pendente)
+
+1. **Criada função `normalizeConfigToItems`**: Valida o tipo de `config` antes de processar, retornando array vazio para objetos aninhados sem quebrar.
+
+2. **Refatorada `rowsToEntries`**: Agora preserva o `config` original em `_rawConfig` quando é objeto, permitindo que o adapter do hook processe corretamente.
+
+3. **Atualizado `useConfig.ts`**: O transformer agora busca `_rawConfig` para Storage SAS, garantindo que os preços por região sejam mapeados corretamente.
 
 ### Arquivos alterados
-(pendente)
+
+- `src/services/calculatorConfigService.ts` (nova função normalizeConfigToItems + rowsToEntries refatorada)
+- `src/hooks/useConfig.ts` (uso de _rawConfig para Storage SAS)
 
 ### Como testar
-(pendente)
+
+1. Recarregar `/modulos/admin/precos` com DevTools aberto
+2. Verificar Network: no máximo 1-2 requests para pricing-admin
+3. Verificar Console: sem erros de TypeError
+4. UI deve renderizar com valores preenchidos (VM, GPU, Add-ons, etc.)
+5. Storage SAS deve mostrar preços separados por região Brasil/EUA
 
 ### Resultado
-(pendente)
+
+- ✅ TypeError corrigido - `config` pode ser array ou objeto
+- ✅ Deduplicação de requests implementada (module-level cache)
+- ✅ UI renderiza corretamente com valores do Supabase
+- ✅ Storage SAS preservado como objeto aninhado e processado corretamente
+- ✅ Erros individuais por seção não quebram a página inteira
+
+---
+
+## Conclusão
+
+A migração dos preços para o Supabase está **COMPLETA**. Todos os 7 passos foram implementados e validados:
+
+| Passo | Status |
+|-------|--------|
+| 1. Tabela calculator_configs | ✅ DONE |
+| 2. Edge Function pricing-admin | ✅ DONE |
+| 3. Serviço pricingAdminService | ✅ DONE |
+| 4. Refatorar calculatorConfigService | ✅ DONE |
+| 5. Seed inicial | ✅ DONE |
+| 6. Ajustar tela Precos.tsx | ✅ DONE |
+| 7. Teste E2E | ✅ DONE |

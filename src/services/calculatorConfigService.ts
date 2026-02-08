@@ -224,25 +224,65 @@ function rowToFlatItems(row: CalculatorConfigRow): CalculatorConfigFlatItem[] {
 }
 
 /**
- * Convert Supabase rows to CalculatorConfigEntry format
+ * Normalize config to array - handles both array and object formats
+ * Storage SAS comes as object: { "Brasil": [...], "Estados Unidos": [...] }
  */
-function rowsToEntries(rows: CalculatorConfigRow[]): CalculatorConfigEntry[] {
-  return rows.map(row => ({
-    id: row.id,
-    category: row.category,
-    section: row.section,
-    config: (row.config || []).map((item: ConfigItem) => ({
+function normalizeConfigToItems(config: any): ConfigItem[] {
+  // If null/undefined, return empty array
+  if (!config) return [];
+  
+  // If already array, validate and return
+  if (Array.isArray(config)) {
+    return config.map((item: ConfigItem) => ({
       id: item.id,
       label: item.label,
       value: item.value,
       by: item.by,
       type: item.type,
       description: item.description,
-    })),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    deleted_at: row.deleted_at,
-  }));
+    }));
+  }
+  
+  // If object (e.g., Storage SAS nested format), don't flatten here
+  // The UI adapter will handle it separately
+  // Return empty array to avoid crash - the raw config is preserved in entry
+  if (typeof config === 'object' && config !== null) {
+    console.log('[calculatorConfigService] Config is nested object, preserving for UI adapter');
+    return [];
+  }
+  
+  console.warn('[calculatorConfigService] Unexpected config format:', typeof config);
+  return [];
+}
+
+/**
+ * Convert Supabase rows to CalculatorConfigEntry format
+ * Preserves the raw config data in the entry for UI adapter to process
+ */
+function rowsToEntries(rows: CalculatorConfigRow[]): CalculatorConfigEntry[] {
+  return rows.map(row => {
+    // Normalize config items safely
+    const configItems = normalizeConfigToItems(row.config);
+    
+    // For nested object configs (like Storage SAS), we return an extended entry
+    // that includes the raw config for the UI adapter
+    const entry: any = {
+      id: row.id,
+      category: row.category,
+      section: row.section,
+      config: configItems,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      deleted_at: row.deleted_at,
+    };
+    
+    // Preserve raw config if it was an object (for Storage SAS handling)
+    if (row.config && typeof row.config === 'object' && !Array.isArray(row.config)) {
+      entry._rawConfig = row.config;
+    }
+    
+    return entry as CalculatorConfigEntry;
+  });
 }
 
 // ============================================================================
