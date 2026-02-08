@@ -1,42 +1,31 @@
 // ============================================================================
 // CALCULATOR CONFIG SERVICE - CRUD operations for pricing configuration
+// NOW USES: Supabase Edge Function /pricing-admin (Passo 4)
 // ============================================================================
 
-import axios from 'axios';
+import pricingAdminService, { 
+  CalculatorConfigRow, 
+  ConfigItem as EdgeConfigItem 
+} from './pricingAdminService';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-if (!API_BASE_URL) {
-  throw new Error('VITE_API_BASE_URL não está definida. Configure a variável de ambiente.');
-}
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
 const AUTH_TOKEN_KEY = 'open_access_token';
 const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+const ADMIN_PIN_KEY = 'open_admin_pin';
 
-// Create axios client
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-// Add auth interceptor
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
-  if (token) {
-    config.headers.set('Authorization', `Bearer ${token}`);
-  }
-  return config;
-});
+// Default PIN for development (should be set via localStorage in production)
+const DEFAULT_ADMIN_PIN = '5678';
 
 // ============================================================================
-// TYPES (based on API OpenAPI spec - NEW FLAT FORMAT)
+// TYPES (maintain backwards compatibility with existing UI)
 // ============================================================================
 
 /**
- * FLAT config item structure from API
- * Each item is independent with its own id, label, value, and meta
+ * FLAT config item structure (backwards compatible)
+ * Now mapped from Supabase calculator_configs table
  */
 export interface CalculatorConfigFlatItem {
   id: number;
@@ -58,8 +47,7 @@ export interface CalculatorConfigFlatItem {
 }
 
 /**
- * Paginated response from GET /api/calculator/config
- * Returns array of flat items, not grouped entries
+ * Paginated response (backwards compatible interface)
  */
 export interface PaginatedConfigResponse {
   current_page: number;
@@ -75,16 +63,16 @@ export interface PaginatedConfigResponse {
  * Config item structure for backwards compatibility (legacy grouped format)
  */
 export interface ConfigItem {
-  id?: number;         // Unique ID of the config item
+  id?: number;
   label: string;
-  by?: string;         // e.g., "unit", "GB", "TB", "month", "hour"
-  type?: string;       // e.g., "BRL", "USD", "percentage"
+  by?: string;
+  type?: string;
   value?: number;
   description?: string;
 }
 
 /**
- * Legacy grouped entry format (for backwards compatibility)
+ * Legacy grouped entry format (from Supabase calculator_configs)
  */
 export interface CalculatorConfigEntry {
   id: number;
@@ -97,8 +85,7 @@ export interface CalculatorConfigEntry {
 }
 
 /**
- * Request payload for PUT /api/calculator/config/{id}
- * Updates a single config item directly
+ * Request payload for PUT (backwards compatible)
  */
 export interface CalculatorConfigUpdateRequest {
   label?: string;
@@ -117,8 +104,7 @@ export interface CalculatorConfigUpdateRequest {
 }
 
 /**
- * Request payload for POST /api/calculator/config
- * Creates a new config item
+ * Request payload for POST (backwards compatible)
  */
 export interface CalculatorConfigCreateRequest {
   label: string;
@@ -137,167 +123,343 @@ export interface CalculatorConfigCreateRequest {
 }
 
 // ============================================================================
-// SERVICE FUNCTIONS
+// HELPER FUNCTIONS
 // ============================================================================
 
 /**
- * Fetch all calculator configurations from API
- * GET /api/calculator/config
- * Returns FLAT items directly from API
+ * Get auth token from localStorage
+ */
+function getAuthToken(): string {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  if (!token) {
+    throw new Error('Usuário não autenticado. Faça login novamente.');
+  }
+  return token;
+}
+
+/**
+ * Get admin PIN from localStorage (or use default for dev)
+ */
+function getAdminPin(): string {
+  return localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN;
+}
+
+/**
+ * Convert Supabase row to flat items (for backwards compatibility)
+ * Each row in calculator_configs has a config JSONB array
+ */
+function rowToFlatItems(row: CalculatorConfigRow): CalculatorConfigFlatItem[] {
+  const items: CalculatorConfigFlatItem[] = [];
+  
+  if (!row.config || !Array.isArray(row.config)) {
+    return items;
+  }
+  
+  for (const item of row.config) {
+    items.push({
+      id: item.id ?? row.id, // Use item.id if available, fallback to row.id
+      label: item.label || '',
+      value: item.value ?? 0,
+      meta: {
+        category: row.category,
+        section: row.section,
+        by: item.by,
+        type: item.type,
+        description: item.description,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    });
+  }
+  
+  return items;
+}
+
+/**
+ * Convert Supabase rows to CalculatorConfigEntry format
+ */
+function rowsToEntries(rows: CalculatorConfigRow[]): CalculatorConfigEntry[] {
+  return rows.map(row => ({
+    id: row.id,
+    category: row.category,
+    section: row.section,
+    config: (row.config || []).map((item: EdgeConfigItem) => ({
+      id: item.id,
+      label: item.label,
+      value: item.value,
+      by: item.by,
+      type: item.type,
+      description: item.description,
+    })),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    deleted_at: row.deleted_at,
+  }));
+}
+
+// ============================================================================
+// SERVICE FUNCTIONS - Using Edge Function /pricing-admin
+// ============================================================================
+
+/**
+ * Fetch all calculator configurations as FLAT items
+ * GET /pricing-admin
  */
 export async function getCalculatorConfigsFlat(): Promise<CalculatorConfigFlatItem[]> {
-  const response = await apiClient.get<PaginatedConfigResponse>('/calculator/config', {
-    params: { __perPage: 500 }
-  });
-  return response.data.data || [];
+  try {
+    const pin = getAdminPin();
+    const rows = await pricingAdminService.getAllConfigs(pin);
+    
+    // Flatten all rows into flat items
+    const flatItems: CalculatorConfigFlatItem[] = [];
+    for (const row of rows) {
+      flatItems.push(...rowToFlatItems(row));
+    }
+    
+    console.log('[calculatorConfigService] Loaded', flatItems.length, 'flat config items from Supabase');
+    return flatItems;
+  } catch (error) {
+    console.error('[calculatorConfigService] Error fetching configs:', error);
+    throw error;
+  }
 }
 
 /**
  * Fetch all calculator configurations grouped by category/section
- * For backwards compatibility - groups flat items into entries
+ * For backwards compatibility with existing UI
  */
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
-  const flatItems = await getCalculatorConfigsFlat();
-  return groupFlatItemsToEntries(flatItems);
-}
-
-/**
- * Group flat items into legacy entry format
- */
-function groupFlatItemsToEntries(items: CalculatorConfigFlatItem[]): CalculatorConfigEntry[] {
-  const groupMap = new Map<string, CalculatorConfigEntry>();
-  
-  for (const item of items) {
-    const key = `${item.meta.category}/${item.meta.section}`;
-    
-    if (!groupMap.has(key)) {
-      groupMap.set(key, {
-        id: item.id, // Use first item's ID as group ID
-        category: item.meta.category,
-        section: item.meta.section,
-        config: [],
-        created_at: item.created_at || '',
-        updated_at: item.updated_at || '',
-        deleted_at: null,
-      });
-    }
-    
-    const entry = groupMap.get(key)!;
-    entry.config.push({
-      id: item.id,
-      label: item.label,
-      value: item.value,
-      by: item.meta.by,
-      type: item.meta.type,
-      description: item.meta.description,
-    });
+  try {
+    const pin = getAdminPin();
+    const rows = await pricingAdminService.getAllConfigs(pin);
+    return rowsToEntries(rows);
+  } catch (error) {
+    console.error('[calculatorConfigService] Error fetching configs:', error);
+    throw error;
   }
-  
-  return Array.from(groupMap.values());
 }
 
 /**
  * Fetch a single config by ID
- * GET /api/calculator/config/{id}
+ * GET /pricing-admin?id=X
  */
 export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigFlatItem> {
-  const response = await apiClient.get<CalculatorConfigFlatItem>(`/calculator/config/${id}`);
-  return response.data;
+  try {
+    const pin = getAdminPin();
+    const rows = await pricingAdminService.getAllConfigs(pin);
+    
+    // Find the row and item with matching ID
+    for (const row of rows) {
+      const items = rowToFlatItems(row);
+      const found = items.find(item => item.id === id);
+      if (found) return found;
+    }
+    
+    throw new Error(`Config item with ID ${id} not found`);
+  } catch (error) {
+    console.error('[calculatorConfigService] Error fetching config by ID:', error);
+    throw error;
+  }
 }
 
 /**
  * Update a single calculator configuration item
- * PUT /api/calculator/config/{id}
- * 
- * @param id - The config item ID (individual item, not group)
- * @param payload - { label?, value?, meta? }
+ * Uses POST (upsert) to update the entire config array for the category/section
  */
 export async function updateCalculatorConfigItem(
   id: number,
   payload: CalculatorConfigUpdateRequest
 ): Promise<CalculatorConfigFlatItem> {
-  const response = await apiClient.put<CalculatorConfigFlatItem>(`/calculator/config/${id}`, payload);
-  return response.data;
+  try {
+    const pin = getAdminPin();
+    const rows = await pricingAdminService.getAllConfigs(pin);
+    
+    // Find the row containing this item
+    let targetRow: CalculatorConfigRow | undefined;
+    let itemIndex = -1;
+    
+    for (const row of rows) {
+      const idx = (row.config || []).findIndex((item: EdgeConfigItem) => item.id === id);
+      if (idx >= 0) {
+        targetRow = row;
+        itemIndex = idx;
+        break;
+      }
+    }
+    
+    if (!targetRow || itemIndex < 0) {
+      throw new Error(`Config item with ID ${id} not found`);
+    }
+    
+    // Update the item in the config array
+    const updatedConfig = [...(targetRow.config || [])];
+    updatedConfig[itemIndex] = {
+      ...updatedConfig[itemIndex],
+      label: payload.label ?? updatedConfig[itemIndex].label,
+      value: payload.value ?? updatedConfig[itemIndex].value,
+      by: payload.meta?.by ?? updatedConfig[itemIndex].by,
+      type: payload.meta?.type ?? updatedConfig[itemIndex].type,
+      description: payload.meta?.description ?? updatedConfig[itemIndex].description,
+    };
+    
+    // Use upsert to save the updated config array
+    const category = payload.meta?.category ?? targetRow.category;
+    const section = payload.meta?.section ?? targetRow.section;
+    
+    await pricingAdminService.upsertConfig(pin, category, section, updatedConfig);
+    
+    // Return the updated item
+    return {
+      id,
+      label: updatedConfig[itemIndex].label,
+      value: updatedConfig[itemIndex].value ?? 0,
+      meta: {
+        category,
+        section,
+        by: updatedConfig[itemIndex].by,
+        type: updatedConfig[itemIndex].type,
+        description: updatedConfig[itemIndex].description,
+      },
+      updated_at: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error('[calculatorConfigService] Error updating config item:', error);
+    throw error;
+  }
 }
 
 /**
  * Create a new calculator configuration item
- * POST /api/calculator/config
+ * Uses POST (upsert) to add item to the config array
  */
 export async function createCalculatorConfigItem(
   payload: CalculatorConfigCreateRequest
 ): Promise<CalculatorConfigFlatItem> {
-  const response = await apiClient.post<CalculatorConfigFlatItem>('/calculator/config', payload);
-  return response.data;
+  try {
+    const pin = getAdminPin();
+    const { category, section, by, type, description } = payload.meta;
+    
+    // Get existing row for this category/section
+    const existing = await pricingAdminService.getConfigByPath(pin, category, section);
+    
+    // Create new item with auto-generated ID
+    const newItem: EdgeConfigItem = {
+      id: Date.now(), // Temporary ID, could be improved
+      label: payload.label,
+      value: payload.value,
+      by,
+      type,
+      description,
+    };
+    
+    // Add to existing config or create new
+    const config = existing ? [...(existing.config || []), newItem] : [newItem];
+    
+    await pricingAdminService.upsertConfig(pin, category, section, config);
+    
+    return {
+      id: newItem.id!,
+      label: newItem.label,
+      value: newItem.value ?? 0,
+      meta: {
+        category,
+        section,
+        by: newItem.by,
+        type: newItem.type,
+        description: newItem.description,
+      },
+      created_at: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error('[calculatorConfigService] Error creating config item:', error);
+    throw error;
+  }
 }
 
 /**
  * Delete a calculator configuration item
- * DELETE /api/calculator/config/{id}
+ * Removes item from config array and uses upsert to save
  */
 export async function deleteCalculatorConfigItem(id: number): Promise<void> {
-  await apiClient.delete(`/calculator/config/${id}`);
+  try {
+    const pin = getAdminPin();
+    const rows = await pricingAdminService.getAllConfigs(pin);
+    
+    // Find the row containing this item
+    let targetRow: CalculatorConfigRow | undefined;
+    
+    for (const row of rows) {
+      const hasItem = (row.config || []).some((item: EdgeConfigItem) => item.id === id);
+      if (hasItem) {
+        targetRow = row;
+        break;
+      }
+    }
+    
+    if (!targetRow) {
+      throw new Error(`Config item with ID ${id} not found`);
+    }
+    
+    // Remove the item from config array
+    const updatedConfig = (targetRow.config || []).filter((item: EdgeConfigItem) => item.id !== id);
+    
+    // Save updated config
+    await pricingAdminService.upsertConfig(pin, targetRow.category, targetRow.section, updatedConfig);
+  } catch (error) {
+    console.error('[calculatorConfigService] Error deleting config item:', error);
+    throw error;
+  }
 }
 
 /**
  * Update an existing calculator configuration (legacy grouped format)
- * For backwards compatibility - updates multiple items individually
- * 
- * @deprecated Use updateCalculatorConfigItem instead
+ * For backwards compatibility - saves entire config array at once
  */
 export async function updateCalculatorConfig(
   entryId: number,
   payload: { category?: string; section?: string; config?: ConfigItem[] }
 ): Promise<CalculatorConfigEntry> {
-  // For the new FLAT API, we need to update each item individually
-  // This is a compatibility shim - the caller should use updateCalculatorConfigItem
-  
-  if (payload.config && Array.isArray(payload.config)) {
-    for (const item of payload.config) {
-      if (item.id) {
-        // Update existing item
-        await updateCalculatorConfigItem(item.id, {
-          label: item.label,
-          value: item.value,
-          meta: {
-            category: payload.category,
-            section: payload.section,
-            by: item.by,
-            type: item.type,
-          }
-        });
-      } else {
-        // Create new item
-        await createCalculatorConfigItem({
-          label: item.label,
-          value: item.value ?? 0,
-          meta: {
-            category: payload.category || '',
-            section: payload.section || '',
-            by: item.by,
-            type: item.type || 'BRL',
-          }
-        });
-      }
+  try {
+    const pin = getAdminPin();
+    const { category, section, config } = payload;
+    
+    if (!category || !section) {
+      throw new Error('category and section are required');
     }
+    
+    // Convert ConfigItem[] to EdgeConfigItem[]
+    const edgeConfig: EdgeConfigItem[] = (config || []).map(item => ({
+      id: item.id,
+      label: item.label,
+      value: item.value,
+      by: item.by,
+      type: item.type,
+      description: item.description,
+    }));
+    
+    // Use upsert to save the entire config array
+    const result = await pricingAdminService.upsertConfig(pin, category, section, edgeConfig);
+    
+    return {
+      id: result.id,
+      category: result.category,
+      section: result.section,
+      config: (result.config || []).map((item: EdgeConfigItem) => ({
+        id: item.id,
+        label: item.label,
+        value: item.value,
+        by: item.by,
+        type: item.type,
+        description: item.description,
+      })),
+      created_at: result.created_at,
+      updated_at: result.updated_at,
+      deleted_at: result.deleted_at,
+    };
+  } catch (error) {
+    console.error('[calculatorConfigService] Error updating config:', error);
+    throw error;
   }
-  
-  // Return updated entries grouped
-  const entries = await getCalculatorConfigs();
-  const entry = entries.find(e => 
-    e.category.toLowerCase() === payload.category?.toLowerCase() && 
-    e.section.toLowerCase() === payload.section?.toLowerCase()
-  );
-  
-  return entry || {
-    id: entryId,
-    category: payload.category || '',
-    section: payload.section || '',
-    config: [],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    deleted_at: null,
-  };
 }
 
 // ============================================================================
@@ -313,85 +475,67 @@ export function findConfigEntry(
 }
 
 // ============================================================================
-// CATEGORY / SECTION MAPPING (aligned with actual database values from CSV)
+// CATEGORY / SECTION MAPPING (aligned with actual database values)
 // ============================================================================
 
 /**
  * Standard category/section mappings used by the pricing configuration
  * IMPORTANT: These MUST match exactly the values in the database (calculator_configs table)
- * 
- * Database IDs:
- * 1  - VM / Preços de VM
- * 2  - BareMetal / Modelos de CPU
- * 3  - BareMetal / Opções de RAM
- * 4  - BareMetal / Opções de Disco
- * 5  - GPU / Preços de GPU
- * 6  - Add-ons / Add-ons
- * 7  - SQL Server / SQL Server
- * 8  - Storage / Storage SAS
- * 9  - Storage / SSD NVMe
- * 10 - Kubernetes / Preços Base dos Planos
- * 11 - Kubernetes / Add-ons Kubernetes
- * 12 - Geral / Taxa de Câmbio
- * 13 - Geral / Descontos por Vigência
- * 14 - Geral / OPEN SaaS
  */
 export const CONFIG_MAPPINGS = {
-  // General settings (IDs 12, 13, 14)
+  // General settings
   GERAL_FX: { category: 'Geral', section: 'Taxa de Câmbio' },
   GERAL_DESCONTO: { category: 'Geral', section: 'Descontos por Vigência' },
   GERAL_SAAS: { category: 'Geral', section: 'OPEN SaaS' },
   
-  // VM prices (ID 1)
+  // VM prices
   VM_PRICES: { category: 'VM', section: 'Preços de VM' },
   
-  // GPU prices (ID 5)
+  // GPU prices
   GPU_PRICES: { category: 'GPU', section: 'Preços de GPU' },
   
-  // BareMetal (IDs 2, 3, 4)
+  // BareMetal
   BAREMETAL_CPU: { category: 'BareMetal', section: 'Modelos de CPU' },
   BAREMETAL_RAM: { category: 'BareMetal', section: 'Opções de RAM' },
   BAREMETAL_DISK: { category: 'BareMetal', section: 'Opções de Disco' },
   
-  // Add-ons (ID 6)
+  // Add-ons
   ADDONS: { category: 'Add-ons', section: 'Add-ons' },
   
-  // SQL Server (ID 7)
+  // SQL Server
   SQL_SERVER: { category: 'SQL Server', section: 'SQL Server' },
   
-  // Storage (IDs 8, 9)
+  // Storage
   STORAGE_SAS: { category: 'Storage', section: 'Storage SAS' },
   STORAGE_NVME: { category: 'Storage', section: 'SSD NVMe' },
   
-  // Kubernetes (IDs 10, 11)
+  // Kubernetes
   KUBERNETES_PLANS: { category: 'Kubernetes', section: 'Preços Base dos Planos' },
   KUBERNETES_ADDONS: { category: 'Kubernetes', section: 'Add-ons Kubernetes' },
   
-  // Backup pricing by retention (ID 15 - 7/15/30 days)
+  // Backup pricing by retention
   BACKUP: { category: 'Backup', section: 'Backup por Retenção' },
   
-  // Serviços Especializados (ID 16)
+  // Serviços Especializados
   SPECIALIZED_SERVICES: { category: 'Add-ons', section: 'Serviços Especializados' },
   
-  // Windows Server (ID 17) - Note: Also duplicated in ADDONS (ID 6) for compatibility
+  // Windows Server
   WINDOWS_SERVER: { category: 'Add-ons', section: 'Windows Server' },
 } as const;
 
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
 
 // ============================================================================
-// CONFIG ID LOOKUP - Get config_id by category and label (FLAT API)
+// CONFIG ID LOOKUP - Get config_id by category and label
 // ============================================================================
 
 /**
- * Cache for flat config items - NO TTL, must be cleared explicitly
- * This ensures we always have fresh data when making proposals
+ * Cache for flat config items
  */
 let cachedFlatItems: CalculatorConfigFlatItem[] | null = null;
 
 /**
- * Load flat config items (direct from API, no caching by default)
- * Set useCache=true to use cached data (useful for multiple lookups in same operation)
+ * Load flat config items (with optional caching)
  */
 export async function loadFlatConfigs(useCache = false): Promise<CalculatorConfigFlatItem[]> {
   if (useCache && cachedFlatItems) {
@@ -399,7 +543,7 @@ export async function loadFlatConfigs(useCache = false): Promise<CalculatorConfi
   }
   
   cachedFlatItems = await getCalculatorConfigsFlat();
-  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items from API');
+  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items from Supabase');
   return cachedFlatItems;
 }
 
@@ -419,7 +563,6 @@ export function getCachedFlatItems(): CalculatorConfigFlatItem[] | null {
 
 /**
  * Find config_id by category and label
- * Returns the ID from calculator_configs table
  */
 export async function findConfigId(
   category: string,
@@ -439,7 +582,6 @@ export async function findConfigId(
 
 /**
  * Get all config IDs for VM components
- * Returns { vcpu, ram, nvme, ip } IDs from calculator_configs
  */
 export async function getVmConfigIds(): Promise<{
   vcpu: number | null;
@@ -472,7 +614,6 @@ export async function getVmConfigIds(): Promise<{
 
 /**
  * Get config_id for a specific addon by label
- * Searches across all categories with flexible matching
  */
 export async function getAddonConfigId(label: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
@@ -534,7 +675,7 @@ export async function getSqlConfigId(edition: string): Promise<number | null> {
 }
 
 /**
- * Get config_id for Backup by retention (7, 15, 30 days)
+ * Get config_id for Backup by retention
  */
 export async function getBackupConfigId(retention: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
@@ -550,16 +691,10 @@ export async function getBackupConfigId(retention: string): Promise<number | nul
 }
 
 // ============================================================================
-// ADDON CONFIG ID MAP - Map frontend codes to API config_ids
+// ADDON CONFIG ID MAP
 // ============================================================================
 
-/**
- * Mapping of frontend addon codes to their expected API labels
- * UPDATED: Uses EXACT labels from calculator_configs table
- * Labels are matched case-insensitively for robustness
- */
 const ADDON_CODE_TO_LABELS: Record<string, string[]> = {
-  // Standard Add-ons - EXACT labels from API
   'antivirus': ['Antivirus', 'Antivírus'],
   'firewall': ['Firewall'],
   'tsplus': ['TSplus', 'TS PLUS', 'TS Plus'],
@@ -567,26 +702,18 @@ const ADDON_CODE_TO_LABELS: Record<string, string[]> = {
   'veeam_vm': ['Veeam VM', 'Veeam Backup (VM)'],
   'veeam_agent': ['Veeam Agent', 'Veeam Agent (Workstation)'],
   'winserver': ['WinServer(2vCPU/unid.)', 'WinServer', 'Windows Server'],
-  
-  // SQL Server editions
   'sql_web': ['WEB (2vCPU)', 'SQL WEB', 'WEB'],
   'sql_std': ['STD (8vCPU)', 'SQL STD', 'STD', 'Standard'],
   'sql_standard': ['STD (8vCPU)', 'SQL STD', 'STD', 'Standard'],
   'sql_enterprise': ['Enterprise', 'SQL Enterprise'],
-  
-  // Backup plans (by retention days)
   'backup_7': ['Backup 7 dias', '7 dias', '7'],
   'backup_15': ['Backup 15 dias', '15 dias', '15'],
   'backup_30': ['Backup 30 dias', '30 dias', '30'],
-  
-  // Specialized Services - EXACT labels from API
   'support_basic': ['Suporte Básico', 'Básico'],
   'support_intermediate': ['Suporte Intermediário', 'Intermediário'],
   'support_advanced': ['Suporte Avançado', 'Avançado'],
   'consulting': ['Consultoria Técnica', 'Consultoria'],
   'dba': ['DBA'],
-  
-  // Independent products
   'storage_sas': ['Storage SAS'],
   'storage_nvme': ['SSD NVMe', 'NVMe'],
   'storage_s3': ['S3 Object Storage', 'S3'],
@@ -596,7 +723,6 @@ const ADDON_CODE_TO_LABELS: Record<string, string[]> = {
 
 /**
  * Get config_id for an addon by its frontend code
- * Uses the ADDON_CODE_TO_LABELS mapping to find the correct API config_id
  */
 export async function getAddonConfigIdByCode(code: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
@@ -607,16 +733,11 @@ export async function getAddonConfigIdByCode(code: string): Promise<number | nul
     return null;
   }
   
-  // Try each label until we find a match
   for (const label of labels) {
     const labelLower = label.toLowerCase().trim();
     
-    // Try exact match first
-    let item = items.find(i => 
-      i.label.toLowerCase().trim() === labelLower
-    );
+    let item = items.find(i => i.label.toLowerCase().trim() === labelLower);
     
-    // Try partial match
     if (!item) {
       item = items.find(i => 
         i.label.toLowerCase().includes(labelLower) ||
@@ -636,18 +757,13 @@ export async function getAddonConfigIdByCode(code: string): Promise<number | nul
 
 /**
  * Build a complete addon config ID map for proposal serialization
- * Returns a map of addon codes to their config_ids
- * 
- * IMPORTANT: This function MUST map every addon used in the calculator
- * to its correct config_id from the API
  */
 export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
-  const items = await loadFlatConfigs(false); // Force fresh load
+  const items = await loadFlatConfigs(false);
   const map: Record<string, number> = {};
   const missingCodes: string[] = [];
   
   console.log('[calculatorConfigService] Building addon config ID map from', items.length, 'items');
-  console.log('[calculatorConfigService] Available API labels:', items.map(i => `${i.id}:${i.label}`).join(', '));
   
   for (const [code, labels] of Object.entries(ADDON_CODE_TO_LABELS)) {
     let found = false;
@@ -655,36 +771,25 @@ export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
     for (const label of labels) {
       const labelLower = label.toLowerCase().trim();
       
-      // Try exact match first (case-insensitive)
-      let item = items.find(i => 
-        i.label.toLowerCase().trim() === labelLower
-      );
+      let item = items.find(i => i.label.toLowerCase().trim() === labelLower);
       
-      // If no exact match, try partial match (API label contains search term)
       if (!item) {
-        item = items.find(i => 
-          i.label.toLowerCase().includes(labelLower)
-        );
+        item = items.find(i => i.label.toLowerCase().includes(labelLower));
       }
       
-      // If still no match, try reverse partial match (search term contains API label)
       if (!item) {
-        item = items.find(i => 
-          labelLower.includes(i.label.toLowerCase().trim())
-        );
+        item = items.find(i => labelLower.includes(i.label.toLowerCase().trim()));
       }
       
       if (item) {
         map[code] = item.id;
-        console.log(`  ✓ [map] ${code} -> ${item.id} (API label: "${item.label}")`);
         found = true;
-        break; // Found a match, move to next code
+        break;
       }
     }
     
     if (!found) {
       missingCodes.push(code);
-      console.warn(`  ✗ [map] ${code} -> NOT FOUND (tried labels: ${labels.join(', ')})`);
     }
   }
   
