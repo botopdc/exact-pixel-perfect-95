@@ -28,6 +28,7 @@ import { toast } from '@/hooks/use-toast';
 // ============ CONSTANTS ============
 const ADMIN_PIN = "OPEN2026";
 const ADMIN_STORAGE_KEY = 'open_precos_isAdmin';
+const ADMIN_PIN_STORAGE_KEY = 'open_admin_pin'; // Key used by calculatorConfigService
 const LOG_STORAGE_KEY = 'open_precos_changeLog';
 
 // ============ TYPES ============
@@ -199,6 +200,12 @@ const Precos = () => {
   // ============ PIN HANDLERS ============
   const handlePinSubmit = () => {
     if (pinInput === ADMIN_PIN) {
+      // Save PIN to localStorage so calculatorConfigService can use it
+      try {
+        localStorage.setItem(ADMIN_PIN_STORAGE_KEY, pinInput);
+      } catch {
+        // Silent fail
+      }
       setIsAdmin(true);
       setShowPinModal(false);
       setPinInput('');
