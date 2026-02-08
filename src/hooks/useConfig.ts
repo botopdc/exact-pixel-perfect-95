@@ -321,23 +321,54 @@ function transformSupabaseConfigToCalculatorConfig(entries: CalculatorConfigEntr
 const fetchConfig = async (forceRefresh = false): Promise<CalculatorConfig> => {
   // If we've already loaded and have cached data, return it immediately
   if (!forceRefresh && loadedOnce && cachedConfig) {
-    console.log('[useConfig] Returning cached config (loadedOnce=true)');
+    if (import.meta.env.DEV) {
+      console.debug('[useConfig] Returning cached config (loadedOnce=true)');
+    }
     return cachedConfig;
   }
   
   // If a request is already in flight, wait for it
   if (inFlightPromise) {
-    console.log('[useConfig] Request in flight, waiting...');
+    if (import.meta.env.DEV) {
+      console.debug('[useConfig] Request in flight, waiting...');
+    }
     return inFlightPromise;
   }
   
-  console.log('[useConfig] Fetching config from Supabase Edge Function...');
+  // GUARD: Check token availability
+  const token = localStorage.getItem('open_access_token') || localStorage.getItem('token');
+  if (!token) {
+    const error = new Error('Sessão expirada. Faça login novamente.');
+    console.error('[useConfig] Token ausente - sessão expirada');
+    throw error;
+  }
+  
+  // GUARD: Check PIN availability
+  const pin = localStorage.getItem('open_admin_pin') || localStorage.getItem('OPEN_ADMIN_PIN');
+  if (!pin) {
+    const error = new Error('PIN admin ausente. Ative o Modo Admin antes de acessar preços.');
+    console.error('[useConfig] PIN ausente (open_admin_pin)');
+    throw error;
+  }
+  
+  if (import.meta.env.DEV) {
+    console.debug('[useConfig] Fetching config from Supabase Edge Function...');
+  }
   
   // Create and store the promise
   inFlightPromise = (async () => {
     try {
       const entries = await getCalculatorConfigs();
-      console.log('[useConfig] Received', entries.length, 'entries from Edge Function');
+      
+      // GUARD: Validate response is array
+      if (!Array.isArray(entries)) {
+        console.error('[useConfig] API response is not an array:', typeof entries);
+        throw new Error('Resposta inválida do servidor (esperava array)');
+      }
+      
+      if (import.meta.env.DEV) {
+        console.debug('[useConfig] Received', entries.length, 'entries from Edge Function');
+      }
       
       if (entries.length === 0) {
         console.warn('[useConfig] No entries returned from Edge Function, using defaults');
@@ -346,7 +377,10 @@ const fetchConfig = async (forceRefresh = false): Promise<CalculatorConfig> => {
       }
       
       const config = transformSupabaseConfigToCalculatorConfig(entries);
-      console.log('[useConfig] Config transformed successfully');
+      
+      if (import.meta.env.DEV) {
+        console.debug('[useConfig] Config transformed successfully');
+      }
       
       // Cache the result
       cachedConfig = config;
