@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
-import { saveProposal } from '@/services/proposalApi';
+import { saveProposal, getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +35,6 @@ import {
 import { authService } from '@/services/authService';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
-import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
 import { copyToClipboard } from '@/lib/clipboard';
 import { LinkCopyModal } from '@/components/LinkCopyModal';
@@ -335,32 +334,70 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download
+  // Handle PDF download (Supabase: download ONLY from Storage using pdf_path)
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
       return;
     }
-    
+
     setPdfLoadingId(proposal.id);
     console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
-    
+
     try {
-      const result = await downloadProposalPdfFromApi(proposal.id);
-      
-      if (result.success) {
-        // Track PDF download event
-        trackProposalEvent({
-          proposalId: proposal.id,
-          source: 'pdf_download',
+      const res = await getProposalFromEdge(proposal.id);
+
+      if (!res?.success) {
+        toast({
+          title: 'Erro',
+          description: res?.error || 'Falha ao buscar proposta para download do PDF',
+          variant: 'destructive',
         });
-        toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado' });
-      } else {
-        toast({ title: 'Erro', description: result.error || 'Erro ao gerar PDF', variant: 'destructive' });
+        return;
       }
+
+      const pdfPath = res.proposal?.pdf_path;
+
+      if (!pdfPath) {
+        toast({
+          title: 'PDF ainda não gerado',
+          description: 'Abra a proposta e clique em PDF na calculadora.',
+        });
+        return;
+      }
+
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from('proposal-files')
+        .createSignedUrl(pdfPath, 60 * 10); // 10 minutos
+
+      if (signedUrlError || !signedUrlData?.signedUrl) {
+        throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
+      }
+
+      // Inicia download/abertura do PDF salvo
+      const filename = `OPEN_proposta_${res.proposal.display_id || res.proposal.id}.pdf`;
+      const a = document.createElement('a');
+      a.href = signedUrlData.signedUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      trackProposalEvent({
+        proposalId: proposal.id,
+        source: 'pdf_download',
+      });
+
+      toast({ title: 'Download iniciado', description: 'O PDF salvo foi aberto para download.' });
     } catch (error: any) {
       console.error('[PDF DOWNLOAD] Exception:', error);
-      toast({ title: 'Erro', description: error.message || 'Falha ao gerar PDF', variant: 'destructive' });
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao baixar PDF',
+        variant: 'destructive',
+      });
     } finally {
       setPdfLoadingId(null);
     }
