@@ -1,5 +1,6 @@
 /// <reference path="../_shared/deno.d.ts" />
 
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { getSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
 // ============================================================================
@@ -187,12 +188,29 @@ function assertPin(req: Request) {
 async function validateExternalToken(token: string): Promise<boolean> {
   const externalAuthUrl = Deno.env.get("EXTERNAL_AUTH_URL");
   if (externalAuthUrl) {
-    const resp = await fetch(`${externalAuthUrl.replace(/\/$/, "")}/validate`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return resp.ok;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout
+    
+    try {
+      const resp = await fetch(`${externalAuthUrl.replace(/\/$/, "")}/validate`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      return resp.ok;
+    } catch (err) {
+      clearTimeout(timeout);
+      const error = err as Error;
+      if (error.name === "AbortError") {
+        console.warn("[pricing-admin] validateExternalToken timeout after 3s");
+      } else {
+        console.warn("[pricing-admin] validateExternalToken network error:", error.message);
+      }
+      return false; // Return false instead of throwing to avoid hanging
+    }
   }
+  // MVP fallback: accept token if length >= 20
   return token.length >= 20;
 }
 
@@ -266,7 +284,7 @@ async function handleSeed(req: Request): Promise<Response> {
 // MAIN HANDLER
 // ============================================================================
 
-export default async function handler(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === "OPTIONS") return json({ ok: true }, 200);
 
@@ -376,3 +394,5 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ error: error?.message ?? "Unknown error" }, status);
   }
 }
+
+serve(handler);

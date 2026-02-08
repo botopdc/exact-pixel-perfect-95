@@ -108,6 +108,34 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+/**
+ * Fetch with timeout using AbortController
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 7000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    return response;
+  } catch (err) {
+    clearTimeout(timeout);
+    const error = err as Error;
+    if (error.name === 'AbortError') {
+      throw new Error('Timeout ao chamar pricing-admin. Tente novamente.');
+    }
+    throw error;
+  }
+}
+
 // ============================================================================
 // SERVICE FUNCTIONS
 // ============================================================================
@@ -132,13 +160,13 @@ export async function getAllConfigs(
     url.searchParams.set('section', filters.section);
   }
   
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     method: 'GET',
     headers: buildHeaders(adminPin),
   });
   
-  const result = await handleResponse<{ data: CalculatorConfigRow[] }>(response);
-  return result.data;
+  const data = await handleResponse<CalculatorConfigRow[]>(response);
+  return data;
 }
 
 /**
@@ -152,14 +180,13 @@ export async function createConfig(
   adminPin: string,
   payload: CreateConfigPayload
 ): Promise<CalculatorConfigRow> {
-  const response = await fetch(getEdgeFunctionUrl(), {
+  const response = await fetchWithTimeout(getEdgeFunctionUrl(), {
     method: 'POST',
     headers: buildHeaders(adminPin),
     body: JSON.stringify(payload),
   });
   
-  const result = await handleResponse<{ data: CalculatorConfigRow }>(response);
-  return result.data;
+  return handleResponse<CalculatorConfigRow>(response);
 }
 
 /**
@@ -178,14 +205,13 @@ export async function updateConfig(
   const url = new URL(getEdgeFunctionUrl());
   url.searchParams.set('id', id.toString());
   
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     method: 'PUT',
     headers: buildHeaders(adminPin),
     body: JSON.stringify(payload),
   });
   
-  const result = await handleResponse<{ data: CalculatorConfigRow }>(response);
-  return result.data;
+  return handleResponse<CalculatorConfigRow>(response);
 }
 
 /**
@@ -202,12 +228,12 @@ export async function deleteConfig(
   const url = new URL(getEdgeFunctionUrl());
   url.searchParams.set('id', id.toString());
   
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     method: 'DELETE',
     headers: buildHeaders(adminPin),
   });
   
-  await handleResponse<{ data: CalculatorConfigRow; message: string }>(response);
+  await handleResponse<{ ok: boolean; deleted: CalculatorConfigRow }>(response);
   return { success: true, message: 'Config deleted successfully' };
 }
 
