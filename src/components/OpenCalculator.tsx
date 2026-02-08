@@ -1552,32 +1552,8 @@ const OpenCalculator: React.FC = () => {
           setEditingProposalId(supabaseProposalId);
         }
 
-        // Generate and upload PDF to Supabase Storage (optional, non-blocking)
-        try {
-          console.log('[OpenCalculator] Generating PDF for Supabase Storage...');
-          const { generateOpenPDFBlob } = await import('@/lib/pdfGenerator');
-          const { uploadPdfToStorage } = await import('@/services/supabaseProposalService');
-          
-          const pdfResult = await generateOpenPDFBlob({
-            client,
-            proposal,
-            result: result!,
-            selectedTerm,
-            datacenter,
-            reseller,
-            includeCommission: includeCommissionInPdf,
-            observacao: observacao.trim() || undefined,
-          });
-
-          const { path, signedUrl } = await uploadPdfToStorage(
-            supabaseProposalId,
-            pdfResult.blob,
-            `proposta_${proposal.id}.pdf`
-          );
-          console.log('[OpenCalculator] PDF uploaded to Supabase Storage:', { path, signedUrl: signedUrl.substring(0, 50) + '...' });
-        } catch (pdfError) {
-          console.warn('[OpenCalculator] PDF generation/upload failed (non-blocking):', pdfError);
-        }
+        // PDF agora é gerado e persistido automaticamente no fluxo de save (saveProposalToSupabase)
+        // para garantir que `pdf_path` fique sempre atualizado após criar/editar.
 
         // Link architect participant if selected
         if (supabaseProposalId && selectedArchitectId) {

@@ -10,8 +10,10 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { SUPABASE_PROPOSAL_KEYS } from '@/hooks/useSupabaseProposals';
 import type { SaveProposalPayload, SaveProposalServer, SaveProposalAddon } from '@/types/calculatorProposal';
-import type { ServerItem, VMItem, BMItem, StorageItem, AddonsState, KubernetesState, OpenSaaSState, ResellerState, CalculationResult } from '@/lib/calculatorConfig';
+import type { ServerItem, VMItem, BMItem, StorageItem, AddonsState, KubernetesState, OpenSaaSState, ResellerState, CalculationResult, ClientInfo, ProposalMeta } from '@/lib/calculatorConfig';
 import { generateProposalId } from '@/lib/calculatorConfig';
+import { generateOpenPDFBlob } from '@/lib/pdfGenerator';
+import { uploadPdfToStorage } from '@/services/supabaseProposalService';
 
 // ============================================================================
 // LOGGING: Environment check
@@ -412,6 +414,50 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
 // MUTATION HOOK
 // ============================================================================
 
+async function generateAndPersistPdfAfterSave(proposalUuid: string, input: CalculatorSaveInput) {
+  try {
+    if (!input.result || !Array.isArray(input.result.rows) || input.result.rows.length === 0) {
+      console.warn('[useSaveProposalToSupabase] Skipping PDF generation (missing result.rows)');
+      return;
+    }
+
+    const proposalMeta: ProposalMeta = {
+      id: input.displayId || input.proposal.id || proposalUuid,
+      createdAt: (input.proposal as any)?.createdAt || new Date().toISOString(),
+      validityDays: input.proposal.validityDays || 7,
+    };
+
+    const clientInfo: ClientInfo = {
+      name: input.client.name,
+      company: input.client.company,
+      phone: input.client.phone,
+      email: input.client.email,
+    };
+
+    const { blob, filename } = await generateOpenPDFBlob({
+      client: clientInfo,
+      proposal: proposalMeta,
+      result: input.result,
+      selectedTerm: input.selectedTerm,
+      datacenter: input.datacenter,
+      reseller: input.reseller,
+      observacao: input.observacao,
+      attachments: [],
+      includeCommission: true,
+    });
+
+    const uploaded = await uploadPdfToStorage(proposalUuid, blob, filename);
+
+    console.log('[useSaveProposalToSupabase] PDF persisted to Storage:', {
+      proposalUuid,
+      pdfPath: uploaded.path,
+      filename,
+    });
+  } catch (err) {
+    console.error('[useSaveProposalToSupabase] Failed to generate/upload PDF after save:', err);
+  }
+}
+
 export function useSaveProposalToSupabase() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -459,6 +505,9 @@ export function useSaveProposalToSupabase() {
 
       const proposalId = data as string;
       console.log('[useSaveProposalToSupabase] Saved to Supabase, proposalId=', proposalId);
+
+      // After saving, ALWAYS generate + upload the full PDF and update pdf_path
+      await generateAndPersistPdfAfterSave(proposalId, input);
 
       return { success: true, proposalId, isUpdate: !!input.proposalId };
     },
@@ -520,6 +569,9 @@ export async function saveProposalToSupabase(input: CalculatorSaveInput): Promis
 
   const proposalId = data as string;
   console.log('[saveProposalToSupabase] SUCCESS, proposalId=', proposalId);
+
+  // After saving, ALWAYS generate + upload the full PDF and update pdf_path
+  await generateAndPersistPdfAfterSave(proposalId, input);
 
   return proposalId;
 }
