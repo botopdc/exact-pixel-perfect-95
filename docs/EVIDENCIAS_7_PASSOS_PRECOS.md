@@ -308,118 +308,90 @@ await pricingAdminService.updateConfig('5678', 1, {
 
 ## Passo 4 — Trocar `calculatorConfigService.ts`
 
-**Data**: 2026-02-08 (refatorado)
+**Data**: 2026-02-08 (merge controlado)
 **Status**: ✅ DONE
 
 ### O que foi feito
 
-1. **Refatoração completa** de `src/services/calculatorConfigService.ts`:
-   - Removida dependência de `pricingAdminService.ts` (simplificação)
-   - Agora usa **fetch direto** para a Edge Function `/pricing-admin`
-   - Removida dependência de `axios` e API externa (`VITE_API_BASE_URL`)
-   - Mantida compatibilidade total com interfaces existentes
+1. **Merge controlado** em `src/services/calculatorConfigService.ts`:
+   - Substituída APENAS a lógica interna de acesso a dados
+   - API pública (nomes de funções, exports, tipos) totalmente preservada
+   - Endpoint: `${VITE_SUPABASE_URL}/functions/v1/pricing-admin`
 
-2. **Funções CORE implementadas**:
+2. **Funções CORE implementadas (corpo substituído, assinatura preservada)**:
    - `getCalculatorConfigsRaw(token?, pin?)` → GET /pricing-admin
    - `upsertCalculatorConfig(token, pin, payload)` → POST /pricing-admin
    - `updateCalculatorConfigById(token, pin, id, patch)` → PUT /pricing-admin?id=X
    - `softDeleteCalculatorConfig(token, pin, id)` → DELETE /pricing-admin?id=X
 
-3. **Funções de compatibilidade mantidas**:
+3. **Funções de compatibilidade preservadas (sem alteração de assinatura)**:
    - `getCalculatorConfigsFlat()` → retorna items FLAT
    - `getCalculatorConfigs()` → retorna entries agrupadas
+   - `getCalculatorConfigById(id)` → busca item por ID
    - `updateCalculatorConfigItem(id, payload)` → atualiza item individual
    - `createCalculatorConfigItem(payload)` → cria item individual
    - `deleteCalculatorConfigItem(id)` → remove item do array
    - `updateCalculatorConfig(entryId, payload)` → upsert legacy
 
-4. **Helpers mantidos**:
+4. **Helpers preservados (sem alteração)**:
    - `loadFlatConfigs()`, `clearConfigCache()`, `getCachedFlatItems()`
    - `findConfigId()`, `getVmConfigIds()`, `getAddonConfigId()`
    - `getGpuConfigId()`, `getSqlConfigId()`, `getBackupConfigId()`
-   - `CONFIG_MAPPINGS` (constantes de categoria/seção)
+   - `getAddonConfigIdByCode()`, `buildAddonConfigIdMap()`
+   - `findConfigEntry()`, `CONFIG_MAPPINGS`
 
-5. **Autenticação**:
-   - Token: `localStorage.getItem('open_access_token')` ou `open_api_token`
-   - PIN: `localStorage.getItem('open_admin_pin')` ou fallback `'5678'`
+5. **Tipos/Interfaces preservados**:
+   - `CalculatorConfigRow`
+   - `ConfigItem`
+   - `CalculatorConfigFlatItem`
+   - `PaginatedConfigResponse`
+   - `CalculatorConfigEntry`
+   - `CalculatorConfigUpdateRequest`
+   - `CalculatorConfigCreateRequest`
+   - `ConfigMappingKey`
 
-### Trecho do código principal
-
-```typescript
-// Agora usa fetch direto (sem pricingAdminService)
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-
-function getEdgeFunctionUrl(): string {
-  return `${SUPABASE_URL}/functions/v1/pricing-admin`;
-}
-
-function buildHeaders(token: string, pin: string): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-    'X-Admin-PIN': pin,
-  };
-}
-
-export async function getCalculatorConfigsRaw(
-  token?: string,
-  pin?: string
-): Promise<CalculatorConfigRow[]> {
-  const authToken = token || getAuthToken();
-  const adminPin = pin || getAdminPin();
-  
-  const response = await fetch(getEdgeFunctionUrl(), {
-    method: 'GET',
-    headers: buildHeaders(authToken, adminPin),
-  });
-  
-  return handleResponse<CalculatorConfigRow[]>(response);
-}
-
-export async function upsertCalculatorConfig(
-  token: string,
-  pin: string,
-  payload: { category: string; section: string; config: ConfigItem[] }
-): Promise<CalculatorConfigRow> {
-  const response = await fetch(getEdgeFunctionUrl(), {
-    method: 'POST',
-    headers: buildHeaders(token, pin),
-    body: JSON.stringify(payload),
-  });
-  
-  return handleResponse<CalculatorConfigRow>(response);
-}
-```
-
-### Como testar
-
-1. **Console do navegador** (após login):
-```javascript
-// Importar e carregar configs
-const { getCalculatorConfigs } = await import('@/services/calculatorConfigService');
-const configs = await getCalculatorConfigs();
-console.log('Configs:', configs);
-```
-
-2. **Network tab**:
-   - Verificar chamadas para `/functions/v1/pricing-admin`
-   - Headers devem conter `Authorization: Bearer ...` e `X-Admin-PIN: ...`
-
-3. **Tela Preços** (`/precos`):
-   - Deve carregar dados normalmente
-   - Edições devem salvar via Edge Function
+6. **Autenticação via headers**:
+   - `Authorization: Bearer <token>` (de localStorage)
+   - `X-Admin-PIN: <pin>` (de localStorage ou fallback '5678')
+   - `Content-Type: application/json`
 
 ### Arquivos alterados
 
-- `src/services/calculatorConfigService.ts` (REFATORADO - usa fetch direto)
+- `src/services/calculatorConfigService.ts` (merge controlado - corpo de funções)
+
+### Confirmação de remoção da API externa
+
+- ✅ Nenhuma referência ao endpoint antigo (`VITE_API_BASE_URL/api/calculator/config`)
+- ✅ Todas as chamadas agora vão para `/functions/v1/pricing-admin`
+
+### Como testar
+
+1. **Verificar compilação**:
+   ```bash
+   npm run build
+   # Deve compilar sem erros
+   ```
+
+2. **Tela de Preços** (`/precos`):
+   - Acessar a tela logado como admin
+   - Verificar se os valores carregam (GET)
+   - Editar um valor e salvar (POST/upsert)
+   - Verificar no Network tab: chamadas para `/functions/v1/pricing-admin`
+
+3. **Console do navegador**:
+   ```javascript
+   const { getCalculatorConfigs } = await import('@/services/calculatorConfigService');
+   const configs = await getCalculatorConfigs();
+   console.log('Configs:', configs);
+   ```
 
 ### Resultado
 
 - ✅ Dependência da API externa removida
 - ✅ Agora usa Edge Function /pricing-admin via fetch direto
-- ✅ Não depende mais de pricingAdminService.ts (simplificado)
+- ✅ API pública 100% preservada (nomes, assinaturas, tipos)
 - ✅ Compatibilidade com UI existente mantida
-- ✅ PIN e token passados corretamente via headers
+- ✅ Headers de autenticação (Bearer + PIN) configurados
 - ✅ Erros logados no console
 
 ---
