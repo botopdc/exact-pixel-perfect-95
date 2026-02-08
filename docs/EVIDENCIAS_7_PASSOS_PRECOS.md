@@ -88,7 +88,7 @@
 
 ## Passo 2 — Criar Edge Function `/pricing-admin`
 
-**Data**: 2026-02-07
+**Data**: 2026-02-07 (atualizado 2026-02-08)
 **Status**: ✅ DONE
 
 ### Decisão de Arquitetura
@@ -98,71 +98,143 @@ A solução correta para manter a `SERVICE_ROLE_KEY` segura é usar **Edge Funct
 
 ### O que foi feito
 
-1. **Edge Function criada**: `supabase/functions/pricing-admin/index.ts`
-   - Usa `SUPABASE_SERVICE_ROLE_KEY` (acesso privilegiado)
-   - Valida `X-Admin-PIN` header (MVP security gate)
-   - Valida `Authorization` header (token externo)
-   - Suporta GET, POST, PUT, DELETE
-   - CORS configurado corretamente
+1. **Módulo shared criado**: `supabase/functions/_shared/supabaseAdmin.ts`
+   - `getSupabaseAdmin()` - Client singleton com SERVICE_ROLE_KEY
+   - `validateExternalToken(token)` - Stub configurável via EXTERNAL_AUTH_URL
+   - `validateAdminPin(pin)` - Validação via env ADMIN_PIN
 
-2. **Config atualizada**: `supabase/config.toml`
+2. **Edge Function atualizada**: `supabase/functions/pricing-admin/index.ts`
+   - GET: Lista configs ou busca por ?id=X
+   - POST: Upsert por (category, section)
+   - PUT ?id=X: Update por ID
+   - DELETE ?id=X: Soft delete (set deleted_at)
+   - Segurança: 401 sem token, 403 se PIN inválido
+
+3. **Config**: `supabase/config.toml`
    ```toml
    [functions.pricing-admin]
    verify_jwt = false
    ```
 
-3. **Deploy realizado**: Edge Function deployada com sucesso
+### Secrets necessários
+
+| Secret | Descrição |
+|--------|-----------|
+| `SUPABASE_URL` | URL do projeto Supabase (automático) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Chave privilegiada (automático) |
+| `ADMIN_PIN` | PIN de segurança (default: 5678) |
+| `EXTERNAL_AUTH_URL` | (opcional) URL para validação externa de token |
 
 ### Trecho do código principal
 
 ```typescript
-// Create Supabase client with SERVICE_ROLE_KEY (privileged access)
-const supabaseAdmin = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
+// _shared/supabaseAdmin.ts
+export function getSupabaseAdmin(): SupabaseClient {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  );
+}
+
+export async function validateExternalToken(token: string) {
+  const externalAuthUrl = Deno.env.get("EXTERNAL_AUTH_URL");
+  if (externalAuthUrl) {
+    // Real validation via external API
+    const response = await fetch(`${externalAuthUrl}/validate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return { valid: response.ok };
   }
-);
+  // MVP stub: accept if length >= 10
+  return { valid: token.length >= 10 };
+}
 ```
 
-### Testes realizados
+### Como testar via cURL
 
-1. **GET com PIN correto**:
-   ```
-   Headers: Authorization: Bearer test-token, x-admin-pin: 5678
-   Response: 200 OK
-   Body: {"data": []}
-   ```
+**1. GET - Listar todas as configs:**
+```bash
+curl -X GET \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
 
-2. **GET com PIN incorreto**:
-   ```
-   Headers: Authorization: Bearer test-token, x-admin-pin: wrong-pin
-   Response: 401 Unauthorized
-   Body: {"error": "Invalid admin PIN"}
-   ```
+**2. GET - Buscar por ID:**
+```bash
+curl -X GET \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin?id=1" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
 
-3. **GET sem Authorization**:
-   ```
-   Headers: x-admin-pin: 5678
-   Response: 401 Unauthorized
-   Body: {"error": "Missing or invalid authorization token"}
-   ```
+**3. POST - Upsert config:**
+```bash
+curl -X POST \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "category": "cloud",
+    "section": "vcpu",
+    "config": [{"label": "vCPU", "value": 50, "by": "unit", "type": "BRL"}]
+  }'
+```
 
-### Arquivos alterados
+**4. PUT - Update por ID:**
+```bash
+curl -X PUT \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin?id=1" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"config": [{"label": "vCPU", "value": 55, "by": "unit", "type": "BRL"}]}'
+```
 
-- `supabase/functions/pricing-admin/index.ts` (CRIADO)
-- `supabase/config.toml` (ATUALIZADO)
+**5. DELETE - Soft delete:**
+```bash
+curl -X DELETE \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin?id=1" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Respostas esperadas
+
+| Cenário | Status | Body |
+|---------|--------|------|
+| Sucesso GET lista | 200 | `{"data": [...]}` |
+| Sucesso GET by id | 200 | `{"data": {...}}` |
+| Sucesso POST create | 201 | `{"data": {...}, "action": "created"}` |
+| Sucesso POST update | 200 | `{"data": {...}, "action": "updated"}` |
+| Sucesso PUT | 200 | `{"data": {...}}` |
+| Sucesso DELETE | 200 | `{"data": {...}, "message": "Config soft-deleted"}` |
+| Sem Authorization | 401 | `{"error": "Missing or invalid authorization token"}` |
+| PIN inválido | 403 | `{"error": "Invalid admin PIN"}` |
+| ID não encontrado | 404 | `{"error": "..."}` |
+
+### Arquivos criados/alterados
+
+- `supabase/functions/_shared/supabaseAdmin.ts` (CRIADO)
+- `supabase/functions/pricing-admin/index.ts` (ATUALIZADO)
+- `supabase/config.toml` (já configurado)
 
 ### Resultado
 
-- ✅ Edge Function deployada e funcional
-- ✅ SERVICE_ROLE_KEY protegida (apenas server-side)
-- ✅ PIN bloqueia acesso não autorizado
-- ✅ CORS configurado para chamadas do frontend
+- ✅ Edge Function com CRUD completo
+- ✅ Módulo shared reutilizável
+- ✅ SERVICE_ROLE_KEY protegida (server-side only)
+- ✅ Validação de token configurável (stub MVP + suporte a EXTERNAL_AUTH_URL)
+- ✅ PIN via env (ADMIN_PIN) com fallback
+- ✅ Soft delete implementado
+- ✅ CORS configurado
 
 ---
 
