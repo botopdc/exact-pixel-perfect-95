@@ -16,9 +16,10 @@ if (!SUPABASE_URL) {
 const AUTH_TOKEN_KEY = 'open_access_token';
 const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 const ADMIN_PIN_KEY = 'open_admin_pin';
+const LEGACY_ADMIN_PIN_KEY = 'OPEN_ADMIN_PIN';
 
-// Default PIN for development (should be set via localStorage in production)
-const DEFAULT_ADMIN_PIN = '5678';
+// Default PIN - MUST match the PIN used in Precos.tsx
+const DEFAULT_ADMIN_PIN = 'OPEN2026';
 
 // ============================================================================
 // TYPES
@@ -161,7 +162,11 @@ function getAuthToken(): string {
  * Get admin PIN from localStorage (or use default for dev)
  */
 function getAdminPin(): string {
-  return localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN;
+  const pin = localStorage.getItem(ADMIN_PIN_KEY) || localStorage.getItem(LEGACY_ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN;
+  if (!pin) {
+    console.warn('[calculatorConfigService] PIN ausente no localStorage');
+  }
+  return pin;
 }
 
 /**
