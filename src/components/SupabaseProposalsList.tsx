@@ -335,6 +335,7 @@ const SupabaseProposalsList: React.FC = () => {
   };
 
   // Handle PDF download (Supabase: download ONLY from Storage using pdf_path)
+  // NO local generation — only uses persisted PDF
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -342,15 +343,16 @@ const SupabaseProposalsList: React.FC = () => {
     }
 
     setPdfLoadingId(proposal.id);
-    console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
+    console.log('[PDF DOWNLOAD] Starting for proposal (Storage only):', proposal.id);
 
     try {
+      // Fetch full proposal to get pdf_path
       const res = await getProposalFromEdge(proposal.id);
 
       if (!res?.success) {
         toast({
           title: 'Erro',
-          description: res?.error || 'Falha ao buscar proposta para download do PDF',
+          description: res?.error || 'Falha ao buscar proposta',
           variant: 'destructive',
         });
         return;
@@ -359,23 +361,28 @@ const SupabaseProposalsList: React.FC = () => {
       const pdfPath = res.proposal?.pdf_path;
 
       if (!pdfPath) {
+        console.warn('[PDF DOWNLOAD] pdf_path is null/empty. PDF not generated yet.');
         toast({
           title: 'PDF ainda não gerado',
-          description: 'Abra a proposta e clique em PDF na calculadora.',
+          description: 'Abra a proposta na calculadora e clique em Salvar para gerar o PDF.',
         });
         return;
       }
 
+      console.log('[PDF DOWNLOAD] Fetching signed URL for path:', pdfPath);
+
       const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('proposal-files')
-        .createSignedUrl(pdfPath, 60 * 10); // 10 minutos
+        .createSignedUrl(pdfPath, 60 * 60); // 1 hora
 
       if (signedUrlError || !signedUrlData?.signedUrl) {
+        console.error('[PDF DOWNLOAD] signedUrl error:', signedUrlError);
         throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
       }
 
-      // Inicia download/abertura do PDF salvo
-      const filename = `OPEN_proposta_${res.proposal.display_id || res.proposal.id}.pdf`;
+      // Trigger download
+      const displayId = res.proposal.display_id || res.proposal.id.substring(0, 8);
+      const filename = `OPEN_proposta_${displayId}.pdf`;
       const a = document.createElement('a');
       a.href = signedUrlData.signedUrl;
       a.target = '_blank';

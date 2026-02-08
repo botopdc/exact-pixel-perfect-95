@@ -434,6 +434,12 @@ async function generateAndPersistPdfAfterSave(proposalUuid: string, input: Calcu
       email: input.client.email,
     };
 
+    // Generate date suffix YYYYMMDD
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const displayIdSafe = (input.displayId || input.proposal.id || proposalUuid.substring(0, 8)).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const pdfFileName = `OPEN_${displayIdSafe}_${dateStr}.pdf`;
+
     const { blob, filename } = await generateOpenPDFBlob({
       client: clientInfo,
       proposal: proposalMeta,
@@ -446,12 +452,14 @@ async function generateAndPersistPdfAfterSave(proposalUuid: string, input: Calcu
       includeCommission: true,
     });
 
-    const uploaded = await uploadPdfToStorage(proposalUuid, blob, filename);
+    // Upload with custom filename
+    const uploaded = await uploadPdfToStorage(proposalUuid, blob, pdfFileName);
 
     console.log('[useSaveProposalToSupabase] PDF persisted to Storage:', {
       proposalUuid,
       pdfPath: uploaded.path,
-      filename,
+      filename: pdfFileName,
+      pdfGeneratedAt: now.toISOString(),
     });
   } catch (err) {
     console.error('[useSaveProposalToSupabase] Failed to generate/upload PDF after save:', err);
