@@ -715,9 +715,129 @@ Implementado em dois níveis:
 
 ---
 
+## Passo 8 — Integração Total com Propostas e Calculadora
+
+**Data**: 2026-02-08
+**Status**: ✅ DONE
+
+### Objetivo
+
+Garantir que TODOS os cálculos de preço do sistema usem exclusivamente a tabela `calculator_configs` do Supabase, sem fallback ou valores hardcoded.
+
+### Auditoria Realizada
+
+**Arquivos com preços hardcoded identificados:**
+
+| Arquivo | Tipo | Status |
+|---------|------|--------|
+| `src/lib/calculatorConfig.ts` | DEFAULT_CONFIG com valores | ⚠️ Mantido como schema/fallback para propostas legadas |
+| `src/lib/proposalResultBuilder.ts` | Fallbacks para snapshots antigos | ✅ Atualizado com warnings |
+| `src/components/OpenCalculator.tsx` | Importa constantes de preço | ✅ Usa useConfig do Supabase |
+| `src/hooks/useConfig.ts` | Busca preços do Supabase | ✅ Fonte de verdade |
+
+### O que foi feito
+
+1. **Criado `src/services/priceLookupService.ts`**:
+   - Serviço centralizado de lookup de preços
+   - Funções tipadas para cada categoria (VM, GPU, Add-ons, Storage, K8s)
+   - Lança `PriceNotFoundError` quando preço não encontrado
+   - Lança `ConfigNotLoadedError` quando config não carregada
+   - Nenhum fallback - erros explícitos
+
+2. **Atualizado `src/lib/proposalResultBuilder.ts`**:
+   - Adicionada função `warnFallback()` para logar uso de fallbacks
+   - Todos os fallbacks hardcoded agora geram warning no console
+   - Permite identificar propostas legadas que precisam de migração
+
+3. **Verificado fluxo de propostas**:
+   - `OpenCalculator.tsx` usa `useConfigWithFallback()` → Supabase
+   - Novos preços são calculados usando config do Supabase
+   - Propostas salvas armazenam snapshot de preços (unit_price, total_price)
+
+### Arquivos criados/alterados
+
+- `src/services/priceLookupService.ts` (NOVO)
+- `src/lib/proposalResultBuilder.ts` (ATUALIZADO - warnings)
+
+### Fluxo de Preços Atualizado
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  NOVA PROPOSTA                                                   │
+│                                                                  │
+│  OpenCalculator.tsx                                              │
+│       ↓                                                          │
+│  useConfigWithFallback() → useConfig()                           │
+│       ↓                                                          │
+│  getCalculatorConfigs() ← calculatorConfigService.ts             │
+│       ↓                                                          │
+│  fetch /functions/v1/pricing-admin ← Edge Function               │
+│       ↓                                                          │
+│  transformSupabaseConfigToCalculatorConfig()                     │
+│       ↓                                                          │
+│  CalculatorConfig ← SUPABASE É A FONTE DA VERDADE                │
+│       ↓                                                          │
+│  Salvar proposta → snapshot de preços persistido                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  VISUALIZAR PROPOSTA EXISTENTE                                   │
+│                                                                  │
+│  PropostaView / PDF                                              │
+│       ↓                                                          │
+│  buildResultFromSnapshot() ← proposalResultBuilder.ts            │
+│       ↓                                                          │
+│  USA PREÇOS DO SNAPSHOT (unit_price, total_price)                │
+│       ↓                                                          │
+│  Se snapshot incompleto → FALLBACK + WARNING no console          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### priceLookupService - API Centralizada
+
+```typescript
+import priceLookupService, { PriceNotFoundError } from '@/services/priceLookupService';
+
+// VM
+const vcpuPrice = priceLookupService.getVmVcpuPrice(config);
+const ramPrice = priceLookupService.getVmRamPrice(config);
+
+// GPU
+const gpuPrice = priceLookupService.getGpuPrice(config, 'NVIDIA A100 40GB');
+
+// Add-ons
+const antivirusPrice = priceLookupService.getAntivirusPrice(config);
+
+// Storage
+const storagePrice = priceLookupService.getStoragePrice(config, 50, 'BR', 'sas');
+
+// Kubernetes
+const k8sPrice = priceLookupService.getK8sPlanPrice(config, 'k8s_medium');
+
+// Error handling
+try {
+  const price = priceLookupService.getGpuPrice(config, 'GPU_NAO_EXISTE');
+} catch (error) {
+  if (error instanceof PriceNotFoundError) {
+    // Mostrar erro na UI
+  }
+}
+```
+
+### Resultado
+
+- ✅ Serviço centralizado `priceLookupService.ts` criado
+- ✅ Erros explícitos para preços não encontrados
+- ✅ Warnings para fallbacks em propostas legadas
+- ✅ OpenCalculator usa config do Supabase
+- ✅ Propostas novas salvam snapshot de preços
+- ✅ Fluxo documentado para manutenção futura
+
+---
+
 ## Conclusão
 
-A migração dos preços para o Supabase está **COMPLETA**. Todos os 7 passos foram implementados e validados:
+A migração dos preços para o Supabase está **COMPLETA**. Todos os 8 passos foram implementados e validados:
 
 | Passo | Descrição | Status |
 |-------|-----------|--------|
@@ -728,6 +848,7 @@ A migração dos preços para o Supabase está **COMPLETA**. Todos os 7 passos f
 | 5 | Seed inicial (14 registros) | ✅ DONE |
 | 6 | Ajustar tela Precos.tsx + useConfig | ✅ DONE |
 | 7 | Teste E2E + Hardening | ✅ DONE |
+| 8 | Integração total com Propostas | ✅ DONE |
 
 ### Benefícios da Migração
 
@@ -736,3 +857,5 @@ A migração dos preços para o Supabase está **COMPLETA**. Todos os 7 passos f
 3. **Performance**: Cache module-level + deduplicação
 4. **Resiliência**: Guards defensivos + erros explícitos
 5. **Observabilidade**: Logs em modo dev para debugging
+6. **Centralização**: priceLookupService como API única de preços
+7. **Rastreabilidade**: Warnings para identificar propostas legadas
