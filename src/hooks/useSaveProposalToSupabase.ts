@@ -12,8 +12,8 @@ import { SUPABASE_PROPOSAL_KEYS } from '@/hooks/useSupabaseProposals';
 import type { SaveProposalPayload, SaveProposalServer, SaveProposalAddon } from '@/types/calculatorProposal';
 import type { ServerItem, VMItem, BMItem, StorageItem, AddonsState, KubernetesState, OpenSaaSState, ResellerState, CalculationResult, ClientInfo, ProposalMeta } from '@/lib/calculatorConfig';
 import { generateProposalId } from '@/lib/calculatorConfig';
-import { generateProposalPdfBlobFromCalculatorState } from '@/services/proposalPdfGenerator';
-import { persistProposalPdf } from '@/services/proposalPdfPersistence';
+import { generateOpenPDFBlob } from '@/lib/pdfGenerator';
+import { uploadPdfToStorage } from '@/services/supabaseProposalService';
 
 // ============================================================================
 // LOGGING: Environment check
@@ -414,30 +414,56 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
 // MUTATION HOOK
 // ============================================================================
 
-async function generateAndPersistPdfAfterSave(proposalUuid: string, input: CalculatorSaveInput): Promise<void> {
-  if (!input.result || !Array.isArray(input.result.rows) || input.result.rows.length === 0) {
-    throw new Error('Resultado do cálculo ausente (result.rows vazio) — não foi possível gerar o PDF.');
+async function generateAndPersistPdfAfterSave(proposalUuid: string, input: CalculatorSaveInput) {
+  try {
+    if (!input.result || !Array.isArray(input.result.rows) || input.result.rows.length === 0) {
+      console.warn('[useSaveProposalToSupabase] Skipping PDF generation (missing result.rows)');
+      return;
+    }
+
+    const proposalMeta: ProposalMeta = {
+      id: input.displayId || input.proposal.id || proposalUuid,
+      createdAt: (input.proposal as any)?.createdAt || new Date().toISOString(),
+      validityDays: input.proposal.validityDays || 7,
+    };
+
+    const clientInfo: ClientInfo = {
+      name: input.client.name,
+      company: input.client.company,
+      phone: input.client.phone,
+      email: input.client.email,
+    };
+
+    // Generate date suffix YYYYMMDD
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const displayIdSafe = (input.displayId || input.proposal.id || proposalUuid.substring(0, 8)).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const pdfFileName = `OPEN_${displayIdSafe}_${dateStr}.pdf`;
+
+    const { blob, filename } = await generateOpenPDFBlob({
+      client: clientInfo,
+      proposal: proposalMeta,
+      result: input.result,
+      selectedTerm: input.selectedTerm,
+      datacenter: input.datacenter,
+      reseller: input.reseller,
+      observacao: input.observacao,
+      attachments: [],
+      includeCommission: true,
+    });
+
+    // Upload with custom filename
+    const uploaded = await uploadPdfToStorage(proposalUuid, blob, pdfFileName);
+
+    console.log('[useSaveProposalToSupabase] PDF persisted to Storage:', {
+      proposalUuid,
+      pdfPath: uploaded.path,
+      filename: pdfFileName,
+      pdfGeneratedAt: now.toISOString(),
+    });
+  } catch (err) {
+    console.error('[useSaveProposalToSupabase] Failed to generate/upload PDF after save:', err);
   }
-
-  const displayId = input.displayId || input.proposal?.id || proposalUuid.substring(0, 8);
-
-  const pdfBlob = await generateProposalPdfBlobFromCalculatorState({
-    displayId,
-    client: input.client,
-    proposal: input.proposal,
-    result: input.result,
-    selectedTerm: input.selectedTerm,
-    datacenter: input.datacenter,
-    reseller: input.reseller,
-    includeCommission: true,
-    observacao: input.observacao,
-  });
-
-  await persistProposalPdf({
-    proposalId: proposalUuid,
-    displayId,
-    pdfBlob,
-  });
 }
 
 export function useSaveProposalToSupabase() {
@@ -489,16 +515,7 @@ export function useSaveProposalToSupabase() {
       console.log('[useSaveProposalToSupabase] Saved to Supabase, proposalId=', proposalId);
 
       // After saving, ALWAYS generate + upload the full PDF and update pdf_path
-      try {
-        await generateAndPersistPdfAfterSave(proposalId, input);
-      } catch (pdfErr: any) {
-        console.error('[useSaveProposalToSupabase] PDF pipeline failed (non-blocking):', pdfErr);
-        toast({
-          title: 'Proposta salva, mas PDF não foi gerado',
-          description: pdfErr?.message || 'Falha no pipeline de PDF (upload/atualização no banco).',
-          variant: 'destructive',
-        });
-      }
+      await generateAndPersistPdfAfterSave(proposalId, input);
 
       return { success: true, proposalId, isUpdate: !!input.proposalId };
     },
@@ -533,14 +550,11 @@ export function useSaveProposalToSupabase() {
 // DIRECT SAVE FUNCTION (for imperative calls)
 // ============================================================================
 
-export async function saveProposalToSupabase(
-  input: CalculatorSaveInput,
-  options?: { onPdfError?: (err: unknown) => void }
-): Promise<string> {
+export async function saveProposalToSupabase(input: CalculatorSaveInput): Promise<string> {
   console.log('[saveProposalToSupabase] Direct save starting...');
-
+  
   const payload = convertCalculatorToSupabasePayload(input);
-
+  
   console.log('[saveProposalToSupabase] Calling RPC with:', {
     hasProposalId: !!payload.proposal.id,
     serversCount: payload.servers.length,
@@ -565,12 +579,7 @@ export async function saveProposalToSupabase(
   console.log('[saveProposalToSupabase] SUCCESS, proposalId=', proposalId);
 
   // After saving, ALWAYS generate + upload the full PDF and update pdf_path
-  try {
-    await generateAndPersistPdfAfterSave(proposalId, input);
-  } catch (pdfErr) {
-    console.error('[saveProposalToSupabase] PDF pipeline failed (non-blocking):', pdfErr);
-    options?.onPdfError?.(pdfErr);
-  }
+  await generateAndPersistPdfAfterSave(proposalId, input);
 
   return proposalId;
 }
