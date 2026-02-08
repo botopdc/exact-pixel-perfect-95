@@ -1524,25 +1524,37 @@ const OpenCalculator: React.FC = () => {
         });
 
         // Call Supabase RPC directly
-        const supabaseProposalId = await saveProposalToSupabase({
-          proposalId: editingProposalId || undefined,
-          displayId: proposal.id,
-          fx,
-          selectedTerm,
-          datacenter,
-          client,
-          proposal,
-          total: result?.grandTotal || 0,
-          items,
-          storageItems,
-          kubernetes,
-          openSaas,
-          addons,
-          reseller,
-          result,
-          observacao: observacao.trim() || undefined,
-          priceOverrides,
-        });
+        const supabaseProposalId = await saveProposalToSupabase(
+          {
+            proposalId: editingProposalId || undefined,
+            displayId: proposal.id,
+            fx,
+            selectedTerm,
+            datacenter,
+            client,
+            proposal,
+            total: result?.grandTotal || 0,
+            items,
+            storageItems,
+            kubernetes,
+            openSaas,
+            addons,
+            reseller,
+            result,
+            observacao: observacao.trim() || undefined,
+            priceOverrides,
+          },
+          {
+            onPdfError: (err) => {
+              const message = err instanceof Error ? err.message : 'Falha no pipeline de PDF.';
+              toast({
+                title: 'Proposta salva, mas PDF não foi gerado',
+                description: message,
+                variant: 'destructive',
+              });
+            },
+          }
+        );
 
         console.log('[OpenCalculator] ✅ SAVED TO SUPABASE, proposalId=', supabaseProposalId);
 

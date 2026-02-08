@@ -47,6 +47,8 @@ export interface ProposalRow {
   total: number;
   datacenter: string;
   channel_type: string;
+  pdf_path?: string | null;
+  pdf_generated_at?: string | null;
   created_at: string;
   updated_at: string;
 }
