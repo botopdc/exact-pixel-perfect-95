@@ -125,6 +125,7 @@ import { useCalculatorConfig } from "@/hooks/useCalculatorConfig";
 import { useForm, UseFormReturn } from "@/hooks/use-form";
 import {
   CalculatorProposal,
+  calculatorProposalGateway,
   CalculatorProposalServer,
 } from "@/data/calculator/calculator-proposal";
 import { tw } from "@matheuscaetano/helprs";
@@ -193,8 +194,7 @@ const OpenCalculator: React.FC = () => {
   const { ...form } = useForm<FormData>({
     initialData: INITIAL_DATA,
     onSubmit: async (data) => {
-      console.clear();
-      console.log(data);
+      calculatorProposalGateway.save(data);
     },
   });
   const calc = useProposalCalculator({ proposal: form.data, config: cConfig });
@@ -1972,32 +1972,19 @@ const OpenCalculator: React.FC = () => {
 
   // Generate/Download PDF
   const handleGeneratePDF = async () => {
-    if (!hasAnyItem()) {
-      toast({
-        title: "Erro",
-        description:
-          "Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para gerar o PDF.",
-        variant: "destructive",
-      });
-      return;
-    }
     // Block PDF if approval is pending
-    if (isApprovalPending) {
-      toast({
-        title: "Aprovação pendente",
-        description:
-          "Preencha o Aprovador e marque como aprovado antes de gerar o PDF.",
-        variant: "destructive",
-      });
-      return;
-    }
+    // if (isApprovalPending) {
+    //   toast({
+    //     title: "Aprovação pendente",
+    //     description:
+    //       "Preencha o Aprovador e marque como aprovado antes de gerar o PDF.",
+    //     variant: "destructive",
+    //   });
+    //   return;
+    // }
 
     // If proposal is saved, try to download from API first
     if (editingProposalId) {
-      console.log(
-        "[OpenCalculator] Proposal saved, attempting API download:",
-        editingProposalId,
-      );
       const apiResult = await downloadProposalPdfFromApi(editingProposalId);
 
       if (apiResult.success) {
@@ -2016,22 +2003,22 @@ const OpenCalculator: React.FC = () => {
     }
 
     // Fallback: Generate PDF locally (for unsaved proposals or when API fails)
-    console.log("[OpenCalculator] Generating PDF locally");
-    const { generateOpenPDF } = await import("@/lib/pdfGenerator");
-    generateOpenPDF({
-      client,
-      proposal,
-      result: result!,
-      selectedTerm,
-      datacenter,
-      reseller,
-      includeCommission: includeCommissionInPdf,
-      observacao: observacao.trim() || undefined,
-    });
-    toast({
-      title: "PDF gerado",
-      description: "O download do PDF foi iniciado",
-    });
+    // console.log("[OpenCalculator] Generating PDF locally");
+    // const { generateOpenPDF } = await import("@/lib/pdfGenerator");
+    // generateOpenPDF({
+    //   client,
+    //   proposal,
+    //   result: result!,
+    //   selectedTerm,
+    //   datacenter,
+    //   reseller,
+    //   includeCommission: includeCommissionInPdf,
+    //   observacao: observacao.trim() || undefined,
+    // });
+    // toast({
+    //   title: "PDF gerado",
+    //   description: "O download do PDF foi iniciado",
+    // });
   };
 
   // Send by email via edge function - uses canonical approval link with token
@@ -4219,7 +4206,7 @@ const OpenCalculator: React.FC = () => {
                         className="group flex justify-between items-center text-sm py-1 border-b border-border/50"
                       >
                         <span className="text-muted-foreground flex-1 pr-2">
-                          {cConfig.findById(row.config_id)?.label}
+                          {`${row.name ? row.name + " - " : ""}${cConfig.findById(row.config_id)?.label}`}
                         </span>
                         <EditablePriceCell
                           rowIndex={idx}
@@ -4229,10 +4216,6 @@ const OpenCalculator: React.FC = () => {
                           overrideTotal={row.current_price}
                           canEdit={canEditPriceMarkup(userContext.userLevel)}
                           onOverrideChange={(rowIdx, newTotal) => {
-                            console.log("Price override:", {
-                              rowIdx,
-                              newTotal,
-                            });
                             calc.setResult((prev) => {
                               const updated = [...prev];
                               updated[rowIdx] = {
@@ -4254,7 +4237,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal Recursos
                       </span>
                       <span className="text-foreground">
-                        {/* {formatCurrencyBRL(result.subRec)} */}
+                        {formatCurrencyBRL(calc.sub.resources)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -4262,7 +4245,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal IPs
                       </span>
                       <span className="text-foreground">
-                        {/* {formatCurrencyBRL(result.subIps)} */}
+                        {formatCurrencyBRL(calc.sub.ips)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -4270,7 +4253,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal Serviços
                       </span>
                       <span className="text-foreground">
-                        {/* {formatCurrencyBRL(result.subServices)} */}
+                        {formatCurrencyBRL(calc.sub.services)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -4278,7 +4261,7 @@ const OpenCalculator: React.FC = () => {
                         Subtotal Backup
                       </span>
                       <span className="text-foreground">
-                        {/* {formatCurrencyBRL(result.subBackup)} */}
+                        {formatCurrencyBRL(calc.sub.backup)}
                       </span>
                     </div>
                     {/* {(result.subKubernetes ?? 0) > 0 && (
@@ -4322,30 +4305,31 @@ const OpenCalculator: React.FC = () => {
                         </span>
                       </div>
                     )} */}
-                    {/* <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Vigência</span>
                       <span className="text-foreground">
-                        {selectedTerm}{" "}
-                        {parseInt(selectedTerm) === 1 ? "mês" : "meses"}
+                        {form.data.contract_duration}{" "}
+                        {form.data.contract_duration === 1 ? "mês" : "meses"}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Datacenter</span>
-                      <span className="text-foreground">{datacenter}</span>
-                    </div> */}
+                      <span className="text-foreground">
+                        {form.data.datacenter}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Total */}
-                  {/* <div className="py-4 border-t border-border">
+                  <div className="py-4 border-t border-border">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-semibold text-foreground">
                         TOTAL MENSAL
                       </span>
                       <span className="text-2xl font-bold text-primary">
-                        {formatCurrencyBRL(result.grandTotal)}
+                        {formatCurrencyBRL(calc.total)}
                       </span>
                     </div>
-                  </div> */}
+                  </div>
 
                   {/* Comissão Parceiro section - only in PARCEIRO mode */}
                   {/* {reseller.viewMode === "INTERNO" &&

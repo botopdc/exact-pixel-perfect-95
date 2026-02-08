@@ -1,3 +1,5 @@
+import { get, post, put } from "../api";
+
 /** Status enum for calculator proposals */
 export type ProposalStatus =
   | "Rascunho"
@@ -146,3 +148,20 @@ export interface CreateProposalRequest {
   due_at: string;
   file?: File | Blob;
 }
+
+const endpoint = '/calculator/proposal';
+
+export const calculatorProposalGateway = {
+  show(id: number|string) {
+    return get<CalculatorProposal>(`${endpoint}/${id}`);
+  },
+
+  save(form: Partial<CalculatorProposal>) {
+    if (form.id) {
+      return put<CalculatorProposal>(`${endpoint}/${form.id}`, form);
+    } else {
+      return post<CalculatorProposal>(endpoint, form);
+    }
+  }
+}
+
