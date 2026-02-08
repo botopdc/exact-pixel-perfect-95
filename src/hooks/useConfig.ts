@@ -221,10 +221,12 @@ function transformSupabaseConfigToCalculatorConfig(entries: CalculatorConfigEntr
 
         case 'storage':
           if (section === 'storage sas') {
-            // Handle nested object format: { "Brasil": [...], "Estados Unidos": [...] }
-            if (configData && typeof configData === 'object' && !Array.isArray(configData)) {
-              const brItems: ConfigItem[] = configData['Brasil'] || [];
-              const usaItems: ConfigItem[] = configData['Estados Unidos'] || [];
+            // Use _rawConfig if available (preserved from nested object format)
+            const rawConfig = (entry as any)._rawConfig || configData;
+            
+            if (rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)) {
+              const brItems: ConfigItem[] = rawConfig['Brasil'] || [];
+              const usaItems: ConfigItem[] = rawConfig['Estados Unidos'] || [];
               
               const parseTier = (label: string): string | null => {
                 if (label === '1-10 TB') return 'pricePerTB_1_10';
