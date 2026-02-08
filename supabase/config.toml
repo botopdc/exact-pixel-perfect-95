@@ -2,3 +2,6 @@ project_id = "macmkfoknhofnwhizsqc"
 
 [functions.pricing-admin]
 verify_jwt = false
+
+[functions.proposal-pdf]
+verify_jwt = false
