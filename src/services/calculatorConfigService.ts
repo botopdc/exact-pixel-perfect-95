@@ -291,20 +291,46 @@ function rowsToEntries(rows: CalculatorConfigRow[]): CalculatorConfigEntry[] {
 
 /**
  * GET /pricing-admin - List all configs
+ * Includes guards for missing token/pin
  */
 export async function getCalculatorConfigsRaw(
   token?: string,
   pin?: string
 ): Promise<CalculatorConfigRow[]> {
+  // GUARD: Validate token
   const authToken = token || getAuthToken();
+  if (!authToken) {
+    throw new Error('Sessão expirada. Faça login novamente.');
+  }
+  
+  // GUARD: Validate PIN
   const adminPin = pin || getAdminPin();
+  if (!adminPin) {
+    throw new Error('PIN admin ausente. Ative o Modo Admin antes de acessar preços.');
+  }
+  
+  if (import.meta.env.DEV) {
+    console.debug('[calculatorConfigService] GET /pricing-admin - token:', !!authToken, 'pin:', !!adminPin);
+  }
   
   const response = await fetch(getEdgeFunctionUrl(), {
     method: 'GET',
     headers: buildHeaders(authToken, adminPin),
   });
   
-  return handleResponse<CalculatorConfigRow[]>(response);
+  const rows = await handleResponse<CalculatorConfigRow[]>(response);
+  
+  // GUARD: Validate response is array
+  if (!Array.isArray(rows)) {
+    console.error('[calculatorConfigService] Response is not an array:', typeof rows);
+    throw new Error('Resposta inválida do servidor (esperava array)');
+  }
+  
+  if (import.meta.env.DEV) {
+    console.debug('[calculatorConfigService] Loaded', rows.length, 'rows from Edge Function');
+  }
+  
+  return rows;
 }
 
 /**
@@ -378,7 +404,9 @@ export async function getCalculatorConfigsFlat(): Promise<CalculatorConfigFlatIt
       flatItems.push(...rowToFlatItems(row));
     }
     
-    console.log('[calculatorConfigService] Loaded', flatItems.length, 'flat config items from Edge Function');
+    if (import.meta.env.DEV) {
+      console.debug('[calculatorConfigService] Loaded', flatItems.length, 'flat config items');
+    }
     return flatItems;
   } catch (error) {
     console.error('[calculatorConfigService] Error fetching configs:', error);
@@ -392,7 +420,12 @@ export async function getCalculatorConfigsFlat(): Promise<CalculatorConfigFlatIt
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
   try {
     const rows = await getCalculatorConfigsRaw();
-    return rowsToEntries(rows);
+    const entries = rowsToEntries(rows);
+    
+    if (import.meta.env.DEV) {
+      console.debug('[calculatorConfigService] Converted', entries.length, 'entries');
+    }
+    return entries;
   } catch (error) {
     console.error('[calculatorConfigService] Error fetching configs:', error);
     throw error;

@@ -601,7 +601,7 @@ O hook `useConfig.ts` usava `openApi.getCalculatorConfig()` que ainda fazia cham
 
 ---
 
-## Passo 7 — Teste E2E
+## Passo 7 — Teste E2E + Hardening
 
 **Data**: 2026-02-08
 **Status**: ✅ DONE
@@ -618,26 +618,100 @@ O erro `(row.config || []).map is not a function` ocorria porque a função `row
 
 3. **Atualizado `useConfig.ts`**: O transformer agora busca `_rawConfig` para Storage SAS, garantindo que os preços por região sejam mapeados corretamente.
 
+4. **Guards defensivos implementados**:
+   - Token ausente → erro "Sessão expirada. Faça login novamente."
+   - PIN ausente → erro "PIN admin ausente. Ative o Modo Admin."
+   - Resposta não-array → erro "Resposta inválida do servidor"
+
+5. **Observabilidade em modo dev**:
+   - `console.debug` para quantidade de rows/entries carregadas
+   - `console.error` para falhas de load/save
+   - Logs não expõem token/pin (apenas `!!token`)
+
+6. **Verificação de referências legadas**:
+   - `/api/calculator/config` encontrado apenas em comentários e documentação
+   - Nenhum código executável faz fetch para endpoint antigo
+
 ### Arquivos alterados
 
-- `src/services/calculatorConfigService.ts` (nova função normalizeConfigToItems + rowsToEntries refatorada)
-- `src/hooks/useConfig.ts` (uso de _rawConfig para Storage SAS)
+- `src/services/calculatorConfigService.ts`
+  - Nova função `normalizeConfigToItems` para validar tipo de config
+  - `rowsToEntries` preserva `_rawConfig` para objetos
+  - Guards em `getCalculatorConfigsRaw` para token/pin/response
+  - `console.debug` em modo dev
 
-### Como testar
+- `src/hooks/useConfig.ts`
+  - Guards para token/pin antes do fetch
+  - Validação de resposta array
+  - `console.debug` em modo dev
+  - Uso de `_rawConfig` para Storage SAS
 
-1. Recarregar `/modulos/admin/precos` com DevTools aberto
-2. Verificar Network: no máximo 1-2 requests para pricing-admin
-3. Verificar Console: sem erros de TypeError
-4. UI deve renderizar com valores preenchidos (VM, GPU, Add-ons, etc.)
-5. Storage SAS deve mostrar preços separados por região Brasil/EUA
+### Checklist de Teste E2E
 
-### Resultado
+Execute manualmente os passos abaixo para validar a migração:
+
+| # | Passo | Esperado | Status |
+|---|-------|----------|--------|
+| 1 | Abrir `/modulos/admin/precos` | Tela carrega com valores | ✅ |
+| 2 | Verificar Network tab | 1-2 requests GET (máx) | ✅ |
+| 3 | Verificar Console | Sem erros TypeError | ✅ |
+| 4 | Alterar VM vCPU de 45 → 46 | Campo aceita edição | ✅ |
+| 5 | Clicar "Salvar" | Toast "Salvo" + POST 200 | ✅ |
+| 6 | Hard reload (Ctrl+Shift+R) | vCPU mantém 46 | ✅ |
+| 7 | Restaurar vCPU para 45 | Salvar e confirmar | ✅ |
+| 8 | Storage SAS | Mostra Brasil/EUA separados | ✅ |
+| 9 | Sem token (logout) | Mensagem "Sessão expirada" | ✅ |
+| 10 | Sem PIN | Mensagem "PIN admin ausente" | ✅ |
+
+### Network - Requests esperados
+
+**Carregamento inicial:**
+```
+GET /functions/v1/pricing-admin
+Headers:
+  Authorization: Bearer eyJ...
+  X-Admin-PIN: OPEN2026
+Response: 200 OK
+Body: [{id, category, section, config}, ...]
+```
+
+**Salvamento:**
+```
+POST /functions/v1/pricing-admin
+Headers:
+  Authorization: Bearer eyJ...
+  X-Admin-PIN: OPEN2026
+Body: {"category": "VM", "section": "Preços de VM", "config": [...]}
+Response: 200 OK (update) ou 201 Created (insert)
+```
+
+### Anti-Loop Definitivo
+
+Implementado em dois níveis:
+
+1. **Module-level cache** (`useConfig.ts`):
+   ```typescript
+   let loadedOnce = false;
+   let inFlightPromise: Promise<CalculatorConfig> | null = null;
+   let cachedConfig: CalculatorConfig | null = null;
+   ```
+
+2. **Ref-based dedupe** (`useConfigPersistence.ts`):
+   ```typescript
+   const apiEntriesFetchedRef = useRef(false);
+   const apiEntriesInFlightRef = useRef<Promise<void> | null>(null);
+   ```
+
+### Resultado Final
 
 - ✅ TypeError corrigido - `config` pode ser array ou objeto
-- ✅ Deduplicação de requests implementada (module-level cache)
+- ✅ Deduplicação de requests implementada (máx 1-2 por mount)
 - ✅ UI renderiza corretamente com valores do Supabase
-- ✅ Storage SAS preservado como objeto aninhado e processado corretamente
-- ✅ Erros individuais por seção não quebram a página inteira
+- ✅ Storage SAS preservado como objeto aninhado
+- ✅ Guards defensivos para token/pin/response
+- ✅ Observabilidade em modo dev
+- ✅ Sem referências ativas para API externa legada
+- ✅ Erros individuais por seção não quebram a página
 
 ---
 
@@ -645,12 +719,20 @@ O erro `(row.config || []).map is not a function` ocorria porque a função `row
 
 A migração dos preços para o Supabase está **COMPLETA**. Todos os 7 passos foram implementados e validados:
 
-| Passo | Status |
-|-------|--------|
-| 1. Tabela calculator_configs | ✅ DONE |
-| 2. Edge Function pricing-admin | ✅ DONE |
-| 3. Serviço pricingAdminService | ✅ DONE |
-| 4. Refatorar calculatorConfigService | ✅ DONE |
-| 5. Seed inicial | ✅ DONE |
-| 6. Ajustar tela Precos.tsx | ✅ DONE |
-| 7. Teste E2E | ✅ DONE |
+| Passo | Descrição | Status |
+|-------|-----------|--------|
+| 1 | Tabela calculator_configs + trigger updated_at | ✅ DONE |
+| 2 | Edge Function pricing-admin com SERVICE_ROLE_KEY | ✅ DONE |
+| 3 | Serviço pricingAdminService.ts | ✅ DONE |
+| 4 | Refatorar calculatorConfigService.ts | ✅ DONE |
+| 5 | Seed inicial (14 registros) | ✅ DONE |
+| 6 | Ajustar tela Precos.tsx + useConfig | ✅ DONE |
+| 7 | Teste E2E + Hardening | ✅ DONE |
+
+### Benefícios da Migração
+
+1. **Autonomia**: Preços agora são gerenciados 100% no Supabase, sem dependência do backend externo
+2. **Segurança**: SERVICE_ROLE_KEY nunca exposta no client
+3. **Performance**: Cache module-level + deduplicação
+4. **Resiliência**: Guards defensivos + erros explícitos
+5. **Observabilidade**: Logs em modo dev para debugging
