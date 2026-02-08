@@ -369,12 +369,11 @@ const SupabaseProposalsList: React.FC = () => {
       }
 
       if (!pdfPath) {
-        console.warn('[PDF DOWNLOAD] pdf_path is null/empty. Redirecting to calculator.');
+        console.warn('[PDF DOWNLOAD] pdf_path is null/empty. PDF not generated yet.');
         toast({
           title: 'PDF ainda não gerado',
-          description: 'Abrindo a calculadora — salve a proposta para gerar o PDF.',
+          description: 'Abra a proposta na calculadora e clique em Salvar para gerar o PDF.',
         });
-        navigate(getProposalEditRoute(proposal.id, false));
         return;
       }
 
