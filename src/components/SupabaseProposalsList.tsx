@@ -335,8 +335,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download (Supabase: download ONLY from Storage using pdf_path)
-  // NO local generation — only uses persisted PDF
+  // Handle PDF download - generates automatically if not exists
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -344,7 +343,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
 
     setPdfLoadingId(proposal.id);
-    console.log('[PDF DOWNLOAD] Starting for proposal (Storage only):', proposal.id);
+    console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
 
     try {
       // Fetch full proposal to get pdf_path
@@ -359,33 +358,73 @@ const SupabaseProposalsList: React.FC = () => {
         return;
       }
 
-      const pdfPath = res.proposal?.pdf_path;
+      let pdfPath = res.proposal?.pdf_path;
+      let signedUrl: string | null = null;
 
+      // If no pdf_path, generate PDF on-demand via Edge Function
       if (!pdfPath) {
-        console.warn('[PDF DOWNLOAD] pdf_path is null/empty. PDF not generated yet.');
+        console.log('[PDF DOWNLOAD] No pdf_path found, generating PDF on-demand...');
+        
         toast({
-          title: 'PDF ainda não gerado',
-          description: 'Abra a proposta na calculadora e clique em Salvar para gerar o PDF.',
+          title: 'Gerando PDF...',
+          description: 'Aguarde enquanto o PDF é gerado automaticamente.',
         });
-        return;
+
+        // Get auth token
+        const token = localStorage.getItem('open_token') || 
+                      localStorage.getItem('auth_token') || 
+                      localStorage.getItem('token');
+
+        // Call Edge Function to generate PDF
+        const { data: pdfData, error: pdfError } = await supabase.functions.invoke('proposal-pdf', {
+          body: { proposalId: proposal.id },
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+
+        if (pdfError || !pdfData?.success) {
+          console.error('[PDF DOWNLOAD] Generation error:', pdfError || pdfData?.error);
+          toast({
+            title: 'Erro ao gerar PDF',
+            description: pdfData?.error || pdfError?.message || 'Não foi possível gerar o PDF. Tente novamente.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        pdfPath = pdfData.pdf_path;
+        signedUrl = pdfData.signedUrl;
+        
+        console.log('[PDF DOWNLOAD] PDF generated successfully:', pdfPath);
+        
+        // Refresh the list to show updated pdf_path
+        refetch();
       }
 
-      console.log('[PDF DOWNLOAD] Fetching signed URL for path:', pdfPath);
+      // If we don't have a signed URL yet, create one
+      if (!signedUrl && pdfPath) {
+        console.log('[PDF DOWNLOAD] Fetching signed URL for path:', pdfPath);
 
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('proposal-files')
-        .createSignedUrl(pdfPath, 60 * 60); // 1 hora
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+          .from('proposal-files')
+          .createSignedUrl(pdfPath, 60 * 60); // 1 hora
 
-      if (signedUrlError || !signedUrlData?.signedUrl) {
-        console.error('[PDF DOWNLOAD] signedUrl error:', signedUrlError);
-        throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
+        if (signedUrlError || !signedUrlData?.signedUrl) {
+          console.error('[PDF DOWNLOAD] signedUrl error:', signedUrlError);
+          throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
+        }
+
+        signedUrl = signedUrlData.signedUrl;
+      }
+
+      if (!signedUrl) {
+        throw new Error('Não foi possível obter o link do PDF');
       }
 
       // Trigger download
       const displayId = res.proposal.display_id || res.proposal.id.substring(0, 8);
       const filename = `OPEN_proposta_${displayId}.pdf`;
       const a = document.createElement('a');
-      a.href = signedUrlData.signedUrl;
+      a.href = signedUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       a.download = filename;
@@ -398,7 +437,7 @@ const SupabaseProposalsList: React.FC = () => {
         source: 'pdf_download',
       });
 
-      toast({ title: 'Download iniciado', description: 'O PDF salvo foi aberto para download.' });
+      toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
     } catch (error: any) {
       console.error('[PDF DOWNLOAD] Exception:', error);
       toast({
