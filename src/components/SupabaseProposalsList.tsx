@@ -35,7 +35,8 @@ import {
 import { authService } from '@/services/authService';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
-import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
+import { generateProposalPdf } from '@/services/pdf/generateProposalPdf';
+import { fetchFullProposal, hasCompleteData } from '@/services/supabase/fetchFullProposal';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
 import { copyToClipboard } from '@/lib/clipboard';
 import { LinkCopyModal } from '@/components/LinkCopyModal';
@@ -335,7 +336,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download
+  // Handle PDF download - using unified generator
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -343,10 +344,24 @@ const SupabaseProposalsList: React.FC = () => {
     }
     
     setPdfLoadingId(proposal.id);
-    console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
+    console.log('[PDF DOWNLOAD] Starting unified PDF generation for:', proposal.id);
     
     try {
-      const result = await downloadProposalPdfFromApi(proposal.id);
+      // 1. Fetch full proposal with all relations
+      const fullProposal = await fetchFullProposal(proposal.id);
+      
+      // 2. Check if proposal has complete data
+      if (!hasCompleteData(fullProposal)) {
+        toast({ 
+          title: 'Proposta incompleta', 
+          description: 'Proposta incompleta para PDF — tente novamente ou verifique os itens', 
+          variant: 'destructive' 
+        });
+        return;
+      }
+      
+      // 3. Generate PDF using unified generator
+      const result = await generateProposalPdf({ proposal: fullProposal });
       
       if (result.success) {
         // Track PDF download event
