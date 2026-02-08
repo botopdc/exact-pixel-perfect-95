@@ -43,6 +43,7 @@ import {
   useDeleteProposal,
 } from '@/hooks/useProposalApi';
 import type { ProposalRow } from '@/services/proposalApi';
+import { PdfButton } from '@/components/calculator/PdfButton';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -708,24 +709,12 @@ const SupabaseProposalsList: React.FC = () => {
                           </Tooltip>
                           
                           {/* Download PDF - Always visible */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleDownloadPDF(proposal)}
-                                disabled={pdfLoadingId === proposal.id}
-                              >
-                                {pdfLoadingId === proposal.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <FileDown className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Baixar PDF</TooltipContent>
-                          </Tooltip>
+                          <PdfButton
+                            onClick={() => handleDownloadPDF(proposal)}
+                            isLoading={pdfLoadingId === proposal.id}
+                            variant="icon"
+                            tooltip="Baixar PDF"
+                          />
                           
                           {isAdmin && (
                             <Tooltip>
