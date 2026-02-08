@@ -1,16 +1,17 @@
 // ============================================================================
 // CALCULATOR CONFIG SERVICE - CRUD operations for pricing configuration
-// NOW USES: Supabase Edge Function /pricing-admin (Passo 4)
+// USES: Supabase Edge Function /pricing-admin (Passo 4 refatorado)
 // ============================================================================
-
-import pricingAdminService, { 
-  CalculatorConfigRow, 
-  ConfigItem as EdgeConfigItem 
-} from './pricingAdminService';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+if (!SUPABASE_URL) {
+  throw new Error('VITE_SUPABASE_URL não está definida.');
+}
 
 const AUTH_TOKEN_KEY = 'open_access_token';
 const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
@@ -20,12 +21,36 @@ const ADMIN_PIN_KEY = 'open_admin_pin';
 const DEFAULT_ADMIN_PIN = '5678';
 
 // ============================================================================
-// TYPES (maintain backwards compatibility with existing UI)
+// TYPES
 // ============================================================================
 
 /**
+ * Row from Supabase calculator_configs table
+ */
+export interface CalculatorConfigRow {
+  id: number;
+  category: string;
+  section: string;
+  config: ConfigItem[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/**
+ * Individual config item within a section
+ */
+export interface ConfigItem {
+  id?: number;
+  label: string;
+  by?: string;
+  type?: string;
+  value?: number;
+  description?: string;
+}
+
+/**
  * FLAT config item structure (backwards compatible)
- * Now mapped from Supabase calculator_configs table
  */
 export interface CalculatorConfigFlatItem {
   id: number;
@@ -60,19 +85,7 @@ export interface PaginatedConfigResponse {
 }
 
 /**
- * Config item structure for backwards compatibility (legacy grouped format)
- */
-export interface ConfigItem {
-  id?: number;
-  label: string;
-  by?: string;
-  type?: string;
-  value?: number;
-  description?: string;
-}
-
-/**
- * Legacy grouped entry format (from Supabase calculator_configs)
+ * Legacy grouped entry format
  */
 export interface CalculatorConfigEntry {
   id: number;
@@ -127,6 +140,13 @@ export interface CalculatorConfigCreateRequest {
 // ============================================================================
 
 /**
+ * Get Edge Function URL
+ */
+function getEdgeFunctionUrl(): string {
+  return `${SUPABASE_URL}/functions/v1/pricing-admin`;
+}
+
+/**
  * Get auth token from localStorage
  */
 function getAuthToken(): string {
@@ -145,8 +165,31 @@ function getAdminPin(): string {
 }
 
 /**
+ * Build headers for Edge Function calls
+ */
+function buildHeaders(token: string, pin: string): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'X-Admin-PIN': pin,
+  };
+}
+
+/**
+ * Handle response errors
+ */
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ error: 'Unknown error' }));
+    const errorMessage = errorBody.error || `HTTP ${response.status}`;
+    console.error('[calculatorConfigService] API Error:', errorMessage);
+    throw new Error(errorMessage);
+  }
+  return response.json();
+}
+
+/**
  * Convert Supabase row to flat items (for backwards compatibility)
- * Each row in calculator_configs has a config JSONB array
  */
 function rowToFlatItems(row: CalculatorConfigRow): CalculatorConfigFlatItem[] {
   const items: CalculatorConfigFlatItem[] = [];
@@ -157,7 +200,7 @@ function rowToFlatItems(row: CalculatorConfigRow): CalculatorConfigFlatItem[] {
   
   for (const item of row.config) {
     items.push({
-      id: item.id ?? row.id, // Use item.id if available, fallback to row.id
+      id: item.id ?? row.id,
       label: item.label || '',
       value: item.value ?? 0,
       meta: {
@@ -183,7 +226,7 @@ function rowsToEntries(rows: CalculatorConfigRow[]): CalculatorConfigEntry[] {
     id: row.id,
     category: row.category,
     section: row.section,
-    config: (row.config || []).map((item: EdgeConfigItem) => ({
+    config: (row.config || []).map((item: ConfigItem) => ({
       id: item.id,
       label: item.label,
       value: item.value,
@@ -198,25 +241,99 @@ function rowsToEntries(rows: CalculatorConfigRow[]): CalculatorConfigEntry[] {
 }
 
 // ============================================================================
-// SERVICE FUNCTIONS - Using Edge Function /pricing-admin
+// CORE API FUNCTIONS - Direct fetch to Edge Function /pricing-admin
+// ============================================================================
+
+/**
+ * GET /pricing-admin - List all configs
+ */
+export async function getCalculatorConfigsRaw(
+  token?: string,
+  pin?: string
+): Promise<CalculatorConfigRow[]> {
+  const authToken = token || getAuthToken();
+  const adminPin = pin || getAdminPin();
+  
+  const response = await fetch(getEdgeFunctionUrl(), {
+    method: 'GET',
+    headers: buildHeaders(authToken, adminPin),
+  });
+  
+  return handleResponse<CalculatorConfigRow[]>(response);
+}
+
+/**
+ * POST /pricing-admin - Upsert by category+section
+ */
+export async function upsertCalculatorConfig(
+  token: string,
+  pin: string,
+  payload: { category: string; section: string; config: ConfigItem[] }
+): Promise<CalculatorConfigRow> {
+  const response = await fetch(getEdgeFunctionUrl(), {
+    method: 'POST',
+    headers: buildHeaders(token, pin),
+    body: JSON.stringify(payload),
+  });
+  
+  return handleResponse<CalculatorConfigRow>(response);
+}
+
+/**
+ * PUT /pricing-admin?id=X - Update by ID
+ */
+export async function updateCalculatorConfigById(
+  token: string,
+  pin: string,
+  id: number,
+  patch: { category?: string; section?: string; config?: ConfigItem[] }
+): Promise<CalculatorConfigRow> {
+  const url = `${getEdgeFunctionUrl()}?id=${id}`;
+  
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: buildHeaders(token, pin),
+    body: JSON.stringify(patch),
+  });
+  
+  return handleResponse<CalculatorConfigRow>(response);
+}
+
+/**
+ * DELETE /pricing-admin?id=X - Soft delete by ID
+ */
+export async function softDeleteCalculatorConfig(
+  token: string,
+  pin: string,
+  id: number
+): Promise<{ ok: boolean; deleted: CalculatorConfigRow }> {
+  const url = `${getEdgeFunctionUrl()}?id=${id}`;
+  
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(token, pin),
+  });
+  
+  return handleResponse<{ ok: boolean; deleted: CalculatorConfigRow }>(response);
+}
+
+// ============================================================================
+// SERVICE FUNCTIONS - Backwards compatible with existing UI
 // ============================================================================
 
 /**
  * Fetch all calculator configurations as FLAT items
- * GET /pricing-admin
  */
 export async function getCalculatorConfigsFlat(): Promise<CalculatorConfigFlatItem[]> {
   try {
-    const pin = getAdminPin();
-    const rows = await pricingAdminService.getAllConfigs(pin);
+    const rows = await getCalculatorConfigsRaw();
     
-    // Flatten all rows into flat items
     const flatItems: CalculatorConfigFlatItem[] = [];
     for (const row of rows) {
       flatItems.push(...rowToFlatItems(row));
     }
     
-    console.log('[calculatorConfigService] Loaded', flatItems.length, 'flat config items from Supabase');
+    console.log('[calculatorConfigService] Loaded', flatItems.length, 'flat config items from Edge Function');
     return flatItems;
   } catch (error) {
     console.error('[calculatorConfigService] Error fetching configs:', error);
@@ -226,12 +343,10 @@ export async function getCalculatorConfigsFlat(): Promise<CalculatorConfigFlatIt
 
 /**
  * Fetch all calculator configurations grouped by category/section
- * For backwards compatibility with existing UI
  */
 export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
   try {
-    const pin = getAdminPin();
-    const rows = await pricingAdminService.getAllConfigs(pin);
+    const rows = await getCalculatorConfigsRaw();
     return rowsToEntries(rows);
   } catch (error) {
     console.error('[calculatorConfigService] Error fetching configs:', error);
@@ -241,14 +356,11 @@ export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
 
 /**
  * Fetch a single config by ID
- * GET /pricing-admin?id=X
  */
 export async function getCalculatorConfigById(id: number): Promise<CalculatorConfigFlatItem> {
   try {
-    const pin = getAdminPin();
-    const rows = await pricingAdminService.getAllConfigs(pin);
+    const rows = await getCalculatorConfigsRaw();
     
-    // Find the row and item with matching ID
     for (const row of rows) {
       const items = rowToFlatItems(row);
       const found = items.find(item => item.id === id);
@@ -264,22 +376,21 @@ export async function getCalculatorConfigById(id: number): Promise<CalculatorCon
 
 /**
  * Update a single calculator configuration item
- * Uses POST (upsert) to update the entire config array for the category/section
  */
 export async function updateCalculatorConfigItem(
   id: number,
   payload: CalculatorConfigUpdateRequest
 ): Promise<CalculatorConfigFlatItem> {
   try {
+    const token = getAuthToken();
     const pin = getAdminPin();
-    const rows = await pricingAdminService.getAllConfigs(pin);
+    const rows = await getCalculatorConfigsRaw(token, pin);
     
-    // Find the row containing this item
     let targetRow: CalculatorConfigRow | undefined;
     let itemIndex = -1;
     
     for (const row of rows) {
-      const idx = (row.config || []).findIndex((item: EdgeConfigItem) => item.id === id);
+      const idx = (row.config || []).findIndex((item: ConfigItem) => item.id === id);
       if (idx >= 0) {
         targetRow = row;
         itemIndex = idx;
@@ -291,7 +402,6 @@ export async function updateCalculatorConfigItem(
       throw new Error(`Config item with ID ${id} not found`);
     }
     
-    // Update the item in the config array
     const updatedConfig = [...(targetRow.config || [])];
     updatedConfig[itemIndex] = {
       ...updatedConfig[itemIndex],
@@ -302,13 +412,11 @@ export async function updateCalculatorConfigItem(
       description: payload.meta?.description ?? updatedConfig[itemIndex].description,
     };
     
-    // Use upsert to save the updated config array
     const category = payload.meta?.category ?? targetRow.category;
     const section = payload.meta?.section ?? targetRow.section;
     
-    await pricingAdminService.upsertConfig(pin, category, section, updatedConfig);
+    await upsertCalculatorConfig(token, pin, { category, section, config: updatedConfig });
     
-    // Return the updated item
     return {
       id,
       label: updatedConfig[itemIndex].label,
@@ -330,21 +438,20 @@ export async function updateCalculatorConfigItem(
 
 /**
  * Create a new calculator configuration item
- * Uses POST (upsert) to add item to the config array
  */
 export async function createCalculatorConfigItem(
   payload: CalculatorConfigCreateRequest
 ): Promise<CalculatorConfigFlatItem> {
   try {
+    const token = getAuthToken();
     const pin = getAdminPin();
     const { category, section, by, type, description } = payload.meta;
     
-    // Get existing row for this category/section
-    const existing = await pricingAdminService.getConfigByPath(pin, category, section);
+    const rows = await getCalculatorConfigsRaw(token, pin);
+    const existing = rows.find(r => r.category === category && r.section === section);
     
-    // Create new item with auto-generated ID
-    const newItem: EdgeConfigItem = {
-      id: Date.now(), // Temporary ID, could be improved
+    const newItem: ConfigItem = {
+      id: Date.now(),
       label: payload.label,
       value: payload.value,
       by,
@@ -352,10 +459,9 @@ export async function createCalculatorConfigItem(
       description,
     };
     
-    // Add to existing config or create new
     const config = existing ? [...(existing.config || []), newItem] : [newItem];
     
-    await pricingAdminService.upsertConfig(pin, category, section, config);
+    await upsertCalculatorConfig(token, pin, { category, section, config });
     
     return {
       id: newItem.id!,
@@ -378,18 +484,17 @@ export async function createCalculatorConfigItem(
 
 /**
  * Delete a calculator configuration item
- * Removes item from config array and uses upsert to save
  */
 export async function deleteCalculatorConfigItem(id: number): Promise<void> {
   try {
+    const token = getAuthToken();
     const pin = getAdminPin();
-    const rows = await pricingAdminService.getAllConfigs(pin);
+    const rows = await getCalculatorConfigsRaw(token, pin);
     
-    // Find the row containing this item
     let targetRow: CalculatorConfigRow | undefined;
     
     for (const row of rows) {
-      const hasItem = (row.config || []).some((item: EdgeConfigItem) => item.id === id);
+      const hasItem = (row.config || []).some((item: ConfigItem) => item.id === id);
       if (hasItem) {
         targetRow = row;
         break;
@@ -400,11 +505,13 @@ export async function deleteCalculatorConfigItem(id: number): Promise<void> {
       throw new Error(`Config item with ID ${id} not found`);
     }
     
-    // Remove the item from config array
-    const updatedConfig = (targetRow.config || []).filter((item: EdgeConfigItem) => item.id !== id);
+    const updatedConfig = (targetRow.config || []).filter((item: ConfigItem) => item.id !== id);
     
-    // Save updated config
-    await pricingAdminService.upsertConfig(pin, targetRow.category, targetRow.section, updatedConfig);
+    await upsertCalculatorConfig(token, pin, {
+      category: targetRow.category,
+      section: targetRow.section,
+      config: updatedConfig,
+    });
   } catch (error) {
     console.error('[calculatorConfigService] Error deleting config item:', error);
     throw error;
@@ -413,13 +520,13 @@ export async function deleteCalculatorConfigItem(id: number): Promise<void> {
 
 /**
  * Update an existing calculator configuration (legacy grouped format)
- * For backwards compatibility - saves entire config array at once
  */
 export async function updateCalculatorConfig(
   entryId: number,
   payload: { category?: string; section?: string; config?: ConfigItem[] }
 ): Promise<CalculatorConfigEntry> {
   try {
+    const token = getAuthToken();
     const pin = getAdminPin();
     const { category, section, config } = payload;
     
@@ -427,24 +534,17 @@ export async function updateCalculatorConfig(
       throw new Error('category and section are required');
     }
     
-    // Convert ConfigItem[] to EdgeConfigItem[]
-    const edgeConfig: EdgeConfigItem[] = (config || []).map(item => ({
-      id: item.id,
-      label: item.label,
-      value: item.value,
-      by: item.by,
-      type: item.type,
-      description: item.description,
-    }));
-    
-    // Use upsert to save the entire config array
-    const result = await pricingAdminService.upsertConfig(pin, category, section, edgeConfig);
+    const result = await upsertCalculatorConfig(token, pin, {
+      category,
+      section,
+      config: config || [],
+    });
     
     return {
       id: result.id,
       category: result.category,
       section: result.section,
-      config: (result.config || []).map((item: EdgeConfigItem) => ({
+      config: (result.config || []).map((item: ConfigItem) => ({
         id: item.id,
         label: item.label,
         value: item.value,
@@ -475,13 +575,9 @@ export function findConfigEntry(
 }
 
 // ============================================================================
-// CATEGORY / SECTION MAPPING (aligned with actual database values)
+// CATEGORY / SECTION MAPPING
 // ============================================================================
 
-/**
- * Standard category/section mappings used by the pricing configuration
- * IMPORTANT: These MUST match exactly the values in the database (calculator_configs table)
- */
 export const CONFIG_MAPPINGS = {
   // General settings
   GERAL_FX: { category: 'Geral', section: 'Taxa de Câmbio' },
@@ -526,44 +622,29 @@ export const CONFIG_MAPPINGS = {
 export type ConfigMappingKey = keyof typeof CONFIG_MAPPINGS;
 
 // ============================================================================
-// CONFIG ID LOOKUP - Get config_id by category and label
+// CONFIG ID LOOKUP
 // ============================================================================
 
-/**
- * Cache for flat config items
- */
 let cachedFlatItems: CalculatorConfigFlatItem[] | null = null;
 
-/**
- * Load flat config items (with optional caching)
- */
 export async function loadFlatConfigs(useCache = false): Promise<CalculatorConfigFlatItem[]> {
   if (useCache && cachedFlatItems) {
     return cachedFlatItems;
   }
   
   cachedFlatItems = await getCalculatorConfigsFlat();
-  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items from Supabase');
+  console.log('[calculatorConfigService] Loaded', cachedFlatItems.length, 'flat config items');
   return cachedFlatItems;
 }
 
-/**
- * Clear the config cache
- */
 export function clearConfigCache(): void {
   cachedFlatItems = null;
 }
 
-/**
- * Get cached flat items (returns null if not loaded)
- */
 export function getCachedFlatItems(): CalculatorConfigFlatItem[] | null {
   return cachedFlatItems;
 }
 
-/**
- * Find config_id by category and label
- */
 export async function findConfigId(
   category: string,
   label: string
@@ -580,9 +661,6 @@ export async function findConfigId(
   return item?.id ?? null;
 }
 
-/**
- * Get all config IDs for VM components
- */
 export async function getVmConfigIds(): Promise<{
   vcpu: number | null;
   ram: number | null;
@@ -608,24 +686,18 @@ export async function getVmConfigIds(): Promise<{
     else if (labelLower.includes('ip')) ip = item.id;
   }
   
-  console.log('[calculatorConfigService] VM Config IDs:', { vcpu, ram, nvme, ip });
   return { vcpu, ram, nvme, ip };
 }
 
-/**
- * Get config_id for a specific addon by label
- */
 export async function getAddonConfigId(label: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
   const labelLower = label.toLowerCase().trim();
   
-  // Try exact match first in Add-ons category
   let item = items.find(i => 
     i.meta.category.toLowerCase() === 'add-ons' &&
     i.label.toLowerCase().trim() === labelLower
   );
   
-  // Try partial match in Add-ons
   if (!item) {
     item = items.find(i => 
       i.meta.category.toLowerCase() === 'add-ons' &&
@@ -633,7 +705,6 @@ export async function getAddonConfigId(label: string): Promise<number | null> {
     );
   }
   
-  // Try global search with partial match
   if (!item) {
     item = items.find(i => 
       i.label.toLowerCase().includes(labelLower) ||
@@ -644,9 +715,6 @@ export async function getAddonConfigId(label: string): Promise<number | null> {
   return item?.id ?? null;
 }
 
-/**
- * Get config_id for GPU by model name
- */
 export async function getGpuConfigId(model: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
   const modelLower = model.toLowerCase().trim();
@@ -659,9 +727,6 @@ export async function getGpuConfigId(model: string): Promise<number | null> {
   return item?.id ?? null;
 }
 
-/**
- * Get config_id for SQL Server by edition
- */
 export async function getSqlConfigId(edition: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
   const editionLower = edition.toLowerCase().trim();
@@ -674,9 +739,6 @@ export async function getSqlConfigId(edition: string): Promise<number | null> {
   return item?.id ?? null;
 }
 
-/**
- * Get config_id for Backup by retention
- */
 export async function getBackupConfigId(retention: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
   const retentionLower = retention.toLowerCase().trim();
@@ -721,9 +783,6 @@ const ADDON_CODE_TO_LABELS: Record<string, string[]> = {
   'open_saas': ['OPEN SaaS', 'OpenSaaS'],
 };
 
-/**
- * Get config_id for an addon by its frontend code
- */
 export async function getAddonConfigIdByCode(code: string): Promise<number | null> {
   const items = await loadFlatConfigs(true);
   const labels = ADDON_CODE_TO_LABELS[code];
@@ -746,28 +805,19 @@ export async function getAddonConfigIdByCode(code: string): Promise<number | nul
     }
     
     if (item) {
-      console.log(`[calculatorConfigService] Found config_id ${item.id} for code "${code}" (label: "${item.label}")`);
       return item.id;
     }
   }
   
-  console.warn(`[calculatorConfigService] Could not find config_id for addon code: ${code}, tried labels:`, labels);
+  console.warn(`[calculatorConfigService] Could not find config_id for addon code: ${code}`);
   return null;
 }
 
-/**
- * Build a complete addon config ID map for proposal serialization
- */
 export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
   const items = await loadFlatConfigs(false);
   const map: Record<string, number> = {};
-  const missingCodes: string[] = [];
-  
-  console.log('[calculatorConfigService] Building addon config ID map from', items.length, 'items');
   
   for (const [code, labels] of Object.entries(ADDON_CODE_TO_LABELS)) {
-    let found = false;
-    
     for (const label of labels) {
       const labelLower = label.toLowerCase().trim();
       
@@ -777,19 +827,10 @@ export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
         item = items.find(i => i.label.toLowerCase().includes(labelLower));
       }
       
-      if (!item) {
-        item = items.find(i => labelLower.includes(i.label.toLowerCase().trim()));
-      }
-      
       if (item) {
         map[code] = item.id;
-        found = true;
         break;
       }
-    }
-    
-    if (!found) {
-      missingCodes.push(code);
     }
   }
   
@@ -805,12 +846,6 @@ export async function buildAddonConfigIdMap(): Promise<Record<string, number>> {
     else if (labelLower === 'ram') map['ram'] = item.id;
     else if (labelLower === 'nvme') map['nvme'] = item.id;
     else if (labelLower.includes('ip')) map['ip'] = item.id;
-  }
-  
-  console.log('[calculatorConfigService] Addon config ID map built:', map);
-  
-  if (missingCodes.length > 0) {
-    console.error('[calculatorConfigService] WARNING: Missing config_ids for codes:', missingCodes);
   }
   
   return map;

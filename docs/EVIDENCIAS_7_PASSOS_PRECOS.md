@@ -308,74 +308,86 @@ await pricingAdminService.updateConfig('5678', 1, {
 
 ## Passo 4 — Trocar `calculatorConfigService.ts`
 
-**Data**: 2026-02-08
+**Data**: 2026-02-08 (refatorado)
 **Status**: ✅ DONE
 
 ### O que foi feito
 
 1. **Refatoração completa** de `src/services/calculatorConfigService.ts`:
+   - Removida dependência de `pricingAdminService.ts` (simplificação)
+   - Agora usa **fetch direto** para a Edge Function `/pricing-admin`
    - Removida dependência de `axios` e API externa (`VITE_API_BASE_URL`)
-   - Agora usa internamente `pricingAdminService.ts` para chamar Edge Function
-   - Mantida compatibilidade total com interfaces existentes (`CalculatorConfigEntry`, `CalculatorConfigFlatItem`, etc.)
+   - Mantida compatibilidade total com interfaces existentes
 
-2. **Funções migradas**:
-   - `getCalculatorConfigsFlat()` → GET /pricing-admin
-   - `getCalculatorConfigs()` → GET /pricing-admin (agrupado)
-   - `getCalculatorConfigById(id)` → busca local após GET
-   - `updateCalculatorConfigItem(id, payload)` → POST upsert
-   - `createCalculatorConfigItem(payload)` → POST upsert
-   - `deleteCalculatorConfigItem(id)` → remove do array e POST upsert
-   - `updateCalculatorConfig(entryId, payload)` → POST upsert (legacy)
+2. **Funções CORE implementadas**:
+   - `getCalculatorConfigsRaw(token?, pin?)` → GET /pricing-admin
+   - `upsertCalculatorConfig(token, pin, payload)` → POST /pricing-admin
+   - `updateCalculatorConfigById(token, pin, id, patch)` → PUT /pricing-admin?id=X
+   - `softDeleteCalculatorConfig(token, pin, id)` → DELETE /pricing-admin?id=X
 
-3. **Helpers mantidos**:
+3. **Funções de compatibilidade mantidas**:
+   - `getCalculatorConfigsFlat()` → retorna items FLAT
+   - `getCalculatorConfigs()` → retorna entries agrupadas
+   - `updateCalculatorConfigItem(id, payload)` → atualiza item individual
+   - `createCalculatorConfigItem(payload)` → cria item individual
+   - `deleteCalculatorConfigItem(id)` → remove item do array
+   - `updateCalculatorConfig(entryId, payload)` → upsert legacy
+
+4. **Helpers mantidos**:
    - `loadFlatConfigs()`, `clearConfigCache()`, `getCachedFlatItems()`
    - `findConfigId()`, `getVmConfigIds()`, `getAddonConfigId()`
    - `getGpuConfigId()`, `getSqlConfigId()`, `getBackupConfigId()`
-   - `getAddonConfigIdByCode()`, `buildAddonConfigIdMap()`
    - `CONFIG_MAPPINGS` (constantes de categoria/seção)
 
-4. **Autenticação**:
+5. **Autenticação**:
    - Token: `localStorage.getItem('open_access_token')` ou `open_api_token`
    - PIN: `localStorage.getItem('open_admin_pin')` ou fallback `'5678'`
 
 ### Trecho do código principal
 
 ```typescript
-// Agora usa pricingAdminService internamente
-import pricingAdminService, { 
-  CalculatorConfigRow, 
-  ConfigItem as EdgeConfigItem 
-} from './pricingAdminService';
+// Agora usa fetch direto (sem pricingAdminService)
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-export async function getCalculatorConfigs(): Promise<CalculatorConfigEntry[]> {
-  try {
-    const pin = getAdminPin();
-    const rows = await pricingAdminService.getAllConfigs(pin);
-    return rowsToEntries(rows);
-  } catch (error) {
-    console.error('[calculatorConfigService] Error fetching configs:', error);
-    throw error;
-  }
+function getEdgeFunctionUrl(): string {
+  return `${SUPABASE_URL}/functions/v1/pricing-admin`;
 }
 
-export async function updateCalculatorConfig(
-  entryId: number,
-  payload: { category?: string; section?: string; config?: ConfigItem[] }
-): Promise<CalculatorConfigEntry> {
-  const pin = getAdminPin();
-  const { category, section, config } = payload;
+function buildHeaders(token: string, pin: string): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'X-Admin-PIN': pin,
+  };
+}
+
+export async function getCalculatorConfigsRaw(
+  token?: string,
+  pin?: string
+): Promise<CalculatorConfigRow[]> {
+  const authToken = token || getAuthToken();
+  const adminPin = pin || getAdminPin();
   
-  // Convert to edge format and upsert
-  const edgeConfig = (config || []).map(item => ({
-    id: item.id,
-    label: item.label,
-    value: item.value,
-    by: item.by,
-    type: item.type,
-  }));
+  const response = await fetch(getEdgeFunctionUrl(), {
+    method: 'GET',
+    headers: buildHeaders(authToken, adminPin),
+  });
   
-  const result = await pricingAdminService.upsertConfig(pin, category!, section!, edgeConfig);
-  return rowToEntry(result);
+  return handleResponse<CalculatorConfigRow[]>(response);
+}
+
+export async function upsertCalculatorConfig(
+  token: string,
+  pin: string,
+  payload: { category: string; section: string; config: ConfigItem[] }
+): Promise<CalculatorConfigRow> {
+  const response = await fetch(getEdgeFunctionUrl(), {
+    method: 'POST',
+    headers: buildHeaders(token, pin),
+    body: JSON.stringify(payload),
+  });
+  
+  return handleResponse<CalculatorConfigRow>(response);
 }
 ```
 
@@ -383,23 +395,15 @@ export async function updateCalculatorConfig(
 
 1. **Console do navegador** (após login):
 ```javascript
-// Carregar configs
-import { getCalculatorConfigs } from '@/services/calculatorConfigService';
+// Importar e carregar configs
+const { getCalculatorConfigs } = await import('@/services/calculatorConfigService');
 const configs = await getCalculatorConfigs();
 console.log('Configs:', configs);
-
-// Atualizar config
-import { updateCalculatorConfig } from '@/services/calculatorConfigService';
-await updateCalculatorConfig(1, {
-  category: 'VM',
-  section: 'Preços de VM',
-  config: [{ label: 'vCPU', value: 55, by: 'unit', type: 'BRL' }]
-});
 ```
 
 2. **Network tab**:
    - Verificar chamadas para `/functions/v1/pricing-admin`
-   - Headers devem conter `Authorization: Bearer ...` e `x-admin-pin: ...`
+   - Headers devem conter `Authorization: Bearer ...` e `X-Admin-PIN: ...`
 
 3. **Tela Preços** (`/precos`):
    - Deve carregar dados normalmente
@@ -407,14 +411,15 @@ await updateCalculatorConfig(1, {
 
 ### Arquivos alterados
 
-- `src/services/calculatorConfigService.ts` (REFATORADO COMPLETAMENTE)
+- `src/services/calculatorConfigService.ts` (REFATORADO - usa fetch direto)
 
 ### Resultado
 
 - ✅ Dependência da API externa removida
-- ✅ Agora usa Edge Function /pricing-admin
+- ✅ Agora usa Edge Function /pricing-admin via fetch direto
+- ✅ Não depende mais de pricingAdminService.ts (simplificado)
 - ✅ Compatibilidade com UI existente mantida
-- ✅ PIN e token passados corretamente
+- ✅ PIN e token passados corretamente via headers
 - ✅ Erros logados no console
 
 ---
