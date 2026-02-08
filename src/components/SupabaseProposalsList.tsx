@@ -19,6 +19,7 @@ import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
 import { createSignedPdfUrl } from '@/services/supabaseStorageService';
 import { saveProposal, getProposal as getProposalFromEdge } from '@/services/proposalApi';
+import { generatePdfFromSupabaseProposal } from '@/services/proposalPdfFromSupabase';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -335,8 +336,8 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download (Supabase: download ONLY from Storage using pdf_path)
-  // NO local generation — only uses persisted PDF
+  // Handle PDF download using SAME hydration logic as OpenCalculator
+  // This ensures PDF is identical to what calculator produces
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -344,65 +345,33 @@ const SupabaseProposalsList: React.FC = () => {
     }
 
     setPdfLoadingId(proposal.id);
-    console.log('[PDF DOWNLOAD] Starting for proposal (Storage only):', proposal.id);
+    console.log('[PDF DOWNLOAD] Starting with hydration logic for:', proposal.id);
 
     try {
-      // Prefer pdf_path from list (when available)
-      let pdfPath = proposal.pdf_path || null;
-      let displayId = proposal.display_id || proposal.id.substring(0, 8);
+      // Use the same hydration logic as OpenCalculator edit mode
+      const result = await generatePdfFromSupabaseProposal(proposal.id);
 
-      // If list row doesn't include it (or is null), fetch full proposal
-      if (!pdfPath) {
-        const res = await getProposalFromEdge(proposal.id);
-
-        if (!res?.success) {
-          toast({
-            title: 'Erro',
-            description: res?.error || 'Falha ao buscar proposta',
-            variant: 'destructive',
-          });
-          return;
-        }
-
-        pdfPath = res.proposal?.pdf_path || null;
-        displayId = res.proposal?.display_id || displayId;
-      }
-
-      if (!pdfPath) {
-        console.warn('[PDF DOWNLOAD] pdf_path is null/empty. PDF not generated yet.');
+      if (!result.success) {
+        console.error('[PDF DOWNLOAD] Generation failed:', result.error);
         toast({
-          title: 'PDF ainda não gerado',
-          description: 'Abra a proposta na calculadora e clique em Salvar para gerar o PDF.',
+          title: 'Erro ao gerar PDF',
+          description: result.error || 'Falha ao gerar PDF',
+          variant: 'destructive',
         });
         return;
       }
-
-      console.log('[PDF DOWNLOAD] Fetching signed URL for path:', pdfPath);
-
-      const signedUrl = await createSignedPdfUrl(pdfPath, 60 * 60 * 24); // 24h
-
-      // Trigger download
-      const filename = `OPEN_proposta_${displayId}.pdf`;
-      const a = document.createElement('a');
-      a.href = signedUrl;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
 
       trackProposalEvent({
         proposalId: proposal.id,
         source: 'pdf_download',
       });
 
-      toast({ title: 'Download iniciado', description: 'O PDF salvo foi aberto para download.' });
+      toast({ title: 'PDF gerado', description: 'O download do PDF foi iniciado.' });
     } catch (error: any) {
       console.error('[PDF DOWNLOAD] Exception:', error);
       toast({
         title: 'Erro',
-        description: error.message || 'Falha ao baixar PDF',
+        description: error.message || 'Falha ao gerar PDF',
         variant: 'destructive',
       });
     } finally {
