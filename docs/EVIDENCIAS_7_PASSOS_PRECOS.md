@@ -398,20 +398,102 @@ await pricingAdminService.updateConfig('5678', 1, {
 
 ## Passo 5 — Seed inicial
 
-**Data**: (pendente)
-**Status**: TODO
+**Data**: 2026-02-08
+**Status**: ✅ DONE
+
+### Fonte dos dados de preços
+
+Os preços atuais foram extraídos de:
+1. **Arquivo CSV existente**: `tmp/calculator_configs.csv` (14 registros)
+2. **Constantes do código**: `src/lib/calculatorConfig.ts` → `DEFAULT_CONFIG`
+
+O dataset foi convertido para JSON e embedado diretamente na Edge Function para garantir consistência.
 
 ### O que foi feito
-(pendente)
+
+1. **Edge Function atualizada**: `supabase/functions/pricing-admin/index.ts`
+   - Adicionado array `SEED_CONFIGS` com todos os 14 registros de preços
+   - Nova rota: `POST /pricing-admin?seed=true`
+   - Aceita body vazio (usa dataset embarcado) ou array customizado
+   - Retorna relatório: `{ total, success, failures }`
+
+2. **Categorias do seed**:
+   - VM: Preços de VM (vCPU, RAM, NVMe, IP)
+   - BareMetal: Modelos de CPU, Opções de RAM, Opções de Disco
+   - GPU: Preços de GPU (T4, A100, H100)
+   - Add-ons: Antivirus, Firewall, TSplus, CAL, Veeam
+   - SQL Server: Licenças SQL
+   - Storage: Storage SAS (BR/USA), SSD NVMe
+   - Kubernetes: Planos Base, Add-ons K8s
+   - Geral: Taxa de Câmbio, Descontos por Vigência, OPEN SaaS
 
 ### Arquivos alterados
-(pendente)
+
+- `supabase/functions/pricing-admin/index.ts` (adicionado SEED_CONFIGS + handleSeed)
 
 ### Como testar
-(pendente)
+
+**1. Executar seed via cURL:**
+```bash
+curl -X POST \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin?seed=true" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "Content-Type: application/json"
+```
+
+**2. Resposta esperada (sucesso):**
+```json
+{
+  "message": "Seed completed",
+  "total": 14,
+  "success": 14,
+  "failures": []
+}
+```
+
+**3. Verificar dados inseridos:**
+```bash
+curl -X GET \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678"
+```
+
+**4. Verificar no banco (SQL):**
+```sql
+SELECT id, category, section, 
+       jsonb_array_length(config::jsonb) as items
+FROM calculator_configs 
+WHERE deleted_at IS NULL
+ORDER BY category, section;
+```
+
+### Seed com dados customizados (opcional)
+
+Você pode enviar um array de configs no body:
+```bash
+curl -X POST \
+  "https://macmkfoknhofnwhizsqc.supabase.co/functions/v1/pricing-admin?seed=true" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "x-admin-pin: 5678" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "category": "Custom",
+      "section": "Test",
+      "config": [{"label": "Item 1", "value": 100, "type": "BRL"}]
+    }
+  ]'
+```
 
 ### Resultado
-(pendente)
+
+- ✅ Edge Function com endpoint `/pricing-admin?seed=true`
+- ✅ Dataset de 14 categorias/seções embedado
+- ✅ Upsert com UNIQUE(category, section) evita duplicatas
+- ✅ Relatório de sucesso/falhas na resposta
+- ✅ Suporte a seed customizado via body
 
 ---
 
