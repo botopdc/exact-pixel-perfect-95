@@ -127,9 +127,9 @@ const cConfig = useCalculatorConfig();
 ### 3. Hook `useProposalCalculator` para cálculos
 
 ```typescript
-const calc = useProposalCalculator({ 
-  proposal: form.data, 
-  config: cConfig 
+const calc = useProposalCalculator({
+  proposal: form.data,
+  config: cConfig
 });
 
 // Retorna:
@@ -241,7 +241,7 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
 4. ✅ **ADICIONAR** useForm:
    ```typescript
    const cConfig = useCalculatorConfig();
-   
+
    const INITIAL_DATA: Partial<FormData> = {
      contract_duration: 12,
      datacenter: "SP1",
@@ -276,7 +276,7 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
        { config_id: cConfig.dba?.id || 0, quantity: 0 },
      ],
    };
-   
+
    const form = useForm<FormData>({
      initialData: INITIAL_DATA,
      onSubmit: async (data) => {
@@ -287,9 +287,9 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
 
 5. ✅ **ADICIONAR** useProposalCalculator:
    ```typescript
-   const calc = useProposalCalculator({ 
-     proposal: form.data, 
-     config: cConfig 
+   const calc = useProposalCalculator({
+     proposal: form.data,
+     config: cConfig
    });
    ```
 
@@ -332,10 +332,10 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
         toast({ title: "Preencha nome e email" });
         return;
       }
-      
+
       // Chama o form.submit que usa calculatorProposalGateway.save
       await form.submit();
-      
+
       toast({ title: "Proposta salva com sucesso!" });
     }
     ```
@@ -354,15 +354,15 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
 12. ✅ Atualizar inputs:
     ```typescript
     // ANTES:
-    <Input 
-      value={addons.antivirus} 
-      onChange={e => setAddons({...addons, antivirus: parseInt(e.target.value)})} 
+    <Input
+      value={addons.antivirus}
+      onChange={e => setAddons({...addons, antivirus: parseInt(e.target.value)})}
     />
-    
+
     // DEPOIS:
-    <Input 
-      value={getAddonValue(cConfig.antivirus)} 
-      onChange={e => onAddonChange(e, cConfig.antivirus)} 
+    <Input
+      value={getAddonValue(cConfig.antivirus)}
+      onChange={e => onAddonChange(e, cConfig.antivirus)}
     />
     ```
 
@@ -370,7 +370,7 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
     ```typescript
     // ANTES:
     {result?.rows.map(row => ...)}
-    
+
     // DEPOIS:
     {calc.result.map(row => ...)}
     ```
@@ -380,7 +380,7 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
     // ANTES:
     <div>Recursos: {formatCurrency(result.subRec)}</div>
     <div>IPs: {formatCurrency(result.subIps)}</div>
-    
+
     // DEPOIS:
     <div>Recursos: {formatCurrency(calc.sub.resources)}</div>
     <div>IPs: {formatCurrency(calc.sub.ips)}</div>
@@ -412,7 +412,7 @@ O OpenCalculator tem 3383 linhas e MUITA lógica importante que funciona:
     setItems(normalized.items);
     setAddons(normalized.addons);
     // ... 50+ linhas
-    
+
     // DEPOIS (direto):
     form.setData({
       ...apiData,
