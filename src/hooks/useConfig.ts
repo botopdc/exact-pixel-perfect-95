@@ -1,65 +1,304 @@
+// ============================================================================
+// HOOK: useConfig - Fetch calculator config from Supabase Edge Function
+// PASSO 6: Migrado para usar calculatorConfigService (Edge Function)
+// ============================================================================
+
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { CalculatorConfig, DEFAULT_CONFIG } from '@/lib/calculatorConfig';
-import { openApi, CalculatorConfigApiResponse } from '@/lib/openApi';
+import { getCalculatorConfigs, CalculatorConfigEntry, ConfigItem } from '@/services/calculatorConfigService';
 
 export const CONFIG_QUERY_KEY = ['calculator-config'];
 
-// Transform API response to CalculatorConfig format
-// CRITICAL: Ensure all nested objects are always initialized to prevent null-safety crashes
-const transformApiConfig = (apiConfig: CalculatorConfigApiResponse): CalculatorConfig => {
-  // Ensure addons_brl.sql is always an object
-  const addons_brl = apiConfig.addons_brl || {};
-  const normalizedAddonsBrl = {
-    antivirus_unit: typeof addons_brl.antivirus_unit === 'number' ? addons_brl.antivirus_unit : 0,
-    firewall_pfsense: typeof addons_brl.firewall_pfsense === 'number' ? addons_brl.firewall_pfsense : 0,
-    tsplus_unit: typeof addons_brl.tsplus_unit === 'number' ? addons_brl.tsplus_unit : 0,
-    cal_unit: typeof addons_brl.cal_unit === 'number' ? addons_brl.cal_unit : 0,
-    veeam_vm_unit: typeof addons_brl.veeam_vm_unit === 'number' ? addons_brl.veeam_vm_unit : 0,
-    veeam_agent_unit: typeof addons_brl.veeam_agent_unit === 'number' ? addons_brl.veeam_agent_unit : 0,
-    winserver_2vcpu_unit: typeof addons_brl.winserver_2vcpu_unit === 'number' ? addons_brl.winserver_2vcpu_unit : 45.0,
-    // sql MUST always be an object, never undefined/null
-    sql: (typeof addons_brl.sql === 'object' && addons_brl.sql !== null) 
-      ? addons_brl.sql as Record<string, number>
-      : {},
-    // Serviços Especializados (ID 16) - mapped from API
-    support_basic: typeof addons_brl.support_basic === 'number' ? addons_brl.support_basic : undefined,
-    support_intermediate: typeof addons_brl.support_intermediate === 'number' ? addons_brl.support_intermediate : undefined,
-    support_advanced: typeof addons_brl.support_advanced === 'number' ? addons_brl.support_advanced : undefined,
-    consulting_hours: typeof addons_brl.consulting_hours === 'number' ? addons_brl.consulting_hours : undefined,
-    dba_hours: typeof addons_brl.dba_hours === 'number' ? addons_brl.dba_hours : undefined,
-  };
+// ============================================================================
+// ADDON LABEL MAP - Technical keys for addons
+// ============================================================================
 
-  return {
+const ADDON_LABEL_TO_KEY: Record<string, string> = {
+  'Antivírus': 'antivirus_unit',
+  'Antivirus': 'antivirus_unit',
+  'Firewall pfSense': 'firewall_pfsense',
+  'TSplus': 'tsplus_unit',
+  'CAL': 'cal_unit',
+  'Veeam VM': 'veeam_vm_unit',
+  'Veeam Agent': 'veeam_agent_unit',
+  'WinServer(2vCPU/unid.)': 'winserver_2vcpu_unit',
+};
+
+// ============================================================================
+// ADAPTER: Transform Supabase rows to CalculatorConfig
+// ============================================================================
+
+/**
+ * Transform CalculatorConfigEntry[] (from Supabase) to CalculatorConfig format
+ * This adapter bridges the Edge Function response to the UI's expected shape
+ */
+function transformSupabaseConfigToCalculatorConfig(entries: CalculatorConfigEntry[]): CalculatorConfig {
+  const config: CalculatorConfig = {
     meta: {
       name: "OPEN Calculator Config",
-      version: "API"
+      version: "Supabase"
     },
-    fx_default: apiConfig.fx_default,
-    discount: apiConfig.discount,
-    gpu_usd: apiConfig.gpu_usd,
-    vm_prices_brl: apiConfig.vm_prices_brl,
-    baremetal: apiConfig.baremetal,
-    addons_brl: normalizedAddonsBrl,
-    // Fallback to DEFAULT_CONFIG if API returns empty backup tables
-    backup_tables_brl_per_gb: Object.keys(apiConfig.backup_tables_brl_per_gb || {}).length > 0
-      ? apiConfig.backup_tables_brl_per_gb
-      : DEFAULT_CONFIG.backup_tables_brl_per_gb,
-    open_saas_price_per_user: apiConfig.open_saas_price_per_user,
-    storage_prices: apiConfig.storage_prices as unknown as CalculatorConfig['storage_prices'],
-    storage_pricing: apiConfig.storage_pricing as unknown as CalculatorConfig['storage_pricing'],
-    kubernetes_pricing: apiConfig.kubernetes_pricing as unknown as CalculatorConfig['kubernetes_pricing'],
-    kubernetes_addons_pricing: apiConfig.kubernetes_addons_pricing as unknown as CalculatorConfig['kubernetes_addons_pricing'],
+    fx_default: 5.0, // Default FX rate
+    discount: { '1': 0, '12': 0.05, '24': 0.10, '36': 0.12, '48': 0.15 },
+    gpu_usd: {},
+    vm_prices_brl: { vcpu: 0, ram_per_gb: 0, nvme_per_gb: 0, ip_public: 0 },
+    baremetal: { cpu_models: [], ram_tiers: [], disks: [] },
+    addons_brl: {
+      antivirus_unit: 0,
+      firewall_pfsense: 0,
+      tsplus_unit: 0,
+      cal_unit: 0,
+      sql: {},
+      veeam_vm_unit: 0,
+      veeam_agent_unit: 0,
+      winserver_2vcpu_unit: 45.0,
+    },
+    backup_tables_brl_per_gb: DEFAULT_CONFIG.backup_tables_brl_per_gb,
+    storage_pricing: {
+      sas: {
+        br: { pricePerTB_1_10: 0, pricePerTB_11_100: 0, pricePerTB_101_500: 0, pricePerTB_501_1024: 0, pricePerTB_gt_1024: 0 },
+        usa: { pricePerTB_1_10: 0, pricePerTB_11_100: 0, pricePerTB_101_500: 0, pricePerTB_501_1024: 0, pricePerTB_gt_1024: 0 },
+      },
+      nvme: { pricePerGB: 0 },
+    },
+    // kubernetes_pricing and kubernetes_addons_pricing are optional and will be populated from API
   };
+
+  console.log('[useConfig] Transforming', entries.length, 'Supabase entries to CalculatorConfig');
+
+  for (const entry of entries) {
+    const category = String(entry.category || '').trim().toLowerCase();
+    const section = String(entry.section || '').trim().toLowerCase();
+    const items: ConfigItem[] = Array.isArray(entry.config) ? entry.config : [];
+    
+    // Handle special nested object format for Storage SAS
+    const configData = entry.config as any;
+
+    switch (category) {
+      case 'geral':
+        if (section === 'taxa de câmbio') {
+          const fxItem = items.find(i => i.label === 'Cotação Padrão');
+          if (fxItem) config.fx_default = Number(fxItem.value) || 5.0;
+        }
+        if (section === 'descontos por vigência') {
+          for (const item of items) {
+            // Parse "12 meses" or "1 mês" → key "12" or "1"
+            const months = String(item.label || '').replace(' meses', '').replace(' mês', '');
+            if (months) {
+              // Value is already percentage (e.g., 5 for 5%), convert to decimal
+              config.discount[months] = (Number(item.value) || 0) / 100;
+            }
+          }
+        }
+        if (section === 'open saas') {
+          const saasItem = items.find(i => i.label === 'Preço por Usuário');
+          if (saasItem) config.open_saas_price_per_user = Number(saasItem.value) || 0;
+        }
+        break;
+
+      case 'vm':
+        if (section === 'preços de vm') {
+          for (const item of items) {
+            const value = Number(item.value) || 0;
+            if (item.label === 'vCPU') config.vm_prices_brl.vcpu = value;
+            if (item.label === 'RAM') config.vm_prices_brl.ram_per_gb = value;
+            if (item.label === 'NVMe') config.vm_prices_brl.nvme_per_gb = value;
+            if (item.label === 'IP Público') config.vm_prices_brl.ip_public = value;
+          }
+        }
+        break;
+
+      case 'gpu':
+        if (section === 'preços de gpu') {
+          for (const item of items) {
+            if (item.label) {
+              config.gpu_usd[item.label] = Number(item.value) || 0;
+            }
+          }
+        }
+        break;
+
+      case 'baremetal':
+        if (section === 'modelos de cpu') {
+          config.baremetal.cpu_models = items.map((item, idx) => ({
+            id: String(item.id ?? idx),
+            label: item.label || '',
+            price: Number(item.value) || 0,
+          }));
+        }
+        if (section === 'opções de ram') {
+          config.baremetal.ram_tiers = items.map((item, idx) => {
+            // Extract GB from label (e.g., "128GB" -> 128)
+            let gb = 0;
+            const match = String(item.label || '').match(/^(\d+)GB$/i);
+            if (match) gb = parseInt(match[1], 10);
+            
+            return {
+              id: String(item.id ?? idx),
+              label: item.label || '',
+              gb,
+              price: Number(item.value) || 0,
+            };
+          });
+        }
+        if (section === 'opções de disco') {
+          config.baremetal.disks = items.map((item, idx) => {
+            // Extract TB from label (e.g., "1TB NVMe" -> 1)
+            let tb = 0;
+            const match = String(item.label || '').match(/^(\d+)TB/i);
+            if (match) tb = parseInt(match[1], 10);
+            
+            return {
+              id: String(item.id ?? idx),
+              label: item.label || '',
+              tb,
+              price: Number(item.value) || 0,
+            };
+          });
+        }
+        break;
+
+      case 'add-ons':
+        if (section === 'add-ons') {
+          for (const item of items) {
+            const technicalKey = ADDON_LABEL_TO_KEY[item.label || ''] || item.label;
+            const value = Number(item.value) || 0;
+            if (technicalKey && technicalKey !== 'sql') {
+              (config.addons_brl as any)[technicalKey] = value;
+            }
+          }
+        }
+        break;
+
+      case 'sql server':
+        if (section === 'sql server') {
+          for (const item of items) {
+            const sqlKey = (item.label || '').toLowerCase() === 'nenhum' ? 'none' : (item.label || '').toLowerCase();
+            config.addons_brl.sql[sqlKey] = Number(item.value) || 0;
+          }
+        }
+        break;
+
+      case 'storage':
+        if (section === 'storage sas') {
+          // Handle nested object format: { "Brasil": [...], "Estados Unidos": [...] }
+          if (configData && typeof configData === 'object' && !Array.isArray(configData)) {
+            const brItems: ConfigItem[] = configData['Brasil'] || [];
+            const usaItems: ConfigItem[] = configData['Estados Unidos'] || [];
+            
+            const parseTier = (label: string): string | null => {
+              if (label === '1-10 TB') return 'pricePerTB_1_10';
+              if (label === '11-100 TB') return 'pricePerTB_11_100';
+              if (label === '101-500 TB') return 'pricePerTB_101_500';
+              if (label === '501-1024 TB') return 'pricePerTB_501_1024';
+              if (label === '>1024 TB') return 'pricePerTB_gt_1024';
+              return null;
+            };
+            
+            for (const item of brItems) {
+              const tier = parseTier(item.label || '');
+              if (tier && config.storage_pricing?.sas?.br) {
+                (config.storage_pricing.sas.br as any)[tier] = Number(item.value) || 0;
+              }
+            }
+            
+            for (const item of usaItems) {
+              const tier = parseTier(item.label || '');
+              if (tier && config.storage_pricing?.sas?.usa) {
+                (config.storage_pricing.sas.usa as any)[tier] = Number(item.value) || 0;
+              }
+            }
+          }
+        }
+        if (section === 'ssd nvme') {
+          const nvmeItem = items.find(i => i.label === 'Preço por GB');
+          if (nvmeItem && config.storage_pricing?.nvme) {
+            config.storage_pricing.nvme.pricePerGB = Number(nvmeItem.value) || 0;
+          }
+        }
+        break;
+
+      case 'kubernetes':
+        if (section === 'preços base dos planos') {
+          for (const item of items) {
+            const value = Number(item.value) || 0;
+            const label = (item.label || '').toUpperCase();
+            
+            // Map API labels to config keys
+            if (!config.kubernetes_pricing) {
+              config.kubernetes_pricing = {
+                k8s_small: { basePriceMonthly: 0 },
+                k8s_medium: { basePriceMonthly: 0 },
+                k8s_large: { basePriceMonthly: 0 },
+              };
+            }
+            
+            if (label === 'SMALL') config.kubernetes_pricing.k8s_small = { basePriceMonthly: value };
+            if (label === 'MEDIUM') config.kubernetes_pricing.k8s_medium = { basePriceMonthly: value };
+            if (label === 'LARGE') config.kubernetes_pricing.k8s_large = { basePriceMonthly: value };
+          }
+        }
+        if (section === 'add-ons kubernetes') {
+          if (!config.kubernetes_addons_pricing) {
+            config.kubernetes_addons_pricing = {
+              support_24x7: 0,
+              backup_velero: 0,
+              dr_multisite: 0,
+              observability: 0,
+              cicd_managed: 0,
+              devops_hours: 0,
+            };
+          }
+          
+          for (const item of items) {
+            const value = Number(item.value) || 0;
+            const label = (item.label || '').toLowerCase();
+            
+            // Map API labels to config keys
+            if (label.includes('suporte 24x7') || label.includes('24x7')) config.kubernetes_addons_pricing.support_24x7 = value;
+            if (label.includes('backup') || label.includes('velero')) config.kubernetes_addons_pricing.backup_velero = value;
+            if (label.includes('dr') || label.includes('multi-site')) config.kubernetes_addons_pricing.dr_multisite = value;
+            if (label.includes('observabilidade') || label.includes('observability')) config.kubernetes_addons_pricing.observability = value;
+            if (label.includes('ci/cd') || label.includes('cicd')) config.kubernetes_addons_pricing.cicd_managed = value;
+            if (label.includes('horas devops') || label.includes('devops')) config.kubernetes_addons_pricing.devops_hours = value;
+          }
+        }
+        break;
+    }
+  }
+
+  return config;
+}
+
+// ============================================================================
+// FETCH CONFIG FROM SUPABASE EDGE FUNCTION
+// ============================================================================
+
+const fetchConfig = async (): Promise<CalculatorConfig> => {
+  console.log('[useConfig] Fetching config from Supabase Edge Function...');
+  
+  try {
+    const entries = await getCalculatorConfigs();
+    console.log('[useConfig] Received', entries.length, 'entries from Edge Function');
+    
+    if (entries.length === 0) {
+      console.warn('[useConfig] No entries returned from Edge Function, using defaults');
+      return DEFAULT_CONFIG;
+    }
+    
+    const config = transformSupabaseConfigToCalculatorConfig(entries);
+    console.log('[useConfig] Config transformed successfully');
+    return config;
+  } catch (error) {
+    console.error('[useConfig] Error fetching config:', error);
+    throw error;
+  }
 };
 
-// Fetch config from API - NO FALLBACKS, throw on error
-const fetchConfig = async (): Promise<CalculatorConfig> => {
-  console.log('[Config] Fetching config from API...');
-  const apiConfig = await openApi.getCalculatorConfig();
-  console.log('[Config] API config loaded successfully');
-  return transformApiConfig(apiConfig);
-};
+// ============================================================================
+// HOOKS
+// ============================================================================
 
 export const useConfig = () => {
   return useQuery<CalculatorConfig>({
@@ -71,7 +310,6 @@ export const useConfig = () => {
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',
     retry: 2,
-    // NO placeholder - wait for real API data
   });
 };
 

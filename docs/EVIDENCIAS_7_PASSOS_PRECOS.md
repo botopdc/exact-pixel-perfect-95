@@ -518,20 +518,86 @@ curl -X POST \
 
 ## Passo 6 — Ajustar tela `Precos.tsx`
 
-**Data**: (pendente)
-**Status**: TODO
+**Data**: 2026-02-08
+**Status**: ✅ DONE
+
+### Problema identificado
+
+O hook `useConfig.ts` usava `openApi.getCalculatorConfig()` que ainda fazia chamadas para a API externa antiga (`VITE_API_BASE_URL/calculator/config`). Isso causava falha ao carregar os preços na tela de Preços.
 
 ### O que foi feito
-(pendente)
+
+1. **Refatorado `src/hooks/useConfig.ts`**:
+   - Removida dependência de `openApi.getCalculatorConfig()`
+   - Agora usa `getCalculatorConfigs()` do `calculatorConfigService.ts`
+   - Criado adapter `transformSupabaseConfigToCalculatorConfig()` que converte o formato do Supabase (`CalculatorConfigEntry[]`) para o formato esperado pela UI (`CalculatorConfig`)
+
+2. **Adapter implementado**:
+   - Transforma cada entrada (category/section/config) do Supabase
+   - Mapeia campos específicos para estrutura esperada pela UI:
+     - `VM/Preços de VM` → `vm_prices_brl`
+     - `GPU/Preços de GPU` → `gpu_usd`
+     - `BareMetal/Modelos de CPU` → `baremetal.cpu_models`
+     - `Storage/Storage SAS` → `storage_pricing.sas` (formato nested: Brasil/USA)
+     - `Kubernetes/Preços Base dos Planos` → `kubernetes_pricing`
+     - etc.
+
+3. **saveToApi já funciona**:
+   - O `useConfigPersistence` já usava `updateCalculatorConfig()` que internamente chama `upsertCalculatorConfig()`
+   - Upsert via Edge Function com `POST /pricing-admin` (category+section conflict)
 
 ### Arquivos alterados
-(pendente)
+
+- `src/hooks/useConfig.ts` (refatorado completamente)
+
+### Fluxo de dados atualizado
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  Precos.tsx                                                             │
+│     ↓                                                                   │
+│  useConfigPersistence()                                                 │
+│     ↓                                                                   │
+│  useConfigWithFallback() → useConfig()                                  │
+│     ↓                                                                   │
+│  getCalculatorConfigs() ← calculatorConfigService.ts                    │
+│     ↓                                                                   │
+│  fetch GET /functions/v1/pricing-admin ← Edge Function                  │
+│     ↓                                                                   │
+│  transformSupabaseConfigToCalculatorConfig() → CalculatorConfig         │
+│     ↓                                                                   │
+│  UI renderiza com valores do Supabase                                   │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Como testar
-(pendente)
+
+1. **Acessar** `/modulos/admin/precos` logado como admin
+2. **Verificar carregamento**: Valores devem aparecer nos campos (VM, GPU, etc.)
+3. **Verificar Network tab**:
+   - GET para `/functions/v1/pricing-admin` (não mais `/api/calculator/config`)
+4. **Alterar um valor** (ex: VM vCPU de 45 para 50)
+5. **Salvar** (botão verde)
+6. **Verificar Network tab**:
+   - POST para `/functions/v1/pricing-admin` com body: `{category, section, config}`
+7. **Recarregar página** (Ctrl+Shift+R)
+8. **Confirmar persistência**: Valor deve manter 50
+
+### Erros tratados
+
+- Se token ausente: `"Usuário não autenticado. Faça login novamente."`
+- Se PIN ausente: Toast informando que PIN é necessário
+- Se 401: Toast de sessão expirada
+- Se 403: Toast de PIN inválido
 
 ### Resultado
-(pendente)
+
+- ✅ GET de configs via Edge Function `/pricing-admin`
+- ✅ POST (upsert) via Edge Function `/pricing-admin`
+- ✅ Adapter converte formato Supabase → CalculatorConfig
+- ✅ Nenhuma chamada para API externa antiga
+- ✅ UI/UX preservada (sem alterações visuais)
+- ✅ Headers `Authorization` e `X-Admin-PIN` enviados corretamente
 
 ---
 
