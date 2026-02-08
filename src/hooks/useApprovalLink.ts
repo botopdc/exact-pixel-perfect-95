@@ -2,11 +2,9 @@
  * useApprovalLink - Hook for generating token-based approval links
  * 
  * This hook handles the process of:
- * 1. Validating the proposal exists
- * 2. Fetching the approval token from the API with fallback logic
- * 3. Constructing the proper approval link with the token
- * 
- * Uses the centralized approvalLinkService for robust error handling.
+ * 1. Detecting if the proposal is Supabase (UUID) or legacy (numeric)
+ * 2. For Supabase: Uses supabaseApprovalLinkService (100% Supabase)
+ * 3. For legacy: Falls back to approvalLinkService (openApi)
  */
 
 import { useState, useCallback } from 'react';
@@ -16,6 +14,8 @@ import {
   ApprovalLinkError,
   type BuildApprovalLinkResult 
 } from '@/services/approvalLinkService';
+import { getOrCreateApprovalLink } from '@/services/supabaseApprovalLinkService';
+import { extractNumericId } from '@/lib/proposalIdUtils';
 
 interface UseApprovalLinkResult {
   /**
@@ -37,6 +37,13 @@ interface UseApprovalLinkResult {
   debugInfo: ApprovalLinkError['debugInfo'] | null;
 }
 
+/**
+ * Helper to check if a string is a valid UUID
+ */
+function isUUID(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 export function useApprovalLink(): UseApprovalLinkResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,13 +55,33 @@ export function useApprovalLink(): UseApprovalLinkResult {
     setDebugInfo(null);
 
     try {
-      console.log('[useApprovalLink] Building approval link for:', proposalIdOrUuid);
+      const idStr = String(proposalIdOrUuid);
       
-      const result: BuildApprovalLinkResult = await buildApprovalLinkFromId(proposalIdOrUuid);
+      // Check if this is a Supabase UUID
+      if (isUUID(idStr)) {
+        console.log('[useApprovalLink] Detected UUID, using Supabase service:', idStr);
+        
+        // Use 100% Supabase flow
+        const result = await getOrCreateApprovalLink(idStr);
+        console.log('[useApprovalLink] Supabase approval link generated successfully');
+        return result.link;
+      }
       
-      console.log('[useApprovalLink] Generated approval link successfully');
+      // Check if numeric ID can be extracted (legacy flow)
+      const numericId = extractNumericId(proposalIdOrUuid);
       
-      return result.link;
+      if (numericId !== null) {
+        console.log('[useApprovalLink] Detected numeric ID, using legacy API service:', numericId);
+        
+        // Use legacy openApi flow
+        const result: BuildApprovalLinkResult = await buildApprovalLinkFromId(numericId);
+        console.log('[useApprovalLink] Legacy approval link generated successfully');
+        return result.link;
+      }
+      
+      // Neither UUID nor numeric - error
+      throw new Error(`ID inválido: ${proposalIdOrUuid}. Deve ser UUID ou numérico.`);
+      
     } catch (err: any) {
       console.error('[useApprovalLink] Error building approval link:', err);
       
@@ -83,16 +110,31 @@ export function useApprovalLink(): UseApprovalLinkResult {
     setDebugInfo(null);
 
     try {
-      console.log('[useApprovalLink] Building approval link from proposal:', {
+      // Prefer UUID if available
+      if (proposal.uuid && isUUID(proposal.uuid)) {
+        console.log('[useApprovalLink] Using proposal.uuid (Supabase):', proposal.uuid);
+        const result = await getOrCreateApprovalLink(proposal.uuid);
+        return result.link;
+      }
+      
+      // Check if id is a UUID
+      const idStr = proposal.id !== undefined ? String(proposal.id) : '';
+      if (isUUID(idStr)) {
+        console.log('[useApprovalLink] proposal.id is UUID (Supabase):', idStr);
+        const result = await getOrCreateApprovalLink(idStr);
+        return result.link;
+      }
+      
+      // Legacy: Use buildApprovalLink which handles numeric ID
+      console.log('[useApprovalLink] Using legacy API flow for proposal:', {
         id: proposal.id,
         uuid: proposal.uuid,
       });
       
       const result: BuildApprovalLinkResult = await buildApprovalLink({ proposal });
-      
       console.log('[useApprovalLink] Generated approval link successfully');
-      
       return result.link;
+      
     } catch (err: any) {
       console.error('[useApprovalLink] Error building approval link:', err);
       
