@@ -72,7 +72,6 @@ export interface ProposalFull {
   due_at: string;
   currency: string;
   pdf_path: string | null;
-  pdf_generated_at: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -8,7 +8,6 @@ import { useNavigate, Link as RouterLink, useLocation, useSearchParams } from 'r
 import ProductIcon from './ProductIcon';
 import { EditablePriceCell } from './calculator/EditablePriceCell';
 import { ArchitectSelector } from './calculator/ArchitectSelector';
-import { PdfButton } from './calculator/PdfButton';
 import {
   CalculatorConfig,
   ServerItem,
@@ -3470,7 +3469,10 @@ const OpenCalculator: React.FC = () => {
                     {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                     {saving ? 'Salvando...' : 'Salvar'}
                   </Button>
-                  <PdfButton onClick={handleGeneratePDF} variant="full" />
+                  <Button variant="open-outline" onClick={handleGeneratePDF}>
+                    <FileDown className="w-4 h-4 mr-2" />
+                    PDF
+                  </Button>
                 </div>
                 <Button 
                   className="w-full" 

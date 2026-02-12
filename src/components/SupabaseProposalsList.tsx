@@ -17,8 +17,7 @@ import {
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
-import { saveProposal } from '@/services/proposalApi';
-import { downloadProposalPdf as downloadSupabasePdf } from '@/services/supabaseProposalPdfService';
+import { saveProposal, getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -44,7 +43,6 @@ import {
   useDeleteProposal,
 } from '@/hooks/useProposalApi';
 import type { ProposalRow } from '@/services/proposalApi';
-import { PdfButton } from '@/components/calculator/PdfButton';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -336,7 +334,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download - generates automatically if not exists (using local pdfMake)
+  // Handle PDF download (Supabase: download ONLY from Storage using pdf_path)
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -347,22 +345,52 @@ const SupabaseProposalsList: React.FC = () => {
     console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
 
     try {
-      // Use the new Supabase PDF service (generates real PDF locally using pdfMake)
-      const result = await downloadSupabasePdf(proposal.id);
+      const res = await getProposalFromEdge(proposal.id);
 
-      if (!result.success) {
+      if (!res?.success) {
         toast({
-          title: 'Erro ao gerar PDF',
-          description: result.error || 'Não foi possível gerar o PDF. Tente novamente.',
+          title: 'Erro',
+          description: res?.error || 'Falha ao buscar proposta para download do PDF',
           variant: 'destructive',
         });
         return;
       }
 
-      // Refresh the list to show updated pdf_path
-      refetch();
+      const pdfPath = res.proposal?.pdf_path;
 
-      toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
+      if (!pdfPath) {
+        toast({
+          title: 'PDF ainda não gerado',
+          description: 'Abra a proposta e clique em PDF na calculadora.',
+        });
+        return;
+      }
+
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from('proposal-files')
+        .createSignedUrl(pdfPath, 60 * 10); // 10 minutos
+
+      if (signedUrlError || !signedUrlData?.signedUrl) {
+        throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
+      }
+
+      // Inicia download/abertura do PDF salvo
+      const filename = `OPEN_proposta_${res.proposal.display_id || res.proposal.id}.pdf`;
+      const a = document.createElement('a');
+      a.href = signedUrlData.signedUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      trackProposalEvent({
+        proposalId: proposal.id,
+        source: 'pdf_download',
+      });
+
+      toast({ title: 'Download iniciado', description: 'O PDF salvo foi aberto para download.' });
     } catch (error: any) {
       console.error('[PDF DOWNLOAD] Exception:', error);
       toast({
@@ -673,12 +701,24 @@ const SupabaseProposalsList: React.FC = () => {
                           </Tooltip>
                           
                           {/* Download PDF - Always visible */}
-                          <PdfButton
-                            onClick={() => handleDownloadPDF(proposal)}
-                            isLoading={pdfLoadingId === proposal.id}
-                            variant="icon"
-                            tooltip="Baixar PDF"
-                          />
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => handleDownloadPDF(proposal)}
+                                disabled={pdfLoadingId === proposal.id}
+                              >
+                                {pdfLoadingId === proposal.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <FileDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar PDF</TooltipContent>
+                          </Tooltip>
                           
                           {isAdmin && (
                             <Tooltip>
