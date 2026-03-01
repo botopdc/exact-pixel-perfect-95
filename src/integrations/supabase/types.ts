@@ -363,6 +363,7 @@ export type Database = {
           id: string
           name: string
           observations: string | null
+          pdf_generated_at: string | null
           pdf_path: string | null
           phone: string
           reseller_name: string | null
@@ -391,6 +392,7 @@ export type Database = {
           id?: string
           name: string
           observations?: string | null
+          pdf_generated_at?: string | null
           pdf_path?: string | null
           phone: string
           reseller_name?: string | null
@@ -419,6 +421,7 @@ export type Database = {
           id?: string
           name?: string
           observations?: string | null
+          pdf_generated_at?: string | null
           pdf_path?: string | null
           phone?: string
           reseller_name?: string | null
