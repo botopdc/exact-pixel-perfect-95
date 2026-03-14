@@ -2,3 +2,27 @@ project_id = "macmkfoknhofnwhizsqc"
 
 [functions.pricing-admin]
 verify_jwt = false
+
+[functions.public-approval]
+verify_jwt = false
+
+[functions.proposal-gateway]
+verify_jwt = false
+
+[functions.proposal-get]
+verify_jwt = false
+
+[functions.proposal-list]
+verify_jwt = false
+
+[functions.proposal-save]
+verify_jwt = false
+
+[functions.proposal-track]
+verify_jwt = false
+
+[functions.send-password-reset]
+verify_jwt = false
+
+[functions.send-proposal-email]
+verify_jwt = false
