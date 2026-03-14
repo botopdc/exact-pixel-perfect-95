@@ -240,5 +240,3 @@ serve(async (req: Request) => {
     return json({ success: false, errorCode: "unknown", error: String(err) }, 500);
   }
 });
-  }
-});
