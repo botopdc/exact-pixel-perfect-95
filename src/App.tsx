@@ -23,6 +23,7 @@ import PropostaView from '@/pages/PropostaView';
 import PropostaViewSupabase from '@/pages/PropostaViewSupabase';
 import PropostaAceite from '@/pages/PropostaAceite';
 import PropostaAprovar from '@/pages/PropostaAprovar';
+import PropostaAprovacaoPublica from '@/pages/PropostaAprovacaoPublica';
 import PropostaPdfPublic from '@/pages/PropostaPdfPublic';
 import Propostas from '@/pages/Propostas';
 import Precos from '@/pages/Precos';
