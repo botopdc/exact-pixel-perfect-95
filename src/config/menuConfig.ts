@@ -129,6 +129,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         allowedLevels: [750, 1000], // Gerente Comercial e Admin
       },
       {
+        id: 'contratos',
+        title: 'Contratos',
+        url: '/modulos/comercial/contratos',
+        icon: FileText,
+        allowedLevels: [750, 1000],
+      },
+      {
         id: 'propostas-executivos',
         title: 'Propostas Executivos',
         url: '/modulos/comercial/propostas',
