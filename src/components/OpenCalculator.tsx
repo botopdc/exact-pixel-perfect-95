@@ -1240,6 +1240,7 @@ const OpenCalculator: React.FC = () => {
         created_by_level: ownerInfo.ownerLevel,
         created_by_role: ownerInfo.ownerRole,
       };
+      let supabaseProposalId: string | null = null;
       
       if (isPartnerContext && partnerSession) {
         // Partner context: use partner proposal hook
