@@ -128,6 +128,13 @@ export const SIDEBAR_MODULES: Module[] = [
     allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
   },
   {
+    id: 'docs',
+    title: 'Docs',
+    icon: Book,
+    url: '/modulos/docs',
+    allowedLevels: [700, 750, 900, 950, 1000],
+  },
+  {
     id: 'conteudo',
     title: 'Conteúdo & Documentação',
     icon: BookOpen,
