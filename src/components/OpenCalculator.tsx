@@ -83,6 +83,7 @@ import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/pro
 import { openApi } from '@/lib/openApi';
 import { setArchitectParticipant, removeArchitectParticipant, getArchitectParticipant } from '@/services/proposalParticipantService';
 import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
+import { buildDetailedSummaryRows } from '@/lib/buildDetailedSummaryRows';
 
 // User context for calculator
 interface CalculatorUserContext {
