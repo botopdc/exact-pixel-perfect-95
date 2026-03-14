@@ -97,6 +97,168 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+// ─── Build detailed rows from structured data (mirrors buildDetailedSummaryRows) ──
+interface DetailedRow {
+  label: string;
+  qty: string | number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+function buildDetailedRows(
+  servers: any[],
+  addons: any[],
+  currency: string
+): DetailedRow[] {
+  const rows: DetailedRow[] = [];
+
+  // ── SERVERS (VM / BareMetal / Storage) ──
+  servers.forEach((s) => {
+    const serverType = s.server_type || s.type || "vm";
+    const name = s.name || serverType.toUpperCase();
+    const qtyServers = s.qty_servers || 1;
+    const specs = s.specs || {};
+    const componentPrices = specs.componentPrices as
+      | Record<string, { unitPrice: number; totalPrice: number }>
+      | undefined;
+
+    if (serverType === "storage") {
+      // Storage items — single row
+      rows.push({
+        label: name,
+        qty: 1,
+        unitPrice: s.unit_price || s.total_price || 0,
+        totalPrice: s.total_price || 0,
+      });
+      return;
+    }
+
+    if (componentPrices && Object.keys(componentPrices).length > 0) {
+      // ── Detailed component rows from persisted snapshot ──
+      if (serverType === "vm") {
+        if (componentPrices.cpu) {
+          const vcpu = s.vcpu || specs.vcpu || 0;
+          rows.push({
+            label: `${name} — vCPU (${vcpu} por srv)`,
+            qty: qtyServers,
+            unitPrice: componentPrices.cpu.unitPrice,
+            totalPrice: componentPrices.cpu.totalPrice,
+          });
+        }
+        if (componentPrices.ram) {
+          const ramGb = s.ram_gb || specs.ramGb || 0;
+          rows.push({
+            label: `${name} — RAM (${ramGb} GB por srv)`,
+            qty: qtyServers,
+            unitPrice: componentPrices.ram.unitPrice,
+            totalPrice: componentPrices.ram.totalPrice,
+          });
+        }
+        if (componentPrices.disk) {
+          const nvmeTb = s.nvme_tb || specs.nvmeTb || 0;
+          rows.push({
+            label: `${name} — NVMe (${Number(nvmeTb).toFixed(2)} TB por srv)`,
+            qty: qtyServers,
+            unitPrice: componentPrices.disk.unitPrice,
+            totalPrice: componentPrices.disk.totalPrice,
+          });
+        }
+      } else if (serverType === "bm") {
+        if (componentPrices.cpu) {
+          const cpuLabel = s.bm_cpu || specs.bmCpu || "CPU";
+          rows.push({
+            label: `${name} — CPU (${cpuLabel})`,
+            qty: qtyServers,
+            unitPrice: componentPrices.cpu.unitPrice,
+            totalPrice: componentPrices.cpu.totalPrice,
+          });
+        }
+        if (componentPrices.ram) {
+          const ramLabel = s.bm_ram || specs.bmRam || "RAM";
+          rows.push({
+            label: `${name} — RAM (${ramLabel})`,
+            qty: qtyServers,
+            unitPrice: componentPrices.ram.unitPrice,
+            totalPrice: componentPrices.ram.totalPrice,
+          });
+        }
+        if (componentPrices.disks) {
+          rows.push({
+            label: `${name} — Discos NVMe`,
+            qty: qtyServers,
+            unitPrice: componentPrices.disks.unitPrice,
+            totalPrice: componentPrices.disks.totalPrice,
+          });
+        }
+      }
+
+      // IPs (common to VM and BM)
+      if (componentPrices.ips) {
+        const ips = s.ips || 0;
+        rows.push({
+          label: `${name} — IPs públicos (${ips} por srv)`,
+          qty: qtyServers,
+          unitPrice: componentPrices.ips.unitPrice,
+          totalPrice: componentPrices.ips.totalPrice,
+        });
+      }
+
+      // GPU (common to VM and BM)
+      if (componentPrices.gpu) {
+        const gpu = s.gpu || specs.gpu || "GPU";
+        const gpuQty = s.gpu_qty || specs.gpuQty || 1;
+        rows.push({
+          label: `${name} — GPU (${gpu}, ${gpuQty}x por srv)`,
+          qty: qtyServers,
+          unitPrice: componentPrices.gpu.unitPrice,
+          totalPrice: componentPrices.gpu.totalPrice,
+        });
+      }
+    } else {
+      // Fallback: single consolidated row per server
+      rows.push({
+        label: name,
+        qty: qtyServers,
+        unitPrice: s.unit_price || 0,
+        totalPrice: s.total_price || 0,
+      });
+    }
+  });
+
+  // ── ADDONS ──
+  const enabledAddons = addons.filter((a) => a.enabled);
+  for (const a of enabledAddons) {
+    // Check if addon has its own componentPrices (K8s, SaaS)
+    const meta = a.metadata || {};
+    const addonComponentPrices = meta.componentPrices as
+      | Record<string, { unitPrice: number; totalPrice: number; label?: string }>
+      | undefined;
+
+    if (addonComponentPrices && Object.keys(addonComponentPrices).length > 0) {
+      // Detailed K8s/SaaS breakdown
+      for (const [_key, cp] of Object.entries(addonComponentPrices)) {
+        if (cp.totalPrice > 0) {
+          rows.push({
+            label: cp.label || `${a.label} — ${_key}`,
+            qty: 1,
+            unitPrice: cp.unitPrice,
+            totalPrice: cp.totalPrice,
+          });
+        }
+      }
+    } else {
+      rows.push({
+        label: a.label,
+        qty: a.quantity,
+        unitPrice: a.unit_price || 0,
+        totalPrice: a.total_price || 0,
+      });
+    }
+  }
+
+  return rows;
+}
+
 // ─── Annex I PDF generation from structured data ────────────
 async function generateAnnexPdf(
   contract: any,
@@ -111,7 +273,6 @@ async function generateAnnexPdf(
   const pageWidth = 595.28; // A4
   const pageHeight = 841.89;
   const margin = 50;
-  const contentWidth = pageWidth - margin * 2;
 
   let page = doc.addPage([pageWidth, pageHeight]);
   let y = pageHeight - margin;
@@ -190,51 +351,36 @@ async function generateAnnexPdf(
   drawLine(y);
   y -= 20;
 
-  // Items table
+  // ── Build detailed rows ──
+  const detailedRows = buildDetailedRows(servers, addons, currency);
+
+  // Items table — 4 columns matching proposal PDF exactly
   drawText("ITENS CONTRATADOS", margin, y, 11, true);
   y -= 20;
 
-  // Table header
-  const colX = [margin, margin + 180, margin + 260, margin + 320, margin + 380, margin + 440];
-  const headers = ["Item", "Tipo", "vCPU", "RAM", "Qtd", "Valor/mês"];
+  // Table header: ITENS | QT | VALOR UNITÁRIO (R$) | VALOR TOTAL (R$)
+  const colX = [margin, margin + 280, margin + 320, margin + 410];
+  const headers = ["ITENS", "QT", "VALOR UNITÁRIO (R$)", "VALOR TOTAL (R$)"];
   headers.forEach((h, i) => drawText(h, colX[i], y, 8, true));
   y -= 5;
   drawLine(y);
   y -= 15;
 
-  // Server rows
-  for (const s of servers) {
+  // Rows
+  let grandTotal = 0;
+  for (const row of detailedRows) {
     checkNewPage();
-    const name = s.name || "Servidor";
-    const type = s.server_type || s.type || "vm";
-    const vcpu = String(s.vcpu || 0);
-    const ram = `${s.ram_gb || 0} GB`;
-    const qty = String(s.qty_servers || 1);
-    const price = fmtCurrency(s.total_price || 0, currency);
+    const labelStr = (row.label || "").substring(0, 45);
+    const qtyStr = String(row.qty);
+    const unitStr = fmtCurrency(row.unitPrice, currency);
+    const totalStr = fmtCurrency(row.totalPrice, currency);
 
-    drawText(name.substring(0, 28), colX[0], y, 8);
-    drawText(type.toUpperCase(), colX[1], y, 8);
-    drawText(vcpu, colX[2], y, 8);
-    drawText(ram, colX[3], y, 8);
-    drawText(qty, colX[4], y, 8);
-    drawText(price, colX[5], y, 8);
+    drawText(labelStr, colX[0], y, 8);
+    drawText(qtyStr, colX[1], y, 8);
+    drawText(unitStr, colX[2], y, 8);
+    drawText(totalStr, colX[3], y, 8);
     y -= 14;
-  }
-
-  // Addons
-  const enabledAddons = addons.filter((a) => a.enabled);
-  if (enabledAddons.length > 0) {
-    y -= 5;
-    drawLine(y);
-    y -= 15;
-    drawText("ADD-ONS", margin, y, 9, true);
-    y -= 15;
-    for (const a of enabledAddons) {
-      checkNewPage();
-      drawText(`${a.label} × ${a.quantity}`, colX[0], y, 8);
-      drawText(fmtCurrency(a.total_price || 0, currency), colX[5], y, 8);
-      y -= 14;
-    }
+    grandTotal += row.totalPrice;
   }
 
   // Total
@@ -242,7 +388,8 @@ async function generateAnnexPdf(
   drawLine(y);
   y -= 20;
   drawText("TOTAL MENSAL:", margin, y, 12, true);
-  drawText(fmtCurrency(contract.total || 0, currency), colX[5] - 20, y, 12, true);
+  const displayTotal = contract.total || grandTotal;
+  drawText(fmtCurrency(displayTotal, currency), colX[3] - 20, y, 12, true);
   y -= 30;
 
   // Footer
