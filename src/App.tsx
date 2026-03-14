@@ -304,6 +304,10 @@ const App = () => (
             <Route path="/modulos/docs" element={<DocsLayout />}>
               <Route index element={<DocsHome />} />
               <Route path="downloads" element={<DocsDownloadsPage />} />
+              <Route path="admin/sync" element={<DocsAdminSyncPage />} />
+              <Route path="admin/changelog" element={<DocsAdminChangelogPage />} />
+              <Route path="admin/coverage" element={<DocsAdminCoveragePage />} />
+              <Route path="admin/health" element={<DocsAdminHealthPage />} />
               <Route path="*" element={<DocsViewPage />} />
             </Route>
 
