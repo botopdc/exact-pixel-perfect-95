@@ -379,6 +379,19 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
   },
 
   // =========================================================================
+  // DOCS (Wiki Interna)
+  // =========================================================================
+  docs: {
+    id: 'docs',
+    title: 'Docs',
+    description: 'Wiki oficial e base de conhecimento técnico',
+    icon: Book,
+    homeUrl: '/modulos/docs',
+    allowedLevels: [700, 750, 900, 950, 1000],
+    subNavigation: [],
+  },
+
+  // =========================================================================
   // CONTEÚDO & DOCUMENTAÇÃO
   // =========================================================================
   conteudo: {
