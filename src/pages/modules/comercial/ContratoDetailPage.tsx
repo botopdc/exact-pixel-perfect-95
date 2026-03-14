@@ -26,6 +26,7 @@ import {
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
+import { contractDocumentService } from '@/services/contractDocumentService';
 import { ROUTES } from '@/config/routes';
 import {
   isValidCPF, isValidCNPJ, isValidCEP,
