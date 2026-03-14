@@ -79,6 +79,12 @@ import ConteudoModuleHome from '@/pages/modules/ConteudoModuleHome';
 import GenteModuleHome from '@/pages/modules/GenteModuleHome';
 import AdminModuleHome from '@/pages/modules/AdminModuleHome';
 
+// Docs Module
+import DocsLayout from '@/layouts/DocsLayout';
+import DocsHome from '@/pages/modules/docs/DocsHome';
+import DocsViewPage from '@/pages/modules/docs/DocsViewPage';
+import DocsDownloadsPage from '@/pages/modules/docs/DocsDownloadsPage';
+
 // Module Placeholder Pages
 import ProcedimentosPage from '@/pages/modules/conteudo/ProcedimentosPage';
 import MateriaisPage from '@/pages/modules/conteudo/MateriaisPage';
