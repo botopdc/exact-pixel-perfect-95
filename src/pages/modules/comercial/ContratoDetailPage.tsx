@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle, ChevronRight, ChevronLeft, Check, Download, FileDown, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +26,7 @@ import {
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
+import { contractDocumentService } from '@/services/contractDocumentService';
 import { ROUTES } from '@/config/routes';
 import {
   isValidCPF, isValidCNPJ, isValidCEP,
@@ -76,6 +77,8 @@ export default function ContratoDetailPage() {
   const [state, setState] = useState('');
   const [paymentDay, setPaymentDay] = useState<number | ''>('');
   const [contractDate, setContractDate] = useState('');
+  const [generatingDoc, setGeneratingDoc] = useState(false);
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
 
   // Queries
   const { data: existingContract, isLoading: isLoadingContract } = useContract(isViewing ? id : undefined);
@@ -310,6 +313,49 @@ export default function ContratoDetailPage() {
     const servers = payload?.servers || [];
     const addons = payload?.addons || [];
 
+
+    const handleGenerateDocument = async () => {
+      setGeneratingDoc(true);
+      try {
+        const result = await contractDocumentService.generate(c.id);
+        toast.success('Documento gerado com sucesso!');
+        // Refresh contract data
+        window.location.reload();
+      } catch (err: any) {
+        console.error('Erro ao gerar documento:', err);
+        toast.error(err.message || 'Erro ao gerar documento');
+      } finally {
+        setGeneratingDoc(false);
+      }
+    };
+
+    const handleDownloadFile = async (bucket: string, path: string, filename: string) => {
+      setDownloadingFile(path);
+      try {
+        const url = await contractDocumentService.getFileUrl(bucket, path);
+        if (!url) {
+          toast.error('Arquivo não encontrado');
+          return;
+        }
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err: any) {
+        toast.error('Erro ao baixar arquivo');
+      } finally {
+        setDownloadingFile(null);
+      }
+    };
+
+    const cAny = c as any;
+    const hasDocx = !!cAny.docx_path;
+    const hasAnnex = !!cAny.annex_pdf_path;
+    const hasAnyDocument = hasDocx || hasAnnex;
+
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
         <div className="flex items-center gap-4">
@@ -327,28 +373,118 @@ export default function ContratoDetailPage() {
           </Badge>
         </div>
 
-        {c.status === 'rascunho' && (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm"
-              onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
-              disabled={updateStatus.isPending}>
-              Enviar para assinatura
-            </Button>
-          </div>
-        )}
-        {c.status === 'pendente_assinatura' && (
-          <div className="flex gap-2">
-            <Button size="sm"
-              onClick={() => updateStatus.mutate({ id: c.id, status: 'assinado' })}
-              disabled={updateStatus.isPending}>
-              Marcar como assinado
-            </Button>
-            <Button variant="destructive" size="sm"
-              onClick={() => updateStatus.mutate({ id: c.id, status: 'cancelado' })}
-              disabled={updateStatus.isPending}>
-              Cancelar
-            </Button>
-          </div>
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2">
+          {c.status === 'rascunho' && (
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleGenerateDocument}
+                disabled={generatingDoc}
+              >
+                {generatingDoc ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : hasAnyDocument ? (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                ) : (
+                  <FileDown className="h-4 w-4 mr-2" />
+                )}
+                {hasAnyDocument ? 'Regerar documentos' : 'Gerar documentos'}
+              </Button>
+              <Button variant="outline" size="sm"
+                onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
+                disabled={updateStatus.isPending}>
+                Enviar para assinatura
+              </Button>
+            </>
+          )}
+          {c.status === 'pendente_assinatura' && (
+            <>
+              <Button size="sm"
+                onClick={() => updateStatus.mutate({ id: c.id, status: 'assinado' })}
+                disabled={updateStatus.isPending}>
+                Marcar como assinado
+              </Button>
+              <Button variant="destructive" size="sm"
+                onClick={() => updateStatus.mutate({ id: c.id, status: 'cancelado' })}
+                disabled={updateStatus.isPending}>
+                Cancelar
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* Downloads card */}
+        {hasAnyDocument && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">📄 Documentos gerados</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {hasDocx && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  disabled={downloadingFile === cAny.docx_path}
+                  onClick={() => handleDownloadFile(
+                    'contracts-generated',
+                    cAny.docx_path,
+                    `contrato-${c.contract_number || c.id.substring(0, 8)}.docx`
+                  )}
+                >
+                  {downloadingFile === cAny.docx_path ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Contrato DOCX (modelo preenchido)
+                </Button>
+              )}
+              {hasAnnex && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  disabled={downloadingFile === cAny.annex_pdf_path}
+                  onClick={() => handleDownloadFile(
+                    'contracts-generated',
+                    cAny.annex_pdf_path,
+                    `anexo-i-${c.contract_number || c.id.substring(0, 8)}.pdf`
+                  )}
+                >
+                  {downloadingFile === cAny.annex_pdf_path ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Anexo I — Resumo da Proposta (PDF)
+                </Button>
+              )}
+              {cAny.proposal_pdf_source_path && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start gap-2 text-muted-foreground"
+                  disabled={downloadingFile === cAny.proposal_pdf_source_path}
+                  onClick={() => handleDownloadFile(
+                    'contracts-generated',
+                    cAny.proposal_pdf_source_path,
+                    `anexo-i-fallback-${c.contract_number || c.id.substring(0, 8)}.pdf`
+                  )}
+                >
+                  {downloadingFile === cAny.proposal_pdf_source_path ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Anexo I — Fallback (PDF proposta, páginas 8+)
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                Estratégia: {cAny.generation_strategy || 'N/A'}
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
