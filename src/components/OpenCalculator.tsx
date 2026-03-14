@@ -563,7 +563,8 @@ const OpenCalculator: React.FC = () => {
     // Debug NaN detection - log if any subtotal is NaN
     if (!Number.isFinite(safeSubRec) || !Number.isFinite(safeSubServices) || !Number.isFinite(grandTotal)) {
       console.warn('[Calculator] NaN detected in calculation:', {
-        subRec, subIps, subServices, subBackup, subKubernetes, subStorage, subOpenSaas,
+        subRec: safeSubRec, subIps: safeSubIps, subServices: safeSubServices, subBackup: safeSubBackup,
+        subKubernetes: safeSubKubernetes, subStorage: safeSubStorage, subOpenSaas: safeSubOpenSaas,
         grandTotal, preTotal, discountPct, discountValue
       });
     }
