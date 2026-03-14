@@ -9,7 +9,9 @@ export const ROUTES = {
     login: '/login',
     proposalView: (id: string) => `/proposta/${id}`,
     proposalAccept: (id: string) => `/proposta/${id}/aceite`,
-    // Token-based approval route
+    // NEW: 100% Supabase approval route (token-only, no proposalId in URL)
+    proposalApproval: (token: string) => `/proposta/aprovacao/${token}`,
+    // LEGACY: Token-based approval route (kept for backwards compat redirect)
     proposalApprove: (proposalId: string, token: string) => 
       `/proposta/aprovar?proposalId=${encodeURIComponent(proposalId)}&token=${encodeURIComponent(token)}`,
     // Public PDF download route (for email links)
