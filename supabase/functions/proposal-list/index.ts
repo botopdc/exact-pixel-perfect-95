@@ -15,31 +15,43 @@ function json(data: unknown, status = 200) {
 }
 
 serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // MVP: Require any Authorization header (CORE token)
     const authHeader = req.headers.get("authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.error("[proposal-list] Missing or invalid Authorization header");
       return json({ success: false, error: "Unauthorized" }, 401);
     }
 
-    // Parse request body
     const body = await req.json().catch(() => ({}));
-    const { search, status, limit = 15, offset = 0 } = body as {
+    const {
+      search,
+      status,
+      clientName,
+      companyName,
+      dateFrom,
+      dateTo,
+      sortField = "created_at",
+      sortDirection = "desc",
+      limit = 15,
+      offset = 0,
+    } = body as {
       search?: string;
       status?: string;
+      clientName?: string;
+      companyName?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      sortField?: string;
+      sortDirection?: string;
       limit?: number;
       offset?: number;
     };
 
-    console.log("[proposal-list] Request params:", { search, status, limit, offset });
+    console.log("[proposal-list] Request params:", { search, status, clientName, companyName, dateFrom, dateTo, sortField, sortDirection, limit, offset });
 
-    // Create Supabase client with Service Role (bypasses RLS)
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
@@ -47,20 +59,50 @@ serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
-    // Build query
+    // Map sortField to actual DB column
+    const validSortFields: Record<string, string> = {
+      created_at: "created_at",
+      updated_at: "updated_at",
+      name: "name",
+      company: "company",
+      total: "total",
+      status: "status",
+    };
+    const dbSortField = validSortFields[sortField] || "created_at";
+    const ascending = sortDirection === "asc";
+
     let query = supabase
       .from("calculator_proposals")
       .select("id, display_id, name, company, email, phone, status, total, datacenter, channel_type, created_at, updated_at", { count: "exact" })
-      .order("updated_at", { ascending: false });
+      .order(dbSortField, { ascending });
 
-    // Apply filters
+    // Status filter
     if (status && status !== "all" && status.trim() !== "") {
       query = query.eq("status", status);
     }
 
+    // General search (ID, name, company, email)
     if (search && search.trim() !== "") {
       const term = search.trim();
-      query = query.or(`company.ilike.%${term}%,name.ilike.%${term}%,email.ilike.%${term}%`);
+      query = query.or(`company.ilike.%${term}%,name.ilike.%${term}%,email.ilike.%${term}%,display_id.ilike.%${term}%`);
+    }
+
+    // Specific client name filter
+    if (clientName && clientName.trim() !== "") {
+      query = query.ilike("name", `%${clientName.trim()}%`);
+    }
+
+    // Specific company name filter
+    if (companyName && companyName.trim() !== "") {
+      query = query.ilike("company", `%${companyName.trim()}%`);
+    }
+
+    // Date range filters (on created_at)
+    if (dateFrom && dateFrom.trim() !== "") {
+      query = query.gte("created_at", `${dateFrom.trim()}T00:00:00.000Z`);
+    }
+    if (dateTo && dateTo.trim() !== "") {
+      query = query.lte("created_at", `${dateTo.trim()}T23:59:59.999Z`);
     }
 
     // Pagination

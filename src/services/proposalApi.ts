@@ -23,6 +23,12 @@ function getCoreToken(): string | null {
 export interface ProposalListParams {
   search?: string;
   status?: string;
+  clientName?: string;
+  companyName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sortField?: string;
+  sortDirection?: string;
   limit?: number;
   offset?: number;
 }
