@@ -83,6 +83,7 @@ import { normalizeProposalForEdit, normalizedToCalculatorItems } from '@/lib/pro
 import { openApi } from '@/lib/openApi';
 import { setArchitectParticipant, removeArchitectParticipant, getArchitectParticipant } from '@/services/proposalParticipantService';
 import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
+import { buildDetailedSummaryRows } from '@/lib/buildDetailedSummaryRows';
 
 // User context for calculator
 interface CalculatorUserContext {
@@ -489,15 +490,6 @@ const OpenCalculator: React.FC = () => {
   const calculate = useCallback(() => {
     if (!config) return;
 
-    const rows: SummaryRow[] = [];
-    let subRec = 0;
-    let subIps = 0;
-    let subServices = 0;
-    let gpuUsdTotal = 0;
-    let gpuBrlTotal = 0;
-    let totalServers = 0;
-    let rowCounter = 0; // For generating unique row keys
-
     // Helper to safely convert any value to a number, defaulting to fallback
     const toNum = (val: any, fallback = 0): number => {
       if (val === undefined || val === null || val === '') return fallback;
@@ -505,308 +497,40 @@ const OpenCalculator: React.FC = () => {
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
-    // Helper to add row with markup support
-    const addRow = (
-      label: string, 
-      qty: string | number, 
-      unitPrice: number, 
-      baseTotal: number, 
-      rowKey: string
-    ): number => {
-      const overrideTotal = priceOverrides[rowKey] ?? null;
-      const finalTotal = overrideTotal !== null ? overrideTotal : baseTotal;
-      
-      rows.push({
-        label,
-        qty,
-        unitPrice,
-        subtotal: finalTotal, // Use finalTotal for display and calculation
-        baseUnitPrice: unitPrice,
-        baseTotal,
-        overrideTotal,
-        finalTotal,
-        rowKey,
-      });
-      
-      return finalTotal; // Return finalTotal for subtotal calculations
-    };
-
-    items.forEach((item, idx) => {
-      const qtyServers = Math.max(1, toNum(item.qtyServers, 1));
-      const ips = Math.max(0, toNum(item.ips, 0));
-      totalServers += qtyServers;
-      const itemPrefix = item.type === 'vm' ? `vm_${idx}` : `bm_${idx}`;
-
-      if (item.type === 'vm') {
-        const vcpu = Math.max(1, toNum(item.vcpu, 1));
-        const ramGb = Math.max(1, toNum(item.ramGb, 1));
-        const nvmeTbVal = toNum(item.nvmeTb, 0);
-        const nvmeGb = Math.max(0, nvmeTbVal) * 1024;
-
-        // CPU
-        const cpuPrice = toNum(config.vm_prices_brl.vcpu, 0);
-        const cpuUnit = vcpu * cpuPrice;
-        const cpuSub = cpuUnit * qtyServers;
-        subRec += addRow(`VM #${idx + 1} — vCPU (${vcpu} por srv)`, qtyServers, cpuUnit, cpuSub, `${itemPrefix}_cpu`);
-
-        // RAM
-        const ramPrice = toNum(config.vm_prices_brl.ram_per_gb, 0);
-        const ramUnit = ramGb * ramPrice;
-        const ramSub = ramUnit * qtyServers;
-        subRec += addRow(`VM #${idx + 1} — RAM (${ramGb} GB por srv)`, qtyServers, ramUnit, ramSub, `${itemPrefix}_ram`);
-
-        // Disk
-        const diskPrice = toNum(config.vm_prices_brl.nvme_per_gb, 0);
-        const diskUnit = nvmeGb * diskPrice;
-        const diskSub = diskUnit * qtyServers;
-        subRec += addRow(`VM #${idx + 1} — NVMe (${nvmeTbVal.toFixed(2)} TB por srv)`, qtyServers, diskUnit, diskSub, `${itemPrefix}_disk`);
-      } else {
-        // BareMetal
-        const cpu = config.baremetal.cpu_models.find(c => c.id === item.bmCpu) || config.baremetal.cpu_models[0];
-        const ram = config.baremetal.ram_tiers.find(r => r.id === item.bmRam) || config.baremetal.ram_tiers[0];
-
-        if (cpu && ram) {
-          // CPU
-          const cpuSub = cpu.price * qtyServers;
-          subRec += addRow(`BareMetal #${idx + 1} — CPU (${cpu.label})`, qtyServers, cpu.price, cpuSub, `${itemPrefix}_cpu`);
-
-          // RAM
-          const ramSub = ram.price * qtyServers;
-          subRec += addRow(`BareMetal #${idx + 1} — RAM (${ram.label})`, qtyServers, ram.price, ramSub, `${itemPrefix}_ram`);
-        }
-
-        // Disks - safe iteration with null check
-        let diskUnitTotal = 0;
-        const itemDisks = Array.isArray(item.disks) ? item.disks : [];
-        itemDisks.forEach(disk => {
-          const d = config.baremetal.disks.find(x => x.id === disk.type) || config.baremetal.disks[0];
-          if (d) {
-            diskUnitTotal += d.price * Math.max(1, disk.qty);
-          }
-        });
-        if (diskUnitTotal > 0) {
-          const diskSub = diskUnitTotal * qtyServers;
-          subRec += addRow(`BareMetal #${idx + 1} — Discos NVMe`, qtyServers, diskUnitTotal, diskSub, `${itemPrefix}_disks`);
-        }
-      }
-
-      // IPs
-      if (ips > 0) {
-        const ipPrice = toNum(config.vm_prices_brl.ip_public, 0);
-        const ipUnit = ips * ipPrice;
-        const ipSub = ipUnit * qtyServers;
-        subIps += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — IPs públicos (${ips} por srv)`, qtyServers, ipUnit, ipSub, `${itemPrefix}_ips`);
-      }
-
-      // GPU - NOW DIRECT BRL (no FX conversion)
-      const gpuQty = item.gpu === 'Sem GPU' ? 0 : Math.max(1, Math.min(8, toNum(item.gpuQty, 0)));
-      const gpuBrlUnit = toNum(config.gpu_usd[item.gpu], 0); // Now directly BRL (despite the field name)
-      if (gpuQty > 0 && gpuBrlUnit > 0) {
-        const gpuBrlPerServer = gpuBrlUnit * gpuQty;
-        const gpuBrl = gpuBrlPerServer * qtyServers;
-        subRec += addRow(`${item.type === 'vm' ? 'VM' : 'BareMetal'} #${idx + 1} — GPU (${item.gpu}, ${gpuQty}x por srv)`, qtyServers, gpuBrlPerServer, gpuBrl, `${itemPrefix}_gpu`);
-        gpuBrlTotal += gpuBrl;
-      }
+    // Use shared function for all detailed row building
+    const detailed = buildDetailedSummaryRows({
+      items: items.map(item => ({
+        type: item.type === 'vm' ? 'vm' as const : 'bm' as const,
+        gpu: item.gpu,
+        gpuQty: item.gpuQty,
+        qtyServers: item.qtyServers,
+        ips: item.ips,
+        vcpu: item.type === 'vm' ? item.vcpu : undefined,
+        ramGb: item.type === 'vm' ? item.ramGb : undefined,
+        nvmeTb: item.type === 'vm' ? item.nvmeTb : undefined,
+        bmCpu: item.type !== 'vm' ? item.bmCpu : undefined,
+        bmRam: item.type !== 'vm' ? item.bmRam : undefined,
+        disks: item.type !== 'vm' ? item.disks : undefined,
+      })),
+      addons,
+      kubernetes,
+      storageItems,
+      openSaas,
+      priceOverrides,
+      config,
     });
 
-    // REMOVED: Auto-set antivirus - now 100% user-controlled
-    // Antivirus quantity is ONLY set by user input, never auto-synced with VM count
-
-    // Services - using toNum for all pricing
-    const antivirusQty = toNum(addons.antivirus, 0);
-    if (antivirusQty > 0) {
-      const unitPrice = toNum(config.addons_brl.antivirus_unit, 0);
-      const st = unitPrice * antivirusQty;
-      subServices += addRow('Antivirus', antivirusQty, unitPrice, st, 'svc_antivirus');
-    }
-    const firewallQty = toNum(addons.firewall, 0);
-    if (firewallQty > 0) {
-      const unitPrice = toNum(config.addons_brl.firewall_pfsense, 0);
-      const st = unitPrice * firewallQty;
-      subServices += addRow('Firewall (qtd)', firewallQty, unitPrice, st, 'svc_firewall');
-    }
-    const tsplusQty = toNum(addons.tsplus, 0);
-    if (tsplusQty > 0) {
-      const unitPrice = toNum(config.addons_brl.tsplus_unit, 0);
-      const st = unitPrice * tsplusQty;
-      subServices += addRow('TS PLUS', tsplusQty, unitPrice, st, 'svc_tsplus');
-    }
-    const calQty = toNum(addons.cal, 0);
-    if (calQty > 0) {
-      const unitPrice = toNum(config.addons_brl.cal_unit, 0);
-      const st = unitPrice * calQty;
-      subServices += addRow('CAL / TS-CAL', calQty, unitPrice, st, 'svc_cal');
-    }
-    const sqlQty = toNum(addons.sqlQty, 0);
-    if (addons.sql !== 'none' && sqlQty > 0) {
-      const unitPrice = toNum(config.addons_brl.sql?.[addons.sql], 0);
-      const st = unitPrice * sqlQty;
-      subServices += addRow(`Licença SQL (${addons.sql.toUpperCase()})`, sqlQty, unitPrice, st, `svc_sql_${addons.sql}`);
-    }
-    const veeamVmQty = toNum(addons.veeamVm, 0);
-    if (veeamVmQty > 0) {
-      const unitPrice = toNum(config.addons_brl.veeam_vm_unit, 0);
-      const st = unitPrice * veeamVmQty;
-      subServices += addRow('Veeam Backup (VM)', veeamVmQty, unitPrice, st, 'svc_veeam_vm');
-    }
-    const veeamAgQty = toNum(addons.veeamAg, 0);
-    if (veeamAgQty > 0) {
-      const unitPrice = toNum(config.addons_brl.veeam_agent_unit, 0);
-      const st = unitPrice * veeamAgQty;
-      subServices += addRow('Veeam Agent (Workstation)', veeamAgQty, unitPrice, st, 'svc_veeam_agent');
-    }
-    const winserverQty = toNum(addons.winserver, 0);
-    if (winserverQty > 0) {
-      const unitPrice = toNum(config.addons_brl.winserver_2vcpu_unit, 0);
-      const st = unitPrice * winserverQty;
-      subServices += addRow('WinServer(2vCPU/unid.)', winserverQty, unitPrice, st, 'svc_winserver');
-    }
-
-    // NEW ADD-ONS: Suporte, Consultoria, DBA
-    if (addons.support.level !== 'none' && addons.support.price > 0) {
-      const label = `Suporte ${SUPPORT_LEVEL_LABELS[addons.support.level as SupportLevel] || addons.support.level}`;
-      subServices += addRow(label, 1, addons.support.price, addons.support.price, 'svc_support');
-    }
-    
-    const consultingQty = toNum(addons.consulting.quantity, 0);
-    if (consultingQty > 0) {
-      const unitPrice = toNum(addons.consulting.unitPrice, 200);
-      const st = unitPrice * consultingQty;
-      subServices += addRow('Consultoria Técnica', `${consultingQty} h`, unitPrice, st, 'svc_consulting');
-    }
-    
-    const dbaQty = toNum(addons.dba.quantity, 0);
-    if (dbaQty > 0) {
-      const unitPrice = toNum(addons.dba.unitPrice, 250);
-      const st = unitPrice * dbaQty;
-      subServices += addRow('DBA', `${dbaQty} h`, unitPrice, st, 'svc_dba');
-    }
-
-    // Custom add-ons (dynamic from config)
-    const standardAddonKeys = ['antivirus_unit', 'firewall_pfsense', 'tsplus_unit', 'cal_unit', 'sql', 'veeam_vm_unit', 'veeam_agent_unit', 'winserver_2vcpu_unit', 'support_basic', 'support_intermediate', 'support_advanced', 'consulting_hours', 'dba_hours'];
-    Object.entries(config.addons_brl).forEach(([key, price]) => {
-      if (!standardAddonKeys.includes(key) && typeof price === 'number') {
-        const qty = toNum(addons.customAddons?.[key], 0);
-        const unitPrice = toNum(price, 0);
-        if (qty > 0 && unitPrice > 0) {
-          const st = unitPrice * qty;
-          const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          subServices += addRow(label, qty, unitPrice, st, `svc_custom_${key}`);
-        }
-      }
-    });
-
-    // Backup - with safe number conversion
-    const backupGbQty = toNum(addons.backupGb, 0);
-    let subBackup = 0;
-    const backupBasePrice = calculateBackupPrice(config, addons.backupPlan, backupGbQty);
-    if (Number.isFinite(backupBasePrice) && backupBasePrice > 0) {
-      const unit = backupBasePrice / Math.max(1, backupGbQty);
-      subBackup = addRow(`Backup ${addons.backupPlan} dias`, `${backupGbQty} GB`, unit, backupBasePrice, `backup_${addons.backupPlan}`);
-    }
-
-    // Kubernetes
-    let subKubernetes = 0;
-    if (kubernetes.enabled) {
-      const planInfo = K8S_PLANS[kubernetes.plan];
-      const basePriceMonthly = toNum(getK8sPlanBasePrice(kubernetes.plan, config), 0);
-      subKubernetes += addRow(`Kubernetes Gerenciado — ${planInfo.shortLabel} (base)`, 1, basePriceMonthly, basePriceMonthly, `k8s_base_${kubernetes.plan}`);
-
-      // K8s extras (additional resources using VM pricing)
-      const extras = kubernetes.extras || { vcpu: 0, ramGB: 0, diskGB: 0 };
-      const extrasVcpu = toNum(extras.vcpu, 0);
-      const extrasRamGB = toNum(extras.ramGB, 0);
-      const extrasDiskGB = toNum(extras.diskGB, 0);
-      
-      if (extrasVcpu > 0) {
-        const vcpuPrice = toNum(config.vm_prices_brl.vcpu, 0);
-        const vcpuCost = extrasVcpu * vcpuPrice;
-        subKubernetes += addRow(`K8s — + ${extrasVcpu} vCPU adicional`, 1, vcpuCost, vcpuCost, 'k8s_extra_vcpu');
-      }
-      if (extrasRamGB > 0) {
-        const ramPrice = toNum(config.vm_prices_brl.ram_per_gb, 0);
-        const ramCost = extrasRamGB * ramPrice;
-        subKubernetes += addRow(`K8s — + ${extrasRamGB} GB RAM adicional`, 1, ramCost, ramCost, 'k8s_extra_ram');
-      }
-      if (extrasDiskGB > 0) {
-        const diskPrice = toNum(config.vm_prices_brl.nvme_per_gb, 0);
-        const diskCost = extrasDiskGB * diskPrice;
-        subKubernetes += addRow(`K8s — + ${extrasDiskGB} GB Disco adicional`, 1, diskCost, diskCost, 'k8s_extra_disk');
-      }
-
-      // K8s add-ons (using configurable prices)
-      if (kubernetes.addons.support_24x7) {
-        const price = toNum(getK8sAddonPrice('support_24x7', config), 0);
-        subKubernetes += addRow('K8s — Suporte 24×7', 1, price, price, 'k8s_addon_support');
-      }
-      if (kubernetes.addons.backup_velero) {
-        const price = toNum(getK8sAddonPrice('backup_velero', config), 0);
-        subKubernetes += addRow('K8s — Backup (Velero)', 1, price, price, 'k8s_addon_backup');
-      }
-      if (kubernetes.addons.dr_multisite) {
-        const price = toNum(getK8sAddonPrice('dr_multisite', config), 0);
-        subKubernetes += addRow('K8s — DR multi-site', 1, price, price, 'k8s_addon_dr');
-      }
-      if (kubernetes.addons.observability) {
-        const price = toNum(getK8sAddonPrice('observability', config), 0);
-        subKubernetes += addRow('K8s — Observabilidade avançada', 1, price, price, 'k8s_addon_obs');
-      }
-      if (kubernetes.addons.cicd_managed) {
-        const price = toNum(getK8sAddonPrice('cicd_managed', config), 0);
-        subKubernetes += addRow('K8s — CI/CD gerenciado', 1, price, price, 'k8s_addon_cicd');
-      }
-      const devopsHours = toNum(kubernetes.addons.devops_hours, 0);
-      if (devopsHours > 0) {
-        const price = toNum(getK8sAddonPrice('devops_hours', config), 0);
-        const devopsSubtotal = devopsHours * price;
-        subKubernetes += addRow('K8s — Horas DevOps', devopsHours, price, devopsSubtotal, 'k8s_addon_devops');
-      }
-    }
-
-    // Storage
-    let subStorage = 0;
-    storageItems.forEach((storage, idx) => {
-      const storageType = storage.storageType || 'sas';
-      const typeLabel = STORAGE_TYPE_LABELS[storageType];
-      
-      if (storageType === 'nvme') {
-        // NVMe uses GB
-        const volumeGB = toNum(storage.volumeGB, 0) || toNum(storage.volumeTB, 0) * 1024 || 1;
-        if (volumeGB >= 1) {
-          const pricePerGB = toNum(getNvmePricePerGB(config), 0);
-          const monthlyTotal = volumeGB * pricePerGB;
-          subStorage += addRow(`${typeLabel} — ${volumeGB} GB`, 1, pricePerGB, monthlyTotal, `storage_${idx}_nvme`);
-        }
-      } else {
-        // SAS and S3 use TB (S3 uses same pricing as SAS)
-        const volumeTB = toNum(storage.volumeTB, 0);
-        if (volumeTB >= 1) {
-          const pricePerTB = toNum(getStoragePricePerTB(volumeTB, storage.region, config, storageType), 0);
-          const monthlyTotal = toNum(calculateStorageMonthly(volumeTB, storage.region, config, storageType), 0);
-          const tierLabel = getStorageTierLabel(volumeTB);
-          subStorage += addRow(`${typeLabel} ${storage.region} — ${volumeTB} TB (${tierLabel})`, 1, pricePerTB, monthlyTotal, `storage_${idx}_${storageType}`);
-        }
-      }
-    });
-
-    // OPEN SaaS (minimum 5 users enforced)
-    let subOpenSaas = 0;
-    const openSaasUsers = toNum(openSaas.users, 0);
-    if (openSaas.enabled && openSaasUsers >= 5) {
-      const pricePerUser = toNum(config.open_saas_price_per_user, 85);
-      const users = Math.max(5, openSaasUsers); // Enforce minimum
-      const monthlyTotal = users * pricePerUser;
-      subOpenSaas = addRow(`OPEN SaaS — ${users} usuário(s) × R$ ${formatCurrency(pricePerUser)}/usuário`, users, pricePerUser, monthlyTotal, 'open_saas');
-    }
+    const { rows, totalServers, gpuBrlTotal } = detailed;
+    const gpuUsdTotal = 0; // Legacy field
 
     // Calculate subtotal (price list) before discount - ensure all are numbers
-    const safeSubRec = Number.isFinite(subRec) ? subRec : 0;
-    const safeSubIps = Number.isFinite(subIps) ? subIps : 0;
-    const safeSubServices = Number.isFinite(subServices) ? subServices : 0;
-    const safeSubBackup = Number.isFinite(subBackup) ? subBackup : 0;
-    const safeSubKubernetes = Number.isFinite(subKubernetes) ? subKubernetes : 0;
-    const safeSubStorage = Number.isFinite(subStorage) ? subStorage : 0;
-    const safeSubOpenSaas = Number.isFinite(subOpenSaas) ? subOpenSaas : 0;
+    const safeSubRec = Number.isFinite(detailed.subRec) ? detailed.subRec : 0;
+    const safeSubIps = Number.isFinite(detailed.subIps) ? detailed.subIps : 0;
+    const safeSubServices = Number.isFinite(detailed.subServices) ? detailed.subServices : 0;
+    const safeSubBackup = Number.isFinite(detailed.subBackup) ? detailed.subBackup : 0;
+    const safeSubKubernetes = Number.isFinite(detailed.subKubernetes) ? detailed.subKubernetes : 0;
+    const safeSubStorage = Number.isFinite(detailed.subStorage) ? detailed.subStorage : 0;
+    const safeSubOpenSaas = Number.isFinite(detailed.subOpenSaas) ? detailed.subOpenSaas : 0;
     
     const preTotal = safeSubRec + safeSubIps + safeSubServices + safeSubBackup + safeSubKubernetes + safeSubStorage + safeSubOpenSaas;
     const discountPct = toNum(config.discount[selectedTerm], 0);
@@ -839,7 +563,8 @@ const OpenCalculator: React.FC = () => {
     // Debug NaN detection - log if any subtotal is NaN
     if (!Number.isFinite(safeSubRec) || !Number.isFinite(safeSubServices) || !Number.isFinite(grandTotal)) {
       console.warn('[Calculator] NaN detected in calculation:', {
-        subRec, subIps, subServices, subBackup, subKubernetes, subStorage, subOpenSaas,
+        subRec: safeSubRec, subIps: safeSubIps, subServices: safeSubServices, subBackup: safeSubBackup,
+        subKubernetes: safeSubKubernetes, subStorage: safeSubStorage, subOpenSaas: safeSubOpenSaas,
         grandTotal, preTotal, discountPct, discountValue
       });
     }
