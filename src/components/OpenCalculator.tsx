@@ -1177,7 +1177,7 @@ const OpenCalculator: React.FC = () => {
     // Validate: at least one item (server, product, or addon) must exist
     if (!hasAnyItem()) {
       toast({ title: 'Erro', description: 'Adicione ao menos 1 item (Servidor, Storage, Kubernetes, OPEN SaaS ou Serviço) para salvar a proposta.', variant: 'destructive' });
-      return;
+      return null;
     }
     // Block save if approval is pending
     if (isApprovalPending) {
