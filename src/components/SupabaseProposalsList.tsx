@@ -254,6 +254,8 @@ const SupabaseProposalsList: React.FC = () => {
   }, [data, toast]);
   
   const proposals = data?.proposals || [];
+  const proposalIds = proposals.map((p: ProposalRow) => p.id);
+  const { data: convertedProposalIds } = useConvertedProposalIds(proposalIds);
   const totalPages = data?.total ? Math.ceil(data.total / perPage) : 1;
   const pagination = {
     currentPage: data?.page || 1,
