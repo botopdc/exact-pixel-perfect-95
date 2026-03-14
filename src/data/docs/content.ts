@@ -1564,6 +1564,9 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
   // ======== CORE — RBAC Model ========
   'core/open_rbac_model': OPEN_RBAC_MODEL_CONTENT,
 
+  // ======== CORE — Event Architecture ========
+  'core/open_event_architecture': OPEN_EVENT_ARCHITECTURE_CONTENT,
+
   // ======== CHANGELOG ========
   'core/open_changelog': OPEN_CHANGELOG_CONTENT,
 };
