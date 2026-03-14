@@ -3233,7 +3233,7 @@ const OpenCalculator: React.FC = () => {
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="open-outline" onClick={handleSave} disabled={saving}>
+                  <Button variant="open-outline" onClick={handleSave} disabled={saving || sendingEmail}>
                     {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                     {saving ? 'Salvando...' : 'Salvar'}
                   </Button>
