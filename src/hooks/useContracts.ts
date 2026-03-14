@@ -80,6 +80,8 @@ export function useDeleteContract() {
     mutationFn: contractService.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      // Re-check eligible proposals after contract deletion
+      queryClient.invalidateQueries({ queryKey: ['proposals-api'] });
       toast.success('Contrato excluído');
     },
     onError: (error: Error) => {
