@@ -769,6 +769,7 @@ function buildDadosPropostaFromSupabase(proposal: any): any {
       const qty = addon.quantity || 0;
       const price = addon.unit_price || 0;
       const totalPrice = addon.total_price || (price * qty);
+      const metadata = addon.metadata || {};
 
       switch (key) {
         case 'antivirus':
@@ -792,7 +793,7 @@ function buildDadosPropostaFromSupabase(proposal: any): any {
           dadosProposta.addons.winserverPrice = price;
           break;
         case 'sql':
-          dadosProposta.addons.sql = (addon.metadata as any)?.type || 'std';
+          dadosProposta.addons.sql = metadata?.type || 'std';
           dadosProposta.addons.sqlPrice = totalPrice;
           break;
         case 'veeam_vm':
@@ -808,6 +809,23 @@ function buildDadosPropostaFromSupabase(proposal: any): any {
           dadosProposta.addons.backupPlan = '7';
           dadosProposta.addons.backupGb = qty;
           dadosProposta.addons.backupPrice = totalPrice;
+          break;
+        case 'kubernetes':
+          // Map K8s as a product with component prices
+          dadosProposta.kubernetes = {
+            enabled: true,
+            workerNodes: metadata?.extras?.vcpu ? 1 : 0,
+            totalPrice: totalPrice,
+            plan: metadata?.plan || 'k8s_small',
+            componentPrices: metadata?.componentPrices || undefined,
+          };
+          break;
+        case 'open_saas':
+          dadosProposta.openSaas = {
+            enabled: true,
+            users: qty,
+            pricePerUser: price > 0 ? price : (totalPrice / Math.max(1, qty)),
+          };
           break;
       }
     });
