@@ -719,6 +719,21 @@ const SupabaseProposalsList: React.FC = () => {
                             </TooltipTrigger>
                             <TooltipContent>Baixar PDF</TooltipContent>
                           </Tooltip>
+
+                          {/* Histórico de acessos */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setAccessModalProposalId(proposal.id)}
+                              >
+                                <BarChart3 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Histórico / Ver acessos</TooltipContent>
+                          </Tooltip>
                           
                           {isAdmin && (
                             <Tooltip>
