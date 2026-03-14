@@ -5,7 +5,7 @@
  * The CORE auth token is passed to the Edge Functions for authorization.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   FileDown, Loader2, Mail, Link as LinkIcon, BarChart3,
+  Filter, ArrowUpDown, CalendarIcon, RotateCcw,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
@@ -32,6 +33,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { authService } from '@/services/authService';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
@@ -111,6 +117,20 @@ function getStatusBadge(status: string | undefined) {
   }
 }
 
+// Sort options
+const SORT_OPTIONS = [
+  { value: 'created_at:desc', label: 'Data: mais recentes' },
+  { value: 'created_at:asc', label: 'Data: mais antigas' },
+  { value: 'name:asc', label: 'Cliente: A → Z' },
+  { value: 'name:desc', label: 'Cliente: Z → A' },
+  { value: 'company:asc', label: 'Empresa: A → Z' },
+  { value: 'company:desc', label: 'Empresa: Z → A' },
+  { value: 'total:desc', label: 'Valor: maior → menor' },
+  { value: 'total:asc', label: 'Valor: menor → maior' },
+  { value: 'status:asc', label: 'Status: A → Z' },
+  { value: 'status:desc', label: 'Status: Z → A' },
+];
+
 const SupabaseProposalsList: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -121,7 +141,7 @@ const SupabaseProposalsList: React.FC = () => {
   const isAdmin = userLevel === 1000;
   const isArchitect = userLevel === 690;
   const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel === 1000;
-  const canCopyLink = !isArchitect; // All internal users except architects
+  const canCopyLink = !isArchitect;
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -131,8 +151,23 @@ const SupabaseProposalsList: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [clientName, setClientName] = useState('');
+  const [debouncedClientName, setDebouncedClientName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [debouncedCompanyName, setDebouncedCompanyName] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   
-  // Debounce search
+  // Sort state
+  const [sortValue, setSortValue] = useState('created_at:desc');
+  
+  // Advanced filters visibility
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  
+  // Parse sort value
+  const [sortField, sortDirection] = sortValue.split(':');
+  
+  // Debounce search fields
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
@@ -140,16 +175,56 @@ const SupabaseProposalsList: React.FC = () => {
     }, 400);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedClientName(clientName);
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [clientName]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedCompanyName(companyName);
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [companyName]);
   
   // Reset page on filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, perPage]);
+  }, [statusFilter, perPage, dateFrom, dateTo, sortValue]);
+
+  // Check if any filter is active
+  const hasActiveFilters = searchQuery || statusFilter !== 'all' || clientName || companyName || dateFrom || dateTo || sortValue !== 'created_at:desc';
+
+  // Clear all filters
+  const handleClearFilters = useCallback(() => {
+    setSearchQuery('');
+    setDebouncedSearch('');
+    setStatusFilter('all');
+    setClientName('');
+    setDebouncedClientName('');
+    setCompanyName('');
+    setDebouncedCompanyName('');
+    setDateFrom('');
+    setDateTo('');
+    setSortValue('created_at:desc');
+    setCurrentPage(1);
+  }, []);
   
-  // Fetch proposals via Edge Function (uses Service Role, no RLS issues)
+  // Fetch proposals via Edge Function
   const { data, isLoading, error: queryError, refetch } = useProposalList(currentPage, {
     status: statusFilter === 'all' ? undefined : statusFilter,
     search: debouncedSearch || undefined,
+    clientName: debouncedClientName || undefined,
+    companyName: debouncedCompanyName || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    sortField,
+    sortDirection,
     limit: perPage,
   });
   
@@ -165,7 +240,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
   }, [queryError, toast]);
   
-  // Handle API-level errors (when success=false)
+  // Handle API-level errors
   useEffect(() => {
     if (data && !data.success && data.error) {
       console.error('[SupabaseProposalsList] API error:', data.error);
@@ -222,20 +297,15 @@ const SupabaseProposalsList: React.FC = () => {
       return;
     }
 
-    // REQUIRED DEBUG: ensure we always pass the Supabase UUID
     const proposalId = proposal.id;
     console.log('[EDIT NAV] supabase proposalId', proposalId);
-
     setEditingId(proposalId);
-
-    // Navigate to edit - calculator will fetch via Edge Function
     const editPath = getProposalEditRoute(proposalId, false);
     navigate(editPath, { state: { supabaseId: proposalId } });
   };
 
   // Handle send email
   const handleSendEmail = async (proposal: ProposalRow) => {
-    // Validate required fields
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
       return;
@@ -246,18 +316,14 @@ const SupabaseProposalsList: React.FC = () => {
     }
 
     setSendingEmailId(proposal.id);
-    console.log('[EMAIL SEND] Starting for proposal:', proposal.id);
 
     try {
-      // Generate Supabase approval link (token-only, no UUID fallback)
       const proposalLink = await getApprovalLink(proposal.id);
       
-      // Format validity date (30 days from now if not available)
       const validityDate = new Date();
       validityDate.setDate(validityDate.getDate() + 30);
       const formattedValidity = validityDate.toLocaleDateString('pt-BR');
 
-      // Call Edge Function
       const { data, error } = await supabase.functions.invoke('send-proposal-email', {
         body: {
           clientName: proposal.name,
@@ -270,52 +336,20 @@ const SupabaseProposalsList: React.FC = () => {
       });
 
       if (error) {
-        console.error('[EMAIL SEND] Edge Function error:', error);
-        toast({
-          title: 'Erro ao enviar e-mail',
-          description: error.message || 'Falha na comunicação com o servidor',
-          variant: 'destructive',
-        });
+        toast({ title: 'Erro ao enviar e-mail', description: error.message || 'Falha na comunicação com o servidor', variant: 'destructive' });
         return;
       }
 
       if (!data?.success) {
-        console.error('[EMAIL SEND] API error:', data?.error);
-        toast({
-          title: 'Erro ao enviar e-mail',
-          description: data?.error || 'Falha no envio do e-mail',
-          variant: 'destructive',
-        });
+        toast({ title: 'Erro ao enviar e-mail', description: data?.error || 'Falha no envio do e-mail', variant: 'destructive' });
         return;
       }
 
-      console.log('[EMAIL SEND] Success:', data);
+      trackProposalEvent({ proposalId: proposal.id, source: 'email_sent', clientEmail: proposal.email });
 
-      // Track email sent event
-      trackProposalEvent({
-        proposalId: proposal.id,
-        source: 'email_sent',
-        clientEmail: proposal.email,
-      });
-
-      // If status is Rascunho, update to Enviado
       if (proposal.status === 'Rascunho') {
-        console.log('[EMAIL SEND] Updating status from Rascunho to Enviado');
-        const saveResult = await saveProposal({
-          proposal: {
-            id: proposal.id,
-            status: 'Enviado',
-          },
-          servers: [],
-          addons: [],
-        });
-
-        if (saveResult.success) {
-          console.log('[EMAIL SEND] Status updated successfully');
-          refetch(); // Refresh the list
-        } else {
-          console.warn('[EMAIL SEND] Failed to update status:', saveResult.error);
-        }
+        const saveResult = await saveProposal({ proposal: { id: proposal.id, status: 'Enviado' }, servers: [], addons: [] });
+        if (saveResult.success) refetch();
       }
 
       toast({
@@ -323,18 +357,13 @@ const SupabaseProposalsList: React.FC = () => {
         description: `Proposta enviada para ${proposal.email}`,
       });
     } catch (err: any) {
-      console.error('[EMAIL SEND] Exception:', err);
-      toast({
-        title: 'Erro ao enviar e-mail',
-        description: err.message || 'Erro inesperado',
-        variant: 'destructive',
-      });
+      toast({ title: 'Erro ao enviar e-mail', description: err.message || 'Erro inesperado', variant: 'destructive' });
     } finally {
       setSendingEmailId(null);
     }
   };
 
-  // Handle PDF download (Supabase: download ONLY from Storage using pdf_path)
+  // Handle PDF download
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -342,39 +371,29 @@ const SupabaseProposalsList: React.FC = () => {
     }
 
     setPdfLoadingId(proposal.id);
-    console.log('[PDF DOWNLOAD] Starting for proposal:', proposal.id);
 
     try {
       const res = await getProposalFromEdge(proposal.id);
 
       if (!res?.success) {
-        toast({
-          title: 'Erro',
-          description: res?.error || 'Falha ao buscar proposta para download do PDF',
-          variant: 'destructive',
-        });
+        toast({ title: 'Erro', description: res?.error || 'Falha ao buscar proposta', variant: 'destructive' });
         return;
       }
 
       const pdfPath = res.proposal?.pdf_path;
-
       if (!pdfPath) {
-        toast({
-          title: 'PDF ainda não gerado',
-          description: 'Abra a proposta e clique em PDF na calculadora.',
-        });
+        toast({ title: 'PDF ainda não gerado', description: 'Abra a proposta e clique em PDF na calculadora.' });
         return;
       }
 
       const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('proposal-files')
-        .createSignedUrl(pdfPath, 60 * 10); // 10 minutos
+        .createSignedUrl(pdfPath, 60 * 10);
 
       if (signedUrlError || !signedUrlData?.signedUrl) {
         throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
       }
 
-      // Inicia download/abertura do PDF salvo
       const filename = `OPEN_proposta_${res.proposal.display_id || res.proposal.id}.pdf`;
       const a = document.createElement('a');
       a.href = signedUrlData.signedUrl;
@@ -385,19 +404,10 @@ const SupabaseProposalsList: React.FC = () => {
       a.click();
       a.remove();
 
-      trackProposalEvent({
-        proposalId: proposal.id,
-        source: 'pdf_download',
-      });
-
+      trackProposalEvent({ proposalId: proposal.id, source: 'pdf_download' });
       toast({ title: 'Download iniciado', description: 'O PDF salvo foi aberto para download.' });
     } catch (error: any) {
-      console.error('[PDF DOWNLOAD] Exception:', error);
-      toast({
-        title: 'Erro',
-        description: error.message || 'Falha ao baixar PDF',
-        variant: 'destructive',
-      });
+      toast({ title: 'Erro', description: error.message || 'Falha ao baixar PDF', variant: 'destructive' });
     } finally {
       setPdfLoadingId(null);
     }
@@ -411,39 +421,26 @@ const SupabaseProposalsList: React.FC = () => {
     }
     
     setCopyingLinkId(proposal.id);
-    console.log('[COPY LINK] Getting approval link for:', proposal.id);
     
     try {
       const approvalLink = await getApprovalLink(proposal.id);
       const copySuccess = await copyToClipboard(approvalLink);
       
-      // Track link copied event
-      trackProposalEvent({
-        proposalId: proposal.id,
-        source: 'link_copied',
-      });
+      trackProposalEvent({ proposalId: proposal.id, source: 'link_copied' });
       
-      // Update status to Enviado if still Rascunho
       if (proposal.status === 'Rascunho') {
-        console.log('[COPY LINK] Updating status from Rascunho to Enviado');
-        await saveProposal({
-          proposal: { id: proposal.id, status: 'Enviado' },
-          servers: [],
-          addons: [],
-        });
+        await saveProposal({ proposal: { id: proposal.id, status: 'Enviado' }, servers: [], addons: [] });
         refetch();
       }
       
       if (copySuccess) {
         toast({ title: 'Link copiado!', description: 'O link de aprovação foi copiado para a área de transferência' });
       } else {
-        // Safari fallback - show modal
         setLinkModalUrl(approvalLink);
         setLinkModalOpen(true);
         toast({ title: 'Copie o link manualmente', description: 'O Safari bloqueou a cópia automática.' });
       }
     } catch (error: any) {
-      console.error('[COPY LINK] Exception:', error);
       toast({ title: 'Erro ao gerar link', description: error.message || 'Não foi possível gerar o link', variant: 'destructive' });
     } finally {
       setCopyingLinkId(null);
@@ -458,11 +455,7 @@ const SupabaseProposalsList: React.FC = () => {
       await deleteProposalMutation.mutateAsync(deleteProposalId);
       setDeleteProposalId(null);
     } catch (error: any) {
-      toast({
-        title: 'Erro ao excluir',
-        description: error.message || 'Falha ao excluir proposta',
-        variant: 'destructive',
-      });
+      toast({ title: 'Erro ao excluir', description: error.message || 'Falha ao excluir proposta', variant: 'destructive' });
     } finally {
       setIsDeleting(false);
     }
@@ -471,6 +464,16 @@ const SupabaseProposalsList: React.FC = () => {
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('pt-BR');
   };
+
+  // Count active filters for badge
+  const activeFilterCount = [
+    searchQuery,
+    statusFilter !== 'all' ? statusFilter : '',
+    clientName,
+    companyName,
+    dateFrom,
+    dateTo,
+  ].filter(Boolean).length;
   
   return (
     <TooltipProvider>
@@ -494,12 +497,12 @@ const SupabaseProposalsList: React.FC = () => {
             )}
           </div>
           
-          {/* Filters */}
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
+          {/* Search + Sort Row */}
+          <div className="flex flex-col md:flex-row gap-3 mb-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nome, empresa, email..."
+                placeholder="Buscar por ID, nome, empresa, email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -513,22 +516,33 @@ const SupabaseProposalsList: React.FC = () => {
                 </button>
               )}
             </div>
-            
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Status" />
+
+            <Select value={sortValue} onValueChange={setSortValue}>
+              <SelectTrigger className="w-[220px]">
+                <ArrowUpDown className="h-4 w-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Ordenar por..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="Rascunho">Rascunho</SelectItem>
-                <SelectItem value="Enviado">Enviado</SelectItem>
-                <SelectItem value="Aprovado">Aprovado</SelectItem>
-                <SelectItem value="Recusado">Recusado</SelectItem>
-                <SelectItem value="Expirado">Expirado</SelectItem>
-                <SelectItem value="Cancelado">Cancelado</SelectItem>
+                {SORT_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            
+
+            <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" className="gap-2 relative">
+                  <Filter className="h-4 w-4" />
+                  Filtros
+                  {activeFilterCount > 0 && (
+                    <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-[10px] bg-primary text-primary-foreground">
+                      {activeFilterCount}
+                    </Badge>
+                  )}
+                </Button>
+              </CollapsibleTrigger>
+            </Collapsible>
+
             <Select value={String(perPage)} onValueChange={(v) => setPerPage(Number(v))}>
               <SelectTrigger className="w-[100px]">
                 <SelectValue />
@@ -541,6 +555,95 @@ const SupabaseProposalsList: React.FC = () => {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Advanced Filters */}
+          <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <CollapsibleContent>
+              <div className="bg-muted/30 border border-border rounded-lg p-4 mb-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Client Name */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Nome do cliente</label>
+                    <Input
+                      placeholder="Filtrar por cliente..."
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                    />
+                  </div>
+                  
+                  {/* Company Name */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Nome da empresa</label>
+                    <Input
+                      placeholder="Filtrar por empresa..."
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Status */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="Rascunho">Rascunho</SelectItem>
+                        <SelectItem value="Enviado">Enviado</SelectItem>
+                        <SelectItem value="Aprovado">Aprovado</SelectItem>
+                        <SelectItem value="Recusado">Recusado</SelectItem>
+                        <SelectItem value="Expirado">Expirado</SelectItem>
+                        <SelectItem value="Cancelado">Cancelado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Placeholder for alignment */}
+                  <div className="hidden lg:block" />
+
+                  {/* Date From */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Data inicial</label>
+                    <div className="relative">
+                      <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Date To */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Data final</label>
+                    <div className="relative">
+                      <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Clear Filters */}
+                {hasActiveFilters && (
+                  <div className="flex justify-end pt-1">
+                    <Button variant="ghost" size="sm" onClick={handleClearFilters} className="gap-2 text-muted-foreground hover:text-foreground">
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Limpar filtros
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
           
           {/* Table */}
           {isLoading ? (
