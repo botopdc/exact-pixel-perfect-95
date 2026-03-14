@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
-import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
+import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import JSZip from "npm:jszip@3.10.1";
 
 const corsHeaders = {
@@ -34,12 +34,13 @@ function dateShort(dateStr: string | null): string {
   return d.toLocaleDateString("pt-BR");
 }
 
-function fmtCurrency(value: number, currency = "BRL"): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(value);
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 // ─── DOCX template merge ────────────────────────────────────
@@ -49,15 +50,10 @@ async function mergeDocxTemplate(
 ): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(templateBytes);
 
-  // Process all XML files in the DOCX
   const xmlFiles = [
     "word/document.xml",
-    "word/header1.xml",
-    "word/header2.xml",
-    "word/header3.xml",
-    "word/footer1.xml",
-    "word/footer2.xml",
-    "word/footer3.xml",
+    "word/header1.xml", "word/header2.xml", "word/header3.xml",
+    "word/footer1.xml", "word/footer2.xml", "word/footer3.xml",
   ];
 
   for (const path of xmlFiles) {
@@ -66,14 +62,10 @@ async function mergeDocxTemplate(
 
     let xml = await file.async("string");
 
-    // Replace placeholders — handle Word splitting tags across runs
     for (const [key, value] of Object.entries(placeholders)) {
       const tag = `{{${key}}}`;
-      // Direct replacement first
       xml = xml.split(tag).join(escapeXml(value));
 
-      // Also try regex that handles Word splitting the placeholder across multiple <w:r> elements
-      // Pattern: {{ may be split as {{, key, }} across runs
       const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const splitPattern = new RegExp(
         `\\{\\{[\\s]*(?:<[^>]*>)*[\\s]*${escapedKey}[\\s]*(?:<[^>]*>)*[\\s]*\\}\\}`,
@@ -88,374 +80,17 @@ async function mergeDocxTemplate(
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
 
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-// ─── Build detailed rows from structured data (mirrors buildDetailedSummaryRows) ──
-interface DetailedRow {
-  label: string;
-  qty: string | number;
-  unitPrice: number;
-  totalPrice: number;
-}
-
-function buildDetailedRows(
-  servers: any[],
-  addons: any[],
-  currency: string
-): DetailedRow[] {
-  const rows: DetailedRow[] = [];
-
-  // ── SERVERS (VM / BareMetal / Storage) ──
-  servers.forEach((s) => {
-    const serverType = s.server_type || s.type || "vm";
-    const name = s.name || serverType.toUpperCase();
-    const qtyServers = s.qty_servers || 1;
-    const specs = s.specs || {};
-    const componentPrices = specs.componentPrices as
-      | Record<string, { unitPrice: number; totalPrice: number }>
-      | undefined;
-
-    if (serverType === "storage") {
-      // Storage items — single row
-      rows.push({
-        label: name,
-        qty: 1,
-        unitPrice: s.unit_price || s.total_price || 0,
-        totalPrice: s.total_price || 0,
-      });
-      return;
-    }
-
-    if (componentPrices && Object.keys(componentPrices).length > 0) {
-      // ── Detailed component rows from persisted snapshot ──
-      if (serverType === "vm") {
-        if (componentPrices.cpu) {
-          const vcpu = s.vcpu || specs.vcpu || 0;
-          rows.push({
-            label: `${name} — vCPU (${vcpu} por srv)`,
-            qty: qtyServers,
-            unitPrice: componentPrices.cpu.unitPrice,
-            totalPrice: componentPrices.cpu.totalPrice,
-          });
-        }
-        if (componentPrices.ram) {
-          const ramGb = s.ram_gb || specs.ramGb || 0;
-          rows.push({
-            label: `${name} — RAM (${ramGb} GB por srv)`,
-            qty: qtyServers,
-            unitPrice: componentPrices.ram.unitPrice,
-            totalPrice: componentPrices.ram.totalPrice,
-          });
-        }
-        if (componentPrices.disk) {
-          const nvmeTb = s.nvme_tb || specs.nvmeTb || 0;
-          rows.push({
-            label: `${name} — NVMe (${Number(nvmeTb).toFixed(2)} TB por srv)`,
-            qty: qtyServers,
-            unitPrice: componentPrices.disk.unitPrice,
-            totalPrice: componentPrices.disk.totalPrice,
-          });
-        }
-      } else if (serverType === "bm") {
-        if (componentPrices.cpu) {
-          const cpuLabel = s.bm_cpu || specs.bmCpu || "CPU";
-          rows.push({
-            label: `${name} — CPU (${cpuLabel})`,
-            qty: qtyServers,
-            unitPrice: componentPrices.cpu.unitPrice,
-            totalPrice: componentPrices.cpu.totalPrice,
-          });
-        }
-        if (componentPrices.ram) {
-          const ramLabel = s.bm_ram || specs.bmRam || "RAM";
-          rows.push({
-            label: `${name} — RAM (${ramLabel})`,
-            qty: qtyServers,
-            unitPrice: componentPrices.ram.unitPrice,
-            totalPrice: componentPrices.ram.totalPrice,
-          });
-        }
-        if (componentPrices.disks) {
-          rows.push({
-            label: `${name} — Discos NVMe`,
-            qty: qtyServers,
-            unitPrice: componentPrices.disks.unitPrice,
-            totalPrice: componentPrices.disks.totalPrice,
-          });
-        }
-      }
-
-      // IPs (common to VM and BM)
-      if (componentPrices.ips) {
-        const ips = s.ips || 0;
-        rows.push({
-          label: `${name} — IPs públicos (${ips} por srv)`,
-          qty: qtyServers,
-          unitPrice: componentPrices.ips.unitPrice,
-          totalPrice: componentPrices.ips.totalPrice,
-        });
-      }
-
-      // GPU (common to VM and BM)
-      if (componentPrices.gpu) {
-        const gpu = s.gpu || specs.gpu || "GPU";
-        const gpuQty = s.gpu_qty || specs.gpuQty || 1;
-        rows.push({
-          label: `${name} — GPU (${gpu}, ${gpuQty}x por srv)`,
-          qty: qtyServers,
-          unitPrice: componentPrices.gpu.unitPrice,
-          totalPrice: componentPrices.gpu.totalPrice,
-        });
-      }
-    } else {
-      // Fallback: single consolidated row per server
-      rows.push({
-        label: name,
-        qty: qtyServers,
-        unitPrice: s.unit_price || 0,
-        totalPrice: s.total_price || 0,
-      });
-    }
-  });
-
-  // ── ADDONS ──
-  const enabledAddons = addons.filter((a) => a.enabled);
-  for (const a of enabledAddons) {
-    // Check if addon has its own componentPrices (K8s, SaaS)
-    const meta = a.metadata || {};
-    const addonComponentPrices = meta.componentPrices as
-      | Record<string, { unitPrice: number; totalPrice: number; label?: string }>
-      | undefined;
-
-    if (addonComponentPrices && Object.keys(addonComponentPrices).length > 0) {
-      // Detailed K8s/SaaS breakdown
-      for (const [_key, cp] of Object.entries(addonComponentPrices)) {
-        if (cp.totalPrice > 0) {
-          rows.push({
-            label: cp.label || `${a.label} — ${_key}`,
-            qty: 1,
-            unitPrice: cp.unitPrice,
-            totalPrice: cp.totalPrice,
-          });
-        }
-      }
-    } else {
-      rows.push({
-        label: a.label,
-        qty: a.quantity,
-        unitPrice: a.unit_price || 0,
-        totalPrice: a.total_price || 0,
-      });
-    }
-  }
-
-  return rows;
-}
-
-// ─── Annex I PDF generation from structured data ────────────
-async function generateAnnexPdf(
-  contract: any,
-  servers: any[],
-  addons: any[],
-  currency: string
-): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
-
-  const pageWidth = 595.28; // A4
-  const pageHeight = 841.89;
-  const margin = 50;
-  const ROW_HEIGHT = 14;
-  const HEADER_HEIGHT = 25; // table header block
-  const TOTAL_BLOCK_HEIGHT = 80; // total + footer
-  const bottomLimit = margin + 40;
-
-  let page = doc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - margin;
-  let isFirstPage = true;
-
-  const colX = [margin, margin + 280, margin + 320, margin + 410];
-
-  // ── Drawing helpers (use current `page` and `y`) ──
-  const drawText = (
-    text: string,
-    x: number,
-    yPos: number,
-    size = 10,
-    bold = false
-  ) => {
-    page.drawText(text, {
-      x,
-      y: yPos,
-      size,
-      font: bold ? fontBold : font,
-      color: rgb(0.1, 0.1, 0.1),
-    });
-  };
-
-  const drawLine = (yPos: number) => {
-    page.drawLine({
-      start: { x: margin, y: yPos },
-      end: { x: pageWidth - margin, y: yPos },
-      thickness: 0.5,
-      color: rgb(0.7, 0.7, 0.7),
-    });
-  };
-
-  const drawTableHeader = (continuation = false) => {
-    const title = continuation
-      ? "ANEXO I — RESUMO DA PROPOSTA (continuação)"
-      : "ITENS CONTRATADOS";
-    drawText(title, margin, y, 11, true);
-    y -= 20;
-    const headers = ["ITENS", "QT", "VALOR UNITÁRIO (R$)", "VALOR TOTAL (R$)"];
-    headers.forEach((h, i) => drawText(h, colX[i], y, 8, true));
-    y -= 5;
-    drawLine(y);
-    y -= 15;
-  };
-
-  const startNewTablePage = () => {
-    page = doc.addPage([pageWidth, pageHeight]);
-    y = pageHeight - margin;
-    // Page continuation title
-    drawText("ANEXO I — RESUMO DA PROPOSTA (continuação)", margin, y, 14, true);
-    y -= 25;
-    drawLine(y);
-    y -= 20;
-    drawTableHeader(true);
-  };
-
-  // ── Page 1: Client info + proposal info ──
-  drawText("ANEXO I — RESUMO DA PROPOSTA", margin, y, 16, true);
-  y -= 30;
-  drawLine(y);
-  y -= 20;
-
-  // Client info
-  drawText("IDENTIFICAÇÃO DO CLIENTE", margin, y, 11, true);
-  y -= 18;
-  const clientInfo = [
-    ["Cliente:", contract.client_name || ""],
-    ["Empresa:", contract.company || ""],
-    ["E-mail:", contract.email || ""],
-    ["Telefone:", contract.phone || ""],
-    ["CNPJ:", contract.has_no_cnpj ? "Isento" : (contract.cnpj || "—")],
-  ];
-  for (const [label, value] of clientInfo) {
-    drawText(label, margin, y, 9, true);
-    drawText(value, margin + 70, y, 9);
-    y -= 15;
-  }
-  y -= 10;
-
-  // Proposal info
-  drawText("DADOS DA PROPOSTA", margin, y, 11, true);
-  y -= 18;
-  const proposalInfo = [
-    ["Proposta:", contract.proposal_uuid || contract.proposal_id?.substring(0, 8) || ""],
-    ["Datacenter:", contract.datacenter || "—"],
-    ["Vigência:", `${contract.contract_duration || 12} meses`],
-    ["Ciclo:", contract.billing_cycle || "mensal"],
-    ["Data contrato:", dateShort(contract.contract_date)],
-  ];
-  for (const [label, value] of proposalInfo) {
-    drawText(label, margin, y, 9, true);
-    drawText(value, margin + 90, y, 9);
-    y -= 15;
-  }
-  y -= 10;
-  drawLine(y);
-  y -= 20;
-
-  // ── Build detailed rows ──
-  const detailedRows = buildDetailedRows(servers, addons, currency);
-
-  if (detailedRows.length === 0) {
-    drawText("Nenhum item encontrado na proposta.", margin, y, 10);
-    y -= 30;
-    drawText(
-      `Documento gerado automaticamente em ${new Date().toLocaleDateString("pt-BR")}`,
-      margin,
-      y,
-      7
-    );
-    return doc.save();
-  }
-
-  // ── Draw table with smart pagination ──
-  drawTableHeader(false);
-
-  let grandTotal = 0;
-
-  for (let i = 0; i < detailedRows.length; i++) {
-    const row = detailedRows[i];
-    const isLastRow = i === detailedRows.length - 1;
-
-    // Calculate space needed: current row + (total block if last row)
-    const spaceNeeded = ROW_HEIGHT + (isLastRow ? TOTAL_BLOCK_HEIGHT : 0);
-
-    // Check if we need a new page
-    if (y - spaceNeeded < bottomLimit) {
-      startNewTablePage();
-    }
-
-    // Render row — allow long labels (up to 55 chars)
-    const labelStr = (row.label || "").substring(0, 55);
-    const qtyStr = String(row.qty);
-    const unitStr = fmtCurrency(row.unitPrice, currency);
-    const totalStr = fmtCurrency(row.totalPrice, currency);
-
-    drawText(labelStr, colX[0], y, 8);
-    drawText(qtyStr, colX[1], y, 8);
-    drawText(unitStr, colX[2], y, 8);
-    drawText(totalStr, colX[3], y, 8);
-    y -= ROW_HEIGHT;
-    grandTotal += row.totalPrice;
-  }
-
-  // ── Total (always on last page) ──
-  y -= 10;
-  drawLine(y);
-  y -= 20;
-  drawText("TOTAL MENSAL:", margin, y, 12, true);
-  const displayTotal = contract.total || grandTotal;
-  drawText(fmtCurrency(displayTotal, currency), colX[3] - 20, y, 12, true);
-  y -= 30;
-
-  // Footer
-  drawLine(y);
-  y -= 15;
-  drawText(
-    `Documento gerado automaticamente em ${new Date().toLocaleDateString("pt-BR")}`,
-    margin,
-    y,
-    7
-  );
-
-  return doc.save();
-}
-
-// ─── Fallback: trim proposal PDF (remove pages 1-7) ────────
+// ─── Trim proposal PDF: remove pages 1–7, keep 8+ ──────────
 async function trimProposalPdf(pdfBytes: Uint8Array): Promise<Uint8Array> {
   const srcDoc = await PDFDocument.load(pdfBytes);
   const totalPages = srcDoc.getPageCount();
 
   if (totalPages <= 7) {
-    // If 7 or fewer pages, return as-is (nothing to trim)
-    return pdfBytes;
+    throw new Error("contract_annex_invalid_pdf_page_count");
   }
 
   const newDoc = await PDFDocument.create();
-  // Copy pages 8+ (index 7+)
+  // Pages are zero-indexed: page 8 = index 7
   const pagesToCopy = Array.from(
     { length: totalPages - 7 },
     (_, i) => i + 7
@@ -502,33 +137,27 @@ serve(async (req: Request) => {
       return json({ success: false, error: "Contrato não encontrado" }, 404);
     }
 
-    // 2. Load proposal servers + addons
+    // 2. Validate proposal_id
     const proposalId = contract.proposal_id;
-    const [serversRes, addonsRes] = await Promise.all([
-      supabase
-        .from("calculator_proposal_servers")
-        .select("*")
-        .eq("proposal_id", proposalId)
-        .order("sort_order"),
-      supabase
-        .from("calculator_proposal_addons")
-        .select("*")
-        .eq("proposal_id", proposalId)
-        .order("sort_order"),
-    ]);
+    if (!proposalId) {
+      return json({ success: false, error: "contract_without_proposal_id" }, 400);
+    }
 
-    const servers = serversRes.data || [];
-    const addons = addonsRes.data || [];
+    // 3. Load proposal
+    const { data: proposal, error: pErr } = await supabase
+      .from("calculator_proposals")
+      .select("id, pdf_path, display_id")
+      .eq("id", proposalId)
+      .single();
 
-    console.log("[contract-generate-document] Loaded:", {
-      servers: servers.length,
-      addons: addons.length,
-    });
+    if (pErr || !proposal) {
+      return json({ success: false, error: "proposal_not_found" }, 404);
+    }
 
     const contractCode = contract.contract_number || contract.id.substring(0, 8).toUpperCase();
     const basePath = `contracts/${contract.id}`;
 
-    // 3. Build placeholders for DOCX merge
+    // ── 4. DOCX template merge ──────────────────────────────
     const placeholders: Record<string, string> = {
       contract_code: contractCode,
       legal_name: contract.legal_name || contract.company || "",
@@ -549,9 +178,7 @@ serve(async (req: Request) => {
     };
 
     let docxPath: string | null = null;
-    let generationStrategy = "structured";
 
-    // 4. Try DOCX template merge
     const templateCode = contract.template_code || "opdc-cloud-default";
     const { data: template } = await supabase
       .from("contract_templates")
@@ -585,22 +212,62 @@ serve(async (req: Request) => {
           console.error("[contract-generate-document] DOCX upload error:", upErr);
         }
       } else {
-        console.warn("[contract-generate-document] Template not found in storage, skipping DOCX merge");
+        console.warn("[contract-generate-document] Template not found in storage");
       }
     }
 
-    // 5. Generate Annex I PDF from structured data (PRIMARY strategy)
-    const annexBytes = await generateAnnexPdf(contract, servers, addons, contract.currency || "BRL");
-    const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
+    // ── 5. Annex I — Trim proposal PDF (pages 1-7 removed) ──
+    let annexPdfPath: string | null = null;
+    const generationStrategy = "proposal_pdf_trim";
 
+    if (!proposal.pdf_path) {
+      console.warn("[contract-generate-document] contract_annex_source_pdf_not_found — proposal has no pdf_path");
+      return json({
+        success: false,
+        error: "contract_annex_source_pdf_not_found",
+        detail: "A proposta vinculada não possui PDF oficial gerado. Gere o PDF da proposta antes de gerar o contrato.",
+      }, 400);
+    }
+
+    console.log("[contract-generate-document] Downloading proposal PDF:", proposal.pdf_path);
+    const { data: proposalPdfFile, error: pdfDlErr } = await supabase.storage
+      .from("proposal-files")
+      .download(proposal.pdf_path);
+
+    if (!proposalPdfFile || pdfDlErr) {
+      console.error("[contract-generate-document] Failed to download proposal PDF:", pdfDlErr);
+      return json({
+        success: false,
+        error: "contract_annex_source_pdf_not_found",
+        detail: "Não foi possível baixar o PDF oficial da proposta.",
+      }, 400);
+    }
+
+    const proposalPdfBytes = new Uint8Array(await proposalPdfFile.arrayBuffer());
+
+    let trimmedBytes: Uint8Array;
+    try {
+      trimmedBytes = await trimProposalPdf(proposalPdfBytes);
+    } catch (trimErr) {
+      const errMsg = String(trimErr);
+      if (errMsg.includes("contract_annex_invalid_pdf_page_count")) {
+        return json({
+          success: false,
+          error: "contract_annex_invalid_pdf_page_count",
+          detail: "O PDF da proposta possui 7 ou menos páginas, impossível gerar o Anexo I.",
+        }, 400);
+      }
+      throw trimErr;
+    }
+
+    const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
     const { error: annexUpErr } = await supabase.storage
       .from("contracts-generated")
-      .upload(annexStoragePath, annexBytes, {
+      .upload(annexStoragePath, trimmedBytes, {
         contentType: "application/pdf",
         upsert: true,
       });
 
-    let annexPdfPath: string | null = null;
     if (!annexUpErr) {
       annexPdfPath = annexStoragePath;
       console.log("[contract-generate-document] Annex I PDF saved:", annexPdfPath);
@@ -608,50 +275,13 @@ serve(async (req: Request) => {
       console.error("[contract-generate-document] Annex upload error:", annexUpErr);
     }
 
-    // 6. Fallback: If proposal has existing PDF, also create trimmed version
-    let proposalPdfSourcePath: string | null = null;
-    const { data: proposalRow } = await supabase
-      .from("calculator_proposals")
-      .select("pdf_path")
-      .eq("id", proposalId)
-      .single();
-
-    if (proposalRow?.pdf_path) {
-      const { data: proposalPdfFile } = await supabase.storage
-        .from("proposal-files")
-        .download(proposalRow.pdf_path);
-
-      if (proposalPdfFile) {
-        try {
-          const proposalPdfBytes = new Uint8Array(await proposalPdfFile.arrayBuffer());
-          const trimmedBytes = await trimProposalPdf(proposalPdfBytes);
-          const trimmedPath = `${basePath}/anexo-i-fallback-${contractCode}.pdf`;
-
-          const { error: trimUpErr } = await supabase.storage
-            .from("contracts-generated")
-            .upload(trimmedPath, trimmedBytes, {
-              contentType: "application/pdf",
-              upsert: true,
-            });
-
-          if (!trimUpErr) {
-            proposalPdfSourcePath = trimmedPath;
-            generationStrategy = "structured+fallback";
-            console.log("[contract-generate-document] Fallback PDF saved:", trimmedPath);
-          }
-        } catch (e) {
-          console.warn("[contract-generate-document] Fallback PDF trim failed:", e);
-        }
-      }
-    }
-
-    // 7. Update contract record with file paths
+    // ── 6. Update contract record ───────────────────────────
     const { error: updateErr } = await supabase
       .from("contracts")
       .update({
         docx_path: docxPath,
         annex_pdf_path: annexPdfPath,
-        proposal_pdf_source_path: proposalPdfSourcePath,
+        proposal_pdf_source_path: proposal.pdf_path,
         generation_strategy: generationStrategy,
         template_code: templateCode,
         updated_at: new Date().toISOString(),
@@ -667,7 +297,7 @@ serve(async (req: Request) => {
       contract_id,
       docx_path: docxPath,
       annex_pdf_path: annexPdfPath,
-      proposal_pdf_source_path: proposalPdfSourcePath,
+      proposal_pdf_source_path: proposal.pdf_path,
       generation_strategy: generationStrategy,
     });
   } catch (err) {
