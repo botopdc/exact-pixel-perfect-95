@@ -924,6 +924,16 @@ const OpenCalculator: React.FC = () => {
     
     const displayId = supabaseState.meta?.proposalDisplayId || supabaseId.substring(0, 8);
     toast({ title: 'Proposta carregada', description: `Editando proposta ${displayId}` });
+    } catch (err) {
+      console.error('[OpenCalculator] CRITICAL: applySupabaseState CRASHED:', err, {
+        supabaseId,
+        stateKeys: Object.keys(supabaseState || {}),
+        itemsCount: supabaseState?.items?.length,
+        storageCount: supabaseState?.storageItems?.length,
+      });
+      toast({ title: 'Erro ao carregar proposta', description: 'Falha ao hidratar os itens da calculadora. Verifique o console.', variant: 'destructive' });
+      setInitialized(true);
+    }
   }, [config, toast]);
 
   // MAIN INITIALIZATION: Add initial VM OR load proposal for editing
