@@ -371,6 +371,9 @@ export type Database = {
           pdf_generated_at: string | null
           pdf_path: string | null
           phone: string
+          public_approval_enabled: boolean
+          public_approval_expires_at: string | null
+          public_approval_token: string | null
           rejected_at: string | null
           reseller_name: string | null
           status: string
@@ -406,6 +409,9 @@ export type Database = {
           pdf_generated_at?: string | null
           pdf_path?: string | null
           phone: string
+          public_approval_enabled?: boolean
+          public_approval_expires_at?: string | null
+          public_approval_token?: string | null
           rejected_at?: string | null
           reseller_name?: string | null
           status?: string
@@ -441,6 +447,9 @@ export type Database = {
           pdf_generated_at?: string | null
           pdf_path?: string | null
           phone?: string
+          public_approval_enabled?: boolean
+          public_approval_expires_at?: string | null
+          public_approval_token?: string | null
           rejected_at?: string | null
           reseller_name?: string | null
           status?: string

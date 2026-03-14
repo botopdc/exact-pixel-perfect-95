@@ -247,14 +247,8 @@ const SupabaseProposalsList: React.FC = () => {
     console.log('[EMAIL SEND] Starting for proposal:', proposal.id);
 
     try {
-      // Generate Supabase approval link
-      let proposalLink: string;
-      try {
-        proposalLink = await getApprovalLink(proposal.id);
-      } catch (linkErr: any) {
-        console.warn('[EMAIL SEND] Failed to generate approval link, using fallback');
-        proposalLink = `${window.location.origin}/proposta/aprovacao/${proposal.id}`;
-      }
+      // Generate Supabase approval link (token-only, no UUID fallback)
+      const proposalLink = await getApprovalLink(proposal.id);
       
       // Format validity date (30 days from now if not available)
       const validityDate = new Date();

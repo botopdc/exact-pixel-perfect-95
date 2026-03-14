@@ -1,9 +1,9 @@
 /**
  * Public Approval Service — 100% Supabase via Edge Function
- * 
+ *
  * All public operations go through the `public-approval` edge function
  * which uses SERVICE_ROLE_KEY to bypass RLS.
- * 
+ *
  * ZERO dependency on legacy API.
  */
 
@@ -35,6 +35,9 @@ export interface PublicProposal {
   approval_decision: string | null;
   approved_at: string | null;
   rejected_at: string | null;
+  public_approval_token?: string | null;
+  public_approval_enabled?: boolean;
+  public_approval_expires_at?: string | null;
   servers: PublicProposalServer[];
   addons: PublicProposalAddon[];
 }
@@ -80,9 +83,11 @@ export interface ApprovalResult {
   error?: string;
 }
 
-export type LoadError = 
+export type LoadError =
   | 'token_missing'
   | 'token_invalid'
+  | 'proposal_not_found'
+  | 'token_disabled'
   | 'token_expired'
   | 'already_approved'
   | 'already_rejected'
@@ -116,45 +121,55 @@ async function callEdgeFunction(body: Record<string, unknown>): Promise<any> {
  * This runs in authenticated context (commercial panel).
  */
 export async function generateOrGetPublicApprovalLink(proposalId: string): Promise<string> {
-  console.log('[publicApprovalService] generateOrGetPublicApprovalLink:', proposalId);
+  console.log('generate approval link proposal', proposalId);
 
   const { data: proposal, error: fetchErr } = await supabase
     .from('calculator_proposals')
-    .select('id, approval_token, approval_token_expires_at')
+    .select('id, public_approval_token, public_approval_enabled, public_approval_expires_at')
     .eq('id', proposalId)
     .maybeSingle();
 
   if (fetchErr) throw new Error(`Erro ao buscar proposta: ${fetchErr.message}`);
   if (!proposal) throw new Error(`Proposta não encontrada: ${proposalId}`);
 
+  console.log('proposal id', proposal.id);
+  console.log('proposal uuid', (proposal as any)?.uuid ?? null);
+  console.log('proposal public token', (proposal as any)?.public_approval_token ?? null);
+
   const now = new Date();
-  const existingExpiry = proposal.approval_token_expires_at
-    ? new Date(proposal.approval_token_expires_at)
+  const existingExpiry = (proposal as any)?.public_approval_expires_at
+    ? new Date((proposal as any).public_approval_expires_at)
     : null;
 
-  if (proposal.approval_token && existingExpiry && existingExpiry > now) {
-    console.log('[publicApprovalService] Reusing existing token');
-    return buildPublicUrl(proposal.approval_token);
+  if (
+    (proposal as any)?.public_approval_token &&
+    (proposal as any)?.public_approval_enabled &&
+    (!existingExpiry || existingExpiry > now)
+  ) {
+    const reuseUrl = buildPublicUrl((proposal as any).public_approval_token);
+    console.log('final public approval url', reuseUrl);
+    return reuseUrl;
   }
 
-  const newToken = crypto.randomUUID();
+  const newToken = createPublicApprovalToken();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
   const { error: updateErr } = await supabase
     .from('calculator_proposals')
     .update({
-      approval_token: newToken,
-      approval_token_expires_at: expiresAt.toISOString(),
+      public_approval_token: newToken,
+      public_approval_enabled: true,
+      public_approval_expires_at: expiresAt.toISOString(),
       updated_at: new Date().toISOString(),
-    })
+    } as any)
     .eq('id', proposalId);
 
   if (updateErr) throw new Error(`Erro ao gerar token: ${updateErr.message}`);
 
-  const url = buildPublicUrl(newToken);
-  console.log('[publicApprovalService] Generated new approval URL');
-  return url;
+  const approvalUrl = buildPublicUrl(newToken);
+  console.log('final public approval url', approvalUrl);
+  return approvalUrl;
 }
 
 // ============================================================================
@@ -167,7 +182,7 @@ export async function loadPublicProposalByToken(token: string): Promise<{
   error?: LoadError;
   message?: string;
 }> {
-  console.log('[publicApprovalService] Loading by token:', token?.substring(0, 8) + '...');
+  console.log('loading public proposal by token', token);
 
   if (!token || token.trim() === '') {
     return { error: 'token_missing', message: 'Token de aprovação ausente.' };
@@ -177,8 +192,11 @@ export async function loadPublicProposalByToken(token: string): Promise<{
     const result = await callEdgeFunction({ action: 'load', token: token.trim() });
 
     if (!result.success) {
-      const errorCode = result.errorCode || 'unknown';
-      return { error: errorCode as LoadError, message: result.error || 'Erro desconhecido' };
+      const errorCode = (result.errorCode || 'unknown') as LoadError;
+      return {
+        error: errorCode,
+        message: result.error || mapLoadErrorToMessage(errorCode),
+      };
     }
 
     const p = result.proposal;
@@ -218,6 +236,10 @@ export async function loadPublicProposalByToken(token: string): Promise<{
       })),
     };
 
+    console.log('proposal found', publicProposal);
+    console.log('public approval enabled', publicProposal.public_approval_enabled);
+    console.log('public approval token in db', publicProposal.public_approval_token);
+
     return { proposal: publicProposal, pdfSignedUrl: result.pdfSignedUrl };
   } catch (err: any) {
     console.error('[publicApprovalService] Load error:', err);
@@ -234,7 +256,7 @@ export async function recordApprovalDecision(
   decision: ApprovalDecision,
   meta?: { name?: string; email?: string; notes?: string }
 ): Promise<ApprovalResult> {
-  console.log('[publicApprovalService] Recording decision:', decision);
+  console.log('approval decision', decision);
 
   try {
     const result = await callEdgeFunction({
@@ -276,4 +298,29 @@ export async function getPublicPdfSignedUrl(pdfPath: string): Promise<string | n
 function buildPublicUrl(token: string): string {
   const baseUrl = window.location.origin;
   return `${baseUrl}/proposta/aprovacao/${token}`;
+}
+
+function createPublicApprovalToken(): string {
+  return `pat_${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+function mapLoadErrorToMessage(error: LoadError): string {
+  switch (error) {
+    case 'token_missing':
+      return 'Token de aprovação ausente.';
+    case 'token_invalid':
+      return 'Token de aprovação inválido.';
+    case 'proposal_not_found':
+      return 'Proposta não encontrada.';
+    case 'token_disabled':
+      return 'A aprovação pública desta proposta está desabilitada.';
+    case 'token_expired':
+      return 'Este link de aprovação expirou.';
+    case 'already_approved':
+      return 'Esta proposta já foi aprovada.';
+    case 'already_rejected':
+      return 'Esta proposta já foi recusada.';
+    default:
+      return 'Erro ao carregar proposta.';
+  }
 }
