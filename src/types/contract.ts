@@ -32,6 +32,20 @@ export interface Contract {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  // Contract-specific legal/address fields
+  legal_name: string | null;
+  company_name: string | null;
+  has_no_cnpj: boolean;
+  cnpj: string | null;
+  responsible_name: string | null;
+  responsible_cpf: string | null;
+  zip_code: string | null;
+  street: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  payment_day: number | null;
+  contract_date: string | null;
 }
 
 export type ContractStatus =

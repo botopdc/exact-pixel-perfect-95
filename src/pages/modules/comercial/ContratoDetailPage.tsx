@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -26,6 +27,11 @@ import { formatCurrency } from '@/lib/calculatorConfig';
 import { getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { ROUTES } from '@/config/routes';
+
+const BR_STATES = [
+  'AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
+  'PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO',
+];
 
 export default function ContratoDetailPage() {
   const navigate = useNavigate();
@@ -45,6 +51,21 @@ export default function ContratoDetailPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Legal / address fields
+  const [legalName, setLegalName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [hasNoCnpj, setHasNoCnpj] = useState(false);
+  const [cnpj, setCnpj] = useState('');
+  const [responsibleName, setResponsibleName] = useState('');
+  const [responsibleCpf, setResponsibleCpf] = useState('');
+  const [zipCode, setZipCode] = useState('');
+  const [street, setStreet] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [paymentDay, setPaymentDay] = useState<number | ''>('');
+  const [contractDate, setContractDate] = useState('');
 
   // Queries
   const { data: existingContract, isLoading: isLoadingContract } = useContract(isViewing ? id : undefined);
@@ -75,6 +96,11 @@ export default function ContratoDetailPage() {
         };
         setProposalData(p);
         setContractDuration(p.contract_duration || 12);
+        // Pre-fill from proposal
+        setCompanyName(p.company || '');
+        setLegalName(p.company || '');
+        setResponsibleName(p.name || '');
+        setContractDate(new Date().toISOString().split('T')[0]);
       } catch (err: any) {
         setProposalError(err.message || 'Erro ao carregar proposta');
       } finally {
@@ -105,6 +131,20 @@ export default function ContratoDetailPage() {
   const handleGenerate = async () => {
     if (!proposalData) return;
 
+    // Basic validations
+    if (!legalName.trim()) {
+      toast.error('Razão social é obrigatória');
+      return;
+    }
+    if (!hasNoCnpj && !cnpj.trim()) {
+      toast.error('CNPJ é obrigatório (ou marque "Sem CNPJ")');
+      return;
+    }
+    if (!responsibleName.trim()) {
+      toast.error('Nome do responsável é obrigatório');
+      return;
+    }
+
     try {
       const result = await createContract.mutateAsync({
         proposal_id: proposalData.id,
@@ -129,6 +169,20 @@ export default function ContratoDetailPage() {
           servers: proposalData.servers || [],
           addons: proposalData.addons || [],
         },
+        // Structured legal/address fields
+        legal_name: legalName || null,
+        company_name: companyName || null,
+        has_no_cnpj: hasNoCnpj,
+        cnpj: hasNoCnpj ? null : cnpj || null,
+        responsible_name: responsibleName || null,
+        responsible_cpf: responsibleCpf || null,
+        zip_code: zipCode || null,
+        street: street || null,
+        neighborhood: neighborhood || null,
+        city: city || null,
+        state: state || null,
+        payment_day: paymentDay ? Number(paymentDay) : null,
+        contract_date: contractDate || null,
       });
 
       trackProposalEvent({
@@ -194,31 +248,23 @@ export default function ContratoDetailPage() {
         {/* Status actions */}
         {c.status === 'rascunho' && (
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
+            <Button variant="outline" size="sm"
               onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
-              disabled={updateStatus.isPending}
-            >
+              disabled={updateStatus.isPending}>
               Enviar para assinatura
             </Button>
           </div>
         )}
         {c.status === 'pendente_assinatura' && (
           <div className="flex gap-2">
-            <Button
-              size="sm"
+            <Button size="sm"
               onClick={() => updateStatus.mutate({ id: c.id, status: 'assinado' })}
-              disabled={updateStatus.isPending}
-            >
+              disabled={updateStatus.isPending}>
               Marcar como assinado
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
+            <Button variant="destructive" size="sm"
               onClick={() => updateStatus.mutate({ id: c.id, status: 'cancelado' })}
-              disabled={updateStatus.isPending}
-            >
+              disabled={updateStatus.isPending}>
               Cancelar
             </Button>
           </div>
@@ -250,6 +296,30 @@ export default function ContratoDetailPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Legal / Address data */}
+        {(c.legal_name || c.responsible_name || c.cnpj || c.street) && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Dados Jurídicos / Endereço</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              {c.legal_name && <div><span className="text-muted-foreground">Razão social:</span> {c.legal_name}</div>}
+              {c.company_name && <div><span className="text-muted-foreground">Nome fantasia:</span> {c.company_name}</div>}
+              {c.has_no_cnpj ? (
+                <div><span className="text-muted-foreground">CNPJ:</span> <span className="italic">Sem CNPJ</span></div>
+              ) : c.cnpj ? (
+                <div><span className="text-muted-foreground">CNPJ:</span> {c.cnpj}</div>
+              ) : null}
+              {c.responsible_name && <div><span className="text-muted-foreground">Responsável:</span> {c.responsible_name}</div>}
+              {c.responsible_cpf && <div><span className="text-muted-foreground">CPF responsável:</span> {c.responsible_cpf}</div>}
+              {c.zip_code && <div><span className="text-muted-foreground">CEP:</span> {c.zip_code}</div>}
+              {c.street && <div><span className="text-muted-foreground">Endereço:</span> {c.street}</div>}
+              {c.neighborhood && <div><span className="text-muted-foreground">Bairro:</span> {c.neighborhood}</div>}
+              {(c.city || c.state) && <div><span className="text-muted-foreground">Cidade/UF:</span> {[c.city, c.state].filter(Boolean).join(' / ')}</div>}
+              {c.payment_day && <div><span className="text-muted-foreground">Dia de pagamento:</span> {c.payment_day}</div>}
+              {c.contract_date && <div><span className="text-muted-foreground">Data do contrato:</span> {new Date(c.contract_date).toLocaleDateString('pt-BR')}</div>}
+            </CardContent>
+          </Card>
+        )}
 
         {c.notes && (
           <Card>
@@ -364,17 +434,86 @@ export default function ContratoDetailPage() {
           </Card>
         </div>
 
-        {/* Editable contract fields */}
+        {/* Legal / Company data */}
         <Card>
-          <CardHeader><CardTitle className="text-base">Dados do Contrato</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Dados Jurídicos da Contratante</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Razão social *</Label>
+                <Input value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="Razão social completa" />
+              </div>
+              <div className="space-y-2">
+                <Label>Nome fantasia</Label>
+                <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Nome fantasia" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label>CNPJ {!hasNoCnpj && '*'}</Label>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <Checkbox id="hasNoCnpj" checked={hasNoCnpj} onCheckedChange={(v) => setHasNoCnpj(!!v)} />
+                    <label htmlFor="hasNoCnpj" className="text-xs text-muted-foreground cursor-pointer">Sem CNPJ</label>
+                  </div>
+                </div>
+                <Input value={cnpj} onChange={(e) => setCnpj(e.target.value)} placeholder="00.000.000/0000-00" disabled={hasNoCnpj} />
+              </div>
+              <div className="space-y-2">
+                <Label>Nome do responsável *</Label>
+                <Input value={responsibleName} onChange={(e) => setResponsibleName(e.target.value)} placeholder="Nome completo" />
+              </div>
+              <div className="space-y-2">
+                <Label>CPF do responsável</Label>
+                <Input value={responsibleCpf} onChange={(e) => setResponsibleCpf(e.target.value)} placeholder="000.000.000-00" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Address */}
+        <Card>
+          <CardHeader><CardTitle className="text-base">Endereço</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>CEP</Label>
+                <Input value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="00000-000" />
+              </div>
+              <div className="md:col-span-2 space-y-2">
+                <Label>Logradouro</Label>
+                <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Rua, Av., número, complemento" />
+              </div>
+              <div className="space-y-2">
+                <Label>Bairro</Label>
+                <Input value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} placeholder="Bairro" />
+              </div>
+              <div className="space-y-2">
+                <Label>Cidade</Label>
+                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade" />
+              </div>
+              <div className="space-y-2">
+                <Label>UF</Label>
+                <Select value={state} onValueChange={setState}>
+                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    {BR_STATES.map((uf) => (
+                      <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Contract terms */}
+        <Card>
+          <CardHeader><CardTitle className="text-base">Termos do Contrato</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Duração do contrato</Label>
                 <Select value={String(contractDuration)} onValueChange={(v) => setContractDuration(Number(v))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {CONTRACT_DURATION_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
@@ -386,15 +525,23 @@ export default function ContratoDetailPage() {
               <div className="space-y-2">
                 <Label>Ciclo de cobrança</Label>
                 <Select value={billingCycle} onValueChange={setBillingCycle}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {BILLING_CYCLE_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Data do contrato</Label>
+                <Input type="date" value={contractDate} onChange={(e) => setContractDate(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Dia de pagamento</Label>
+                <Input type="number" min={1} max={31} value={paymentDay} onChange={(e) => setPaymentDay(e.target.value ? Number(e.target.value) : '')} placeholder="Ex: 10" />
               </div>
 
               <div className="space-y-2">
