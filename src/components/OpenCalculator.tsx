@@ -1401,6 +1401,7 @@ const OpenCalculator: React.FC = () => {
   };
 
   // Send by email via edge function - uses canonical approval link with token
+  // IMPORTANT: Does NOT blindly re-save. Only saves if proposal doesn't exist yet.
   const handleSendEmail = async () => {
     if (!client.email?.trim()) {
       toast({ title: 'Erro', description: 'Informe o e-mail do cliente para enviar a proposta', variant: 'destructive' });
@@ -1411,27 +1412,30 @@ const OpenCalculator: React.FC = () => {
       return;
     }
 
-    // First save to ensure we have a valid proposal ID
-    await handleSave();
     setSendingEmail(true);
 
-    const validityDateStr = getValidityDate(proposal.createdAt, proposal.validityDays).toLocaleDateString('pt-BR');
-
     try {
-      // CRITICAL: Get canonical approval link with token (100% Supabase)
-      console.log('[OpenCalculator] Fetching approval link for email send...');
-      const { generateOrGetPublicApprovalLink } = await import('@/services/publicApprovalService');
-      
-      // Get the saved proposal ID - editingProposalId is set after handleSave() completes
-      const proposalApiId = editingProposalId || proposal.id;
-      
-      if (!proposalApiId) {
-        throw new Error('Proposta precisa ser salva antes de enviar por email');
+      // Step 1: Ensure proposal is saved (only save if not yet persisted)
+      let proposalUuid = editingProposalId;
+      if (!proposalUuid) {
+        console.log('[OpenCalculator] Proposal not yet saved — saving before email send');
+        proposalUuid = await handleSave();
+        if (!proposalUuid) {
+          console.error('[OpenCalculator] Save failed — cannot send email');
+          toast({ title: 'Erro', description: 'Não foi possível salvar a proposta antes de enviar', variant: 'destructive' });
+          return;
+        }
+        console.log('[OpenCalculator] Proposal saved for email, id=', proposalUuid);
+      } else {
+        console.log('[OpenCalculator] Proposal already saved, skipping re-save. id=', proposalUuid);
       }
+
+      // Step 2: Get approval link
+      const { generateOrGetPublicApprovalLink } = await import('@/services/publicApprovalService');
       
       let proposalLink: string;
       try {
-        proposalLink = await generateOrGetPublicApprovalLink(String(proposalApiId));
+        proposalLink = await generateOrGetPublicApprovalLink(String(proposalUuid));
         console.log('[OpenCalculator] Got canonical approval link for email');
       } catch (linkError: any) {
         console.error('[OpenCalculator] Failed to get approval link:', linkError);
@@ -1440,10 +1444,11 @@ const OpenCalculator: React.FC = () => {
           description: linkError.message || 'Não foi possível gerar link de aprovação',
           variant: 'destructive' 
         });
-        setSendingEmail(false);
         return;
       }
-      
+
+      // Step 3: Send email
+      const validityDateStr = getValidityDate(proposal.createdAt, proposal.validityDays).toLocaleDateString('pt-BR');
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const response = await fetch(
         `${supabaseUrl}/functions/v1/send-proposal-email`,
@@ -1454,7 +1459,7 @@ const OpenCalculator: React.FC = () => {
             clientName: client.name || client.company || 'Cliente',
             clientEmail: client.email,
             proposalId: proposal.id,
-            proposalLink, // Now uses canonical link with token
+            proposalLink,
             totalValue: `R$ ${formatCurrency(result?.grandTotal || 0)}`,
             validityDate: validityDateStr,
           }),
