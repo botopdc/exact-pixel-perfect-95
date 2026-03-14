@@ -110,53 +110,53 @@ export async function createContract(input: CreateContractInput): Promise<Contra
     notes: input.notes,
   };
 
-  const { data, error } = await supabase
-    .from('contracts')
-    .insert({
-      proposal_id: input.proposal_id,
-      proposal_uuid: input.proposal_uuid || null,
-      client_name: input.client_name,
-      company: input.company,
-      email: input.email,
-      phone: input.phone,
-      tax_id: input.tax_id || null,
-      currency: input.currency || 'BRL',
-      subtotal: input.subtotal || input.total,
-      discount_amount: input.discount_amount || 0,
-      total: input.total,
-      datacenter: input.datacenter,
-      contract_duration: input.contract_duration,
-      billing_cycle: input.billing_cycle || 'mensal',
-      start_date: input.start_date || null,
-      end_date: input.end_date || null,
-      due_at: input.due_at,
-      notes: input.notes || null,
-      proposal_payload: input.proposal_payload as any,
-      contract_payload: contractPayload as any,
-      status: 'rascunho',
-      // Structured legal/address columns
-      legal_name: input.legal_name || null,
-      company_name: input.company_name || null,
-      has_no_cnpj: input.has_no_cnpj || false,
-      cnpj: input.cnpj || null,
-      responsible_name: input.responsible_name || null,
-      responsible_cpf: input.responsible_cpf || null,
-      zip_code: input.zip_code || null,
-      street: input.street || null,
-      neighborhood: input.neighborhood || null,
-      city: input.city || null,
-      state: input.state || null,
-      payment_day: input.payment_day || null,
-      contract_date: input.contract_date || null,
-    } as any)
-    .select()
-    .single();
+  const payload = {
+    proposal_id: input.proposal_id,
+    proposal_uuid: input.proposal_uuid || null,
+    client_name: input.client_name,
+    company: input.company,
+    email: input.email,
+    phone: input.phone || '',
+    tax_id: input.tax_id || null,
+    currency: input.currency || 'BRL',
+    subtotal: input.subtotal || input.total,
+    discount_amount: input.discount_amount || 0,
+    total: input.total,
+    datacenter: input.datacenter,
+    contract_duration: input.contract_duration,
+    billing_cycle: input.billing_cycle || 'mensal',
+    start_date: input.start_date || null,
+    end_date: input.end_date || null,
+    due_at: input.due_at,
+    notes: input.notes || null,
+    proposal_payload: input.proposal_payload,
+    contract_payload: contractPayload,
+    legal_name: input.legal_name || null,
+    company_name: input.company_name || null,
+    has_no_cnpj: input.has_no_cnpj || false,
+    cnpj: input.has_no_cnpj ? null : (input.cnpj || null),
+    responsible_name: input.responsible_name || null,
+    responsible_cpf: input.responsible_cpf || null,
+    zip_code: input.zip_code || null,
+    street: input.street || null,
+    neighborhood: input.neighborhood || null,
+    city: input.city || null,
+    state: input.state || null,
+    payment_day: input.payment_day || null,
+    contract_date: input.contract_date || null,
+  };
+
+  const { data, error } = await supabase.rpc('create_contract_from_proposal', {
+    payload: payload as any,
+  });
+
   if (error) {
-    if (error.message.includes('contracts_proposal_id_active_unique')) {
+    if (error.message.includes('já foi convertida')) {
       throw new Error('Esta proposta já foi convertida em contrato');
     }
     throw new Error(error.message);
   }
+
   return data as unknown as Contract;
 }
 
