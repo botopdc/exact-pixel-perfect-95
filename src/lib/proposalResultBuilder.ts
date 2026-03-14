@@ -72,6 +72,8 @@ interface DadosPropostaSnapshot {
     nodeVcpu?: number;
     nodeRam?: number;
     totalPrice?: number;
+    plan?: string;
+    componentPrices?: Record<string, { unitPrice: number; totalPrice: number }>;
   };
   storageItems?: Array<{
     type: string;
