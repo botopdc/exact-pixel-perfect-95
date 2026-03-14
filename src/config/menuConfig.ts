@@ -296,6 +296,21 @@ export const MENU_SECTIONS: MenuSection[] = [
     ],
   },
 
+  // ========== DOCS (Wiki) ==========
+  {
+    id: 'docs',
+    title: 'DOCS',
+    items: [
+      {
+        id: 'docs-wiki',
+        title: 'Wiki / Docs',
+        url: '/modulos/docs',
+        icon: BookOpen,
+        allowedLevels: [700, 750, 900, 950, 1000],
+      },
+    ],
+  },
+
   // ========== CONTEÚDO & DOCUMENTAÇÃO ==========
   {
     id: 'conteudo',
