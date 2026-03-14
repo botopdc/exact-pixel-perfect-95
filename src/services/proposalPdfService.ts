@@ -734,12 +734,14 @@ function buildDadosPropostaFromSupabase(proposal: any): any {
   // Convert servers to items
   if (Array.isArray(proposal.servers)) {
     proposal.servers.forEach((server: any, idx: number) => {
+      const specs = server.specs || {};
       const item: any = {
         type: server.server_type === 'vm' ? 'VM' : 'BareMetal',
         name: server.name || `Servidor ${idx + 1}`,
         qty: server.qty_servers || 1,
         unitPrice: server.unit_price || 0,
         totalPrice: server.total_price || 0,
+        componentPrices: specs.componentPrices || undefined,
       };
 
       if (server.server_type === 'vm') {

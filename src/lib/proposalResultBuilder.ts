@@ -123,85 +123,156 @@ export function buildResultFromSnapshot(
 
   const priceOverrides = dadosProposta.priceOverrides || {};
 
-  // Process server items
+  // ============================================================================
+  // DETAILED ROWS: Build component-level rows matching the calculator's Resumo
+  // Each server produces separate rows for CPU, RAM, Disk, IPs, GPU
+  // ============================================================================
   if (dadosProposta.items && Array.isArray(dadosProposta.items)) {
     dadosProposta.items.forEach((item, idx) => {
       const qty = item.qty || 1;
       totalServers += qty;
-      
+
+      // Check if we have detailed component prices in the snapshot
+      const componentPrices = (item as any).componentPrices as Record<string, { unitPrice: number; totalPrice: number }> | undefined;
+
       if (item.type === 'VM') {
-        // CRITICAL: Use stored unitPrice and totalPrice from snapshot
-        const unitPrice = item.unitPrice ?? 0;
-        const total = item.totalPrice ?? (unitPrice * qty);
-        const rowKey = `vm_${idx}`;
-        const overrideTotal = priceOverrides[rowKey];
-        const finalTotal = overrideTotal ?? total;
-        
-        // Log if prices are missing for debugging
-        if (unitPrice === 0 && total === 0) {
-          console.warn('[proposalResultBuilder] VM item has zero prices:', item.name || `VM ${idx}`);
-        }
-        
-        const label = item.name || `VM ${item.vcpu || 0}vCPU / ${item.ram || 0}GB RAM / ${item.nvme || 0}GB NVMe`;
-        rows.push({
-          label,
-          qty,
-          unitPrice,
-          subtotal: total,
-          baseTotal: total,
-          overrideTotal: overrideTotal ?? null,
-          finalTotal,
-          rowKey,
-        });
-        subRec += finalTotal;
-        
-        // GPU
-        if (item.gpu && item.gpu !== 'Sem GPU' && item.gpuQty) {
-          // GPU pricing would need config - estimate from total if available
-        }
-        
-        // IPs - PASSO 8: use snapshot or warn fallback
-        if (item.ipQty && item.ipQty > 0) {
-          const FALLBACK_IP_PRICE = 30;
-          const ipUnitPrice = (item as any).ipUnitPrice ?? FALLBACK_IP_PRICE;
-          if (!(item as any).ipUnitPrice) {
-            warnFallback('IP Público', FALLBACK_IP_PRICE);
+        const itemPrefix = `vm_${idx}`;
+        const vcpu = item.vcpu || 0;
+        const ram = item.ram || 0;
+        const nvme = item.nvme || 0;
+        const ipQty = item.ipQty || 0;
+
+        // If we have component prices from snapshot, use them for detailed rows
+        if (componentPrices) {
+          if (componentPrices.cpu) {
+            const cp = componentPrices.cpu;
+            const rowKey = `${itemPrefix}_cpu`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `VM #${idx + 1} — vCPU (${vcpu} por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
           }
-          const ipPrice = ipUnitPrice * item.ipQty * qty;
-          subIps += ipPrice;
-          rows.push({
-            label: `IPs Públicos (${item.ipQty}/servidor)`,
-            qty: item.ipQty * qty,
-            unitPrice: ipUnitPrice,
-            subtotal: ipPrice,
-            finalTotal: ipPrice,
-          });
+          if (componentPrices.ram) {
+            const cp = componentPrices.ram;
+            const rowKey = `${itemPrefix}_ram`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `VM #${idx + 1} — RAM (${ram} GB por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+          }
+          if (componentPrices.disk) {
+            const cp = componentPrices.disk;
+            const nvmeTb = nvme >= 1024 ? (nvme / 1024) : nvme;
+            const rowKey = `${itemPrefix}_disk`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `VM #${idx + 1} — NVMe (${nvmeTb.toFixed(2)} TB por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+          }
+          if (componentPrices.ips && ipQty > 0) {
+            const cp = componentPrices.ips;
+            const rowKey = `${itemPrefix}_ips`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `VM #${idx + 1} — IPs públicos (${ipQty} por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subIps += finalTotal;
+          }
+          if (componentPrices.gpu && item.gpu && item.gpu !== 'Sem GPU') {
+            const cp = componentPrices.gpu;
+            const rowKey = `${itemPrefix}_gpu`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `VM #${idx + 1} — GPU (${item.gpu}, ${item.gpuQty || 1}x por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+            gpuBrlTotal += finalTotal;
+          }
+        } else {
+          // FALLBACK: No component prices — split total evenly or use single consolidated row
+          const unitPrice = item.unitPrice ?? 0;
+          const total = item.totalPrice ?? (unitPrice * qty);
+          const rowKey = `vm_${idx}`;
+          const overrideTotal = priceOverrides[rowKey];
+          const finalTotal = overrideTotal ?? total;
+
+          if (unitPrice === 0 && total === 0) {
+            console.warn('[proposalResultBuilder] VM item has zero prices:', item.name || `VM ${idx}`);
+          }
+
+          const label = item.name || `VM ${vcpu}vCPU / ${ram}GB RAM / ${nvme}GB NVMe`;
+          rows.push({ label, qty, unitPrice, subtotal: total, baseTotal: total, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+          subRec += finalTotal;
+
+          // IPs as separate row even in fallback
+          if (ipQty > 0) {
+            const FALLBACK_IP_PRICE = 30;
+            const ipUnitPrice = (item as any).ipUnitPrice ?? FALLBACK_IP_PRICE;
+            if (!(item as any).ipUnitPrice) warnFallback('IP Público', FALLBACK_IP_PRICE);
+            const ipPrice = ipUnitPrice * ipQty * qty;
+            rows.push({ label: `IPs Públicos (${ipQty}/servidor)`, qty: ipQty * qty, unitPrice: ipUnitPrice, subtotal: ipPrice, finalTotal: ipPrice });
+            subIps += ipPrice;
+          }
         }
       } else if (item.type === 'BareMetal') {
-        // CRITICAL: Use stored unitPrice and totalPrice from snapshot
-        const unitPrice = item.unitPrice ?? 0;
-        const total = item.totalPrice ?? (unitPrice * qty);
-        const rowKey = `bm_${idx}`;
-        const overrideTotal = priceOverrides[rowKey];
-        const finalTotal = overrideTotal ?? total;
-        
-        // Log if prices are missing for debugging
-        if (unitPrice === 0 && total === 0) {
-          console.warn('[proposalResultBuilder] BareMetal item has zero prices:', item.name || `BM ${idx}`);
+        const itemPrefix = `bm_${idx}`;
+
+        if (componentPrices) {
+          if (componentPrices.cpu) {
+            const cp = componentPrices.cpu;
+            const rowKey = `${itemPrefix}_cpu`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `BareMetal #${idx + 1} — CPU (${item.cpu || ''})`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+          }
+          if (componentPrices.ram) {
+            const cp = componentPrices.ram;
+            const rowKey = `${itemPrefix}_ram`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `BareMetal #${idx + 1} — RAM (${item.ramTier || ''})`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+          }
+          if (componentPrices.disks) {
+            const cp = componentPrices.disks;
+            const rowKey = `${itemPrefix}_disks`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `BareMetal #${idx + 1} — Discos NVMe`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+          }
+          if (componentPrices.ips && item.ipQty && item.ipQty > 0) {
+            const cp = componentPrices.ips;
+            const rowKey = `${itemPrefix}_ips`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `BareMetal #${idx + 1} — IPs públicos (${item.ipQty} por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subIps += finalTotal;
+          }
+          if (componentPrices.gpu && item.gpu && item.gpu !== 'Sem GPU') {
+            const cp = componentPrices.gpu;
+            const rowKey = `${itemPrefix}_gpu`;
+            const overrideTotal = priceOverrides[rowKey];
+            const finalTotal = overrideTotal ?? cp.totalPrice;
+            rows.push({ label: `BareMetal #${idx + 1} — GPU (${item.gpu}, ${item.gpuQty || 1}x por srv)`, qty, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, baseTotal: cp.totalPrice, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+            subRec += finalTotal;
+            gpuBrlTotal += finalTotal;
+          }
+        } else {
+          // FALLBACK: consolidated row
+          const unitPrice = item.unitPrice ?? 0;
+          const total = item.totalPrice ?? (unitPrice * qty);
+          const rowKey = `bm_${idx}`;
+          const overrideTotal = priceOverrides[rowKey];
+          const finalTotal = overrideTotal ?? total;
+
+          if (unitPrice === 0 && total === 0) {
+            console.warn('[proposalResultBuilder] BareMetal item has zero prices:', item.name || `BM ${idx}`);
+          }
+
+          const label = item.name || `BareMetal ${item.cpu || ''} / ${item.ramTier || ''}`;
+          rows.push({ label, qty, unitPrice, subtotal: total, baseTotal: total, overrideTotal: overrideTotal ?? null, finalTotal, rowKey });
+          subRec += finalTotal;
         }
-        
-        const label = item.name || `BareMetal ${item.cpu || ''} / ${item.ramTier || ''}`;
-        rows.push({
-          label,
-          qty,
-          unitPrice,
-          subtotal: total,
-          baseTotal: total,
-          overrideTotal: overrideTotal ?? null,
-          finalTotal,
-          rowKey,
-        });
-        subRec += finalTotal;
       }
     });
   }
