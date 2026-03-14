@@ -309,67 +309,276 @@ Administração completa do sistema OPEN. Acesso restrito ao nível 1000 (Admin)
 `,
 
   // API
-  'api/api_reference': `# API Reference
-
-## Autenticação
-
-### Login
-\`\`\`
-POST /api/auth/login
-Body: { email, password }
-Response: { token, user }
-\`\`\`
-
-### Usuário Autenticado
-\`\`\`
-GET /api/auth/me
-Headers: Authorization: Bearer {token}
-Response: { user }
-\`\`\`
-
-## Edge Functions (Supabase)
-
-### proposal-save
-Salva ou atualiza uma proposta com servidores e addons.
-
-### proposal-list
-Lista propostas com paginação, filtros e ordenação.
-
-### proposal-track
-Registra e lista eventos de tracking (views, emails, downloads).
-
-### proposal-gateway
-Proxy para a API externa de propostas.
-
-### send-proposal-email
-Envia email de proposta via Resend.
-
-### public-approval
-Processa aprovação/rejeição via token público.
-
-### pricing-admin
-CRUD de configurações de preços (SERVICE_ROLE_KEY).
-
-### send-password-reset
-Envia email de reset de senha.
-
-## Endpoints REST (API Externa)
-
-### Usuários
-- \`GET /api/user\` — Lista usuários
-- \`POST /api/user\` — Cria usuário
-- \`PUT /api/user/{id}\` — Atualiza usuário
-- \`DELETE /api/user/{id}\` — Remove usuário
-
-### Parceiros
-- \`GET /api/partner\` — Lista parceiros
-- \`POST /api/partner\` — Cria parceiro
-- \`PUT /api/partner/{id}\` — Atualiza parceiro
-
-### Propostas (legacy)
-- \`GET /api/calculator/proposal\` — Lista propostas
-- \`POST /api/calculator/proposal\` — Cria proposta
-`,
+  'api/api_reference': [
+    '# OPEN API Reference',
+    '',
+    '## 1. Visão Geral',
+    '',
+    'A plataforma OPEN utiliza duas camadas de API:',
+    '',
+    '| Camada | Tecnologia | Status |',
+    '|--------|-----------|--------|',
+    '| **APIs Legadas** | Laravel (PHP) | Em uso — apenas manutenção |',
+    '| **Operações Novas** | Supabase (Edge Functions + SDK) | Em expansão — fonte de verdade |',
+    '',
+    '### Regras Arquiteturais',
+    '',
+    '1. **Novos módulos** devem usar Supabase exclusivamente',
+    '2. **APIs Laravel** existem apenas para funcionalidades legadas',
+    '3. **Não criar novos endpoints** no Laravel',
+    '4. **Supabase** é a fonte de verdade para todos os dados novos',
+    '5. O frontend deve consumir Supabase diretamente (SDK) ou via Edge Functions quando necessário `SERVICE_ROLE_KEY`',
+    '',
+    '---',
+    '',
+    '## 2. Endpoints Legados (Laravel)',
+    '',
+    'Base URL: configurada via variável de ambiente',
+    '',
+    'Autenticação: `Authorization: Bearer {token}`',
+    '',
+    '### Auth',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `POST` | `/api/auth/login` | Autentica usuário e retorna token de sessão |',
+    '| `GET` | `/api/auth/me` | Retorna usuário autenticado (requer token) |',
+    '',
+    '**Login — Request Body:**',
+    '```json',
+    '{ "email": "string", "password": "string" }',
+    '```',
+    '',
+    '**Login — Response:**',
+    '```json',
+    '{ "token": "string", "user": { "id": 1, "name": "...", "email": "...", "level": 1000 } }',
+    '```',
+    '',
+    '---',
+    '',
+    '### Calculator Proposals',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/calculator/proposal` | Lista propostas |',
+    '| `POST` | `/api/calculator/proposal` | Cria proposta |',
+    '| `GET` | `/api/calculator/proposal/{id}` | Busca proposta por ID |',
+    '| `PUT` | `/api/calculator/proposal/{id}` | Atualiza proposta |',
+    '| `DELETE` | `/api/calculator/proposal/{id}` | Remove proposta |',
+    '| `GET` | `/api/calculator/proposal/{id}/download?token=...` | Download do PDF |',
+    '',
+    '> **Nota:** O módulo de propostas está em transição para Supabase. Novas propostas são salvas via Edge Function `proposal-save`.',
+    '',
+    '---',
+    '',
+    '### Partner',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/partner` | Lista parceiros |',
+    '| `POST` | `/api/partner` | Cria parceiro |',
+    '| `GET` | `/api/partner/{id}` | Busca parceiro por ID |',
+    '| `PUT` | `/api/partner/{id}` | Atualiza parceiro |',
+    '| `DELETE` | `/api/partner/{id}` | Remove parceiro |',
+    '',
+    '---',
+    '',
+    '### Ticket',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/ticket` | Lista tickets |',
+    '| `POST` | `/api/ticket` | Cria ticket |',
+    '| `GET` | `/api/ticket/{id}` | Busca ticket por ID |',
+    '',
+    '---',
+    '',
+    '### Company',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/company` | Lista empresas |',
+    '',
+    '---',
+    '',
+    '### Datacenter',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/dc` | Lista datacenters disponíveis |',
+    '',
+    '---',
+    '',
+    '### Incidents',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/incidents` | Lista incidentes |',
+    '',
+    '---',
+    '',
+    '### Audit Log',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/audit-log` | Lista logs de auditoria |',
+    '',
+    '---',
+    '',
+    '### Annual Goals',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/annual-goal` | Lista metas anuais |',
+    '',
+    '---',
+    '',
+    '### Users',
+    '',
+    '| Método | Endpoint | Descrição |',
+    '|--------|----------|-----------|',
+    '| `GET` | `/api/user` | Lista usuários |',
+    '| `POST` | `/api/user` | Cria usuário |',
+    '| `PUT` | `/api/user/{id}` | Atualiza usuário |',
+    '| `DELETE` | `/api/user/{id}` | Remove usuário |',
+    '',
+    '---',
+    '',
+    '## 3. Padrão de Filtros do Legado',
+    '',
+    'A API Laravel utiliza parâmetros de query especiais com prefixo `__`:',
+    '',
+    '| Parâmetro | Descrição |',
+    '|-----------|-----------|',
+    '| `__page` | Número da página |',
+    '| `__perPage` | Itens por página |',
+    '| `__limit` | Limite de resultados |',
+    '| `__order` | Ordenação (ex.: `-created_at` para desc) |',
+    '| `__with` | Eager loading de relações |',
+    '| `__q` | Busca textual geral |',
+    '',
+    '**Exemplo:**',
+    '```',
+    'GET /api/partner?__page=1&__perPage=20&__q=open&__order=-created_at',
+    '```',
+    '',
+    '---',
+    '',
+    '## 4. Operações no Modelo Supabase',
+    '',
+    '### Propostas',
+    '',
+    '| Operação | Método | Descrição |',
+    '|----------|--------|-----------|',
+    '| `proposal.create` | Edge Function `proposal-save` | Cria proposta (upsert por `display_id`) |',
+    '| `proposal.update` | Edge Function `proposal-save` | Atualiza proposta existente |',
+    '| `proposal.list` | Edge Function `proposal-list` | Lista propostas com filtros e paginação |',
+    '| `proposal.send_email` | Edge Function `send-proposal-email` | Envia proposta por email via Resend |',
+    '| `proposal.download_pdf` | Frontend (jsPDF) | Geração de PDF client-side |',
+    '| `proposal.copy_link` | Frontend | Copia link público de aprovação |',
+    '| `proposal.track_event` | Edge Function `proposal-track` | Registra evento (view, download, email) |',
+    '| `proposal.get_access_history` | Edge Function `proposal-track` | Retorna histórico de acessos |',
+    '',
+    '### Contratos',
+    '',
+    '| Operação | Método | Descrição |',
+    '|----------|--------|-----------|',
+    '| `contract.create_from_proposal` | Supabase SDK | Cria contrato a partir de proposta aprovada |',
+    '| `contract.list` | Supabase SDK | Lista contratos |',
+    '| `contract.update` | Supabase SDK | Atualiza contrato |',
+    '',
+    '### Aprovação Pública',
+    '',
+    '| Operação | Método | Descrição |',
+    '|----------|--------|-----------|',
+    '| `approval.process` | Edge Function `public-approval` | Processa aprovação/rejeição via token |',
+    '',
+    '### Preços',
+    '',
+    '| Operação | Método | Descrição |',
+    '|----------|--------|-----------|',
+    '| `pricing.crud` | Edge Function `pricing-admin` | CRUD de configurações de preços |',
+    '',
+    '---',
+    '',
+    '## 5. Edge Functions Implementadas',
+    '',
+    '| Função | Descrição | Auth |',
+    '|--------|-----------|------|',
+    '| `proposal-save` | Salva/atualiza proposta com servidores e addons | SERVICE_ROLE_KEY |',
+    '| `proposal-list` | Lista propostas com filtros, ordenação e paginação | SERVICE_ROLE_KEY |',
+    '| `proposal-track` | Registra e lista eventos de tracking | SERVICE_ROLE_KEY |',
+    '| `proposal-get` | Busca proposta por UUID | SERVICE_ROLE_KEY |',
+    '| `proposal-gateway` | Proxy para API legada de propostas | Bearer Token |',
+    '| `send-proposal-email` | Envia email de proposta via Resend | SERVICE_ROLE_KEY + RESEND_API_KEY |',
+    '| `public-approval` | Processa aprovação/rejeição pública | Anon (token de aprovação) |',
+    '| `pricing-admin` | CRUD de configurações de preços | SERVICE_ROLE_KEY |',
+    '| `send-password-reset` | Envia email de reset de senha | SERVICE_ROLE_KEY |',
+    '',
+    '---',
+    '',
+    '## 6. Padrão de Resposta Recomendado',
+    '',
+    '### Sucesso',
+    '```json',
+    '{',
+    '  "success": true,',
+    '  "data": {},',
+    '  "message": "Operação realizada com sucesso"',
+    '}',
+    '```',
+    '',
+    '### Erro',
+    '```json',
+    '{',
+    '  "success": false,',
+    '  "data": null,',
+    '  "message": "Descrição do erro",',
+    '  "errors": ["detalhe 1", "detalhe 2"]',
+    '}',
+    '```',
+    '',
+    '### Paginação',
+    '```json',
+    '{',
+    '  "success": true,',
+    '  "data": [],',
+    '  "total": 150,',
+    '  "page": 1,',
+    '  "limit": 20',
+    '}',
+    '```',
+    '',
+    '---',
+    '',
+    '## 7. Lacunas Identificadas',
+    '',
+    '| Área | Status | Observação |',
+    '|------|--------|------------|',
+    '| Contracts API | ❌ Não documentada no legado | Implementação direta via Supabase |',
+    '| Docs/Wiki API | ❌ Inexistente | Conteúdo estático local, migração futura para Supabase |',
+    '| Modelo de Eventos | ❌ Não documentado | `proposal_views` existe mas sem schema formal |',
+    '| Upload de arquivos | ⚠️ Parcial | Legado usa multipart; Supabase usa Storage |',
+    '| Webhook de aprovação | ❌ Não existe | Aprovação é síncrona via Edge Function |',
+    '| Notificações | ❌ Não existe | Apenas email via Resend |',
+    '',
+    '---',
+    '',
+    '## 8. Diretriz Futura',
+    '',
+    '| Aspecto | Diretriz |',
+    '|---------|----------|',
+    '| **Backend principal** | Supabase-first |',
+    '| **APIs Laravel** | Apenas legado — sem novos endpoints |',
+    '| **Autenticação** | Supabase Auth (Academy) + API legada (sistema principal) |',
+    '| **Banco de dados** | PostgreSQL via Supabase |',
+    '| **Lógica protegida** | Edge Functions com SERVICE_ROLE_KEY |',
+    '| **Armazenamento** | Supabase Storage |',
+    '| **Realtime** | Supabase Realtime (quando necessário) |',
+    '| **Frontend** | React + Vite + TypeScript — consumo direto do SDK |',
+    '',
+    '> **Regra de ouro:** Se não existe no Laravel, implemente no Supabase. Se existe no Laravel, migre quando possível.',
+  ].join('\n'),
 
   // Playbooks
   'playbooks/proposal-flow': `# Fluxo de Propostas
