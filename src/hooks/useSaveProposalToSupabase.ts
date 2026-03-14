@@ -127,6 +127,19 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
       
       const unitPrice = overridePrice ?? (qtyServers > 0 ? prices.total / qtyServers : prices.total);
       const totalPrice = overridePrice ? overridePrice * qtyServers : prices.total;
+
+      // Build component-level prices for detailed PDF rendering
+      const componentPrices: Record<string, { unitPrice: number; totalPrice: number }> = {};
+      const cpuRow = getRowPrice(`${prefix}_cpu`);
+      if (cpuRow.total > 0) componentPrices.cpu = { unitPrice: cpuRow.unit, totalPrice: cpuRow.total };
+      const ramRow = getRowPrice(`${prefix}_ram`);
+      if (ramRow.total > 0) componentPrices.ram = { unitPrice: ramRow.unit, totalPrice: ramRow.total };
+      const diskRow = getRowPrice(`${prefix}_disk`);
+      if (diskRow.total > 0) componentPrices.disk = { unitPrice: diskRow.unit, totalPrice: diskRow.total };
+      const ipsRow = getRowPrice(`${prefix}_ips`);
+      if (ipsRow.total > 0) componentPrices.ips = { unitPrice: ipsRow.unit, totalPrice: ipsRow.total };
+      const gpuRow = getRowPrice(`${prefix}_gpu`);
+      if (gpuRow.total > 0) componentPrices.gpu = { unitPrice: gpuRow.unit, totalPrice: gpuRow.total };
       
       servers.push({
         server_type: 'vm',
@@ -147,6 +160,7 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
           vcpu: vm.vcpu,
           ramGb: vm.ramGb,
           nvmeTb: vm.nvmeTb,
+          componentPrices,
         },
       });
     } else if (item.type === 'bm') {
@@ -160,6 +174,19 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
       
       const unitPrice = overridePrice ?? (qtyServers > 0 ? prices.total / qtyServers : prices.total);
       const totalPrice = overridePrice ? overridePrice * qtyServers : prices.total;
+
+      // Build component-level prices for detailed PDF rendering
+      const componentPrices: Record<string, { unitPrice: number; totalPrice: number }> = {};
+      const cpuRow = getRowPrice(`${prefix}_cpu`);
+      if (cpuRow.total > 0) componentPrices.cpu = { unitPrice: cpuRow.unit, totalPrice: cpuRow.total };
+      const ramRow = getRowPrice(`${prefix}_ram`);
+      if (ramRow.total > 0) componentPrices.ram = { unitPrice: ramRow.unit, totalPrice: ramRow.total };
+      const disksRow = getRowPrice(`${prefix}_disks`);
+      if (disksRow.total > 0) componentPrices.disks = { unitPrice: disksRow.unit, totalPrice: disksRow.total };
+      const ipsRow = getRowPrice(`${prefix}_ips`);
+      if (ipsRow.total > 0) componentPrices.ips = { unitPrice: ipsRow.unit, totalPrice: ipsRow.total };
+      const gpuRow = getRowPrice(`${prefix}_gpu`);
+      if (gpuRow.total > 0) componentPrices.gpu = { unitPrice: gpuRow.unit, totalPrice: gpuRow.total };
       
       servers.push({
         server_type: 'bm',
@@ -181,6 +208,7 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
           bmCpu: bm.bmCpu,
           bmRam: bm.bmRam,
           disks: bm.disks,
+          componentPrices,
         },
       });
     }
