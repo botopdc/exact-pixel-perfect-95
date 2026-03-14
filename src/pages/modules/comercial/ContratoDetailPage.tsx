@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle, ChevronRight, ChevronLeft, Check, Download, FileDown, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
