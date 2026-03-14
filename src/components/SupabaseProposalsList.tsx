@@ -842,6 +842,13 @@ const SupabaseProposalsList: React.FC = () => {
           onOpenChange={setLinkModalOpen}
           link={linkModalUrl}
         />
+
+        {/* Proposal Access History Modal */}
+        <ProposalAccessModal
+          proposalId={accessModalProposalId}
+          open={!!accessModalProposalId}
+          onOpenChange={(open) => !open && setAccessModalProposalId(null)}
+        />
       </div>
     </TooltipProvider>
   );
