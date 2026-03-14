@@ -13,7 +13,8 @@ export type TrackingSource =
   | 'view_public'
   | 'view_internal'
   | 'approved'
-  | 'rejected';
+  | 'rejected'
+  | 'contract_generated';
 
 export interface TrackEventParams {
   proposalId: string;

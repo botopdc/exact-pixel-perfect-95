@@ -1,176 +1,131 @@
 /**
- * Contract Service - Phase 1 (Local Storage)
- * Ready to swap to API in Phase 2
+ * Contract Service - Supabase-backed
  */
 
+import { supabase } from '@/integrations/supabase/client';
 import type { Contract, ContractFilters, ContractStatus } from '@/types/contract';
 
-const STORAGE_KEY = 'contracts_v1';
-
-/**
- * Generate a unique ID for new contracts
- */
-function generateId(): string {
-  return `CTR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/**
- * Load contracts from localStorage
- */
-function loadFromStorage(): Contract[] {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch (error) {
-    console.error('[ContractService] Error loading from storage:', error);
-    return [];
-  }
-}
-
-/**
- * Save contracts to localStorage
- */
-function saveToStorage(contracts: Contract[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(contracts));
-  } catch (error) {
-    console.error('[ContractService] Error saving to storage:', error);
-  }
-}
-
-/**
- * List all contracts with optional filters
- */
 export async function listContracts(filters?: ContractFilters): Promise<Contract[]> {
-  // Simular delay de rede
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  let contracts = loadFromStorage();
-  
-  if (filters) {
-    if (filters.status) {
-      contracts = contracts.filter(c => c.status === filters.status);
-    }
-    if (filters.duration) {
-      contracts = contracts.filter(c => c.contract_duration === filters.duration);
-    }
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      contracts = contracts.filter(c => 
-        c.company_name.toLowerCase().includes(searchLower) ||
-        c.responsible_name.toLowerCase().includes(searchLower) ||
-        c.proposal_label?.toLowerCase().includes(searchLower)
-      );
-    }
+  let query = supabase
+    .from('contracts')
+    .select('*')
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false });
+
+  if (filters?.status) {
+    query = query.eq('status', filters.status);
   }
-  
-  // Ordenar por data de atualização (mais recente primeiro)
-  contracts.sort((a, b) => 
-    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-  );
-  
-  return contracts;
+  if (filters?.search) {
+    const s = `%${filters.search}%`;
+    query = query.or(`client_name.ilike.${s},company.ilike.${s},email.ilike.${s},contract_number.ilike.${s}`);
+  }
+  if (filters?.dateFrom) {
+    query = query.gte('created_at', filters.dateFrom);
+  }
+  if (filters?.dateTo) {
+    query = query.lte('created_at', `${filters.dateTo}T23:59:59`);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data || []) as unknown as Contract[];
 }
 
-/**
- * Get a single contract by ID
- */
 export async function getContract(id: string): Promise<Contract | null> {
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  const contracts = loadFromStorage();
-  return contracts.find(c => c.id === id) || null;
+  const { data, error } = await supabase
+    .from('contracts')
+    .select('*')
+    .eq('id', id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as unknown as Contract | null;
 }
 
-/**
- * Get a contract by proposal ID
- */
-export async function getContractByProposalId(proposalId: string | number): Promise<Contract | null> {
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  const contracts = loadFromStorage();
-  return contracts.find(c => String(c.proposal_id) === String(proposalId)) || null;
+export async function getContractByProposalId(proposalId: string): Promise<Contract | null> {
+  const { data, error } = await supabase
+    .from('contracts')
+    .select('*')
+    .eq('proposal_id', proposalId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as unknown as Contract | null;
 }
 
-/**
- * Create a new contract
- */
-export async function createContract(data: Omit<Contract, 'id' | 'created_at' | 'updated_at'>): Promise<Contract> {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  const contracts = loadFromStorage();
-  
-  // Verificar se já existe contrato para esta proposta
-  const existing = contracts.find(c => String(c.proposal_id) === String(data.proposal_id));
-  if (existing) {
-    throw new Error('Já existe um contrato para esta proposta');
+export async function createContract(input: {
+  proposal_id: string;
+  client_name: string;
+  company: string;
+  email: string;
+  phone: string;
+  total: number;
+  datacenter: string | null;
+  contract_duration: number | null;
+  due_at: string | null;
+  proposal_payload: Record<string, any>;
+}): Promise<Contract> {
+  const { data, error } = await supabase
+    .from('contracts')
+    .insert({
+      proposal_id: input.proposal_id,
+      client_name: input.client_name,
+      company: input.company,
+      email: input.email,
+      phone: input.phone,
+      total: input.total,
+      datacenter: input.datacenter,
+      contract_duration: input.contract_duration,
+      due_at: input.due_at,
+      proposal_payload: input.proposal_payload as any,
+      status: 'rascunho',
+    })
+    .select()
+    .single();
+  if (error) {
+    if (error.message.includes('contracts_proposal_id_active_unique')) {
+      throw new Error('Esta proposta já foi convertida em contrato');
+    }
+    throw new Error(error.message);
   }
-  
-  const now = new Date().toISOString();
-  const newContract: Contract = {
-    ...data,
-    id: generateId(),
-    created_at: now,
-    updated_at: now,
-  };
-  
-  contracts.push(newContract);
-  saveToStorage(contracts);
-  
-  return newContract;
+  return data as unknown as Contract;
 }
 
-/**
- * Update an existing contract
- */
-export async function updateContract(id: string, data: Partial<Contract>): Promise<Contract> {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  const contracts = loadFromStorage();
-  const index = contracts.findIndex(c => c.id === id);
-  
-  if (index === -1) {
-    throw new Error('Contrato não encontrado');
-  }
-  
-  const updated: Contract = {
-    ...contracts[index],
-    ...data,
-    id, // Garantir que o ID não mude
-    created_at: contracts[index].created_at, // Manter data de criação
-    updated_at: new Date().toISOString(),
-  };
-  
-  contracts[index] = updated;
-  saveToStorage(contracts);
-  
-  return updated;
+export async function updateContract(id: string, updates: Partial<Contract>): Promise<Contract> {
+  const { data, error } = await supabase
+    .from('contracts')
+    .update(updates as any)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as unknown as Contract;
 }
 
-/**
- * Delete a contract
- */
 export async function deleteContract(id: string): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  const contracts = loadFromStorage();
-  const filtered = contracts.filter(c => c.id !== id);
-  
-  if (filtered.length === contracts.length) {
-    throw new Error('Contrato não encontrado');
-  }
-  
-  saveToStorage(filtered);
+  const { error } = await supabase
+    .from('contracts')
+    .update({ deleted_at: new Date().toISOString() } as any)
+    .eq('id', id);
+  if (error) throw new Error(error.message);
 }
 
-/**
- * Update contract status
- */
 export async function updateContractStatus(id: string, status: ContractStatus): Promise<Contract> {
-  return updateContract(id, { status });
+  return updateContract(id, { status } as any);
 }
 
-// Export the service object for Phase 2 migration
+/** Check which proposal IDs already have contracts */
+export async function getConvertedProposalIds(proposalIds: string[]): Promise<Set<string>> {
+  if (!proposalIds.length) return new Set();
+  const { data, error } = await supabase
+    .from('contracts')
+    .select('proposal_id')
+    .in('proposal_id', proposalIds)
+    .is('deleted_at', null);
+  if (error) return new Set();
+  return new Set((data || []).map((r: any) => r.proposal_id));
+}
+
 export const contractService = {
   list: listContracts,
   get: getContract,
@@ -179,4 +134,5 @@ export const contractService = {
   update: updateContract,
   delete: deleteContract,
   updateStatus: updateContractStatus,
+  getConvertedProposalIds,
 };

@@ -1,10 +1,10 @@
 /**
- * Hook for contract operations
+ * Hook for contract operations (Supabase-backed)
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { contractService } from '@/services/contractService';
-import type { Contract, ContractFilters, ContractStatus } from '@/types/contract';
+import type { ContractFilters, ContractStatus } from '@/types/contract';
 import { toast } from 'sonner';
 
 const QUERY_KEY = 'contracts';
@@ -13,7 +13,7 @@ export function useContracts(filters?: ContractFilters) {
   return useQuery({
     queryKey: [QUERY_KEY, filters],
     queryFn: () => contractService.list(filters),
-    staleTime: 0, // Sempre buscar dados frescos
+    staleTime: 30_000,
   });
 }
 
@@ -22,25 +22,30 @@ export function useContract(id: string | undefined) {
     queryKey: [QUERY_KEY, id],
     queryFn: () => (id ? contractService.get(id) : null),
     enabled: !!id,
-    staleTime: 0,
   });
 }
 
-export function useContractByProposalId(proposalId: string | number | undefined) {
+export function useContractByProposalId(proposalId: string | undefined) {
   return useQuery({
     queryKey: [QUERY_KEY, 'proposal', proposalId],
     queryFn: () => (proposalId ? contractService.getByProposalId(proposalId) : null),
     enabled: !!proposalId,
-    staleTime: 0,
+  });
+}
+
+export function useConvertedProposalIds(proposalIds: string[]) {
+  return useQuery({
+    queryKey: [QUERY_KEY, 'converted', proposalIds],
+    queryFn: () => contractService.getConvertedProposalIds(proposalIds),
+    enabled: proposalIds.length > 0,
+    staleTime: 30_000,
   });
 }
 
 export function useCreateContract() {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: (data: Omit<Contract, 'id' | 'created_at' | 'updated_at'>) =>
-      contractService.create(data),
+    mutationFn: contractService.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
       toast.success('Contrato criado com sucesso');
@@ -53,13 +58,12 @@ export function useCreateContract() {
 
 export function useUpdateContract() {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Contract> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Record<string, any> }) =>
       contractService.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
-      toast.success('Contrato atualizado com sucesso');
+      toast.success('Contrato atualizado');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erro ao atualizar contrato');
@@ -69,9 +73,8 @@ export function useUpdateContract() {
 
 export function useDeleteContract() {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: (id: string) => contractService.delete(id),
+    mutationFn: contractService.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
       toast.success('Contrato excluído');
@@ -84,7 +87,6 @@ export function useDeleteContract() {
 
 export function useUpdateContractStatus() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: ContractStatus }) =>
       contractService.updateStatus(id, status),

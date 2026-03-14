@@ -14,7 +14,7 @@ import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   FileDown, Loader2, Mail, Link as LinkIcon, BarChart3,
-  Filter, ArrowUpDown, CalendarIcon, RotateCcw,
+  Filter, ArrowUpDown, CalendarIcon, RotateCcw, FileSignature,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
@@ -50,6 +50,7 @@ import {
 } from '@/hooks/useProposalApi';
 import type { ProposalRow } from '@/services/proposalApi';
 import ProposalAccessModal from '@/components/ProposalAccessModal';
+import { useConvertedProposalIds } from '@/hooks/useContracts';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -253,6 +254,8 @@ const SupabaseProposalsList: React.FC = () => {
   }, [data, toast]);
   
   const proposals = data?.proposals || [];
+  const proposalIds = proposals.map((p: ProposalRow) => p.id);
+  const { data: convertedProposalIds } = useConvertedProposalIds(proposalIds);
   const totalPages = data?.total ? Math.ceil(data.total / perPage) : 1;
   const pagination = {
     currentPage: data?.page || 1,
@@ -839,6 +842,34 @@ const SupabaseProposalsList: React.FC = () => {
                             </TooltipTrigger>
                             <TooltipContent>Histórico / Ver acessos</TooltipContent>
                           </Tooltip>
+
+                          {/* Gerar contrato - only for approved proposals */}
+                          {proposal.status === 'Aprovado' && (
+                            convertedProposalIds?.has(proposal.id) ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 cursor-default bg-sky-500/10 text-sky-600 border-sky-500/30">
+                                    Contrato gerado
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>Esta proposta já foi convertida em contrato</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-green-600 hover:text-green-700"
+                                    onClick={() => navigate(`${ROUTES.modulos.comercial.contractNew}?proposalId=${proposal.id}`)}
+                                  >
+                                    <FileSignature className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Gerar contrato</TooltipContent>
+                              </Tooltip>
+                            )
+                          )}
                           
                           {isAdmin && (
                             <Tooltip>
