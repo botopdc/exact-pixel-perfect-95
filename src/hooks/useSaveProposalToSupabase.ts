@@ -74,32 +74,59 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     priceOverrides,
   } = input;
 
-  // Build servers array from items + storageItems + kubernetes + openSaas
-  const servers: SaveProposalServer[] = [];
+  // ============================================================================
+  // BUILD PRICE MAPS FROM result.rows USING rowKey (stable key, not label match)
+  // ============================================================================
   
-  // Build a map of row prices from result for fallback
-  const rowPriceMap: Record<string, { unit: number; total: number }> = {};
+  // Map rowKey → { unitPrice, finalTotal }
+  const rowByKey: Record<string, { unitPrice: number; finalTotal: number }> = {};
   if (result?.rows) {
     result.rows.forEach((row: any) => {
-      if (row.id) {
-        rowPriceMap[row.id] = { unit: row.unitPrice || 0, total: row.subtotal || row.finalTotal || 0 };
+      if (row.rowKey) {
+        rowByKey[row.rowKey] = {
+          unitPrice: row.unitPrice || 0,
+          finalTotal: row.finalTotal ?? row.subtotal ?? 0,
+        };
       }
     });
   }
   
-  // Process VM/BM items
+  // Sum all rows matching a prefix (e.g., "vm_0" sums vm_0_cpu + vm_0_ram + vm_0_nvme + ...)
+  const sumByPrefix = (prefix: string): { unit: number; total: number } => {
+    let unit = 0;
+    let total = 0;
+    Object.entries(rowByKey).forEach(([key, val]) => {
+      if (key.startsWith(prefix + '_') || key === prefix) {
+        unit += val.unitPrice;
+        total += val.finalTotal;
+      }
+    });
+    return { unit, total };
+  };
+
+  // Get exact row price by rowKey
+  const getRowPrice = (rowKey: string): { unit: number; total: number } => {
+    const r = rowByKey[rowKey];
+    return r ? { unit: r.unitPrice, total: r.finalTotal } : { unit: 0, total: 0 };
+  };
+
+  // Build servers array from items + storageItems
+  const servers: SaveProposalServer[] = [];
+
+  // Process VM/BM items — sum all sub-rows (cpu, ram, nvme, traffic, gpu) per item
   items.forEach((item, idx) => {
     if (item.type === 'vm') {
       const vm = item as VMItem;
-      // Find matching row in result for price
+      const prefix = `vm_${idx}`;
+      const prices = sumByPrefix(prefix);
+      const qtyServers = vm.qtyServers || 1;
+      
+      // Override check
       const rowKey = `item-${item.id}`;
       const overridePrice = priceOverrides?.[rowKey];
-      const resultPrice = rowPriceMap[item.id];
       
-      const unitPrice = overridePrice ?? resultPrice?.unit ?? 0;
-      const totalPrice = overridePrice 
-        ? overridePrice * (vm.qtyServers || 1) 
-        : (resultPrice?.total ?? 0);
+      const unitPrice = overridePrice ?? (qtyServers > 0 ? prices.total / qtyServers : prices.total);
+      const totalPrice = overridePrice ? overridePrice * qtyServers : prices.total;
       
       servers.push({
         server_type: 'vm',
@@ -111,7 +138,7 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
         nvme_tb: vm.nvmeTb || 0,
         traffic_tb: vm.trafficTb || 0,
         ips: vm.ips || 1,
-        qty_servers: vm.qtyServers || 1,
+        qty_servers: qtyServers,
         unit_price: unitPrice,
         total_price: totalPrice,
         specs: {
@@ -124,14 +151,15 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
       });
     } else if (item.type === 'bm') {
       const bm = item as BMItem;
+      const prefix = `bm_${idx}`;
+      const prices = sumByPrefix(prefix);
+      const qtyServers = bm.qtyServers || 1;
+      
       const rowKey = `item-${item.id}`;
       const overridePrice = priceOverrides?.[rowKey];
-      const resultPrice = rowPriceMap[item.id];
       
-      const unitPrice = overridePrice ?? resultPrice?.unit ?? 0;
-      const totalPrice = overridePrice 
-        ? overridePrice * (bm.qtyServers || 1) 
-        : (resultPrice?.total ?? 0);
+      const unitPrice = overridePrice ?? (qtyServers > 0 ? prices.total / qtyServers : prices.total);
+      const totalPrice = overridePrice ? overridePrice * qtyServers : prices.total;
       
       servers.push({
         server_type: 'bm',
@@ -143,7 +171,7 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
         nvme_tb: 0,
         traffic_tb: bm.trafficTb || 0,
         ips: bm.ips || 1,
-        qty_servers: bm.qtyServers || 1,
+        qty_servers: qtyServers,
         bm_cpu: bm.bmCpu || null,
         bm_ram: bm.bmRam || null,
         disks: bm.disks || [],
@@ -158,40 +186,52 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     }
   });
 
-  // Process storage items
+  // Process storage items — use rowKey pattern: storage_{idx}_{type}
   storageItems.forEach((storage, idx) => {
+    const storageType = storage.storageType || 'sas';
+    const rowKey = `storage_${idx}_${storageType}`;
+    const prices = getRowPrice(rowKey);
+    
     servers.push({
       server_type: 'storage',
-      name: `Storage ${storage.storageType?.toUpperCase() || 'SAS'} #${idx + 1}`,
-      storage_type: storage.storageType || 'sas',
+      name: `Storage ${storageType.toUpperCase()} #${idx + 1}`,
+      storage_type: storageType,
       storage_region: storage.region || 'BR',
-      volume_tb: storage.volumeTB || storage.volumeGB ? (storage.volumeGB || 0) / 1024 : 0,
+      volume_tb: storage.volumeTB || (storage.volumeGB ? (storage.volumeGB || 0) / 1024 : 0),
       vcpu: 0,
       ram_gb: 0,
       nvme_tb: 0,
       traffic_tb: 0,
       ips: 0,
       qty_servers: 1,
-      unit_price: 0,
-      total_price: 0,
+      unit_price: prices.unit,
+      total_price: prices.total,
     });
   });
 
-  // Build addons array
+  // ============================================================================
+  // BUILD ADDONS — use rowKey-based price lookup (no label matching)
+  // ============================================================================
   const addonsArray: SaveProposalAddon[] = [];
   
-  // Helper to get addon price from result.rows by label pattern
-  const getAddonPrice = (labelPattern: string): { unit: number; total: number } => {
-    if (!result?.rows) return { unit: 0, total: 0 };
-    const row = result.rows.find((r: any) => 
-      r.label?.toLowerCase().includes(labelPattern.toLowerCase())
-    );
-    return { unit: row?.unitPrice || 0, total: row?.subtotal || row?.finalTotal || 0 };
+  // Mapping: addon_key → rowKey used by calculator
+  const addonRowKeyMap: Record<string, string> = {
+    antivirus: 'svc_antivirus',
+    firewall: 'svc_firewall',
+    tsplus: 'svc_tsplus',
+    cal: 'svc_cal',
+    veeam_vm: 'svc_veeam_vm',
+    veeam_agent: 'svc_veeam_agent',
+    winserver: 'svc_winserver',
+    support: 'svc_support',
+    consulting: 'svc_consulting',
+    dba: 'svc_dba',
   };
 
   // Backup
   if (addons.backupPlan && addons.backupPlan !== 'none') {
-    const price = getAddonPrice('backup');
+    const backupRowKey = `backup_${addons.backupPlan}`;
+    const price = getRowPrice(backupRowKey);
     addonsArray.push({
       addon_key: 'backup',
       label: `Backup ${addons.backupPlan} (${addons.backupGb} GB)`,
@@ -203,157 +243,91 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     });
   }
 
-  // Antivirus
+  // Simple addons (quantity-based)
   if (addons.antivirus > 0) {
-    const price = getAddonPrice('antivírus');
-    addonsArray.push({
-      addon_key: 'antivirus',
-      label: 'Antivírus',
-      enabled: true,
-      quantity: addons.antivirus,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.antivirus);
+    addonsArray.push({ addon_key: 'antivirus', label: 'Antivírus', enabled: true, quantity: addons.antivirus, unit_price: p.unit, total_price: p.total });
   }
-
-  // Firewall
   if (addons.firewall > 0) {
-    const price = getAddonPrice('firewall');
-    addonsArray.push({
-      addon_key: 'firewall',
-      label: 'Firewall',
-      enabled: true,
-      quantity: addons.firewall,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.firewall);
+    addonsArray.push({ addon_key: 'firewall', label: 'Firewall', enabled: true, quantity: addons.firewall, unit_price: p.unit, total_price: p.total });
   }
-
-  // SQL
   if (addons.sql && addons.sql !== 'none' && addons.sqlQty > 0) {
-    const price = getAddonPrice('sql');
-    addonsArray.push({
-      addon_key: 'sql',
-      label: `SQL Server ${addons.sql}`,
-      enabled: true,
-      quantity: addons.sqlQty,
-      unit_price: price.unit,
-      total_price: price.total,
-      metadata: { type: addons.sql },
-    });
+    const sqlRowKey = `svc_sql_${addons.sql}`;
+    const p = getRowPrice(sqlRowKey);
+    addonsArray.push({ addon_key: 'sql', label: `SQL Server ${addons.sql}`, enabled: true, quantity: addons.sqlQty, unit_price: p.unit, total_price: p.total, metadata: { type: addons.sql } });
   }
-
-  // Veeam VM
   if (addons.veeamVm > 0) {
-    const price = getAddonPrice('veeam');
-    addonsArray.push({
-      addon_key: 'veeam_vm',
-      label: 'Veeam (VM)',
-      enabled: true,
-      quantity: addons.veeamVm,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.veeam_vm);
+    addonsArray.push({ addon_key: 'veeam_vm', label: 'Veeam (VM)', enabled: true, quantity: addons.veeamVm, unit_price: p.unit, total_price: p.total });
   }
-
-  // Veeam Agent
   if (addons.veeamAg > 0) {
-    const price = getAddonPrice('agent');
-    addonsArray.push({
-      addon_key: 'veeam_agent',
-      label: 'Veeam (Agent)',
-      enabled: true,
-      quantity: addons.veeamAg,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.veeam_agent);
+    addonsArray.push({ addon_key: 'veeam_agent', label: 'Veeam (Agent)', enabled: true, quantity: addons.veeamAg, unit_price: p.unit, total_price: p.total });
   }
-
-  // Windows Server
   if (addons.winserver > 0) {
-    const price = getAddonPrice('windows');
-    addonsArray.push({
-      addon_key: 'winserver',
-      label: 'Windows Server',
-      enabled: true,
-      quantity: addons.winserver,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.winserver);
+    addonsArray.push({ addon_key: 'winserver', label: 'Windows Server', enabled: true, quantity: addons.winserver, unit_price: p.unit, total_price: p.total });
   }
-
-  // TSPlus
   if (addons.tsplus && addons.tsplus > 0) {
-    const price = getAddonPrice('tsplus');
-    addonsArray.push({
-      addon_key: 'tsplus',
-      label: 'TSPlus',
-      enabled: true,
-      quantity: addons.tsplus,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.tsplus);
+    addonsArray.push({ addon_key: 'tsplus', label: 'TSPlus', enabled: true, quantity: addons.tsplus, unit_price: p.unit, total_price: p.total });
   }
-
-  // CAL
   if (addons.cal && addons.cal > 0) {
-    const price = getAddonPrice('cal');
-    addonsArray.push({
-      addon_key: 'cal',
-      label: 'CAL',
-      enabled: true,
-      quantity: addons.cal,
-      unit_price: price.unit,
-      total_price: price.total,
-    });
+    const p = getRowPrice(addonRowKeyMap.cal);
+    addonsArray.push({ addon_key: 'cal', label: 'CAL', enabled: true, quantity: addons.cal, unit_price: p.unit, total_price: p.total });
   }
 
   // Support
   if (addons.support?.level && addons.support.level !== 'none') {
+    const p = getRowPrice(addonRowKeyMap.support);
     addonsArray.push({
       addon_key: 'support',
       label: `Suporte ${addons.support.level}`,
       enabled: true,
       quantity: 1,
-      unit_price: addons.support.price || 0,
-      total_price: addons.support.price || 0,
+      unit_price: p.total > 0 ? p.total : (addons.support.price || 0),
+      total_price: p.total > 0 ? p.total : (addons.support.price || 0),
       metadata: { level: addons.support.level },
     });
   }
 
   // Consulting
   if (addons.consulting?.quantity > 0) {
+    const p = getRowPrice(addonRowKeyMap.consulting);
     addonsArray.push({
       addon_key: 'consulting',
       label: 'Consultoria',
       enabled: true,
       quantity: addons.consulting.quantity,
-      unit_price: addons.consulting.unitPrice || 200,
-      total_price: addons.consulting.quantity * (addons.consulting.unitPrice || 200),
+      unit_price: p.unit > 0 ? p.unit : (addons.consulting.unitPrice || 200),
+      total_price: p.total > 0 ? p.total : addons.consulting.quantity * (addons.consulting.unitPrice || 200),
     });
   }
 
   // DBA
   if (addons.dba?.quantity > 0) {
+    const p = getRowPrice(addonRowKeyMap.dba);
     addonsArray.push({
       addon_key: 'dba',
       label: 'DBA',
       enabled: true,
       quantity: addons.dba.quantity,
-      unit_price: addons.dba.unitPrice || 250,
-      total_price: addons.dba.quantity * (addons.dba.unitPrice || 250),
+      unit_price: p.unit > 0 ? p.unit : (addons.dba.unitPrice || 250),
+      total_price: p.total > 0 ? p.total : addons.dba.quantity * (addons.dba.unitPrice || 250),
     });
   }
 
-  // Kubernetes — salvar como ADDON (não como server)
+  // Kubernetes — use rowKey prefix k8s_*
   if (kubernetes?.enabled) {
+    const k8sPrice = sumByPrefix('k8s');
     addonsArray.push({
       addon_key: 'kubernetes',
       label: `Kubernetes ${kubernetes.plan}`,
       enabled: true,
       quantity: 1,
-      unit_price: 0,
-      total_price: 0,
+      unit_price: k8sPrice.total,
+      total_price: k8sPrice.total,
       metadata: {
         plan: kubernetes.plan,
         addons: kubernetes.addons,
@@ -362,15 +336,16 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     });
   }
 
-  // OPEN SaaS — salvar como ADDON (não como server)
+  // OPEN SaaS — use rowKey prefix saas_*
   if (openSaas?.enabled && (openSaas.users || 0) > 0) {
+    const saasPrice = sumByPrefix('saas');
     addonsArray.push({
       addon_key: 'open_saas',
       label: `OPEN SaaS (${openSaas.users} usuários)`,
       enabled: true,
       quantity: openSaas.users,
-      unit_price: 0,
-      total_price: 0,
+      unit_price: saasPrice.total > 0 ? saasPrice.total / openSaas.users : 0,
+      total_price: saasPrice.total,
       metadata: {},
     });
   }
@@ -406,6 +381,30 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     servers,
     addons: addonsArray,
   };
+
+  // ============================================================================
+  // VALIDATION LOGGING — warn on zero-price items when total > 0
+  // ============================================================================
+  const proposalTotal = payload.proposal.total || 0;
+  if (proposalTotal > 0) {
+    servers.forEach((s) => {
+      if (s.unit_price === 0 && s.total_price === 0) {
+        console.warn(`[PRICE WARNING] Server "${s.name}" has price 0 but proposal total is R$${proposalTotal.toFixed(2)}`);
+      }
+    });
+    addonsArray.forEach((a) => {
+      if (a.unit_price === 0 && a.total_price === 0 && a.quantity > 0) {
+        console.warn(`[PRICE WARNING] Addon "${a.addon_key}" (qty=${a.quantity}) has price 0 but proposal total is R$${proposalTotal.toFixed(2)}`);
+      }
+    });
+  }
+
+  console.log('[convertCalculatorToSupabasePayload] Price summary:', {
+    servers: servers.map(s => ({ name: s.name, unit: s.unit_price, total: s.total_price })),
+    addons: addonsArray.map(a => ({ key: a.addon_key, qty: a.quantity, unit: a.unit_price, total: a.total_price })),
+    proposalTotal,
+    rowKeysAvailable: Object.keys(rowByKey).length,
+  });
 
   return payload;
 }
