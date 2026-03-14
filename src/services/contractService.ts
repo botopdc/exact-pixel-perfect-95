@@ -73,6 +73,20 @@ export interface CreateContractInput {
   due_at: string | null;
   notes?: string | null;
   proposal_payload: Record<string, any>;
+  // Legal/address fields for contract text & PDF
+  legal_name?: string | null;
+  company_name?: string | null;
+  has_no_cnpj?: boolean;
+  cnpj?: string | null;
+  responsible_name?: string | null;
+  responsible_cpf?: string | null;
+  zip_code?: string | null;
+  street?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
+  payment_day?: number | null;
+  contract_date?: string | null;
 }
 
 export async function createContract(input: CreateContractInput): Promise<Contract> {
