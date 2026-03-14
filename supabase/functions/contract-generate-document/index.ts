@@ -273,10 +273,18 @@ async function generateAnnexPdf(
   const pageWidth = 595.28; // A4
   const pageHeight = 841.89;
   const margin = 50;
+  const ROW_HEIGHT = 14;
+  const HEADER_HEIGHT = 25; // table header block
+  const TOTAL_BLOCK_HEIGHT = 80; // total + footer
+  const bottomLimit = margin + 40;
 
   let page = doc.addPage([pageWidth, pageHeight]);
   let y = pageHeight - margin;
+  let isFirstPage = true;
 
+  const colX = [margin, margin + 280, margin + 320, margin + 410];
+
+  // ── Drawing helpers (use current `page` and `y`) ──
   const drawText = (
     text: string,
     x: number,
@@ -302,14 +310,31 @@ async function generateAnnexPdf(
     });
   };
 
-  const checkNewPage = () => {
-    if (y < margin + 60) {
-      page = doc.addPage([pageWidth, pageHeight]);
-      y = pageHeight - margin;
-    }
+  const drawTableHeader = (continuation = false) => {
+    const title = continuation
+      ? "ANEXO I — RESUMO DA PROPOSTA (continuação)"
+      : "ITENS CONTRATADOS";
+    drawText(title, margin, y, 11, true);
+    y -= 20;
+    const headers = ["ITENS", "QT", "VALOR UNITÁRIO (R$)", "VALOR TOTAL (R$)"];
+    headers.forEach((h, i) => drawText(h, colX[i], y, 8, true));
+    y -= 5;
+    drawLine(y);
+    y -= 15;
   };
 
-  // Title
+  const startNewTablePage = () => {
+    page = doc.addPage([pageWidth, pageHeight]);
+    y = pageHeight - margin;
+    // Page continuation title
+    drawText("ANEXO I — RESUMO DA PROPOSTA (continuação)", margin, y, 14, true);
+    y -= 25;
+    drawLine(y);
+    y -= 20;
+    drawTableHeader(true);
+  };
+
+  // ── Page 1: Client info + proposal info ──
   drawText("ANEXO I — RESUMO DA PROPOSTA", margin, y, 16, true);
   y -= 30;
   drawLine(y);
@@ -354,23 +379,37 @@ async function generateAnnexPdf(
   // ── Build detailed rows ──
   const detailedRows = buildDetailedRows(servers, addons, currency);
 
-  // Items table — 4 columns matching proposal PDF exactly
-  drawText("ITENS CONTRATADOS", margin, y, 11, true);
-  y -= 20;
+  if (detailedRows.length === 0) {
+    drawText("Nenhum item encontrado na proposta.", margin, y, 10);
+    y -= 30;
+    drawText(
+      `Documento gerado automaticamente em ${new Date().toLocaleDateString("pt-BR")}`,
+      margin,
+      y,
+      7
+    );
+    return doc.save();
+  }
 
-  // Table header: ITENS | QT | VALOR UNITÁRIO (R$) | VALOR TOTAL (R$)
-  const colX = [margin, margin + 280, margin + 320, margin + 410];
-  const headers = ["ITENS", "QT", "VALOR UNITÁRIO (R$)", "VALOR TOTAL (R$)"];
-  headers.forEach((h, i) => drawText(h, colX[i], y, 8, true));
-  y -= 5;
-  drawLine(y);
-  y -= 15;
+  // ── Draw table with smart pagination ──
+  drawTableHeader(false);
 
-  // Rows
   let grandTotal = 0;
-  for (const row of detailedRows) {
-    checkNewPage();
-    const labelStr = (row.label || "").substring(0, 45);
+
+  for (let i = 0; i < detailedRows.length; i++) {
+    const row = detailedRows[i];
+    const isLastRow = i === detailedRows.length - 1;
+
+    // Calculate space needed: current row + (total block if last row)
+    const spaceNeeded = ROW_HEIGHT + (isLastRow ? TOTAL_BLOCK_HEIGHT : 0);
+
+    // Check if we need a new page
+    if (y - spaceNeeded < bottomLimit) {
+      startNewTablePage();
+    }
+
+    // Render row — allow long labels (up to 55 chars)
+    const labelStr = (row.label || "").substring(0, 55);
     const qtyStr = String(row.qty);
     const unitStr = fmtCurrency(row.unitPrice, currency);
     const totalStr = fmtCurrency(row.totalPrice, currency);
@@ -379,11 +418,11 @@ async function generateAnnexPdf(
     drawText(qtyStr, colX[1], y, 8);
     drawText(unitStr, colX[2], y, 8);
     drawText(totalStr, colX[3], y, 8);
-    y -= 14;
+    y -= ROW_HEIGHT;
     grandTotal += row.totalPrice;
   }
 
-  // Total
+  // ── Total (always on last page) ──
   y -= 10;
   drawLine(y);
   y -= 20;
