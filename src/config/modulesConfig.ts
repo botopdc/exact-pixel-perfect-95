@@ -12,6 +12,7 @@ import {
   Users,
   Settings,
   Clock,
+  Book,
   LucideIcon,
 } from 'lucide-react';
 
@@ -125,6 +126,13 @@ export const SIDEBAR_MODULES: Module[] = [
     url: '/modulos/atendimentos',
     // Todos os internos (exceto level 1 - cliente)
     allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
+  },
+  {
+    id: 'docs',
+    title: 'Docs',
+    icon: Book,
+    url: '/modulos/docs',
+    allowedLevels: [700, 750, 900, 950, 1000],
   },
   {
     id: 'conteudo',
@@ -368,6 +376,19 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         ],
       },
     ],
+  },
+
+  // =========================================================================
+  // DOCS (Wiki Interna)
+  // =========================================================================
+  docs: {
+    id: 'docs',
+    title: 'Docs',
+    description: 'Wiki oficial e base de conhecimento técnico',
+    icon: Book,
+    homeUrl: '/modulos/docs',
+    allowedLevels: [700, 750, 900, 950, 1000],
+    subNavigation: [],
   },
 
   // =========================================================================
