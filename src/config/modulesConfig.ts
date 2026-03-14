@@ -12,6 +12,7 @@ import {
   Users,
   Settings,
   Clock,
+  Book,
   LucideIcon,
 } from 'lucide-react';
 
