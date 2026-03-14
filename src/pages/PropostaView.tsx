@@ -145,7 +145,7 @@ const PropostaView: React.FC = () => {
   const { data: proposal, isLoading } = useProposal(id);
   const sendEmailMutation = useSendProposalEmail();
   const updateStatusMutation = useUpdateProposalStatus();
-  const trackEvent = useTrackEvent();
+  const trackEvent = { mutate: (data: any) => { trackProposalEvent({ proposalId: data.proposalId, source: data.type }); } };
   
   // Check access permission
   const hasAccess = useMemo(() => {

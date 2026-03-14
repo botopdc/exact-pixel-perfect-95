@@ -184,7 +184,7 @@ const SavedProposals: React.FC = () => {
   
   const updateStatusMutation = useUpdateProposalStatus();
   const deleteProposalMutation = useDeleteProposal();
-  const trackEvent = useTrackEvent();
+  const trackEvent = { mutate: (data: any) => { trackProposalEvent({ proposalId: data.proposalId, source: data.type }); } };
   const { getApprovalLink, isLoading: isLoadingApprovalLink } = useApprovalLink();
 
   // State for actions
