@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,11 +27,18 @@ import { formatCurrency } from '@/lib/calculatorConfig';
 import { getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { ROUTES } from '@/config/routes';
+import {
+  isValidCPF, isValidCNPJ, isValidCEP,
+  formatCPF, formatCNPJ, formatCEP,
+  fetchAddressByCEP,
+} from '@/lib/validation';
 
 const BR_STATES = [
   'AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
   'PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO',
 ];
+
+type FieldErrors = Record<string, string>;
 
 export default function ContratoDetailPage() {
   const navigate = useNavigate();
@@ -44,6 +51,9 @@ export default function ContratoDetailPage() {
   const [proposalData, setProposalData] = useState<any>(null);
   const [loadingProposal, setLoadingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [fetchingCep, setFetchingCep] = useState(false);
 
   // Editable fields for new contract
   const [contractDuration, setContractDuration] = useState<number>(12);
@@ -73,10 +83,15 @@ export default function ContratoDetailPage() {
   const createContract = useCreateContract();
   const updateStatus = useUpdateContractStatus();
 
+  const steps = [
+    { label: 'Dados Jurídicos', key: 'legal' },
+    { label: 'Endereço', key: 'address' },
+    { label: 'Termos do Contrato', key: 'terms' },
+  ];
+
   // Load proposal data for new contract
   useEffect(() => {
     if (!proposalIdParam || isViewing) return;
-
     async function loadProposal() {
       setLoadingProposal(true);
       try {
@@ -89,14 +104,9 @@ export default function ContratoDetailPage() {
           setProposalError('Apenas propostas com status "Aprovado" podem gerar contratos');
           return;
         }
-        const p = {
-          ...res.proposal,
-          servers: res.servers || [],
-          addons: res.addons || [],
-        };
+        const p = { ...res.proposal, servers: res.servers || [], addons: res.addons || [] };
         setProposalData(p);
         setContractDuration(p.contract_duration || 12);
-        // Pre-fill from proposal
         setCompanyName(p.company || '');
         setLegalName(p.company || '');
         setResponsibleName(p.name || '');
@@ -127,23 +137,96 @@ export default function ContratoDetailPage() {
     }
   }, [startDate, contractDuration]);
 
-  // Handle generate contract
-  const handleGenerate = async () => {
-    if (!proposalData) return;
+  // CEP auto-fill
+  const handleCepBlur = async () => {
+    const cleaned = zipCode.replace(/\D/g, '');
+    if (cleaned.length !== 8) return;
+    setFetchingCep(true);
+    try {
+      const addr = await fetchAddressByCEP(cleaned);
+      if (addr) {
+        if (addr.logradouro) setStreet(addr.logradouro);
+        if (addr.bairro) setNeighborhood(addr.bairro);
+        if (addr.cidade) setCity(addr.cidade);
+        if (addr.uf) setState(addr.uf);
+      }
+    } finally {
+      setFetchingCep(false);
+    }
+  };
 
-    // Basic validations
-    if (!legalName.trim()) {
-      toast.error('Razão social é obrigatória');
+  // ---- VALIDATION ----
+  const validateStep = (step: number): FieldErrors => {
+    const errors: FieldErrors = {};
+
+    if (step === 0) {
+      if (!legalName.trim()) errors.legalName = 'Razão social é obrigatória';
+      if (!hasNoCnpj) {
+        if (!cnpj.trim()) {
+          errors.cnpj = 'CNPJ é obrigatório (ou marque "Sem CNPJ")';
+        } else if (!isValidCNPJ(cnpj)) {
+          errors.cnpj = 'CNPJ inválido';
+        }
+      }
+      if (!responsibleName.trim()) errors.responsibleName = 'Nome do responsável é obrigatório';
+      if (!responsibleCpf.trim()) {
+        errors.responsibleCpf = 'CPF do responsável é obrigatório';
+      } else if (!isValidCPF(responsibleCpf)) {
+        errors.responsibleCpf = 'CPF inválido';
+      }
+    }
+
+    if (step === 1) {
+      if (!zipCode.trim()) {
+        errors.zipCode = 'CEP é obrigatório';
+      } else if (!isValidCEP(zipCode)) {
+        errors.zipCode = 'CEP inválido (8 dígitos)';
+      }
+      if (!street.trim()) errors.street = 'Logradouro é obrigatório';
+      if (!city.trim()) errors.city = 'Cidade é obrigatória';
+      if (!state) errors.state = 'UF é obrigatória';
+    }
+
+    if (step === 2) {
+      if (!contractDate) errors.contractDate = 'Data do contrato é obrigatória';
+      if (!paymentDay || Number(paymentDay) < 1 || Number(paymentDay) > 31) {
+        errors.paymentDay = 'Dia de pagamento deve ser entre 1 e 31';
+      }
+      if (!startDate) errors.startDate = 'Data de início é obrigatória';
+    }
+
+    return errors;
+  };
+
+  const handleNext = () => {
+    const errors = validateStep(currentStep);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast.error('Corrija os campos obrigatórios antes de avançar');
       return;
     }
-    if (!hasNoCnpj && !cnpj.trim()) {
-      toast.error('CNPJ é obrigatório (ou marque "Sem CNPJ")');
+    setCurrentStep((s) => Math.min(s + 1, steps.length - 1));
+  };
+
+  const handlePrev = () => {
+    setFieldErrors({});
+    setCurrentStep((s) => Math.max(s - 1, 0));
+  };
+
+  // ---- GENERATE ----
+  const handleGenerate = async () => {
+    // Validate all steps
+    const allErrors: FieldErrors = {};
+    for (let i = 0; i < steps.length; i++) {
+      Object.assign(allErrors, validateStep(i));
+    }
+    setFieldErrors(allErrors);
+    if (Object.keys(allErrors).length > 0) {
+      toast.error('Existem campos inválidos. Revise todas as etapas.');
       return;
     }
-    if (!responsibleName.trim()) {
-      toast.error('Nome do responsável é obrigatório');
-      return;
-    }
+
+    if (!proposalData) return;
 
     try {
       const result = await createContract.mutateAsync({
@@ -169,7 +252,6 @@ export default function ContratoDetailPage() {
           servers: proposalData.servers || [],
           addons: proposalData.addons || [],
         },
-        // Structured legal/address fields
         legal_name: legalName || null,
         company_name: companyName || null,
         has_no_cnpj: hasNoCnpj,
@@ -191,8 +273,8 @@ export default function ContratoDetailPage() {
       });
 
       navigate(ROUTES.modulos.comercial.contractView(result.id), { replace: true });
-    } catch {
-      // error handled by hook
+    } catch (err: any) {
+      console.error('Erro ao criar contrato:', err);
     }
   };
 
@@ -221,7 +303,7 @@ export default function ContratoDetailPage() {
     );
   }
 
-  // ===== VIEW MODE: existing contract =====
+  // ===== VIEW MODE =====
   if (isViewing && existingContract) {
     const c = existingContract;
     const payload = c.proposal_payload as any;
@@ -245,7 +327,6 @@ export default function ContratoDetailPage() {
           </Badge>
         </div>
 
-        {/* Status actions */}
         {c.status === 'rascunho' && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm"
@@ -278,10 +359,8 @@ export default function ContratoDetailPage() {
               <div><span className="text-muted-foreground">Empresa:</span> {c.company}</div>
               <div><span className="text-muted-foreground">Email:</span> {c.email}</div>
               <div><span className="text-muted-foreground">Telefone:</span> {c.phone || '—'}</div>
-              {c.tax_id && <div><span className="text-muted-foreground">CNPJ/CPF:</span> {c.tax_id}</div>}
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader><CardTitle className="text-base">Condições</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -289,7 +368,7 @@ export default function ContratoDetailPage() {
               <div><span className="text-muted-foreground">Moeda:</span> {c.currency}</div>
               <div><span className="text-muted-foreground">Datacenter:</span> {c.datacenter || '—'}</div>
               <div><span className="text-muted-foreground">Duração:</span> {c.contract_duration ? `${c.contract_duration} meses` : '—'}</div>
-              <div><span className="text-muted-foreground">Ciclo de cobrança:</span> {c.billing_cycle}</div>
+              <div><span className="text-muted-foreground">Ciclo:</span> {c.billing_cycle}</div>
               {c.start_date && <div><span className="text-muted-foreground">Início:</span> {new Date(c.start_date).toLocaleDateString('pt-BR')}</div>}
               {c.end_date && <div><span className="text-muted-foreground">Fim:</span> {new Date(c.end_date).toLocaleDateString('pt-BR')}</div>}
               <div><span className="text-muted-foreground">Gerado em:</span> {new Date(c.generated_from_proposal_at).toLocaleDateString('pt-BR')}</div>
@@ -297,7 +376,6 @@ export default function ContratoDetailPage() {
           </Card>
         </div>
 
-        {/* Legal / Address data */}
         {(c.legal_name || c.responsible_name || c.cnpj || c.street) && (
           <Card>
             <CardHeader><CardTitle className="text-base">Dados Jurídicos / Endereço</CardTitle></CardHeader>
@@ -310,13 +388,13 @@ export default function ContratoDetailPage() {
                 <div><span className="text-muted-foreground">CNPJ:</span> {c.cnpj}</div>
               ) : null}
               {c.responsible_name && <div><span className="text-muted-foreground">Responsável:</span> {c.responsible_name}</div>}
-              {c.responsible_cpf && <div><span className="text-muted-foreground">CPF responsável:</span> {c.responsible_cpf}</div>}
+              {c.responsible_cpf && <div><span className="text-muted-foreground">CPF:</span> {c.responsible_cpf}</div>}
               {c.zip_code && <div><span className="text-muted-foreground">CEP:</span> {c.zip_code}</div>}
               {c.street && <div><span className="text-muted-foreground">Endereço:</span> {c.street}</div>}
               {c.neighborhood && <div><span className="text-muted-foreground">Bairro:</span> {c.neighborhood}</div>}
               {(c.city || c.state) && <div><span className="text-muted-foreground">Cidade/UF:</span> {[c.city, c.state].filter(Boolean).join(' / ')}</div>}
-              {c.payment_day && <div><span className="text-muted-foreground">Dia de pagamento:</span> {c.payment_day}</div>}
-              {c.contract_date && <div><span className="text-muted-foreground">Data do contrato:</span> {new Date(c.contract_date).toLocaleDateString('pt-BR')}</div>}
+              {c.payment_day && <div><span className="text-muted-foreground">Dia pagamento:</span> {c.payment_day}</div>}
+              {c.contract_date && <div><span className="text-muted-foreground">Data contrato:</span> {new Date(c.contract_date).toLocaleDateString('pt-BR')}</div>}
             </CardContent>
           </Card>
         )}
@@ -328,23 +406,20 @@ export default function ContratoDetailPage() {
           </Card>
         )}
 
-        {/* Servers from snapshot */}
         {servers.length > 0 && (
           <Card>
-            <CardHeader><CardTitle className="text-base">Servidores (snapshot da proposta)</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Servidores (snapshot)</CardTitle></CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 px-3 text-muted-foreground">Nome</th>
-                      <th className="text-left py-2 px-3 text-muted-foreground">Tipo</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">vCPU</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">RAM</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">Qtd</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">Valor</th>
-                    </tr>
-                  </thead>
+                  <thead><tr className="border-b border-border">
+                    <th className="text-left py-2 px-3 text-muted-foreground">Nome</th>
+                    <th className="text-left py-2 px-3 text-muted-foreground">Tipo</th>
+                    <th className="text-right py-2 px-3 text-muted-foreground">vCPU</th>
+                    <th className="text-right py-2 px-3 text-muted-foreground">RAM</th>
+                    <th className="text-right py-2 px-3 text-muted-foreground">Qtd</th>
+                    <th className="text-right py-2 px-3 text-muted-foreground">Valor</th>
+                  </tr></thead>
                   <tbody>
                     {servers.map((s: any, i: number) => (
                       <tr key={i} className="border-b border-border/50">
@@ -363,10 +438,9 @@ export default function ContratoDetailPage() {
           </Card>
         )}
 
-        {/* Addons from snapshot */}
         {addons.filter((a: any) => a.enabled).length > 0 && (
           <Card>
-            <CardHeader><CardTitle className="text-base">Add-ons (snapshot da proposta)</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Add-ons (snapshot)</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-1 text-sm">
                 {addons.filter((a: any) => a.enabled).map((a: any, i: number) => (
@@ -383,71 +457,109 @@ export default function ContratoDetailPage() {
     );
   }
 
-  // ===== CREATE MODE: generate contract from proposal =====
-  if (proposalData) {
+  // ===== CREATE MODE =====
+  if (!proposalData) {
     return (
-      <div className="space-y-6 max-w-4xl mx-auto">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(ROUTES.modulos.comercial.contracts)}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <FileSignature className="h-6 w-6 text-primary" />
-              Gerar Contrato
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              A partir da proposta {proposalData.display_id || proposalData.id?.substring(0, 8)}
-            </p>
-          </div>
+      <div className="text-center py-12 text-muted-foreground">
+        <p>Nenhuma proposta selecionada.</p>
+        <Button variant="link" onClick={() => navigate(ROUTES.modulos.comercial.contracts)}>
+          Voltar para contratos
+        </Button>
+      </div>
+    );
+  }
+
+  const FieldError = ({ name }: { name: string }) =>
+    fieldErrors[name] ? <p className="text-sm text-destructive mt-1">{fieldErrors[name]}</p> : null;
+
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => navigate(ROUTES.modulos.comercial.contracts)}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <FileSignature className="h-6 w-6 text-primary" />
+            Gerar Contrato
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            A partir da proposta {proposalData.display_id || proposalData.id?.substring(0, 8)}
+          </p>
         </div>
+      </div>
 
-        <Alert>
-          <FileSignature className="h-4 w-4" />
-          <AlertDescription>
-            Ao gerar o contrato, um snapshot completo da proposta será salvo. O contrato será criado com status "Rascunho".
-          </AlertDescription>
-        </Alert>
+      <Alert>
+        <FileSignature className="h-4 w-4" />
+        <AlertDescription>
+          Preencha os dados em 3 etapas. O contrato será criado como "Rascunho".
+        </AlertDescription>
+      </Alert>
 
-        {/* Proposal summary */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader><CardTitle className="text-base">Cliente</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Nome:</span> {proposalData.name}</div>
-              <div><span className="text-muted-foreground">Empresa:</span> {proposalData.company}</div>
-              <div><span className="text-muted-foreground">Email:</span> {proposalData.email}</div>
-              <div><span className="text-muted-foreground">Telefone:</span> {proposalData.phone}</div>
-            </CardContent>
-          </Card>
+      {/* Proposal summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader><CardTitle className="text-base">Cliente</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div><span className="text-muted-foreground">Nome:</span> {proposalData.name}</div>
+            <div><span className="text-muted-foreground">Empresa:</span> {proposalData.company}</div>
+            <div><span className="text-muted-foreground">Email:</span> {proposalData.email}</div>
+            <div><span className="text-muted-foreground">Telefone:</span> {proposalData.phone}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-base">Condições da Proposta</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div><span className="text-muted-foreground">Valor total:</span> <span className="text-lg font-bold text-primary">{formatCurrency(proposalData.total)}</span></div>
+            <div><span className="text-muted-foreground">Datacenter:</span> {proposalData.datacenter}</div>
+            <div><span className="text-muted-foreground">Canal:</span> {proposalData.channel_type}</div>
+            {proposalData.reseller_name && (
+              <div><span className="text-muted-foreground">Parceiro:</span> {proposalData.reseller_name}</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-          <Card>
-            <CardHeader><CardTitle className="text-base">Condições da Proposta</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Valor total:</span> <span className="text-lg font-bold text-primary">{formatCurrency(proposalData.total)}</span></div>
-              <div><span className="text-muted-foreground">Datacenter:</span> {proposalData.datacenter}</div>
-              <div><span className="text-muted-foreground">Canal:</span> {proposalData.channel_type}</div>
-              {proposalData.reseller_name && (
-                <div><span className="text-muted-foreground">Parceiro:</span> {proposalData.reseller_name}</div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+      {/* Stepper */}
+      <div className="flex items-center gap-2 justify-center">
+        {steps.map((step, idx) => (
+          <React.Fragment key={step.key}>
+            <button
+              onClick={() => {
+                if (idx < currentStep) { setFieldErrors({}); setCurrentStep(idx); }
+              }}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                idx === currentStep
+                  ? 'bg-primary text-primary-foreground'
+                  : idx < currentStep
+                    ? 'bg-primary/20 text-primary cursor-pointer'
+                    : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {idx < currentStep ? <Check className="h-4 w-4" /> : <span className="w-5 h-5 rounded-full border flex items-center justify-center text-xs">{idx + 1}</span>}
+              <span className="hidden sm:inline">{step.label}</span>
+            </button>
+            {idx < steps.length - 1 && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          </React.Fragment>
+        ))}
+      </div>
 
-        {/* Legal / Company data */}
+      {/* Step 0: Legal */}
+      {currentStep === 0 && (
         <Card>
           <CardHeader><CardTitle className="text-base">Dados Jurídicos da Contratante</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label>Razão social *</Label>
                 <Input value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="Razão social completa" />
+                <FieldError name="legalName" />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label>Nome fantasia</Label>
                 <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Nome fantasia" />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Label>CNPJ {!hasNoCnpj && '*'}</Label>
                   <div className="flex items-center gap-1.5 ml-auto">
@@ -455,43 +567,69 @@ export default function ContratoDetailPage() {
                     <label htmlFor="hasNoCnpj" className="text-xs text-muted-foreground cursor-pointer">Sem CNPJ</label>
                   </div>
                 </div>
-                <Input value={cnpj} onChange={(e) => setCnpj(e.target.value)} placeholder="00.000.000/0000-00" disabled={hasNoCnpj} />
+                <Input
+                  value={cnpj}
+                  onChange={(e) => setCnpj(formatCNPJ(e.target.value))}
+                  placeholder="00.000.000/0000-00"
+                  disabled={hasNoCnpj}
+                  maxLength={18}
+                />
+                <FieldError name="cnpj" />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label>Nome do responsável *</Label>
                 <Input value={responsibleName} onChange={(e) => setResponsibleName(e.target.value)} placeholder="Nome completo" />
+                <FieldError name="responsibleName" />
               </div>
-              <div className="space-y-2">
-                <Label>CPF do responsável</Label>
-                <Input value={responsibleCpf} onChange={(e) => setResponsibleCpf(e.target.value)} placeholder="000.000.000-00" />
+              <div className="space-y-1">
+                <Label>CPF do responsável *</Label>
+                <Input
+                  value={responsibleCpf}
+                  onChange={(e) => setResponsibleCpf(formatCPF(e.target.value))}
+                  placeholder="000.000.000-00"
+                  maxLength={14}
+                />
+                <FieldError name="responsibleCpf" />
               </div>
             </div>
           </CardContent>
         </Card>
+      )}
 
-        {/* Address */}
+      {/* Step 1: Address */}
+      {currentStep === 1 && (
         <Card>
           <CardHeader><CardTitle className="text-base">Endereço</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>CEP</Label>
-                <Input value={zipCode} onChange={(e) => setZipCode(e.target.value)} placeholder="00000-000" />
+              <div className="space-y-1">
+                <Label>CEP *</Label>
+                <Input
+                  value={zipCode}
+                  onChange={(e) => setZipCode(formatCEP(e.target.value))}
+                  onBlur={handleCepBlur}
+                  placeholder="00000-000"
+                  maxLength={9}
+                />
+                {fetchingCep && <p className="text-xs text-muted-foreground">Buscando endereço...</p>}
+                <FieldError name="zipCode" />
               </div>
-              <div className="md:col-span-2 space-y-2">
-                <Label>Logradouro</Label>
+              <div className="md:col-span-2 space-y-1">
+                <Label>Logradouro *</Label>
                 <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Rua, Av., número, complemento" />
+                <FieldError name="street" />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label>Bairro</Label>
                 <Input value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} placeholder="Bairro" />
               </div>
-              <div className="space-y-2">
-                <Label>Cidade</Label>
+              <div className="space-y-1">
+                <Label>Cidade *</Label>
                 <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade" />
+                <FieldError name="city" />
               </div>
-              <div className="space-y-2">
-                <Label>UF</Label>
+              <div className="space-y-1">
+                <Label>UF *</Label>
                 <Select value={state} onValueChange={setState}>
                   <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
@@ -500,18 +638,21 @@ export default function ContratoDetailPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <FieldError name="state" />
               </div>
             </div>
           </CardContent>
         </Card>
+      )}
 
-        {/* Contract terms */}
+      {/* Step 2: Terms */}
+      {currentStep === 2 && (
         <Card>
           <CardHeader><CardTitle className="text-base">Termos do Contrato</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Duração do contrato</Label>
+              <div className="space-y-1">
+                <Label>Duração do contrato *</Label>
                 <Select value={String(contractDuration)} onValueChange={(v) => setContractDuration(Number(v))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -521,9 +662,8 @@ export default function ContratoDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-2">
-                <Label>Ciclo de cobrança</Label>
+              <div className="space-y-1">
+                <Label>Ciclo de cobrança *</Label>
                 <Select value={billingCycle} onValueChange={setBillingCycle}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -533,129 +673,128 @@ export default function ContratoDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-2">
-                <Label>Data do contrato</Label>
+              <div className="space-y-1">
+                <Label>Data do contrato *</Label>
                 <Input type="date" value={contractDate} onChange={(e) => setContractDate(e.target.value)} />
+                <FieldError name="contractDate" />
               </div>
-
-              <div className="space-y-2">
-                <Label>Dia de pagamento</Label>
-                <Input type="number" min={1} max={31} value={paymentDay} onChange={(e) => setPaymentDay(e.target.value ? Number(e.target.value) : '')} placeholder="Ex: 10" />
+              <div className="space-y-1">
+                <Label>Dia de pagamento *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={paymentDay}
+                  onChange={(e) => {
+                    const v = e.target.value ? Number(e.target.value) : '';
+                    setPaymentDay(v);
+                  }}
+                  placeholder="Ex: 10"
+                />
+                <FieldError name="paymentDay" />
               </div>
-
-              <div className="space-y-2">
-                <Label>Data de início</Label>
+              <div className="space-y-1">
+                <Label>Data de início *</Label>
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                <FieldError name="startDate" />
               </div>
-
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label>Data de término (auto-calculado)</Label>
                 <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
-
-              <div className="md:col-span-2 space-y-2">
+              <div className="md:col-span-2 space-y-1">
                 <Label>Observações do contrato</Label>
-                <Textarea
-                  placeholder="Observações adicionais para o contrato..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                />
+                <Textarea placeholder="Observações adicionais..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
               </div>
             </div>
           </CardContent>
         </Card>
+      )}
 
-        {/* Servers */}
-        {proposalData.servers?.length > 0 && (
-          <Card>
-            <CardHeader><CardTitle className="text-base">Servidores ({proposalData.servers.length})</CardTitle></CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 px-3 text-muted-foreground">Nome</th>
-                      <th className="text-left py-2 px-3 text-muted-foreground">Tipo</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">vCPU</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">RAM</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">Qtd</th>
-                      <th className="text-right py-2 px-3 text-muted-foreground">Valor</th>
+      {/* Servers & Addons (always visible) */}
+      {proposalData.servers?.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Servidores ({proposalData.servers.length})</CardTitle></CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-border">
+                  <th className="text-left py-2 px-3 text-muted-foreground">Nome</th>
+                  <th className="text-left py-2 px-3 text-muted-foreground">Tipo</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground">vCPU</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground">RAM</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground">Qtd</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground">Valor</th>
+                </tr></thead>
+                <tbody>
+                  {proposalData.servers.map((s: any, i: number) => (
+                    <tr key={i} className="border-b border-border/50">
+                      <td className="py-2 px-3">{s.name}</td>
+                      <td className="py-2 px-3">{s.server_type || s.type}</td>
+                      <td className="py-2 px-3 text-right">{s.vcpu}</td>
+                      <td className="py-2 px-3 text-right">{s.ram_gb || s.ramGb} GB</td>
+                      <td className="py-2 px-3 text-right">{s.qty_servers || s.qtyServers || 1}</td>
+                      <td className="py-2 px-3 text-right font-medium">{formatCurrency(s.total_price || 0)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {proposalData.servers.map((s: any, i: number) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="py-2 px-3">{s.name}</td>
-                        <td className="py-2 px-3">{s.server_type || s.type}</td>
-                        <td className="py-2 px-3 text-right">{s.vcpu}</td>
-                        <td className="py-2 px-3 text-right">{s.ram_gb || s.ramGb} GB</td>
-                        <td className="py-2 px-3 text-right">{s.qty_servers || s.qtyServers || 1}</td>
-                        <td className="py-2 px-3 text-right font-medium">{formatCurrency(s.total_price || 0)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Addons */}
-        {proposalData.addons?.filter((a: any) => a.enabled).length > 0 && (
-          <Card>
-            <CardHeader><CardTitle className="text-base">Add-ons</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-1 text-sm">
-                {proposalData.addons.filter((a: any) => a.enabled).map((a: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between py-1">
-                    <span>{a.label} × {a.quantity}</span>
-                    <span className="font-medium">{formatCurrency(a.total_price || 0)}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      {proposalData.addons?.filter((a: any) => a.enabled).length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Add-ons</CardTitle></CardHeader>
+          <CardContent>
+            <div className="space-y-1 text-sm">
+              {proposalData.addons.filter((a: any) => a.enabled).map((a: any, i: number) => (
+                <div key={i} className="flex items-center justify-between py-1">
+                  <span>{a.label} × {a.quantity}</span>
+                  <span className="font-medium">{formatCurrency(a.total_price || 0)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        {proposalData.observations && (
-          <Card>
-            <CardHeader><CardTitle className="text-base">Observações da proposta</CardTitle></CardHeader>
-            <CardContent><p className="text-sm text-muted-foreground">{proposalData.observations}</p></CardContent>
-          </Card>
-        )}
+      <Separator />
 
-        <Separator />
-
-        <div className="flex items-center justify-end gap-3">
+      {/* Navigation buttons */}
+      <div className="flex items-center justify-between">
+        <div>
+          {currentStep > 0 && (
+            <Button variant="outline" onClick={handlePrev}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-3">
           <Button variant="outline" onClick={() => navigate(ROUTES.modulos.comercial.contracts)}>
             Cancelar
           </Button>
-          <Button
-            size="lg"
-            onClick={handleGenerate}
-            disabled={createContract.isPending}
-          >
-            {createContract.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <FileSignature className="h-4 w-4 mr-2" />
-            )}
-            Gerar Contrato
-          </Button>
+          {currentStep < steps.length - 1 ? (
+            <Button onClick={handleNext}>
+              Próximo <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              onClick={handleGenerate}
+              disabled={createContract.isPending}
+            >
+              {createContract.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <FileSignature className="h-4 w-4 mr-2" />
+              )}
+              Gerar Contrato
+            </Button>
+          )}
         </div>
       </div>
-    );
-  }
-
-  // Fallback
-  return (
-    <div className="text-center py-12 text-muted-foreground">
-      <p>Nenhuma proposta selecionada.</p>
-      <Button variant="link" onClick={() => navigate(ROUTES.modulos.comercial.contracts)}>
-        Voltar para contratos
-      </Button>
     </div>
   );
 }
