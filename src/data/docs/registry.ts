@@ -31,6 +31,17 @@ export type DocCategory = typeof DOC_CATEGORIES[number]['id'];
 export const DOCS_REGISTRY: DocEntry[] = [
   // ======== CORE ========
   {
+    slug: 'system-blueprint',
+    title: 'OPEN System Blueprint',
+    category: 'core',
+    summary: 'Blueprint oficial da arquitetura completa da plataforma OPEN: módulos, banco de dados, eventos, APIs e regras estruturais.',
+    file: 'core/open_system_blueprint',
+    tags: ['blueprint', 'arquitetura', 'visão geral', 'módulos', 'eventos', 'supabase', 'rbac'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 0,
+  },
+  {
     slug: 'architecture',
     title: 'Arquitetura do Sistema',
     category: 'core',
