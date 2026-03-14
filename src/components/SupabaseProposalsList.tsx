@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  FileDown, Loader2, Mail, Link as LinkIcon,
+  FileDown, Loader2, Mail, Link as LinkIcon, BarChart3,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
@@ -43,6 +43,7 @@ import {
   useDeleteProposal,
 } from '@/hooks/useProposalApi';
 import type { ProposalRow } from '@/services/proposalApi';
+import ProposalAccessModal from '@/components/ProposalAccessModal';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -205,6 +206,7 @@ const SupabaseProposalsList: React.FC = () => {
   // State for Safari fallback modal
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkModalUrl, setLinkModalUrl] = useState('');
+  const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
   
   const handleView = (proposalId: string) => {
     navigate(ROUTES.modulos.comercial.proposalView(proposalId));
@@ -717,6 +719,21 @@ const SupabaseProposalsList: React.FC = () => {
                             </TooltipTrigger>
                             <TooltipContent>Baixar PDF</TooltipContent>
                           </Tooltip>
+
+                          {/* Histórico de acessos */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setAccessModalProposalId(proposal.id)}
+                              >
+                                <BarChart3 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Histórico / Ver acessos</TooltipContent>
+                          </Tooltip>
                           
                           {isAdmin && (
                             <Tooltip>
@@ -824,6 +841,13 @@ const SupabaseProposalsList: React.FC = () => {
           open={linkModalOpen}
           onOpenChange={setLinkModalOpen}
           link={linkModalUrl}
+        />
+
+        {/* Proposal Access History Modal */}
+        <ProposalAccessModal
+          proposalId={accessModalProposalId}
+          open={!!accessModalProposalId}
+          onOpenChange={(open) => !open && setAccessModalProposalId(null)}
         />
       </div>
     </TooltipProvider>
