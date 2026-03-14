@@ -277,3 +277,28 @@ function buildPublicUrl(token: string): string {
   const baseUrl = window.location.origin;
   return `${baseUrl}/proposta/aprovacao/${token}`;
 }
+
+function createPublicApprovalToken(): string {
+  return `pat_${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+function mapLoadErrorToMessage(error: LoadError): string {
+  switch (error) {
+    case 'token_missing':
+      return 'Token de aprovação ausente.';
+    case 'token_invalid':
+      return 'Token de aprovação inválido.';
+    case 'proposal_not_found':
+      return 'Proposta não encontrada.';
+    case 'token_disabled':
+      return 'A aprovação pública desta proposta está desabilitada.';
+    case 'token_expired':
+      return 'Este link de aprovação expirou.';
+    case 'already_approved':
+      return 'Esta proposta já foi aprovada.';
+    case 'already_rejected':
+      return 'Esta proposta já foi recusada.';
+    default:
+      return 'Erro ao carregar proposta.';
+  }
+}
