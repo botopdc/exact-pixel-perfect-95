@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileText, Search, Eye, Trash2, Loader2,
-  FileSignature, RotateCcw, CalendarIcon,
+  FileSignature, CalendarIcon,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -17,7 +17,6 @@ import {
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -38,6 +37,7 @@ export default function ContratosListPage() {
   const [tab, setTab] = useState('eligible');
   const [contractFilters, setContractFilters] = useState<ContractFilters>({});
   const [searchInput, setSearchInput] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Fetch approved proposals for "eligible" tab
   const { data: proposalsData, isLoading: isLoadingProposals } = useProposalList(1, {
@@ -110,8 +110,10 @@ export default function ContratosListPage() {
           {/* ===== TAB 1: Eligible proposals ===== */}
           <TabsContent value="eligible" className="mt-4">
             {isLoadingProposals ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
               </div>
             ) : eligibleProposals.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
@@ -192,7 +194,7 @@ export default function ContratosListPage() {
                 </Button>
               </form>
               <Select value={contractFilters.status || '__all__'} onValueChange={handleStatusFilter}>
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -222,9 +224,11 @@ export default function ContratosListPage() {
                   <thead>
                     <tr className="border-b border-border">
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Nº</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Proposta</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Cliente</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Empresa</th>
                       <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Valor</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">DC</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Prazo</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Criado em</th>
@@ -237,11 +241,15 @@ export default function ContratosListPage() {
                         <td className="py-3 px-4 font-mono text-sm text-primary">
                           {c.contract_number || c.id.substring(0, 8)}
                         </td>
+                        <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
+                          {c.proposal_uuid || c.proposal_id.substring(0, 8)}
+                        </td>
                         <td className="py-3 px-4 text-sm">{c.client_name}</td>
                         <td className="py-3 px-4 text-sm">{c.company}</td>
                         <td className="py-3 px-4 text-right text-sm font-medium">
                           {formatCurrency(c.total)}
                         </td>
+                        <td className="py-3 px-4 text-center text-sm">{c.datacenter || '—'}</td>
                         <td className="py-3 px-4 text-center text-sm">
                           {c.contract_duration ? `${c.contract_duration}m` : '—'}
                         </td>
@@ -266,30 +274,18 @@ export default function ContratosListPage() {
                               </TooltipTrigger>
                               <TooltipContent>Ver detalhes</TooltipContent>
                             </Tooltip>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => setDeleteId(c.id)}
+                                >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Excluir contrato?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Esta ação não pode ser desfeita.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => deleteContract.mutate(c.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                              </TooltipTrigger>
+                              <TooltipContent>Excluir</TooltipContent>
+                            </Tooltip>
                           </div>
                         </td>
                       </tr>
@@ -300,6 +296,32 @@ export default function ContratosListPage() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir contrato?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (deleteId) {
+                    deleteContract.mutate(deleteId);
+                    setDeleteId(null);
+                  }
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TooltipProvider>
   );

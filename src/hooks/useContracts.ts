@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { contractService } from '@/services/contractService';
+import { contractService, type CreateContractInput } from '@/services/contractService';
 import type { ContractFilters, ContractStatus } from '@/types/contract';
 import { toast } from 'sonner';
 
@@ -45,7 +45,7 @@ export function useConvertedProposalIds(proposalIds: string[]) {
 export function useCreateContract() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: contractService.create,
+    mutationFn: (input: CreateContractInput) => contractService.create(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
       toast.success('Contrato criado com sucesso');
