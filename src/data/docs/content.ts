@@ -4,6 +4,9 @@
 // Existing docs from /docs folder are loaded here as well.
 // ============================================================================
 
+// Import content modules
+import { OPEN_DATA_MODEL_CONTENT } from './content/dataModel';
+
 // Import existing docs
 import PLANO_7_PASSOS from '../../../docs/PLANO_7_PASSOS.md?raw';
 import EVIDENCIAS_7_PASSOS from '../../../docs/EVIDENCIAS_7_PASSOS.md?raw';
@@ -1547,6 +1550,9 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
     '',
     'Todo módulo deve possuir sua documentação em `/docs/modules/`.',
   ].join('\n'),
+
+  // ======== CORE — Data Model ========
+  'core/open_data_model': OPEN_DATA_MODEL_CONTENT,
 };
 
 export function getDocContent(fileKey: string): string | null {
