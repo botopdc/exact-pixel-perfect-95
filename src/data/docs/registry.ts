@@ -220,6 +220,19 @@ export const DOCS_REGISTRY: DocEntry[] = [
     order: 40,
   },
 
+  // ======== CORE — Sync Commands ========
+  {
+    slug: 'docs-sync-commands',
+    title: 'Docs Sync Commands',
+    category: 'core',
+    summary: 'Comandos internos de sincronização da documentação técnica da OPEN.',
+    file: 'core/open_docs_sync_commands',
+    tags: ['sync', 'docs', 'automação', 'comandos', 'manutenção'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 7,
+  },
+
   // ======== EXISTING DOCS (from /docs folder) ========
   {
     slug: 'playbooks/7-passos-propostas',
