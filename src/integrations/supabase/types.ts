@@ -343,8 +343,13 @@ export type Database = {
       }
       calculator_proposals: {
         Row: {
+          approval_decision: string | null
+          approval_notes: string | null
           approval_token: string | null
           approval_token_expires_at: string | null
+          approved_at: string | null
+          approved_by_email: string | null
+          approved_by_name: string | null
           channel_type: string
           commission_reason: string | null
           commission_value: number | null
@@ -366,14 +371,20 @@ export type Database = {
           pdf_generated_at: string | null
           pdf_path: string | null
           phone: string
+          rejected_at: string | null
           reseller_name: string | null
           status: string
           total: number
           updated_at: string
         }
         Insert: {
+          approval_decision?: string | null
+          approval_notes?: string | null
           approval_token?: string | null
           approval_token_expires_at?: string | null
+          approved_at?: string | null
+          approved_by_email?: string | null
+          approved_by_name?: string | null
           channel_type?: string
           commission_reason?: string | null
           commission_value?: number | null
@@ -395,14 +406,20 @@ export type Database = {
           pdf_generated_at?: string | null
           pdf_path?: string | null
           phone: string
+          rejected_at?: string | null
           reseller_name?: string | null
           status?: string
           total?: number
           updated_at?: string
         }
         Update: {
+          approval_decision?: string | null
+          approval_notes?: string | null
           approval_token?: string | null
           approval_token_expires_at?: string | null
+          approved_at?: string | null
+          approved_by_email?: string | null
+          approved_by_name?: string | null
           channel_type?: string
           commission_reason?: string | null
           commission_value?: number | null
@@ -424,6 +441,7 @@ export type Database = {
           pdf_generated_at?: string | null
           pdf_path?: string | null
           phone?: string
+          rejected_at?: string | null
           reseller_name?: string | null
           status?: string
           total?: number

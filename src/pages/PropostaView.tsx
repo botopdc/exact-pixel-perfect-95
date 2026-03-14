@@ -209,7 +209,7 @@ const PropostaView: React.FC = () => {
     setIsCopyingLink(true);
     try {
       // Fetch approval token and generate link with numeric ID
-      const approvalLink = await getApprovalLink(apiId);
+      const approvalLink = await getApprovalLink(String(apiId));
       
       // Try to copy to clipboard (with Safari fallback)
       const copySuccess = await copyToClipboard(approvalLink);
@@ -261,7 +261,7 @@ const PropostaView: React.FC = () => {
       let proposalLink: string;
       
       try {
-        proposalLink = await getApprovalLink(apiId!);
+        proposalLink = await getApprovalLink(String(apiId!));
         console.log('[PropostaView] Got tokenized approval link for email');
       } catch (linkError: any) {
         console.error('[PropostaView] Failed to get approval link:', linkError);
