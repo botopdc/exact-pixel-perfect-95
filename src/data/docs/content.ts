@@ -1550,6 +1550,9 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
     '',
     'Todo módulo deve possuir sua documentação em `/docs/modules/`.',
   ].join('\n'),
+
+  // ======== CORE — Data Model ========
+  'core/open_data_model': OPEN_DATA_MODEL_CONTENT,
 };
 
 export function getDocContent(fileKey: string): string | null {
