@@ -43,6 +43,7 @@ import {
   useDeleteProposal,
 } from '@/hooks/useProposalApi';
 import type { ProposalRow } from '@/services/proposalApi';
+import ProposalAccessModal from '@/components/ProposalAccessModal';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {

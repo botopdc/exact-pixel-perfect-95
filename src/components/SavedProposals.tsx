@@ -8,7 +8,7 @@ import OpenLogo from './OpenLogo';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProposals, useUpdateProposalStatus, useDeleteProposal, SavedProposal, ProposalStatus, apiToLocal, statusToApiFormat } from '@/hooks/useProposals';
 import { openApi } from '@/lib/openApi';
-import { useTrackEvent } from '@/hooks/useProposalEvents';
+import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { formatCurrency, formatCurrencyBRL, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import ProposalAccessModal from './ProposalAccessModal';

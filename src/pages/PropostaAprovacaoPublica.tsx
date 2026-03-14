@@ -38,6 +38,8 @@ const ERROR_MESSAGES: Record<LoadError, { title: string; description: string }> 
   token_missing: { title: 'Token ausente', description: 'Token de aprovação ausente.' },
   token_invalid: { title: 'Token inválido', description: 'Token de aprovação inválido.' },
   token_expired: { title: 'Link expirado', description: 'Este link de aprovação expirou. Solicite um novo link ao comercial.' },
+  proposal_not_found: { title: 'Proposta não encontrada', description: 'Nenhuma proposta encontrada para este token.' },
+  token_disabled: { title: 'Link desabilitado', description: 'Este link de aprovação foi desabilitado.' },
   already_approved: { title: 'Já aprovada', description: 'Esta proposta já foi aprovada.' },
   already_rejected: { title: 'Já recusada', description: 'Esta proposta já foi recusada.' },
   unknown: { title: 'Erro', description: 'Erro ao carregar proposta. Tente novamente mais tarde.' },

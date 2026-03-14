@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileDown, Link as LinkIcon, Mail, Loader2, ShieldX } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { useProposal, useSendProposalEmail, useUpdateProposalStatus } from '@/hooks/useProposals';
-import { useTrackEvent } from '@/hooks/useProposalEvents';
+import { trackProposalEvent } from '@/services/proposalTrackingService';
 import { downloadProposalPdfFromApi } from '@/services/proposalPdfService';
 import { formatCurrency, getValidityDate, formatDateBR } from '@/lib/calculatorConfig';
 import { useToast } from '@/hooks/use-toast';
