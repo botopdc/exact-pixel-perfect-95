@@ -354,17 +354,3 @@ const PropostaAprovacaoPublica: React.FC = () => {
 };
 
 export default PropostaAprovacaoPublica;
-      </AlertDialog>
-    </div>
-  );
-};
-
-export default PropostaAprovacaoPublica;
-ialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-};
-
-export default PropostaAprovacaoPublica;
