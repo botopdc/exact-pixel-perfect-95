@@ -3245,7 +3245,7 @@ const OpenCalculator: React.FC = () => {
                 <Button 
                   className="w-full" 
                   onClick={handleSendEmail}
-                  disabled={sendingEmail || !client.email}
+                  disabled={sendingEmail || saving || !client.email}
                 >
                   {sendingEmail ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
