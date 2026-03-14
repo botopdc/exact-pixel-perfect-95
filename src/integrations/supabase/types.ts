@@ -907,137 +907,227 @@ export type Database = {
           },
         ]
       }
+      contract_templates: {
+        Row: {
+          bucket: string
+          code: string
+          created_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          path: string
+          updated_at: string | null
+          version: number
+        }
+        Insert: {
+          bucket: string
+          code: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          path: string
+          updated_at?: string | null
+          version?: number
+        }
+        Update: {
+          bucket?: string
+          code?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          path?: string
+          updated_at?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
       contracts: {
         Row: {
+          annex_pdf_path: string | null
           billing_cycle: string
           city: string | null
           client_name: string
           cnpj: string | null
           company: string
           company_name: string | null
+          contract_city: string | null
           contract_date: string | null
           contract_duration: number | null
           contract_number: string | null
           contract_payload: Json | null
+          contract_pdf_path: string | null
           created_at: string
           currency: string
           datacenter: string | null
           deleted_at: string | null
           discount_amount: number | null
+          docx_path: string | null
           due_at: string | null
           email: string
           end_date: string | null
+          final_pdf_path: string | null
           generated_by: string | null
           generated_from_proposal_at: string
+          generation_strategy: string | null
           has_no_cnpj: boolean
           id: string
           legal_name: string | null
+          metadata: Json | null
           neighborhood: string | null
           notes: string | null
+          open_signer_cpf: string | null
+          open_signer_name: string | null
           payment_day: number | null
           phone: string
           proposal_id: string
           proposal_payload: Json
+          proposal_pdf_source_path: string | null
           proposal_uuid: string | null
           responsible_cpf: string | null
           responsible_name: string | null
+          setup_value: number
           start_date: string | null
           state: string | null
           status: string
           street: string | null
           subtotal: number | null
           tax_id: string | null
+          template_code: string | null
+          template_path: string | null
           total: number | null
           updated_at: string
           updated_by: string | null
+          witness_1_cpf: string | null
+          witness_1_name: string | null
+          witness_2_cpf: string | null
+          witness_2_name: string | null
           zip_code: string | null
         }
         Insert: {
+          annex_pdf_path?: string | null
           billing_cycle?: string
           city?: string | null
           client_name: string
           cnpj?: string | null
           company: string
           company_name?: string | null
+          contract_city?: string | null
           contract_date?: string | null
           contract_duration?: number | null
           contract_number?: string | null
           contract_payload?: Json | null
+          contract_pdf_path?: string | null
           created_at?: string
           currency?: string
           datacenter?: string | null
           deleted_at?: string | null
           discount_amount?: number | null
+          docx_path?: string | null
           due_at?: string | null
           email: string
           end_date?: string | null
+          final_pdf_path?: string | null
           generated_by?: string | null
           generated_from_proposal_at?: string
+          generation_strategy?: string | null
           has_no_cnpj?: boolean
           id?: string
           legal_name?: string | null
+          metadata?: Json | null
           neighborhood?: string | null
           notes?: string | null
+          open_signer_cpf?: string | null
+          open_signer_name?: string | null
           payment_day?: number | null
           phone?: string
           proposal_id: string
           proposal_payload?: Json
+          proposal_pdf_source_path?: string | null
           proposal_uuid?: string | null
           responsible_cpf?: string | null
           responsible_name?: string | null
+          setup_value?: number
           start_date?: string | null
           state?: string | null
           status?: string
           street?: string | null
           subtotal?: number | null
           tax_id?: string | null
+          template_code?: string | null
+          template_path?: string | null
           total?: number | null
           updated_at?: string
           updated_by?: string | null
+          witness_1_cpf?: string | null
+          witness_1_name?: string | null
+          witness_2_cpf?: string | null
+          witness_2_name?: string | null
           zip_code?: string | null
         }
         Update: {
+          annex_pdf_path?: string | null
           billing_cycle?: string
           city?: string | null
           client_name?: string
           cnpj?: string | null
           company?: string
           company_name?: string | null
+          contract_city?: string | null
           contract_date?: string | null
           contract_duration?: number | null
           contract_number?: string | null
           contract_payload?: Json | null
+          contract_pdf_path?: string | null
           created_at?: string
           currency?: string
           datacenter?: string | null
           deleted_at?: string | null
           discount_amount?: number | null
+          docx_path?: string | null
           due_at?: string | null
           email?: string
           end_date?: string | null
+          final_pdf_path?: string | null
           generated_by?: string | null
           generated_from_proposal_at?: string
+          generation_strategy?: string | null
           has_no_cnpj?: boolean
           id?: string
           legal_name?: string | null
+          metadata?: Json | null
           neighborhood?: string | null
           notes?: string | null
+          open_signer_cpf?: string | null
+          open_signer_name?: string | null
           payment_day?: number | null
           phone?: string
           proposal_id?: string
           proposal_payload?: Json
+          proposal_pdf_source_path?: string | null
           proposal_uuid?: string | null
           responsible_cpf?: string | null
           responsible_name?: string | null
+          setup_value?: number
           start_date?: string | null
           state?: string | null
           status?: string
           street?: string | null
           subtotal?: number | null
           tax_id?: string | null
+          template_code?: string | null
+          template_path?: string | null
           total?: number | null
           updated_at?: string
           updated_by?: string | null
+          witness_1_cpf?: string | null
+          witness_1_name?: string | null
+          witness_2_cpf?: string | null
+          witness_2_name?: string | null
           zip_code?: string | null
         }
         Relationships: [
