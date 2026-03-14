@@ -3,7 +3,7 @@
  * 
  * URL: /proposta/aprovacao/:token
  * 
- * No login required. Loads proposal by approval token from Supabase.
+ * No login required. Uses edge function for all operations.
  */
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -18,7 +18,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   loadPublicProposalByToken,
   recordApprovalDecision,
-  getPublicPdfSignedUrl,
   type PublicProposal,
   type LoadError,
 } from '@/services/publicApprovalService';
@@ -50,6 +49,7 @@ const PropostaAprovacaoPublica: React.FC = () => {
 
   const [pageState, setPageState] = useState<PageState>('loading');
   const [proposal, setProposal] = useState<PublicProposal | null>(null);
+  const [pdfSignedUrl, setPdfSignedUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loadErrorMessage, setLoadErrorMessage] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -57,7 +57,6 @@ const PropostaAprovacaoPublica: React.FC = () => {
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
   const actionInProgressRef = useRef(false);
 
-  // Load proposal on mount
   useEffect(() => {
     loadProposal();
   }, [token]);
@@ -81,10 +80,10 @@ const PropostaAprovacaoPublica: React.FC = () => {
       return;
     }
 
-    const p = result.proposal;
+    const p = result.proposal!;
     setProposal(p);
+    setPdfSignedUrl(result.pdfSignedUrl || null);
 
-    // Check if already decided
     const status = (p.status || '').toUpperCase();
     if (p.approval_decision === 'accepted' || status === 'APROVADO' || status === 'APPROVED') {
       setFinalDecision('accepted');
@@ -96,24 +95,25 @@ const PropostaAprovacaoPublica: React.FC = () => {
       setPageState('ready');
     }
 
-    // Track view
-    trackProposalEvent({ proposalId: p.id, source: 'view_public' });
+    try {
+      trackProposalEvent({ proposalId: p.id, source: 'view_public' });
+    } catch (_) { /* ignore tracking errors */ }
   };
 
   const handleApprove = async () => {
-    if (actionInProgressRef.current || !proposal) return;
+    if (actionInProgressRef.current || !proposal || !token) return;
     actionInProgressRef.current = true;
     setIsSubmitting(true);
 
     try {
-      const result = await recordApprovalDecision(proposal.id, 'accepted');
+      const result = await recordApprovalDecision(token, 'accepted');
 
       if (!result.success) {
         toast({ title: 'Erro', description: result.error || 'Não foi possível aprovar.', variant: 'destructive' });
         return;
       }
 
-      trackProposalEvent({ proposalId: proposal.id, source: 'approved' });
+      try { trackProposalEvent({ proposalId: proposal.id, source: 'approved' }); } catch (_) {}
       setFinalDecision('accepted');
       setPageState('decided');
       toast({ title: 'Proposta aprovada!', description: 'Nossa equipe comercial entrará em contato em breve.' });
@@ -126,20 +126,20 @@ const PropostaAprovacaoPublica: React.FC = () => {
   };
 
   const handleRejectConfirmed = async () => {
-    if (actionInProgressRef.current || !proposal) return;
+    if (actionInProgressRef.current || !proposal || !token) return;
     actionInProgressRef.current = true;
     setConfirmRejectOpen(false);
     setIsSubmitting(true);
 
     try {
-      const result = await recordApprovalDecision(proposal.id, 'rejected');
+      const result = await recordApprovalDecision(token, 'rejected');
 
       if (!result.success) {
         toast({ title: 'Erro', description: result.error || 'Não foi possível recusar.', variant: 'destructive' });
         return;
       }
 
-      trackProposalEvent({ proposalId: proposal.id, source: 'rejected' });
+      try { trackProposalEvent({ proposalId: proposal.id, source: 'rejected' }); } catch (_) {}
       setFinalDecision('rejected');
       setPageState('decided');
       toast({ title: 'Proposta recusada', description: 'Sua decisão foi registrada.' });
@@ -151,27 +151,20 @@ const PropostaAprovacaoPublica: React.FC = () => {
     }
   };
 
-  const handleDownloadPdf = async () => {
-    if (!proposal?.pdf_path) {
+  const handleDownloadPdf = () => {
+    if (!pdfSignedUrl) {
       toast({ title: 'PDF indisponível', description: 'O PDF desta proposta não está disponível no momento.', variant: 'destructive' });
       return;
     }
 
-    const signedUrl = await getPublicPdfSignedUrl(proposal.pdf_path);
-    if (!signedUrl) {
-      toast({ title: 'PDF indisponível', description: 'Não foi possível gerar link de download do PDF.', variant: 'destructive' });
-      return;
-    }
-
     const a = document.createElement('a');
-    a.href = signedUrl;
+    a.href = pdfSignedUrl;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    a.download = `OPEN_proposta_${proposal.display_id || proposal.id.substring(0, 8)}.pdf`;
+    a.download = `OPEN_proposta_${proposal?.display_id || proposal?.id.substring(0, 8)}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();
-
     toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
   };
 
@@ -302,7 +295,7 @@ const PropostaAprovacaoPublica: React.FC = () => {
             </div>
           )}
 
-          {/* Action buttons — only when not decided */}
+          {/* Action buttons */}
           {!isDecided && (
             <div className="space-y-3">
               <Button
