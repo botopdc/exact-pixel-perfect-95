@@ -14,7 +14,7 @@ import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   FileDown, Loader2, Mail, Link as LinkIcon, BarChart3,
-  Filter, ArrowUpDown, CalendarIcon, RotateCcw,
+  Filter, ArrowUpDown, CalendarIcon, RotateCcw, FileSignature,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
