@@ -1182,7 +1182,7 @@ const OpenCalculator: React.FC = () => {
     // Block save if approval is pending
     if (isApprovalPending) {
       toast({ title: 'Aprovação pendente', description: 'Preencha o Aprovador e marque como aprovado antes de salvar.', variant: 'destructive' });
-      return;
+      return null;
     }
 
     // DEBUG: Log save operation mode + ownership context
