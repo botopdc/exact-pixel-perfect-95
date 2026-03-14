@@ -77,6 +77,8 @@ export default function ContratoDetailPage() {
   const [state, setState] = useState('');
   const [paymentDay, setPaymentDay] = useState<number | ''>('');
   const [contractDate, setContractDate] = useState('');
+  const [generatingDoc, setGeneratingDoc] = useState(false);
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
 
   // Queries
   const { data: existingContract, isLoading: isLoadingContract } = useContract(isViewing ? id : undefined);
