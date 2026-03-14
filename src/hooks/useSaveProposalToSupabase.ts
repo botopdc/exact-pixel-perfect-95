@@ -336,9 +336,9 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     });
   }
 
-  // OPEN SaaS — use rowKey prefix saas_*
+  // OPEN SaaS — rowKey: open_saas
   if (openSaas?.enabled && (openSaas.users || 0) > 0) {
-    const saasPrice = sumByPrefix('saas');
+    const saasPrice = getRowPrice('open_saas');
     addonsArray.push({
       addon_key: 'open_saas',
       label: `OPEN SaaS (${openSaas.users} usuários)`,
