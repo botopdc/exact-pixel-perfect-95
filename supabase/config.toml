@@ -6,6 +6,9 @@ verify_jwt = false
 [functions.public-approval]
 verify_jwt = false
 
+[functions.proposal-public]
+verify_jwt = false
+
 [functions.proposal-gateway]
 verify_jwt = false
 
