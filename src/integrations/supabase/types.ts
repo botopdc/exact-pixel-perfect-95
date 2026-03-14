@@ -910,8 +910,12 @@ export type Database = {
       contracts: {
         Row: {
           billing_cycle: string
+          city: string | null
           client_name: string
+          cnpj: string | null
           company: string
+          company_name: string | null
+          contract_date: string | null
           contract_duration: number | null
           contract_number: string | null
           contract_payload: Json | null
@@ -925,24 +929,37 @@ export type Database = {
           end_date: string | null
           generated_by: string | null
           generated_from_proposal_at: string
+          has_no_cnpj: boolean
           id: string
+          legal_name: string | null
+          neighborhood: string | null
           notes: string | null
+          payment_day: number | null
           phone: string
           proposal_id: string
           proposal_payload: Json
           proposal_uuid: string | null
+          responsible_cpf: string | null
+          responsible_name: string | null
           start_date: string | null
+          state: string | null
           status: string
+          street: string | null
           subtotal: number | null
           tax_id: string | null
           total: number | null
           updated_at: string
           updated_by: string | null
+          zip_code: string | null
         }
         Insert: {
           billing_cycle?: string
+          city?: string | null
           client_name: string
+          cnpj?: string | null
           company: string
+          company_name?: string | null
+          contract_date?: string | null
           contract_duration?: number | null
           contract_number?: string | null
           contract_payload?: Json | null
@@ -956,24 +973,37 @@ export type Database = {
           end_date?: string | null
           generated_by?: string | null
           generated_from_proposal_at?: string
+          has_no_cnpj?: boolean
           id?: string
+          legal_name?: string | null
+          neighborhood?: string | null
           notes?: string | null
+          payment_day?: number | null
           phone?: string
           proposal_id: string
           proposal_payload?: Json
           proposal_uuid?: string | null
+          responsible_cpf?: string | null
+          responsible_name?: string | null
           start_date?: string | null
+          state?: string | null
           status?: string
+          street?: string | null
           subtotal?: number | null
           tax_id?: string | null
           total?: number | null
           updated_at?: string
           updated_by?: string | null
+          zip_code?: string | null
         }
         Update: {
           billing_cycle?: string
+          city?: string | null
           client_name?: string
+          cnpj?: string | null
           company?: string
+          company_name?: string | null
+          contract_date?: string | null
           contract_duration?: number | null
           contract_number?: string | null
           contract_payload?: Json | null
@@ -987,19 +1017,28 @@ export type Database = {
           end_date?: string | null
           generated_by?: string | null
           generated_from_proposal_at?: string
+          has_no_cnpj?: boolean
           id?: string
+          legal_name?: string | null
+          neighborhood?: string | null
           notes?: string | null
+          payment_day?: number | null
           phone?: string
           proposal_id?: string
           proposal_payload?: Json
           proposal_uuid?: string | null
+          responsible_cpf?: string | null
+          responsible_name?: string | null
           start_date?: string | null
+          state?: string | null
           status?: string
+          street?: string | null
           subtotal?: number | null
           tax_id?: string | null
           total?: number | null
           updated_at?: string
           updated_by?: string | null
+          zip_code?: string | null
         }
         Relationships: [
           {
