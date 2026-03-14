@@ -56,11 +56,30 @@ serve(async (req: Request) => {
 
     let proposalId: string;
 
-    // Check if update or insert
+    // Determine if this is an update or insert
+    // Priority: explicit id > existing proposal with same display_id
+    let isUpdate = false;
+    
     if (proposal.id && typeof proposal.id === "string" && proposal.id.length > 0) {
-      // UPDATE existing proposal
       proposalId = proposal.id as string;
+      isUpdate = true;
+    } else if (proposal.display_id) {
+      // Check if a proposal with this display_id already exists (prevent duplicates)
+      const { data: existing } = await supabase
+        .from("calculator_proposals")
+        .select("id")
+        .eq("display_id", proposal.display_id)
+        .limit(1)
+        .maybeSingle();
+      
+      if (existing) {
+        proposalId = existing.id;
+        isUpdate = true;
+        console.log("[proposal-save] Found existing proposal by display_id, treating as update:", proposalId);
+      }
+    }
 
+    if (isUpdate && proposalId!) {
       const { id, created_at, ...updateData } = proposal;
       
       const { error: updateError } = await supabase
