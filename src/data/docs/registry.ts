@@ -117,11 +117,11 @@ export const DOCS_REGISTRY: DocEntry[] = [
   // ======== API ========
   {
     slug: 'api',
-    title: 'API Reference',
+    title: 'OPEN API Reference',
     category: 'api',
-    summary: 'Referência completa da API REST e Edge Functions.',
+    summary: 'Referência completa das APIs legadas (Laravel) e operações Supabase, incluindo Edge Functions e padrões de resposta.',
     file: 'api/api_reference',
-    tags: ['api', 'rest', 'endpoints', 'edge functions'],
+    tags: ['api', 'rest', 'endpoints', 'edge functions', 'laravel', 'supabase', 'propostas', 'parceiros'],
     downloadable: true,
     visibleInMenu: true,
     order: 20,
