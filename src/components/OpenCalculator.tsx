@@ -1206,11 +1206,12 @@ const OpenCalculator: React.FC = () => {
     if (!isValidContractMonth(selectedTerm)) {
       console.error('[OpenCalculator] INVALID selectedTerm before save:', selectedTerm);
       toast({ title: 'Erro', description: 'Vigência inválida selecionada.', variant: 'destructive' });
-      return;
+      return null;
     }
     console.log('[OpenCalculator] Saving with selectedTerm=', selectedTerm);
     
     setSaving(true);
+    savingRef.current = true;
     try {
       // Get owner info for tracking
       const ownerInfo = getOwnerInfo();
