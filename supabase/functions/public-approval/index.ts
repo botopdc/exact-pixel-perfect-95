@@ -38,10 +38,11 @@ serve(async (req: Request) => {
       const normalizedToken = token.trim();
       console.log("[public-approval] load token:", normalizedToken);
 
-      const { data: proposal, error: fetchErr } = await supabase
+      const { data: enabledProposal, error: fetchErr } = await supabase
         .from("calculator_proposals")
         .select("*")
         .eq("public_approval_token", normalizedToken)
+        .eq("public_approval_enabled", true)
         .maybeSingle();
 
       if (fetchErr) {
@@ -49,11 +50,23 @@ serve(async (req: Request) => {
         return json({ success: false, errorCode: "unknown", error: "Erro ao carregar proposta." }, 500);
       }
 
+      let proposal = enabledProposal;
       if (!proposal) {
-        return json({ success: false, errorCode: "token_invalid", error: "Token de aprovação inválido." }, 404);
-      }
+        const { data: maybeDisabled, error: disabledErr } = await supabase
+          .from("calculator_proposals")
+          .select("*")
+          .eq("public_approval_token", normalizedToken)
+          .maybeSingle();
 
-      if (!proposal.public_approval_enabled) {
+        if (disabledErr) {
+          console.error("[public-approval] disabled-check error:", disabledErr);
+          return json({ success: false, errorCode: "unknown", error: "Erro ao carregar proposta." }, 500);
+        }
+
+        if (!maybeDisabled) {
+          return json({ success: false, errorCode: "token_invalid", error: "Token de aprovação inválido." }, 404);
+        }
+
         return json({ success: false, errorCode: "token_disabled", error: "Aprovação pública desabilitada para esta proposta." }, 403);
       }
 
@@ -225,5 +238,7 @@ serve(async (req: Request) => {
   } catch (err) {
     console.error("[public-approval] Error:", err);
     return json({ success: false, errorCode: "unknown", error: String(err) }, 500);
+  }
+});
   }
 });
