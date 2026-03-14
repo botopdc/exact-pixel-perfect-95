@@ -8,6 +8,7 @@
 import { OPEN_DATA_MODEL_CONTENT } from './content/dataModel';
 import { OPEN_DOCS_SYNC_COMMANDS_CONTENT } from './content/syncCommands';
 import { OPEN_CHANGELOG_CONTENT } from './content/changelog';
+import { OPEN_RBAC_MODEL_CONTENT } from './content/rbacModel';
 
 // Import existing docs
 import PLANO_7_PASSOS from '../../../docs/PLANO_7_PASSOS.md?raw';
