@@ -1285,7 +1285,7 @@ const OpenCalculator: React.FC = () => {
         });
 
         // Call Supabase RPC directly
-        const supabaseProposalId = await saveProposalToSupabase({
+        supabaseProposalId = await saveProposalToSupabase({
           proposalId: editingProposalId || undefined,
           displayId: proposal.id,
           fx,
