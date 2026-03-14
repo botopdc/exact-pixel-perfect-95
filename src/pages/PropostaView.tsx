@@ -261,7 +261,7 @@ const PropostaView: React.FC = () => {
       let proposalLink: string;
       
       try {
-        proposalLink = await getApprovalLink(apiId!);
+        proposalLink = await getApprovalLink(String(apiId!));
         console.log('[PropostaView] Got tokenized approval link for email');
       } catch (linkError: any) {
         console.error('[PropostaView] Failed to get approval link:', linkError);
