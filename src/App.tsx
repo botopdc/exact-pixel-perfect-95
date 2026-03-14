@@ -84,6 +84,10 @@ import DocsLayout from '@/layouts/DocsLayout';
 import DocsHome from '@/pages/modules/docs/DocsHome';
 import DocsViewPage from '@/pages/modules/docs/DocsViewPage';
 import DocsDownloadsPage from '@/pages/modules/docs/DocsDownloadsPage';
+import DocsAdminSyncPage from '@/pages/modules/docs/DocsAdminSyncPage';
+import DocsAdminChangelogPage from '@/pages/modules/docs/DocsAdminChangelogPage';
+import DocsAdminCoveragePage from '@/pages/modules/docs/DocsAdminCoveragePage';
+import DocsAdminHealthPage from '@/pages/modules/docs/DocsAdminHealthPage';
 
 // Module Placeholder Pages
 import ProcedimentosPage from '@/pages/modules/conteudo/ProcedimentosPage';
