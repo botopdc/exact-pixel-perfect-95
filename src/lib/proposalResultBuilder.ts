@@ -399,49 +399,69 @@ export function buildResultFromSnapshot(
     }
   }
 
-  // Kubernetes
+  // Kubernetes (K8s #1)
   if (dadosProposta.kubernetes?.enabled) {
     const k8s = dadosProposta.kubernetes;
-    const price = k8s.totalPrice || 0;
-    rows.push({
-      label: `Kubernetes Gerenciado (${k8s.workerNodes || 0} nodes)`,
-      qty: 1,
-      unitPrice: price,
-      subtotal: price,
-      finalTotal: price,
-    });
-    subKubernetes += price;
+    const componentPrices = k8s.componentPrices as Record<string, { unitPrice: number; totalPrice: number }> | undefined;
+
+    if (componentPrices) {
+      // Detailed rows from snapshot
+      Object.entries(componentPrices).forEach(([key, cp]) => {
+        if (cp.totalPrice > 0) {
+          const labelMap: Record<string, string> = {
+            base: `K8s #1 — Base (${k8s.plan || 'SMALL'})`,
+            extra_vcpu: `K8s #1 — vCPU adicional`,
+            extra_ram: `K8s #1 — RAM adicional`,
+            extra_disk: `K8s #1 — Disco adicional`,
+            addon_support: `K8s #1 — Suporte 24×7`,
+            addon_backup: `K8s #1 — Backup (Velero)`,
+            addon_dr: `K8s #1 — DR multi-site`,
+            addon_obs: `K8s #1 — Observabilidade avançada`,
+            addon_cicd: `K8s #1 — CI/CD gerenciado`,
+            addon_devops: `K8s #1 — Horas DevOps`,
+          };
+          const label = labelMap[key] || `K8s #1 — ${key}`;
+          rows.push({ label, qty: 1, unitPrice: cp.unitPrice, subtotal: cp.totalPrice, finalTotal: cp.totalPrice });
+          subKubernetes += cp.totalPrice;
+        }
+      });
+    } else {
+      // Fallback: single consolidated row
+      const price = k8s.totalPrice || 0;
+      rows.push({
+        label: `K8s #1 — Kubernetes Gerenciado (${k8s.workerNodes || 0} nodes)`,
+        qty: 1, unitPrice: price, subtotal: price, finalTotal: price,
+      });
+      subKubernetes += price;
+    }
   }
 
-  // Storage
+  // Storage (Storage #1, #2 …)
   if (dadosProposta.storageItems && Array.isArray(dadosProposta.storageItems)) {
-    dadosProposta.storageItems.forEach((storage) => {
+    dadosProposta.storageItems.forEach((storage: any, idx: number) => {
       const price = storage.totalPrice || 0;
-      const typeLabel = storage.type === 'sas' ? 'Storage SAS' : 
-                        storage.type === 's3' ? 'Bucket S3' : 'SSD NVMe';
+      const typeLabel = storage.type === 'sas' ? 'SAS' : 
+                        storage.type === 's3' ? 'S3' : 'NVMe';
+      const region = storage.region || 'BR';
+      const size = storage.size || storage.volumeTB || 0;
+      const unit = storage.type === 'nvme' ? 'GB' : 'TB';
       rows.push({
-        label: `${typeLabel} (${storage.size}TB)`,
-        qty: 1,
-        unitPrice: price,
-        subtotal: price,
-        finalTotal: price,
+        label: `Storage #${idx + 1} — ${typeLabel} ${region} ${size}${unit}`,
+        qty: 1, unitPrice: price, subtotal: price, finalTotal: price,
       });
       subStorage += price;
     });
   }
 
-  // OpenSaaS
+  // OpenSaaS (SaaS #1)
   if (dadosProposta.openSaas?.enabled) {
     const saas = dadosProposta.openSaas;
     const pricePerUser = saas.pricePerUser || 49.9;
     const users = saas.users || 0;
     const price = pricePerUser * users;
     rows.push({
-      label: `OpenSaaS (${users} usuários)`,
-      qty: users,
-      unitPrice: pricePerUser,
-      subtotal: price,
-      finalTotal: price,
+      label: `SaaS #1 — OPEN SaaS (${users} usuários)`,
+      qty: users, unitPrice: pricePerUser, subtotal: price, finalTotal: price,
     });
     subOpenSaas += price;
   }
