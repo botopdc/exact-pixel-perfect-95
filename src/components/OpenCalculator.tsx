@@ -497,28 +497,43 @@ const OpenCalculator: React.FC = () => {
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
-    // Use shared function for all detailed row building
-    const detailed = buildDetailedSummaryRows({
-      items: items.map(item => ({
-        type: item.type === 'vm' ? 'vm' as const : 'bm' as const,
-        gpu: item.gpu,
-        gpuQty: item.gpuQty,
-        qtyServers: item.qtyServers,
-        ips: item.ips,
-        vcpu: item.type === 'vm' ? item.vcpu : undefined,
-        ramGb: item.type === 'vm' ? item.ramGb : undefined,
-        nvmeTb: item.type === 'vm' ? item.nvmeTb : undefined,
-        bmCpu: item.type !== 'vm' ? item.bmCpu : undefined,
-        bmRam: item.type !== 'vm' ? item.bmRam : undefined,
-        disks: item.type !== 'vm' ? item.disks : undefined,
-      })),
-      addons,
-      kubernetes,
-      storageItems,
-      openSaas,
-      priceOverrides,
-      config,
-    });
+    // Use shared function for all detailed row building — wrapped in try/catch
+    let detailed: ReturnType<typeof buildDetailedSummaryRows>;
+    try {
+      detailed = buildDetailedSummaryRows({
+        items: items.map(item => ({
+          type: item.type === 'vm' ? 'vm' as const : 'bm' as const,
+          gpu: item.gpu,
+          gpuQty: item.gpuQty,
+          qtyServers: item.qtyServers,
+          ips: item.ips,
+          vcpu: item.type === 'vm' ? item.vcpu : undefined,
+          ramGb: item.type === 'vm' ? item.ramGb : undefined,
+          nvmeTb: item.type === 'vm' ? item.nvmeTb : undefined,
+          bmCpu: item.type !== 'vm' ? item.bmCpu : undefined,
+          bmRam: item.type !== 'vm' ? item.bmRam : undefined,
+          disks: item.type !== 'vm' ? item.disks : undefined,
+        })),
+        addons,
+        kubernetes,
+        storageItems,
+        openSaas,
+        priceOverrides,
+        config,
+      });
+    } catch (err) {
+      console.error('[Calculator] buildDetailedSummaryRows CRASHED:', err, {
+        itemsCount: items.length,
+        storageCount: storageItems.length,
+        k8sEnabled: kubernetes.enabled,
+        saasEnabled: openSaas.enabled,
+        configKeys: Object.keys(config),
+        hasBaremetal: !!config.baremetal,
+        hasVmPrices: !!config.vm_prices_brl,
+      });
+      // Return empty result so UI still renders
+      detailed = { rows: [], subRec: 0, subIps: 0, subServices: 0, subBackup: 0, subKubernetes: 0, subStorage: 0, subOpenSaas: 0, gpuBrlTotal: 0, totalServers: 0 };
+    }
 
     const { rows, totalServers, gpuBrlTotal } = detailed;
     const gpuUsdTotal = 0; // Legacy field
