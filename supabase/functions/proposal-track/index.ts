@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -14,10 +14,12 @@ function json(data: unknown, status = 200) {
   });
 }
 
-interface TrackEventRequest {
-  proposalId: string;
-  source: string;
-  clientEmail?: string;
+function getSupabase() {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
 }
 
 serve(async (req: Request) => {
@@ -27,7 +29,33 @@ serve(async (req: Request) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { proposalId, source, clientEmail } = body as TrackEventRequest;
+    const { action } = body;
+
+    // Action: list — return events for a proposal
+    if (action === "list") {
+      const { proposalId } = body;
+      if (!proposalId) {
+        return json({ success: false, error: "proposalId is required" }, 400);
+      }
+
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("proposal_views")
+        .select("*")
+        .eq("proposal_id", proposalId)
+        .order("viewed_at", { ascending: false })
+        .limit(100);
+
+      if (error) {
+        console.error("[proposal-track] List error:", error);
+        return json({ success: false, error: error.message }, 500);
+      }
+
+      return json({ success: true, events: data || [] });
+    }
+
+    // Default action: track/insert event
+    const { proposalId, source, clientEmail } = body;
 
     if (!proposalId || !source) {
       return json({ success: false, error: "proposalId and source are required" }, 400);
@@ -35,20 +63,12 @@ serve(async (req: Request) => {
 
     console.log("[proposal-track] Recording event:", { proposalId, source, clientEmail });
 
-    // Create Supabase client with Service Role (bypasses RLS)
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false },
-    });
+    const supabase = getSupabase();
 
-    // Get request metadata
     const userAgent = req.headers.get("user-agent") || null;
     const xForwardedFor = req.headers.get("x-forwarded-for");
     const ipAddress = xForwardedFor ? xForwardedFor.split(",")[0].trim() : null;
 
-    // Insert event
     const { data, error } = await supabase
       .from("proposal_views")
       .insert({
@@ -67,7 +87,6 @@ serve(async (req: Request) => {
     }
 
     console.log("[proposal-track] Event recorded:", data.id);
-
     return json({ success: true, eventId: data.id });
   } catch (err) {
     console.error("[proposal-track] Error:", err);

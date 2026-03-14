@@ -34,7 +34,6 @@ export interface ProposalEventStats {
   timeline: ProposalEvent[];
 }
 
-// Map DB row to ProposalEvent
 function mapRow(row: any): ProposalEvent {
   return {
     id: row.id,
@@ -47,21 +46,23 @@ function mapRow(row: any): ProposalEvent {
   };
 }
 
-// Fetch events from proposal_views table
+// Fetch events via Edge Function (bypasses RLS)
 async function fetchEvents(proposalId: string): Promise<ProposalEvent[]> {
-  const { data, error } = await supabase
-    .from('proposal_views')
-    .select('*')
-    .eq('proposal_id', proposalId)
-    .order('viewed_at', { ascending: false })
-    .limit(100);
+  const { data, error } = await supabase.functions.invoke('proposal-track', {
+    body: { action: 'list', proposalId },
+  });
 
   if (error) {
-    console.error('[useProposalEvents] fetch error:', error);
+    console.error('[useProposalEvents] edge function error:', error);
     return [];
   }
 
-  return (data || []).map(mapRow);
+  if (!data?.success) {
+    console.error('[useProposalEvents] API error:', data?.error);
+    return [];
+  }
+
+  return (data.events || []).map(mapRow);
 }
 
 function buildStats(events: ProposalEvent[]): ProposalEventStats {
