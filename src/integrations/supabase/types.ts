@@ -907,6 +907,80 @@ export type Database = {
           },
         ]
       }
+      contracts: {
+        Row: {
+          client_name: string
+          company: string
+          contract_duration: number | null
+          contract_number: string | null
+          contract_payload: Json | null
+          created_at: string
+          datacenter: string | null
+          deleted_at: string | null
+          due_at: string | null
+          email: string
+          generated_by: string | null
+          generated_from_proposal_at: string
+          id: string
+          phone: string
+          proposal_id: string
+          proposal_payload: Json
+          status: string
+          total: number | null
+          updated_at: string
+        }
+        Insert: {
+          client_name: string
+          company: string
+          contract_duration?: number | null
+          contract_number?: string | null
+          contract_payload?: Json | null
+          created_at?: string
+          datacenter?: string | null
+          deleted_at?: string | null
+          due_at?: string | null
+          email: string
+          generated_by?: string | null
+          generated_from_proposal_at?: string
+          id?: string
+          phone?: string
+          proposal_id: string
+          proposal_payload?: Json
+          status?: string
+          total?: number | null
+          updated_at?: string
+        }
+        Update: {
+          client_name?: string
+          company?: string
+          contract_duration?: number | null
+          contract_number?: string | null
+          contract_payload?: Json | null
+          created_at?: string
+          datacenter?: string | null
+          deleted_at?: string | null
+          due_at?: string | null
+          email?: string
+          generated_by?: string | null
+          generated_from_proposal_at?: string
+          id?: string
+          phone?: string
+          proposal_id?: string
+          proposal_payload?: Json
+          status?: string
+          total?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contracts_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "calculator_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       docs_sync_coverage: {
         Row: {
           doc_slug: string
