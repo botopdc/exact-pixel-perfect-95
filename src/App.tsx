@@ -153,6 +153,7 @@ const App = () => (
           <Route path="/proposta/:id" element={<PropostaView />} />
           <Route path="/proposta/:id/aceite" element={<PropostaAceite />} />
           <Route path="/proposta/aprovar" element={<PropostaAprovar />} />
+          <Route path="/proposta/aprovacao/:token" element={<PropostaAprovacaoPublica />} />
           <Route path="/proposta/pdf" element={<PropostaPdfPublic />} />
           
           {/* Public job routes */}

@@ -74,9 +74,9 @@ const PropostaAprovacaoPublica: React.FC = () => {
 
     const result = await loadPublicProposalByToken(token);
 
-    if ('error' in result) {
+    if ('error' in result && result.error) {
       setLoadError(result.error);
-      setLoadErrorMessage(result.message);
+      setLoadErrorMessage(result.message!);
       setPageState('error');
       return;
     }
