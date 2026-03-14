@@ -1171,7 +1171,7 @@ const OpenCalculator: React.FC = () => {
         description: `VM ${vmNumbers} está sem nenhum recurso selecionado. Defina pelo menos um upgrade (vCPU, RAM, disco, IP ou GPU) ou remova o item.`, 
         variant: 'destructive' 
       });
-      return;
+      return null;
     }
     
     // Validate: at least one item (server, product, or addon) must exist
