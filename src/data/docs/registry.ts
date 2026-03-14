@@ -96,6 +96,17 @@ export const DOCS_REGISTRY: DocEntry[] = [
     visibleInMenu: true,
     order: 5,
   },
+  {
+    slug: 'data-model',
+    title: 'OPEN Data Model',
+    category: 'core',
+    summary: 'Modelo completo de dados da plataforma OPEN: entidades, relacionamentos, constraints, índices e roadmap de evolução.',
+    file: 'core/open_data_model',
+    tags: ['database', 'schema', 'data-model', 'supabase', 'architecture', 'entities'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 6,
+  },
 
   // ======== MODULES ========
   {
