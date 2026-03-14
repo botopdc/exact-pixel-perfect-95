@@ -1148,8 +1148,16 @@ const OpenCalculator: React.FC = () => {
     return hasValidVM || hasBareMetal || hasKubernetes || hasStorage || hasOpenSaaS || hasAddons;
   }, [items, kubernetes.enabled, storageItems, openSaas.enabled, openSaas.users, addons, isVMValid]);
 
-  // Save proposal via API
-  const handleSave = async () => {
+  // Ref to prevent concurrent saves (double-click, handleSendEmail race)
+  const savingRef = useRef(false);
+
+  // Save proposal via API — returns proposalId on success, null on failure/skip
+  const handleSave = async (): Promise<string | null> => {
+    // Guard: prevent concurrent saves
+    if (savingRef.current) {
+      console.warn('[OpenCalculator] handleSave skipped — already saving');
+      return editingProposalId || null;
+    }
     if (!client.name.trim() && !client.company.trim()) {
       toast({ title: 'Erro', description: 'Informe o nome do cliente ou empresa', variant: 'destructive' });
       return;
