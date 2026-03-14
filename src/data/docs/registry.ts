@@ -107,6 +107,18 @@ export const DOCS_REGISTRY: DocEntry[] = [
     visibleInMenu: true,
     order: 6,
   },
+  {
+    slug: 'event-architecture',
+    title: 'Event Architecture',
+    category: 'core',
+    module: 'system',
+    summary: 'Arquitetura de eventos da plataforma OPEN: rastreamento de ações, auditoria, analytics e evolução para eventos unificados.',
+    file: 'core/open_event_architecture',
+    tags: ['events', 'event-model', 'observability', 'audit', 'tracking'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 10,
+  },
 
   {
     slug: 'rbac-model',
