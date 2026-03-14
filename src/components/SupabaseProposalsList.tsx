@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Plus, Eye, Pencil, Trash2, Search, X,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  FileDown, Loader2, Mail, Link as LinkIcon,
+  FileDown, Loader2, Mail, Link as LinkIcon, BarChart3,
 } from 'lucide-react';
 import OpenLogo from '@/components/OpenLogo';
 import { supabase } from '@/integrations/supabase/client';
