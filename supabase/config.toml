@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.send-proposal-email]
 verify_jwt = false
+
+[functions.proposal-public-link]
+verify_jwt = false
