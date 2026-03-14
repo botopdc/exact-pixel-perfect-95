@@ -63,6 +63,17 @@ export const DOCS_REGISTRY: DocEntry[] = [
     visibleInMenu: true,
     order: 3,
   },
+  {
+    slug: 'event-model',
+    title: 'OPEN Event Model',
+    category: 'core',
+    summary: 'Modelo de eventos para rastreamento, analytics e auditoria do sistema OPEN.',
+    file: 'core/open_event_model',
+    tags: ['eventos', 'tracking', 'auditoria', 'analytics', 'proposal_views'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 4,
+  },
 
   // ======== MODULES ========
   {
