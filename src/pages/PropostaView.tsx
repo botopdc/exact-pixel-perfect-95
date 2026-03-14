@@ -209,7 +209,7 @@ const PropostaView: React.FC = () => {
     setIsCopyingLink(true);
     try {
       // Fetch approval token and generate link with numeric ID
-      const approvalLink = await getApprovalLink(apiId);
+      const approvalLink = await getApprovalLink(String(apiId));
       
       // Try to copy to clipboard (with Safari fallback)
       const copySuccess = await copyToClipboard(approvalLink);
