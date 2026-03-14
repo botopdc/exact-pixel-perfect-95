@@ -266,7 +266,7 @@ const SupabaseProposalsList: React.FC = () => {
         body: {
           clientName: proposal.name,
           clientEmail: proposal.email,
-          proposalId: proposalIdForLink,
+          proposalId: proposal.display_id || proposal.id.substring(0, 8),
           proposalLink,
           totalValue: formatCurrency(proposal.total),
           validityDate: formattedValidity,
