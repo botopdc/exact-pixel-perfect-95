@@ -262,6 +262,8 @@ const SupabaseProposalsList: React.FC = () => {
   
   // Check if CORE token exists
   const hasCoreToken = !!(
+    localStorage.getItem('open_access_token') ||
+    localStorage.getItem('open_api_token') ||
     localStorage.getItem('open_token') || 
     localStorage.getItem('auth_token') || 
     localStorage.getItem('token')
