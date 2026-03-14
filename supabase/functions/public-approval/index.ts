@@ -29,38 +29,41 @@ serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const { action } = body as { action?: string };
 
-    // =========================================================================
-    // ACTION: load — Load proposal by approval token
-    // =========================================================================
     if (action === "load") {
       const { token } = body as { token?: string };
       if (!token || token.trim() === "") {
-        return json({ success: false, errorCode: "token_missing" }, 400);
+        return json({ success: false, errorCode: "token_missing", error: "Token de aprovação ausente." }, 400);
       }
+
+      const normalizedToken = token.trim();
+      console.log("[public-approval] load token:", normalizedToken);
 
       const { data: proposal, error: fetchErr } = await supabase
         .from("calculator_proposals")
         .select("*")
-        .eq("approval_token", token.trim())
+        .eq("public_approval_token", normalizedToken)
         .maybeSingle();
 
       if (fetchErr) {
         console.error("[public-approval] fetch error:", fetchErr);
-        return json({ success: false, errorCode: "unknown" }, 500);
-      }
-      if (!proposal) {
-        return json({ success: false, errorCode: "token_invalid" }, 404);
+        return json({ success: false, errorCode: "unknown", error: "Erro ao carregar proposta." }, 500);
       }
 
-      // Check expiration
-      if (proposal.approval_token_expires_at) {
-        const expiresAt = new Date(proposal.approval_token_expires_at);
+      if (!proposal) {
+        return json({ success: false, errorCode: "token_invalid", error: "Token de aprovação inválido." }, 404);
+      }
+
+      if (!proposal.public_approval_enabled) {
+        return json({ success: false, errorCode: "token_disabled", error: "Aprovação pública desabilitada para esta proposta." }, 403);
+      }
+
+      if (proposal.public_approval_expires_at) {
+        const expiresAt = new Date(proposal.public_approval_expires_at);
         if (expiresAt <= new Date()) {
-          return json({ success: false, errorCode: "token_expired" }, 410);
+          return json({ success: false, errorCode: "token_expired", error: "Este link de aprovação expirou." }, 410);
         }
       }
 
-      // Load servers + addons
       const [serversRes, addonsRes] = await Promise.all([
         supabase
           .from("calculator_proposal_servers")
@@ -74,13 +77,21 @@ serve(async (req: Request) => {
           .order("sort_order"),
       ]);
 
-      // PDF signed URL
       let pdfSignedUrl: string | null = null;
       if (proposal.pdf_path) {
-        const { data: urlData } = await supabase.storage
-          .from("proposal-files")
-          .createSignedUrl(proposal.pdf_path, 60 * 30);
-        pdfSignedUrl = urlData?.signedUrl ?? null;
+        try {
+          const { data: urlData, error: urlError } = await supabase.storage
+            .from("proposal-files")
+            .createSignedUrl(proposal.pdf_path, 60 * 30);
+
+          if (urlError) {
+            console.warn("[public-approval] pdf signed url error:", urlError.message);
+          } else {
+            pdfSignedUrl = urlData?.signedUrl ?? null;
+          }
+        } catch (err) {
+          console.warn("[public-approval] pdf signed url exception:", err);
+        }
       }
 
       return json({
@@ -107,6 +118,9 @@ serve(async (req: Request) => {
           approval_decision: proposal.approval_decision,
           approved_at: proposal.approved_at,
           rejected_at: proposal.rejected_at,
+          public_approval_token: proposal.public_approval_token,
+          public_approval_enabled: proposal.public_approval_enabled,
+          public_approval_expires_at: proposal.public_approval_expires_at,
         },
         servers: serversRes.data || [],
         addons: addonsRes.data || [],
@@ -114,9 +128,6 @@ serve(async (req: Request) => {
       });
     }
 
-    // =========================================================================
-    // ACTION: decide — Record accept/reject decision
-    // =========================================================================
     if (action === "decide") {
       const { token, decision, name, email, notes } = body as {
         token?: string;
@@ -127,39 +138,53 @@ serve(async (req: Request) => {
       };
 
       if (!token || !decision) {
-        return json({ success: false, error: "token and decision required" }, 400);
+        return json({ success: false, errorCode: "token_missing", error: "token e decisão são obrigatórios." }, 400);
       }
       if (decision !== "accepted" && decision !== "rejected") {
-        return json({ success: false, error: "decision must be accepted or rejected" }, 400);
+        return json({ success: false, errorCode: "unknown", error: "decision must be accepted or rejected" }, 400);
       }
 
-      // Find proposal by token
+      const normalizedToken = token.trim();
+      console.log("approval decision", decision);
+
       const { data: proposal, error: fetchErr } = await supabase
         .from("calculator_proposals")
-        .select("id, status, approval_decision, approval_token_expires_at")
-        .eq("approval_token", token.trim())
+        .select("id, status, approval_decision, public_approval_enabled, public_approval_expires_at")
+        .eq("public_approval_token", normalizedToken)
         .maybeSingle();
 
-      if (fetchErr || !proposal) {
-        return json({ success: false, error: "Proposta não encontrada." }, 404);
+      if (fetchErr) {
+        console.error("[public-approval] decide fetch error:", fetchErr);
+        return json({ success: false, errorCode: "unknown", error: "Erro ao carregar proposta." }, 500);
       }
 
-      // Check expiration
-      if (proposal.approval_token_expires_at) {
-        const expiresAt = new Date(proposal.approval_token_expires_at);
+      if (!proposal) {
+        return json({ success: false, errorCode: "token_invalid", error: "Token de aprovação inválido." }, 404);
+      }
+
+      if (!proposal.public_approval_enabled) {
+        return json({ success: false, errorCode: "token_disabled", error: "Aprovação pública desabilitada para esta proposta." }, 403);
+      }
+
+      if (proposal.public_approval_expires_at) {
+        const expiresAt = new Date(proposal.public_approval_expires_at);
         if (expiresAt <= new Date()) {
-          return json({ success: false, error: "Link expirado." }, 410);
+          return json({ success: false, errorCode: "token_expired", error: "Este link de aprovação expirou." }, 410);
         }
       }
 
-      // Idempotency check
-      const cd = proposal.approval_decision;
-      const cs = (proposal.status || "").toUpperCase();
-      if (cd === "accepted" || cs === "APROVADO") {
-        return json({ success: false, error: "Esta proposta já foi aprovada." }, 409);
+      const currentDecision = proposal.approval_decision;
+      const currentStatus = (proposal.status || "").toUpperCase();
+      if (currentDecision === "accepted" || currentStatus === "APROVADO" || currentStatus === "APPROVED") {
+        return json({ success: false, errorCode: "already_approved", error: "Esta proposta já foi aprovada." }, 409);
       }
-      if (cd === "rejected" || cs === "RECUSADO" || cs === "REPROVADO") {
-        return json({ success: false, error: "Esta proposta já foi recusada." }, 409);
+      if (
+        currentDecision === "rejected" ||
+        currentStatus === "RECUSADO" ||
+        currentStatus === "REPROVADO" ||
+        currentStatus === "REJECTED"
+      ) {
+        return json({ success: false, errorCode: "already_rejected", error: "Esta proposta já foi recusada." }, 409);
       }
 
       const now = new Date().toISOString();
@@ -172,29 +197,33 @@ serve(async (req: Request) => {
       };
 
       if (decision === "accepted") updatePayload.approved_at = now;
-      else updatePayload.rejected_at = now;
+      if (decision === "rejected") updatePayload.rejected_at = now;
 
       if (name) updatePayload.approved_by_name = name;
       if (email) updatePayload.approved_by_email = email;
       if (notes) updatePayload.approval_notes = notes;
 
-      const { error: updateErr } = await supabase
+      console.log("proposal before update", proposal.id);
+
+      const { data: updatedProposal, error: updateErr } = await supabase
         .from("calculator_proposals")
         .update(updatePayload)
-        .eq("id", proposal.id);
+        .eq("id", proposal.id)
+        .select("id, status, approval_decision, approved_at, rejected_at")
+        .maybeSingle();
 
       if (updateErr) {
         console.error("[public-approval] update error:", updateErr);
-        return json({ success: false, error: updateErr.message }, 500);
+        return json({ success: false, errorCode: "unknown", error: updateErr.message }, 500);
       }
 
-      console.log("[public-approval] Decision recorded:", proposal.id, decision);
-      return json({ success: true, status: newStatus });
+      console.log("proposal updated after decision", updatedProposal);
+      return json({ success: true, status: newStatus, proposal: updatedProposal });
     }
 
-    return json({ success: false, error: "Unknown action" }, 400);
+    return json({ success: false, errorCode: "unknown", error: "Unknown action" }, 400);
   } catch (err) {
     console.error("[public-approval] Error:", err);
-    return json({ success: false, error: String(err) }, 500);
+    return json({ success: false, errorCode: "unknown", error: String(err) }, 500);
   }
 });
