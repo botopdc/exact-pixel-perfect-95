@@ -1334,6 +1334,7 @@ const OpenCalculator: React.FC = () => {
         ? `Proposta ${proposal.id} atualizada com sucesso` 
         : `Proposta ${proposal.id} salva com sucesso`;
       toast({ title: toastTitle, description: toastDesc });
+      return editingProposalId || supabaseProposalId || null;
     } catch (error: any) {
       console.error('Error saving proposal:', error);
       
@@ -1349,8 +1350,10 @@ const OpenCalculator: React.FC = () => {
       if (is401 && isPartnerContext) {
         navigate('/parceiro/login');
       }
+      return null;
     } finally {
       setSaving(false);
+      savingRef.current = false;
     }
   };
 
