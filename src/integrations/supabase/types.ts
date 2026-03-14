@@ -909,67 +909,97 @@ export type Database = {
       }
       contracts: {
         Row: {
+          billing_cycle: string
           client_name: string
           company: string
           contract_duration: number | null
           contract_number: string | null
           contract_payload: Json | null
           created_at: string
+          currency: string
           datacenter: string | null
           deleted_at: string | null
+          discount_amount: number | null
           due_at: string | null
           email: string
+          end_date: string | null
           generated_by: string | null
           generated_from_proposal_at: string
           id: string
+          notes: string | null
           phone: string
           proposal_id: string
           proposal_payload: Json
+          proposal_uuid: string | null
+          start_date: string | null
           status: string
+          subtotal: number | null
+          tax_id: string | null
           total: number | null
           updated_at: string
+          updated_by: string | null
         }
         Insert: {
+          billing_cycle?: string
           client_name: string
           company: string
           contract_duration?: number | null
           contract_number?: string | null
           contract_payload?: Json | null
           created_at?: string
+          currency?: string
           datacenter?: string | null
           deleted_at?: string | null
+          discount_amount?: number | null
           due_at?: string | null
           email: string
+          end_date?: string | null
           generated_by?: string | null
           generated_from_proposal_at?: string
           id?: string
+          notes?: string | null
           phone?: string
           proposal_id: string
           proposal_payload?: Json
+          proposal_uuid?: string | null
+          start_date?: string | null
           status?: string
+          subtotal?: number | null
+          tax_id?: string | null
           total?: number | null
           updated_at?: string
+          updated_by?: string | null
         }
         Update: {
+          billing_cycle?: string
           client_name?: string
           company?: string
           contract_duration?: number | null
           contract_number?: string | null
           contract_payload?: Json | null
           created_at?: string
+          currency?: string
           datacenter?: string | null
           deleted_at?: string | null
+          discount_amount?: number | null
           due_at?: string | null
           email?: string
+          end_date?: string | null
           generated_by?: string | null
           generated_from_proposal_at?: string
           id?: string
+          notes?: string | null
           phone?: string
           proposal_id?: string
           proposal_payload?: Json
+          proposal_uuid?: string | null
+          start_date?: string | null
           status?: string
+          subtotal?: number | null
+          tax_id?: string | null
           total?: number | null
           updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
