@@ -1560,6 +1560,9 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
   // ======== CORE — Sync Commands ========
   'core/open_docs_sync_commands': OPEN_DOCS_SYNC_COMMANDS_CONTENT,
 
+  // ======== CORE — RBAC Model ========
+  'core/open_rbac_model': OPEN_RBAC_MODEL_CONTENT,
+
   // ======== CHANGELOG ========
   'core/open_changelog': OPEN_CHANGELOG_CONTENT,
 };
