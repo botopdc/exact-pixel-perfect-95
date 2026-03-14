@@ -10,8 +10,14 @@ import {
   Terminal,
   History,
   Download,
+  Settings,
+  RefreshCw,
+  ShieldCheck,
+  BarChart3,
+  FileText,
 } from 'lucide-react';
 import { DOC_CATEGORIES, getDocsByCategory, type DocCategory } from '@/data/docs/registry';
+import { authService } from '@/services/authService';
 
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard,
@@ -24,8 +30,19 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Download,
 };
 
+const ADMIN_LINKS = [
+  { to: '/modulos/docs/admin/sync', label: 'Sync Engine', icon: RefreshCw },
+  { to: '/modulos/docs/admin/changelog', label: 'Changelog', icon: FileText },
+  { to: '/modulos/docs/admin/coverage', label: 'Cobertura', icon: BarChart3 },
+  { to: '/modulos/docs/admin/health', label: 'Saúde da Wiki', icon: ShieldCheck },
+];
+
 export function DocsSidebar() {
   const location = useLocation();
+  const user = authService.getCurrentUser();
+  const userLevel = user?.level ?? 0;
+  // Admin area visible for levels >= 750 (Gerente, Admin, etc.)
+  const showAdmin = userLevel >= 750;
 
   return (
     <nav className="w-64 shrink-0 border-r border-border bg-card/50 overflow-y-auto">
@@ -49,8 +66,6 @@ export function DocsSidebar() {
           const Icon = ICON_MAP[cat.icon] || BookOpen;
           const docs = getDocsByCategory(cat.id);
           if (docs.length === 0 && cat.id !== 'downloads' && cat.id !== 'runbooks') return null;
-
-          const basePath = cat.id === 'downloads' ? '/modulos/docs/downloads' : undefined;
 
           return (
             <div key={cat.id} className="space-y-1">
@@ -97,6 +112,35 @@ export function DocsSidebar() {
             </div>
           );
         })}
+
+        {/* Admin Section */}
+        {showAdmin && (
+          <div className="space-y-1 pt-2 border-t border-border">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <Settings className="h-3.5 w-3.5" />
+              Admin
+            </div>
+            {ADMIN_LINKS.map(link => {
+              const isActive = location.pathname === link.to;
+              const LinkIcon = link.icon;
+              return (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-1.5 pl-8 rounded text-sm transition-colors',
+                    isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  )}
+                >
+                  <LinkIcon className="h-3.5 w-3.5" />
+                  {link.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
     </nav>
   );
