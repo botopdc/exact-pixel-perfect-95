@@ -296,6 +296,13 @@ const App = () => (
             <Route path="/modulos/atendimentos/health/cs" element={<HealthScoreCS />} />
             <Route path="/modulos/atendimentos/health/executivo" element={<HealthScoreExecutivo />} />
             
+            {/* Docs Module (Wiki) */}
+            <Route path="/modulos/docs" element={<DocsLayout />}>
+              <Route index element={<DocsHome />} />
+              <Route path="downloads" element={<DocsDownloadsPage />} />
+              <Route path="*" element={<DocsViewPage />} />
+            </Route>
+
             {/* Conteúdo Module */}
             <Route path="/modulos/conteudo" element={<ConteudoModuleHome />} />
             <Route path="/modulos/conteudo/artigos" element={<Artigos />} />
