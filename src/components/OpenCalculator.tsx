@@ -1160,7 +1160,7 @@ const OpenCalculator: React.FC = () => {
     }
     if (!client.name.trim() && !client.company.trim()) {
       toast({ title: 'Erro', description: 'Informe o nome do cliente ou empresa', variant: 'destructive' });
-      return;
+      return null;
     }
     // Validate: check for empty VM items first
     const emptyVMs = getEmptyVMItems();
