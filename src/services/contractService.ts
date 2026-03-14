@@ -90,6 +90,26 @@ export interface CreateContractInput {
 }
 
 export async function createContract(input: CreateContractInput): Promise<Contract> {
+  // Build contract_payload snapshot with all form data
+  const contractPayload = {
+    legal_name: input.legal_name,
+    company_name: input.company_name,
+    has_no_cnpj: input.has_no_cnpj,
+    cnpj: input.cnpj,
+    responsible_name: input.responsible_name,
+    responsible_cpf: input.responsible_cpf,
+    zip_code: input.zip_code,
+    street: input.street,
+    neighborhood: input.neighborhood,
+    city: input.city,
+    state: input.state,
+    payment_day: input.payment_day,
+    contract_date: input.contract_date,
+    billing_cycle: input.billing_cycle,
+    contract_duration: input.contract_duration,
+    notes: input.notes,
+  };
+
   const { data, error } = await supabase
     .from('contracts')
     .insert({
@@ -112,8 +132,23 @@ export async function createContract(input: CreateContractInput): Promise<Contra
       due_at: input.due_at,
       notes: input.notes || null,
       proposal_payload: input.proposal_payload as any,
+      contract_payload: contractPayload as any,
       status: 'rascunho',
-    })
+      // Structured legal/address columns
+      legal_name: input.legal_name || null,
+      company_name: input.company_name || null,
+      has_no_cnpj: input.has_no_cnpj || false,
+      cnpj: input.cnpj || null,
+      responsible_name: input.responsible_name || null,
+      responsible_cpf: input.responsible_cpf || null,
+      zip_code: input.zip_code || null,
+      street: input.street || null,
+      neighborhood: input.neighborhood || null,
+      city: input.city || null,
+      state: input.state || null,
+      payment_day: input.payment_day || null,
+      contract_date: input.contract_date || null,
+    } as any)
     .select()
     .single();
   if (error) {
