@@ -213,7 +213,7 @@ export const DOCS_REGISTRY: DocEntry[] = [
     title: 'Changelog',
     category: 'changelog',
     summary: 'Histórico de alterações e versões do sistema.',
-    file: 'changelog/changelog',
+    file: 'core/open_changelog',
     tags: ['changelog', 'versões', 'atualizações'],
     downloadable: true,
     visibleInMenu: true,

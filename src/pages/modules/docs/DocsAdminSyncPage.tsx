@@ -54,7 +54,7 @@ export default function DocsAdminSyncPage() {
       // Simulate sync execution (future: real logic)
       await new Promise(r => setTimeout(r, 1500));
       const cmd = SYNC_COMMANDS.find(c => c.name === commandName);
-      await completeSyncRun(run.id, 'success', `Sync executado com sucesso para ${commandName}`, cmd?.files ?? []);
+      await completeSyncRun(run.id, 'success', `Sync executado com sucesso para ${commandName}`, [...(cmd?.files ?? [])]);
       toast({ title: 'Sync concluído', description: commandName });
       await loadRuns();
     } catch {
