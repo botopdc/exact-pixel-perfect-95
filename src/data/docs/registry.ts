@@ -172,6 +172,18 @@ export const DOCS_REGISTRY: DocEntry[] = [
     visibleInMenu: true,
     order: 31,
   },
+  // ======== RUNBOOKS ========
+  {
+    slug: 'runbooks/supabase',
+    title: 'Runbook - Supabase',
+    category: 'runbooks',
+    summary: 'Manual operacional do Supabase: tabelas críticas, problemas comuns e procedimentos de recovery.',
+    file: 'runbooks/supabase',
+    tags: ['runbook', 'supabase', 'operação', 'recovery', 'edge functions', 'troubleshooting'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 36,
+  },
 
   // ======== CHANGELOG ========
   {
