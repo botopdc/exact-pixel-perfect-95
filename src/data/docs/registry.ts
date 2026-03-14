@@ -74,6 +74,17 @@ export const DOCS_REGISTRY: DocEntry[] = [
     visibleInMenu: true,
     order: 4,
   },
+  {
+    slug: 'module-map',
+    title: 'OPEN Module Map',
+    category: 'core',
+    summary: 'Mapa de módulos, rotas, dependências e organização funcional da plataforma OPEN.',
+    file: 'core/open_module_map',
+    tags: ['módulos', 'rotas', 'navegação', 'mapa', 'organização'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 5,
+  },
 
   // ======== MODULES ========
   {
