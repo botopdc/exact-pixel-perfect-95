@@ -1,13 +1,33 @@
 /**
- * Public Approval Service — 100% Supabase via Edge Function
+ * Public Approval Service — 100% Supabase via Edge Functions
  *
- * All public operations go through the `public-approval` edge function
- * which uses SERVICE_ROLE_KEY to bypass RLS.
+ * - proposal-public: load proposal by public token (no auth)
+ * - public-approval: accept/reject decision (no auth)
  *
  * ZERO dependency on legacy API.
  */
 
 import { supabase } from '@/integrations/supabase/client';
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const PRODUCTION_BASE_URL = 'https://core.opendata.center';
+
+function getPublicBaseUrl(): string {
+  // In production, use the official domain
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    // If running on production domain, use it
+    if (origin.includes('opendata.center')) {
+      return PRODUCTION_BASE_URL;
+    }
+    // For Lovable preview or local dev, use current origin
+    return origin;
+  }
+  return PRODUCTION_BASE_URL;
+}
 
 // ============================================================================
 // TYPES
@@ -94,18 +114,25 @@ export type LoadError =
   | 'unknown';
 
 // ============================================================================
-// EDGE FUNCTION CALLER
+// EDGE FUNCTION CALLERS
 // ============================================================================
 
-const FUNCTION_NAME = 'public-approval';
-
-async function callEdgeFunction(body: Record<string, unknown>): Promise<any> {
-  const { data, error } = await supabase.functions.invoke(FUNCTION_NAME, {
-    body,
-  });
+async function callProposalPublic(body: Record<string, unknown>): Promise<any> {
+  const { data, error } = await supabase.functions.invoke('proposal-public', { body });
 
   if (error) {
-    console.error('[publicApprovalService] Edge function error:', error);
+    console.error('[publicApprovalService] proposal-public error:', error);
+    throw new Error(error.message || 'Erro ao carregar proposta');
+  }
+
+  return data;
+}
+
+async function callPublicApproval(body: Record<string, unknown>): Promise<any> {
+  const { data, error } = await supabase.functions.invoke('public-approval', { body });
+
+  if (error) {
+    console.error('[publicApprovalService] public-approval error:', error);
     throw new Error(error.message || 'Erro ao chamar função de aprovação');
   }
 
@@ -121,7 +148,7 @@ async function callEdgeFunction(body: Record<string, unknown>): Promise<any> {
  * This runs in authenticated context (commercial panel).
  */
 export async function generateOrGetPublicApprovalLink(proposalId: string): Promise<string> {
-  console.log('generate approval link proposal', proposalId);
+  console.log('[publicApprovalService] generate approval link for', proposalId);
 
   const { data: proposal, error: fetchErr } = await supabase
     .from('calculator_proposals')
@@ -132,25 +159,21 @@ export async function generateOrGetPublicApprovalLink(proposalId: string): Promi
   if (fetchErr) throw new Error(`Erro ao buscar proposta: ${fetchErr.message}`);
   if (!proposal) throw new Error(`Proposta não encontrada: ${proposalId}`);
 
-  console.log('proposal id', proposal.id);
-  console.log('proposal uuid', (proposal as any)?.uuid ?? null);
-  console.log('proposal public token', (proposal as any)?.public_approval_token ?? null);
-
   const now = new Date();
+  const existingToken = (proposal as any)?.public_approval_token;
+  const existingEnabled = (proposal as any)?.public_approval_enabled;
   const existingExpiry = (proposal as any)?.public_approval_expires_at
     ? new Date((proposal as any).public_approval_expires_at)
     : null;
 
-  if (
-    (proposal as any)?.public_approval_token &&
-    (proposal as any)?.public_approval_enabled &&
-    (!existingExpiry || existingExpiry > now)
-  ) {
-    const reuseUrl = buildPublicUrl((proposal as any).public_approval_token);
-    console.log('final public approval url', reuseUrl);
-    return reuseUrl;
+  // Reuse existing valid token
+  if (existingToken && existingEnabled && (!existingExpiry || existingExpiry > now)) {
+    const url = buildPublicUrl(existingToken);
+    console.log('[publicApprovalService] reusing existing token, url:', url);
+    return url;
   }
 
+  // Generate new token
   const newToken = createPublicApprovalToken();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
@@ -168,12 +191,12 @@ export async function generateOrGetPublicApprovalLink(proposalId: string): Promi
   if (updateErr) throw new Error(`Erro ao gerar token: ${updateErr.message}`);
 
   const approvalUrl = buildPublicUrl(newToken);
-  console.log('final public approval url', approvalUrl);
+  console.log('[publicApprovalService] new token generated, url:', approvalUrl);
   return approvalUrl;
 }
 
 // ============================================================================
-// LOAD PUBLIC PROPOSAL BY TOKEN (via edge function — no auth required)
+// LOAD PUBLIC PROPOSAL BY TOKEN (via proposal-public edge function)
 // ============================================================================
 
 export async function loadPublicProposalByToken(token: string): Promise<{
@@ -182,21 +205,22 @@ export async function loadPublicProposalByToken(token: string): Promise<{
   error?: LoadError;
   message?: string;
 }> {
-  console.log('loading public proposal by token', token);
-
   if (!token || token.trim() === '') {
     return { error: 'token_missing', message: 'Token de aprovação ausente.' };
   }
 
   try {
-    const result = await callEdgeFunction({ action: 'load', token: token.trim() });
+    const result = await callProposalPublic({ token: token.trim() });
 
-    if (!result.success) {
-      const errorCode = (result.errorCode || 'unknown') as LoadError;
-      return {
-        error: errorCode,
-        message: result.error || mapLoadErrorToMessage(errorCode),
-      };
+    // proposal-public returns { proposal, servers, addons, pdfSignedUrl } on success
+    // or { error } on failure
+    if (result.error) {
+      const errorCode = mapHttpErrorToLoadError(result.error);
+      return { error: errorCode, message: result.error };
+    }
+
+    if (!result.proposal) {
+      return { error: 'proposal_not_found', message: 'Proposta não encontrada.' };
     }
 
     const p = result.proposal;
@@ -236,19 +260,15 @@ export async function loadPublicProposalByToken(token: string): Promise<{
       })),
     };
 
-    console.log('proposal found', publicProposal);
-    console.log('public approval enabled', publicProposal.public_approval_enabled);
-    console.log('public approval token in db', publicProposal.public_approval_token);
-
     return { proposal: publicProposal, pdfSignedUrl: result.pdfSignedUrl };
   } catch (err: any) {
     console.error('[publicApprovalService] Load error:', err);
-    return { error: 'unknown', message: err.message || 'Erro ao carregar proposta.' };
+    return { error: 'unknown', message: err.message || 'Erro interno ao carregar a proposta.' };
   }
 }
 
 // ============================================================================
-// ACCEPT / REJECT (via edge function — no auth required)
+// ACCEPT / REJECT (via public-approval edge function)
 // ============================================================================
 
 export async function recordApprovalDecision(
@@ -256,10 +276,8 @@ export async function recordApprovalDecision(
   decision: ApprovalDecision,
   meta?: { name?: string; email?: string; notes?: string }
 ): Promise<ApprovalResult> {
-  console.log('approval decision', decision);
-
   try {
-    const result = await callEdgeFunction({
+    const result = await callPublicApproval({
       action: 'decide',
       token,
       decision,
@@ -280,12 +298,10 @@ export async function recordApprovalDecision(
 }
 
 // ============================================================================
-// PDF SIGNED URL — now returned by edge function load action
+// PDF — returned by proposal-public load
 // ============================================================================
 
 export async function getPublicPdfSignedUrl(pdfPath: string): Promise<string | null> {
-  // This is now handled by the edge function's load action
-  // Kept for backward compatibility but shouldn't be called directly
   if (!pdfPath) return null;
   console.warn('[publicApprovalService] getPublicPdfSignedUrl called directly — use loadPublicProposalByToken instead');
   return null;
@@ -296,7 +312,7 @@ export async function getPublicPdfSignedUrl(pdfPath: string): Promise<string | n
 // ============================================================================
 
 function buildPublicUrl(token: string): string {
-  const baseUrl = window.location.origin;
+  const baseUrl = getPublicBaseUrl();
   return `${baseUrl}/proposta/aprovacao/${token}`;
 }
 
@@ -304,23 +320,11 @@ function createPublicApprovalToken(): string {
   return `pat_${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
-function mapLoadErrorToMessage(error: LoadError): string {
-  switch (error) {
-    case 'token_missing':
-      return 'Token de aprovação ausente.';
-    case 'token_invalid':
-      return 'Token de aprovação inválido.';
-    case 'proposal_not_found':
-      return 'Proposta não encontrada.';
-    case 'token_disabled':
-      return 'A aprovação pública desta proposta está desabilitada.';
-    case 'token_expired':
-      return 'Este link de aprovação expirou.';
-    case 'already_approved':
-      return 'Esta proposta já foi aprovada.';
-    case 'already_rejected':
-      return 'Esta proposta já foi recusada.';
-    default:
-      return 'Erro ao carregar proposta.';
-  }
+function mapHttpErrorToLoadError(errorMessage: string): LoadError {
+  const lower = errorMessage.toLowerCase();
+  if (lower.includes('not found')) return 'proposal_not_found';
+  if (lower.includes('expired')) return 'token_expired';
+  if (lower.includes('disabled')) return 'token_disabled';
+  if (lower.includes('missing')) return 'token_missing';
+  return 'unknown';
 }
