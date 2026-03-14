@@ -1594,6 +1594,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_contract_from_proposal: { Args: { payload: Json }; Returns: Json }
       is_tech_admin: { Args: never; Returns: boolean }
       is_tech_team_member: { Args: never; Returns: boolean }
       save_calculator_proposal: { Args: { payload: Json }; Returns: string }
