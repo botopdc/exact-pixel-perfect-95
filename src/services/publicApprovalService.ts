@@ -159,12 +159,9 @@ export async function generateOrGetPublicApprovalLink(proposalId: string): Promi
  * Validates token existence, match, and expiration.
  */
 export async function loadPublicProposalByToken(token: string): Promise<{
-  proposal: PublicProposal;
-  error?: never;
-} | {
-  proposal?: never;
-  error: LoadError;
-  message: string;
+  proposal?: PublicProposal;
+  error?: LoadError;
+  message?: string;
 }> {
   console.log('[publicApprovalService] approval token from url:', token);
 
