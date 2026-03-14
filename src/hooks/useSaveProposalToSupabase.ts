@@ -346,9 +346,17 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
     });
   }
 
-  // Kubernetes — use rowKey prefix k8s_*
+  // Kubernetes — use rowKey prefix k8s_* — persist component prices for PDF detail
   if (kubernetes?.enabled) {
     const k8sPrice = sumByPrefix('k8s');
+    // Build component prices from individual rows
+    const k8sComponentPrices: Record<string, { unitPrice: number; totalPrice: number }> = {};
+    Object.entries(rowByKey).forEach(([key, val]) => {
+      if (key.startsWith('k8s_')) {
+        const shortKey = key.replace(/^k8s_(base_[^_]+)/, 'base').replace(/^k8s_/, '');
+        k8sComponentPrices[shortKey] = { unitPrice: val.unitPrice, totalPrice: val.finalTotal };
+      }
+    });
     addonsArray.push({
       addon_key: 'kubernetes',
       label: `Kubernetes ${kubernetes.plan}`,
@@ -360,6 +368,7 @@ export function convertCalculatorToSupabasePayload(input: CalculatorSaveInput): 
         plan: kubernetes.plan,
         addons: kubernetes.addons,
         extras: kubernetes.extras,
+        componentPrices: k8sComponentPrices,
       },
     });
   }
