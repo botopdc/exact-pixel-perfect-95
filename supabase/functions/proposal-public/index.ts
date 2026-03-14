@@ -1,0 +1,140 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error("[proposal-public] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+      return json({ error: "Server configuration error" }, 500);
+    }
+
+    const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const body = await req.json().catch(() => ({}));
+    const { token } = body as { token?: string };
+
+    if (!token || token.trim() === "") {
+      return json({ error: "Missing token" }, 400);
+    }
+
+    const normalizedToken = token.trim();
+    console.log("[proposal-public] Looking up token:", normalizedToken);
+
+    // Fetch proposal by public_approval_token
+    const { data: proposal, error: fetchError } = await adminClient
+      .from("calculator_proposals")
+      .select("*")
+      .eq("public_approval_token", normalizedToken)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error("[proposal-public] DB error:", fetchError);
+      return json({ error: "Internal server error" }, 500);
+    }
+
+    if (!proposal) {
+      return json({ error: "Proposal not found" }, 404);
+    }
+
+    // Check expiration
+    if (proposal.public_approval_expires_at) {
+      const expiresAt = new Date(proposal.public_approval_expires_at);
+      if (expiresAt <= new Date()) {
+        return json({ error: "Link expired" }, 410);
+      }
+    }
+
+    // Check if public approval is disabled
+    if (proposal.public_approval_enabled === false) {
+      return json({ error: "Public approval disabled for this proposal" }, 403);
+    }
+
+    // Fetch servers and addons in parallel
+    const [serversRes, addonsRes] = await Promise.all([
+      adminClient
+        .from("calculator_proposal_servers")
+        .select("*")
+        .eq("proposal_id", proposal.id)
+        .order("sort_order"),
+      adminClient
+        .from("calculator_proposal_addons")
+        .select("*")
+        .eq("proposal_id", proposal.id)
+        .order("sort_order"),
+    ]);
+
+    // Generate signed PDF URL if available
+    let pdfSignedUrl: string | null = null;
+    if (proposal.pdf_path) {
+      try {
+        const { data: urlData, error: urlError } = await adminClient.storage
+          .from("proposal-files")
+          .createSignedUrl(proposal.pdf_path, 60 * 30);
+
+        if (!urlError && urlData?.signedUrl) {
+          pdfSignedUrl = urlData.signedUrl;
+        } else {
+          console.warn("[proposal-public] PDF signed URL error:", urlError?.message);
+        }
+      } catch (err) {
+        console.warn("[proposal-public] PDF signed URL exception:", err);
+      }
+    }
+
+    return json({
+      proposal: {
+        id: proposal.id,
+        display_id: proposal.display_id,
+        name: proposal.name,
+        company: proposal.company,
+        email: proposal.email,
+        phone: proposal.phone,
+        datacenter: proposal.datacenter,
+        contract_duration: proposal.contract_duration,
+        discount_pct: proposal.discount_pct,
+        total: proposal.total,
+        currency: proposal.currency,
+        status: proposal.status,
+        channel_type: proposal.channel_type,
+        reseller_name: proposal.reseller_name,
+        observations: proposal.observations,
+        due_at: proposal.due_at,
+        created_at: proposal.created_at,
+        pdf_path: proposal.pdf_path,
+        approval_decision: proposal.approval_decision,
+        approved_at: proposal.approved_at,
+        rejected_at: proposal.rejected_at,
+        public_approval_token: proposal.public_approval_token,
+        public_approval_enabled: proposal.public_approval_enabled,
+        public_approval_expires_at: proposal.public_approval_expires_at,
+      },
+      servers: serversRes.data || [],
+      addons: addonsRes.data || [],
+      pdfSignedUrl,
+    });
+  } catch (err) {
+    console.error("[proposal-public] Unhandled error:", err);
+    return json({ error: "Internal server error" }, 500);
+  }
+});
