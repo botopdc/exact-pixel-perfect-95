@@ -35,3 +35,21 @@ verify_jwt = false
 
 [functions.contract-generate-document]
 verify_jwt = false
+
+[functions.support-ticket-create]
+verify_jwt = false
+
+[functions.support-ticket-list]
+verify_jwt = false
+
+[functions.support-ticket-get]
+verify_jwt = false
+
+[functions.support-ticket-update]
+verify_jwt = false
+
+[functions.support-ticket-messages]
+verify_jwt = false
+
+[functions.support-sla-admin]
+verify_jwt = false
