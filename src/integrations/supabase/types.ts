@@ -907,6 +907,75 @@ export type Database = {
           },
         ]
       }
+      docs_sync_coverage: {
+        Row: {
+          doc_slug: string
+          id: string
+          is_covered: boolean | null
+          notes: string | null
+          source_name: string
+          source_type: string
+          updated_at: string
+        }
+        Insert: {
+          doc_slug: string
+          id?: string
+          is_covered?: boolean | null
+          notes?: string | null
+          source_name: string
+          source_type: string
+          updated_at?: string
+        }
+        Update: {
+          doc_slug?: string
+          id?: string
+          is_covered?: boolean | null
+          notes?: string | null
+          source_name?: string
+          source_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      docs_sync_runs: {
+        Row: {
+          command_name: string
+          created_at: string
+          details_md: string | null
+          files_affected: string[] | null
+          finished_at: string | null
+          id: string
+          started_at: string | null
+          status: string
+          summary: string | null
+          triggered_by: string | null
+        }
+        Insert: {
+          command_name: string
+          created_at?: string
+          details_md?: string | null
+          files_affected?: string[] | null
+          finished_at?: string | null
+          id?: string
+          started_at?: string | null
+          status?: string
+          summary?: string | null
+          triggered_by?: string | null
+        }
+        Update: {
+          command_name?: string
+          created_at?: string
+          details_md?: string | null
+          files_affected?: string[] | null
+          finished_at?: string | null
+          id?: string
+          started_at?: string | null
+          status?: string
+          summary?: string | null
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       proposal_participants: {
         Row: {
           commission_pct: number | null

@@ -6,6 +6,8 @@
 
 // Import content modules
 import { OPEN_DATA_MODEL_CONTENT } from './content/dataModel';
+import { OPEN_DOCS_SYNC_COMMANDS_CONTENT } from './content/syncCommands';
+import { OPEN_CHANGELOG_CONTENT } from './content/changelog';
 
 // Import existing docs
 import PLANO_7_PASSOS from '../../../docs/PLANO_7_PASSOS.md?raw';
@@ -1553,6 +1555,12 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
 
   // ======== CORE — Data Model ========
   'core/open_data_model': OPEN_DATA_MODEL_CONTENT,
+
+  // ======== CORE — Sync Commands ========
+  'core/open_docs_sync_commands': OPEN_DOCS_SYNC_COMMANDS_CONTENT,
+
+  // ======== CHANGELOG ========
+  'core/open_changelog': OPEN_CHANGELOG_CONTENT,
 };
 
 export function getDocContent(fileKey: string): string | null {

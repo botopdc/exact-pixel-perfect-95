@@ -213,11 +213,24 @@ export const DOCS_REGISTRY: DocEntry[] = [
     title: 'Changelog',
     category: 'changelog',
     summary: 'Histórico de alterações e versões do sistema.',
-    file: 'changelog/changelog',
+    file: 'core/open_changelog',
     tags: ['changelog', 'versões', 'atualizações'],
     downloadable: true,
     visibleInMenu: true,
     order: 40,
+  },
+
+  // ======== CORE — Sync Commands ========
+  {
+    slug: 'docs-sync-commands',
+    title: 'Docs Sync Commands',
+    category: 'core',
+    summary: 'Comandos internos de sincronização da documentação técnica da OPEN.',
+    file: 'core/open_docs_sync_commands',
+    tags: ['sync', 'docs', 'automação', 'comandos', 'manutenção'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 7,
   },
 
   // ======== EXISTING DOCS (from /docs folder) ========

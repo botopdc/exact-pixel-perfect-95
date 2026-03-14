@@ -84,6 +84,10 @@ import DocsLayout from '@/layouts/DocsLayout';
 import DocsHome from '@/pages/modules/docs/DocsHome';
 import DocsViewPage from '@/pages/modules/docs/DocsViewPage';
 import DocsDownloadsPage from '@/pages/modules/docs/DocsDownloadsPage';
+import DocsAdminSyncPage from '@/pages/modules/docs/DocsAdminSyncPage';
+import DocsAdminChangelogPage from '@/pages/modules/docs/DocsAdminChangelogPage';
+import DocsAdminCoveragePage from '@/pages/modules/docs/DocsAdminCoveragePage';
+import DocsAdminHealthPage from '@/pages/modules/docs/DocsAdminHealthPage';
 
 // Module Placeholder Pages
 import ProcedimentosPage from '@/pages/modules/conteudo/ProcedimentosPage';
@@ -300,6 +304,10 @@ const App = () => (
             <Route path="/modulos/docs" element={<DocsLayout />}>
               <Route index element={<DocsHome />} />
               <Route path="downloads" element={<DocsDownloadsPage />} />
+              <Route path="admin/sync" element={<DocsAdminSyncPage />} />
+              <Route path="admin/changelog" element={<DocsAdminChangelogPage />} />
+              <Route path="admin/coverage" element={<DocsAdminCoveragePage />} />
+              <Route path="admin/health" element={<DocsAdminHealthPage />} />
               <Route path="*" element={<DocsViewPage />} />
             </Route>
 
