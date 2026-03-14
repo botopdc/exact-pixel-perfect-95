@@ -776,6 +776,7 @@ const OpenCalculator: React.FC = () => {
 
   // Helper function to apply Supabase state directly to calculator
   const applySupabaseState = useCallback((supabaseState: any, supabaseId: string) => {
+    try {
     console.log('[OpenCalculator] SUPABASE_STATE_HYDRATION:', {
       supabaseId,
       itemsCount: supabaseState.items?.length || 0,
