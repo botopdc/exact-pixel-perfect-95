@@ -73,7 +73,7 @@ serve(async (req: Request) => {
 
     let query = supabase
       .from("calculator_proposals")
-      .select("id, display_id, name, company, email, phone, status, total, datacenter, channel_type, created_at, updated_at", { count: "exact" })
+      .select("id, display_id, name, company, email, phone, status, total, datacenter, channel_type, contract_duration, approved_at, created_at, updated_at", { count: "exact" })
       .order(dbSortField, { ascending });
 
     // Status filter

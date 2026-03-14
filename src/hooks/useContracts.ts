@@ -47,7 +47,10 @@ export function useCreateContract() {
   return useMutation({
     mutationFn: (input: CreateContractInput) => contractService.create(input),
     onSuccess: () => {
+      // Invalidate contracts list
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      // Invalidate proposals list so badges/actions refresh
+      queryClient.invalidateQueries({ queryKey: ['proposals-api'] });
       toast.success('Contrato criado com sucesso');
     },
     onError: (error: Error) => {
@@ -77,6 +80,8 @@ export function useDeleteContract() {
     mutationFn: contractService.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      // Re-check eligible proposals after contract deletion
+      queryClient.invalidateQueries({ queryKey: ['proposals-api'] });
       toast.success('Contrato excluído');
     },
     onError: (error: Error) => {
