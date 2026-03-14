@@ -1405,9 +1405,9 @@ const OpenCalculator: React.FC = () => {
     const validityDateStr = getValidityDate(proposal.createdAt, proposal.validityDays).toLocaleDateString('pt-BR');
 
     try {
-      // CRITICAL: Get canonical approval link with token
+      // CRITICAL: Get canonical approval link with token (100% Supabase)
       console.log('[OpenCalculator] Fetching approval link for email send...');
-      const { buildApprovalLinkFromId } = await import('@/services/approvalLinkService');
+      const { generateOrGetPublicApprovalLink } = await import('@/services/publicApprovalService');
       
       // Get the saved proposal ID - editingProposalId is set after handleSave() completes
       const proposalApiId = editingProposalId || proposal.id;
@@ -1418,8 +1418,7 @@ const OpenCalculator: React.FC = () => {
       
       let proposalLink: string;
       try {
-        const result = await buildApprovalLinkFromId(proposalApiId);
-        proposalLink = result.link;
+        proposalLink = await generateOrGetPublicApprovalLink(String(proposalApiId));
         console.log('[OpenCalculator] Got canonical approval link for email');
       } catch (linkError: any) {
         console.error('[OpenCalculator] Failed to get approval link:', linkError);
