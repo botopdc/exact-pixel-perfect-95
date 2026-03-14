@@ -8,6 +8,7 @@
 import { OPEN_DATA_MODEL_CONTENT } from './content/dataModel';
 import { OPEN_DOCS_SYNC_COMMANDS_CONTENT } from './content/syncCommands';
 import { OPEN_CHANGELOG_CONTENT } from './content/changelog';
+import { OPEN_RBAC_MODEL_CONTENT } from './content/rbacModel';
 
 // Import existing docs
 import PLANO_7_PASSOS from '../../../docs/PLANO_7_PASSOS.md?raw';
@@ -1558,6 +1559,9 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
 
   // ======== CORE — Sync Commands ========
   'core/open_docs_sync_commands': OPEN_DOCS_SYNC_COMMANDS_CONTENT,
+
+  // ======== CORE — RBAC Model ========
+  'core/open_rbac_model': OPEN_RBAC_MODEL_CONTENT,
 
   // ======== CHANGELOG ========
   'core/open_changelog': OPEN_CHANGELOG_CONTENT,

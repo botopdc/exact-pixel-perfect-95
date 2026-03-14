@@ -108,6 +108,19 @@ export const DOCS_REGISTRY: DocEntry[] = [
     order: 6,
   },
 
+  {
+    slug: 'rbac-model',
+    title: 'RBAC Model',
+    category: 'core',
+    module: 'system',
+    summary: 'Modelo de controle de acesso baseado em papéis da plataforma OPEN: níveis, permissões, políticas e evolução futura.',
+    file: 'core/open_rbac_model',
+    tags: ['rbac', 'security', 'permissions', 'roles', 'access-control'],
+    downloadable: true,
+    visibleInMenu: true,
+    order: 9,
+  },
+
   // ======== MODULES ========
   {
     slug: 'modules/comercial',
