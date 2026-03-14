@@ -53,30 +53,50 @@ export async function getContractByProposalId(proposalId: string): Promise<Contr
   return data as unknown as Contract | null;
 }
 
-export async function createContract(input: {
+export interface CreateContractInput {
   proposal_id: string;
+  proposal_uuid?: string | null;
   client_name: string;
   company: string;
   email: string;
   phone: string;
+  tax_id?: string | null;
+  currency?: string;
+  subtotal?: number;
+  discount_amount?: number;
   total: number;
   datacenter: string | null;
   contract_duration: number | null;
+  billing_cycle?: string;
+  start_date?: string | null;
+  end_date?: string | null;
   due_at: string | null;
+  notes?: string | null;
   proposal_payload: Record<string, any>;
-}): Promise<Contract> {
+}
+
+export async function createContract(input: CreateContractInput): Promise<Contract> {
   const { data, error } = await supabase
     .from('contracts')
     .insert({
       proposal_id: input.proposal_id,
+      proposal_uuid: input.proposal_uuid || null,
       client_name: input.client_name,
       company: input.company,
       email: input.email,
       phone: input.phone,
+      tax_id: input.tax_id || null,
+      currency: input.currency || 'BRL',
+      subtotal: input.subtotal || input.total,
+      discount_amount: input.discount_amount || 0,
       total: input.total,
       datacenter: input.datacenter,
       contract_duration: input.contract_duration,
+      billing_cycle: input.billing_cycle || 'mensal',
+      start_date: input.start_date || null,
+      end_date: input.end_date || null,
       due_at: input.due_at,
+      notes: input.notes || null,
       proposal_payload: input.proposal_payload as any,
       status: 'rascunho',
     })

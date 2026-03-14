@@ -3,15 +3,25 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, FileText, Loader2, FileSignature, AlertCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 
-import { useContract, useContractByProposalId, useCreateContract } from '@/hooks/useContracts';
-import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS, type ContractStatus } from '@/types/contract';
+import { useContract, useContractByProposalId, useCreateContract, useUpdateContractStatus } from '@/hooks/useContracts';
+import {
+  CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS,
+  BILLING_CYCLE_OPTIONS, CONTRACT_DURATION_OPTIONS,
+  type ContractStatus,
+} from '@/types/contract';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { getProposal as getProposalFromEdge } from '@/services/proposalApi';
 import { trackProposalEvent } from '@/services/proposalTrackingService';
@@ -29,15 +39,23 @@ export default function ContratoDetailPage() {
   const [loadingProposal, setLoadingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
 
+  // Editable fields for new contract
+  const [contractDuration, setContractDuration] = useState<number>(12);
+  const [billingCycle, setBillingCycle] = useState('mensal');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [notes, setNotes] = useState('');
+
   // Queries
   const { data: existingContract, isLoading: isLoadingContract } = useContract(isViewing ? id : undefined);
   const { data: contractForProposal, isLoading: isCheckingDuplicate } = useContractByProposalId(proposalIdParam || undefined);
   const createContract = useCreateContract();
+  const updateStatus = useUpdateContractStatus();
 
   // Load proposal data for new contract
   useEffect(() => {
     if (!proposalIdParam || isViewing) return;
-    
+
     async function loadProposal() {
       setLoadingProposal(true);
       try {
@@ -50,11 +68,13 @@ export default function ContratoDetailPage() {
           setProposalError('Apenas propostas com status "Aprovado" podem gerar contratos');
           return;
         }
-        setProposalData({
+        const p = {
           ...res.proposal,
           servers: res.servers || [],
           addons: res.addons || [],
-        });
+        };
+        setProposalData(p);
+        setContractDuration(p.contract_duration || 12);
       } catch (err: any) {
         setProposalError(err.message || 'Erro ao carregar proposta');
       } finally {
@@ -72,6 +92,15 @@ export default function ContratoDetailPage() {
     }
   }, [contractForProposal, isViewing, navigate]);
 
+  // Auto-calculate end date
+  useEffect(() => {
+    if (startDate && contractDuration) {
+      const start = new Date(startDate);
+      start.setMonth(start.getMonth() + contractDuration);
+      setEndDate(start.toISOString().split('T')[0]);
+    }
+  }, [startDate, contractDuration]);
+
   // Handle generate contract
   const handleGenerate = async () => {
     if (!proposalData) return;
@@ -79,14 +108,22 @@ export default function ContratoDetailPage() {
     try {
       const result = await createContract.mutateAsync({
         proposal_id: proposalData.id,
+        proposal_uuid: proposalData.display_id || null,
         client_name: proposalData.name || '',
         company: proposalData.company || '',
         email: proposalData.email || '',
         phone: proposalData.phone || '',
+        currency: proposalData.currency || 'BRL',
+        subtotal: proposalData.total || 0,
+        discount_amount: 0,
         total: proposalData.total || 0,
         datacenter: proposalData.datacenter || null,
-        contract_duration: proposalData.contract_duration || null,
+        contract_duration: contractDuration,
+        billing_cycle: billingCycle,
+        start_date: startDate || null,
+        end_date: endDate || null,
         due_at: proposalData.due_at || null,
+        notes: notes || null,
         proposal_payload: {
           proposal: proposalData,
           servers: proposalData.servers || [],
@@ -154,6 +191,39 @@ export default function ContratoDetailPage() {
           </Badge>
         </div>
 
+        {/* Status actions */}
+        {c.status === 'rascunho' && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
+              disabled={updateStatus.isPending}
+            >
+              Enviar para assinatura
+            </Button>
+          </div>
+        )}
+        {c.status === 'pendente_assinatura' && (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => updateStatus.mutate({ id: c.id, status: 'assinado' })}
+              disabled={updateStatus.isPending}
+            >
+              Marcar como assinado
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => updateStatus.mutate({ id: c.id, status: 'cancelado' })}
+              disabled={updateStatus.isPending}
+            >
+              Cancelar
+            </Button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
             <CardHeader><CardTitle className="text-base">Dados do Cliente</CardTitle></CardHeader>
@@ -162,6 +232,7 @@ export default function ContratoDetailPage() {
               <div><span className="text-muted-foreground">Empresa:</span> {c.company}</div>
               <div><span className="text-muted-foreground">Email:</span> {c.email}</div>
               <div><span className="text-muted-foreground">Telefone:</span> {c.phone || '—'}</div>
+              {c.tax_id && <div><span className="text-muted-foreground">CNPJ/CPF:</span> {c.tax_id}</div>}
             </CardContent>
           </Card>
 
@@ -169,12 +240,23 @@ export default function ContratoDetailPage() {
             <CardHeader><CardTitle className="text-base">Condições</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div><span className="text-muted-foreground">Valor:</span> <span className="font-semibold">{formatCurrency(c.total)}</span></div>
+              <div><span className="text-muted-foreground">Moeda:</span> {c.currency}</div>
               <div><span className="text-muted-foreground">Datacenter:</span> {c.datacenter || '—'}</div>
               <div><span className="text-muted-foreground">Duração:</span> {c.contract_duration ? `${c.contract_duration} meses` : '—'}</div>
+              <div><span className="text-muted-foreground">Ciclo de cobrança:</span> {c.billing_cycle}</div>
+              {c.start_date && <div><span className="text-muted-foreground">Início:</span> {new Date(c.start_date).toLocaleDateString('pt-BR')}</div>}
+              {c.end_date && <div><span className="text-muted-foreground">Fim:</span> {new Date(c.end_date).toLocaleDateString('pt-BR')}</div>}
               <div><span className="text-muted-foreground">Gerado em:</span> {new Date(c.generated_from_proposal_at).toLocaleDateString('pt-BR')}</div>
             </CardContent>
           </Card>
         </div>
+
+        {c.notes && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Observações</CardTitle></CardHeader>
+            <CardContent><p className="text-sm text-muted-foreground whitespace-pre-wrap">{c.notes}</p></CardContent>
+          </Card>
+        )}
 
         {/* Servers from snapshot */}
         {servers.length > 0 && (
@@ -274,7 +356,6 @@ export default function ContratoDetailPage() {
             <CardContent className="space-y-2 text-sm">
               <div><span className="text-muted-foreground">Valor total:</span> <span className="text-lg font-bold text-primary">{formatCurrency(proposalData.total)}</span></div>
               <div><span className="text-muted-foreground">Datacenter:</span> {proposalData.datacenter}</div>
-              <div><span className="text-muted-foreground">Duração:</span> {proposalData.contract_duration} meses</div>
               <div><span className="text-muted-foreground">Canal:</span> {proposalData.channel_type}</div>
               {proposalData.reseller_name && (
                 <div><span className="text-muted-foreground">Parceiro:</span> {proposalData.reseller_name}</div>
@@ -282,6 +363,62 @@ export default function ContratoDetailPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Editable contract fields */}
+        <Card>
+          <CardHeader><CardTitle className="text-base">Dados do Contrato</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Duração do contrato</Label>
+                <Select value={String(contractDuration)} onValueChange={(v) => setContractDuration(Number(v))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONTRACT_DURATION_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Ciclo de cobrança</Label>
+                <Select value={billingCycle} onValueChange={setBillingCycle}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BILLING_CYCLE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Data de início</Label>
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Data de término (auto-calculado)</Label>
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              </div>
+
+              <div className="md:col-span-2 space-y-2">
+                <Label>Observações do contrato</Label>
+                <Textarea
+                  placeholder="Observações adicionais para o contrato..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Servers */}
         {proposalData.servers?.length > 0 && (
@@ -337,7 +474,7 @@ export default function ContratoDetailPage() {
 
         {proposalData.observations && (
           <Card>
-            <CardHeader><CardTitle className="text-base">Observações</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Observações da proposta</CardTitle></CardHeader>
             <CardContent><p className="text-sm text-muted-foreground">{proposalData.observations}</p></CardContent>
           </Card>
         )}
