@@ -64,6 +64,10 @@ const PropostaAprovacaoPublica: React.FC = () => {
   const loadProposal = async () => {
     setPageState('loading');
 
+    const params = { token };
+    console.log('route params', params);
+    console.log('token from route', token);
+
     if (!token) {
       setLoadError('token_missing');
       setLoadErrorMessage('Token de aprovação ausente.');
