@@ -75,6 +75,7 @@ const PropostaAprovacaoPublica: React.FC = () => {
       return;
     }
 
+    console.log('loading public proposal by token', token);
     const result = await loadPublicProposalByToken(token);
 
     if (result.error) {
@@ -346,6 +347,20 @@ const PropostaAprovacaoPublica: React.FC = () => {
               Sim, recusar
             </AlertDialogAction>
           </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+};
+
+export default PropostaAprovacaoPublica;
+      </AlertDialog>
+    </div>
+  );
+};
+
+export default PropostaAprovacaoPublica;
+ialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
