@@ -206,6 +206,7 @@ const SupabaseProposalsList: React.FC = () => {
   // State for Safari fallback modal
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkModalUrl, setLinkModalUrl] = useState('');
+  const [accessModalProposalId, setAccessModalProposalId] = useState<string | null>(null);
   
   const handleView = (proposalId: string) => {
     navigate(ROUTES.modulos.comercial.proposalView(proposalId));
