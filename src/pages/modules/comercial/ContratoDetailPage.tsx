@@ -313,8 +313,6 @@ export default function ContratoDetailPage() {
     const servers = payload?.servers || [];
     const addons = payload?.addons || [];
 
-    const [generatingDoc, setGeneratingDoc] = useState(false);
-    const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
 
     const handleGenerateDocument = async () => {
       setGeneratingDoc(true);
