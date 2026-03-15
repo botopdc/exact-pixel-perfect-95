@@ -320,7 +320,7 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
   atendimentos: {
     id: 'atendimentos',
     title: 'Atendimentos',
-    description: 'Chamados internos e operações técnicas',
+    description: 'Centro de operações — NOC, suporte e CS',
     icon: HeadphonesIcon,
     homeUrl: '/modulos/atendimentos',
     allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
@@ -329,28 +329,19 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         id: 'visao-geral',
         title: 'Visão Geral',
         url: '/modulos/atendimentos',
-        // Todos os usuários internos
-        allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
-      },
-      {
-        id: 'suporte-tecnico',
-        title: 'Chamados',
-        url: '/modulos/atendimentos/suporte-tecnico',
-        // Todos os usuários internos podem abrir e ver chamados
         allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
       },
       {
         id: 'analistas',
         title: 'Analistas',
         url: '/modulos/atendimentos/analistas',
-        // Apenas gestores de suporte e admin
         allowedLevels: [950, 1000],
       },
       {
-        id: 'certidoes',
-        title: 'Certidão de Nascimento',
-        url: '/modulos/atendimentos/certidoes',
-        allowedLevels: [900, 950, 1000],
+        id: 'suporte-tecnico',
+        title: 'Suporte Técnico',
+        url: '/modulos/atendimentos/suporte-tecnico',
+        allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
       },
       {
         id: 'cs',
@@ -363,11 +354,6 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         title: 'KPIs de Atendimento',
         url: '/modulos/atendimentos/kpis',
         allowedLevels: [775, 950, 1000],
-        tabs: [
-          { id: 'suporte', title: 'KPIs Suporte', url: '/modulos/atendimentos/kpis/suporte', allowedLevels: [950, 1000] },
-          { id: 'cs', title: 'KPIs CS', url: '/modulos/atendimentos/kpis/cs', allowedLevels: [775, 950, 1000] },
-          { id: 'gestao', title: 'KPIs Gestão', url: '/modulos/atendimentos/kpis/gestao', allowedLevels: [950, 1000] },
-        ],
       },
     ],
   },
