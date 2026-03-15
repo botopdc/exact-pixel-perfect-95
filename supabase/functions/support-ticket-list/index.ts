@@ -194,8 +194,13 @@ Deno.serve(async (req) => {
       query = query.is("assigned_to_user_id", null);
     }
 
-    if (body.only_mine && userId) {
-      query = query.eq("assigned_to_user_id", userId);
+    if (body.only_mine) {
+      if (isUuidUser) {
+        query = query.eq("assigned_to_user_id", userId);
+      } else if (isLegacyUser) {
+        // Legacy users: assigned_to_user_id is NULL, legacy ID stored in metadata
+        query = query.contains("metadata", { assigned_to_legacy_user_id: userIdInt });
+      }
     }
 
     if (body.severity) {
