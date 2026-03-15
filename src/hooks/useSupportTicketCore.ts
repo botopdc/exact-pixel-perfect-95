@@ -22,6 +22,14 @@ import { getTicketPermissions } from '@/lib/ticketPermissions';
 
 export function useSupportTicketList(filters: TicketListFilters = {}) {
   const queryClient = useQueryClient();
+  const session = authService.getSession();
+
+  // Inject user context into filters for backend visibility
+  const enrichedFilters: TicketListFilters & { user_level?: number; user_id?: string } = {
+    ...filters,
+    user_level: session?.level,
+    user_id: session?.userId,
+  };
 
   const {
     data,
@@ -30,7 +38,7 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
     refetch,
   } = useQuery({
     queryKey: ['support-tickets-core', filters],
-    queryFn: () => supportTicketCoreService.listTickets(filters),
+    queryFn: () => supportTicketCoreService.listTickets(enrichedFilters),
     staleTime: 0,
     refetchOnWindowFocus: true,
   });

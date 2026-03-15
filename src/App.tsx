@@ -266,25 +266,28 @@ const App = () => (
             <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
             <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
             
-            {/* Tickets CORE — novo sistema Supabase-first */}
-            <Route path="/modulos/atendimentos/tickets" element={<TicketsCoreListPage />} />
-            <Route path="/modulos/atendimentos/tickets/:ticketId" element={<TicketCoreDetailPage />} />
+            {/* Tickets CORE — novo sistema Supabase-first (rota oficial) */}
+            <Route path="/modulos/atendimentos/suporte-tecnico" element={<TicketsCoreListPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/:ticketId" element={<TicketCoreDetailPage />} />
+            {/* Redirect old /tickets route to official route */}
+            <Route path="/modulos/atendimentos/tickets" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
+            <Route path="/modulos/atendimentos/tickets/:ticketId" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
             <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
             <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />
             <Route path="/modulos/atendimentos/relatorios" element={<TicketReportsPage />} />
 
-            {/* Suporte Técnico (Centro de Operações) - Wrapped with Error Boundary */}
-            <Route path="/modulos/atendimentos/suporte-tecnico" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes" element={<TechOpsErrorBoundary><IncidentsListPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/criar" element={<TechOpsErrorBoundary><CreateIncidentPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/incidentes/:id" element={<TechOpsErrorBoundary><IncidentDetailPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/clientes" element={<TechOpsErrorBoundary><ClientsListPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/clientes/:id" element={<TechOpsErrorBoundary><ClientDetailPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/infra" element={<TechOpsErrorBoundary><AssetsListPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/infra/:id" element={<TechOpsErrorBoundary><AssetDetailPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/plantao" element={<TechOpsErrorBoundary><OnCallPage /></TechOpsErrorBoundary>} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/seed" element={<TechOpsErrorBoundary><SeedDataPage /></TechOpsErrorBoundary>} />
+            {/* TechOps (Centro de Operações Técnicas) — moved to /modulos/techops */}
+            <Route path="/modulos/techops" element={<TechOpsErrorBoundary><NOCHomePage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/incidentes" element={<TechOpsErrorBoundary><IncidentsListPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/incidentes/criar" element={<TechOpsErrorBoundary><CreateIncidentPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/incidentes/:id" element={<TechOpsErrorBoundary><IncidentDetailPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/clientes" element={<TechOpsErrorBoundary><ClientsListPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/clientes/:id" element={<TechOpsErrorBoundary><ClientDetailPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/infra" element={<TechOpsErrorBoundary><AssetsListPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/infra/:id" element={<TechOpsErrorBoundary><AssetDetailPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/plantao" element={<TechOpsErrorBoundary><OnCallPage /></TechOpsErrorBoundary>} />
+            <Route path="/modulos/techops/seed" element={<TechOpsErrorBoundary><SeedDataPage /></TechOpsErrorBoundary>} />
             
             {/* Certidão de Nascimento (Birth Certificate) */}
             <Route path="/modulos/atendimentos/certidoes" element={<CertidaoListPage />} />
