@@ -123,11 +123,12 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
 // ─── Generate FULL proposal PDF (7 cover pages + summary pages) ──────
 // Used when proposal has no pdf_path. Creates a document with 7+N pages
 // so the standard trim flow (remove pages 1-7) produces the real summary.
+// IMPORTANT: Uses ONLY proposal data — never contract data — to ensure
+// the same PDF is generated regardless of context (public or contract).
 async function generateFullProposalPdf(
   proposal: any,
   servers: any[],
   addons: any[],
-  contract: any,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -196,12 +197,14 @@ async function generateFullProposalPdf(
   drawText("DADOS DO CLIENTE", margin, y, { font: fontBold, size: 11 });
   y -= lineHeight + 2;
   const clientFields = [
-    ["Empresa", contract.company || proposal.company || "—"],
-    ["Contato", contract.client_name || proposal.name || "—"],
-    ["Email", contract.email || proposal.email || "—"],
-    ["Datacenter", contract.datacenter || proposal.datacenter || "SP1"],
-    ["Moeda", contract.currency || proposal.currency || "BRL"],
-    ["Duração", `${contract.contract_duration || proposal.contract_duration || 12} meses`],
+    ["Empresa", proposal.company || "—"],
+    ["Contato", proposal.name || "—"],
+    ["Email", proposal.email || "—"],
+    ["Telefone", proposal.phone || "—"],
+    ["Datacenter", proposal.datacenter || "SP1"],
+    ["Moeda", proposal.currency || "BRL"],
+    ["Duração", `${proposal.contract_duration || 12} meses`],
+    ["Desconto", `${proposal.discount_pct || 0}%`],
   ];
   for (const [label, value] of clientFields) {
     drawText(`${label}:`, margin, y, { font: fontBold });
@@ -269,7 +272,7 @@ async function generateFullProposalPdf(
   y -= 6;
   page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: A4W - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
   drawText("VALOR TOTAL MENSAL:", margin, y, { font: fontBold, size: 12 });
-  drawText(formatBRL(proposal.total || contract.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
+  drawText(formatBRL(proposal.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
   y -= lineHeight * 2;
 
   checkNewPage();
@@ -443,7 +446,7 @@ Deno.serve(async (req: Request) => {
       // This ensures the standard trim flow (remove pages 1-7) always works
       console.log(`[contract-docs] [STEP 4] auto-generating FULL proposal PDF (7 cover + summary)...`);
       try {
-        const fullPdfBytes = await generateFullProposalPdf(proposal, servers, addons, contract);
+        const fullPdfBytes = await generateFullProposalPdf(proposal, servers, addons);
         const autoPath = `proposals/${proposalId}/proposal-full-${Date.now()}.pdf`;
 
         const { error: uploadErr } = await supabase.storage
