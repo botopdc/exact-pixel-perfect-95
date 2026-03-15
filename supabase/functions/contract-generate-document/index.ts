@@ -446,7 +446,7 @@ Deno.serve(async (req: Request) => {
       // This ensures the standard trim flow (remove pages 1-7) always works
       console.log(`[contract-docs] [STEP 4] auto-generating FULL proposal PDF (7 cover + summary)...`);
       try {
-        const fullPdfBytes = await generateFullProposalPdf(proposal, servers, addons, contract);
+        const fullPdfBytes = await generateFullProposalPdf(proposal, servers, addons);
         const autoPath = `proposals/${proposalId}/proposal-full-${Date.now()}.pdf`;
 
         const { error: uploadErr } = await supabase.storage
