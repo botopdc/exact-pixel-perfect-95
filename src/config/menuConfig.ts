@@ -215,39 +215,11 @@ export const MENU_SECTIONS: MenuSection[] = [
         allowedLevels: [775, 900, 950, 1000],
       },
       {
-        id: 'chamados-fila',
-        title: 'Chamados (Legado)',
-        url: '/modulos/atendimentos/chamados',
-        icon: Wrench,
-        allowedLevels: [900, 950, 1000],
-      },
-      {
-        id: 'meus-chamados',
-        title: 'Meus Chamados',
-        url: '/modulos/atendimentos/meus-chamados',
-        icon: Wrench,
-        allowedLevels: [900, 950, 1000],
-      },
-      {
         id: 'analistas-suporte',
         title: 'Analistas',
-        url: '/modulos/atendimentos/analistas-suporte',
+        url: '/modulos/atendimentos/analistas',
         icon: Users,
-        allowedLevels: [900, 950, 1000],
-      },
-      {
-        id: 'chamados-slas',
-        title: 'SLAs',
-        url: '/modulos/atendimentos/slas',
-        icon: Shield,
-        allowedLevels: [1000], // Admin only
-      },
-      {
-        id: 'chamados-relatorios',
-        title: 'Relatórios',
-        url: '/modulos/atendimentos/relatorios',
-        icon: BarChart3,
-        allowedLevels: [1000], // Admin only
+        allowedLevels: [950, 1000],
       },
       {
         id: 'atendimentos-cs',
@@ -256,56 +228,12 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Users,
         allowedLevels: [775, 950, 1000],
       },
-    ],
-  },
-
-  // ========== KPIs DE ATENDIMENTO ==========
-  {
-    id: 'kpis',
-    title: 'KPIs DE ATENDIMENTO',
-    items: [
       {
-        id: 'kpi-suporte',
-        title: 'Suporte',
-        url: '/modulos/atendimentos/kpis/suporte',
+        id: 'kpis-atendimento',
+        title: 'KPIs de Atendimento',
+        url: '/modulos/atendimentos/kpis',
         icon: BarChart3,
-        allowedLevels: [950, 1000],
-      },
-      {
-        id: 'kpi-cs',
-        title: 'Customer Success',
-        url: '/modulos/atendimentos/kpis/cs',
-        icon: PieChart,
         allowedLevels: [775, 950, 1000],
-      },
-      {
-        id: 'kpi-gestao',
-        title: 'Gestão',
-        url: '/modulos/atendimentos/kpis/gestao',
-        icon: TrendingUp,
-        allowedLevels: [950, 1000],
-      },
-    ],
-  },
-
-  // ========== HEALTH SCORE ==========
-  {
-    id: 'healthscore',
-    title: 'HEALTH SCORE',
-    items: [
-      {
-        id: 'hs-cs',
-        title: 'Visão CS',
-        url: '/modulos/atendimentos/health/cs',
-        icon: Heart,
-        allowedLevels: [775, 1000],
-      },
-      {
-        id: 'hs-executivo',
-        title: 'Visão Executiva',
-        url: '/modulos/atendimentos/health/executivo',
-        icon: Activity,
-        allowedLevels: [950, 1000],
       },
     ],
   },

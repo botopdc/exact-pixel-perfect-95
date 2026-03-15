@@ -23,6 +23,26 @@ export interface OnCallShift {
   is_active: boolean;
 }
 
+export interface ServiceStatus {
+  id: string;
+  service_code: string;
+  service_name: string;
+  status: 'operational' | 'degraded' | 'down' | 'maintenance';
+  status_message: string | null;
+  source: string;
+  updated_at: string;
+}
+
+export interface ActiveIncident {
+  id: string;
+  public_code: string;
+  title: string;
+  severity: string;
+  priority: string;
+  created_at: string;
+  status: string;
+}
+
 export interface DashboardStats {
   open_tickets: number;
   sla_ok: number;
@@ -31,7 +51,11 @@ export interface DashboardStats {
   avg_first_response_minutes: number;
   avg_resolution_minutes: number;
   queue_distribution: Record<string, number>;
+  queue_unassigned: Record<string, number>;
+  queue_breached: Record<string, number>;
   oncall_shifts: OnCallShift[];
+  active_incidents: ActiveIncident[];
+  service_status: ServiceStatus[];
 }
 
 async function fetchDashboardStats(): Promise<DashboardStats> {

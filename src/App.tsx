@@ -75,6 +75,8 @@ import DashboardIndicadores from '@/pages/modules/DashboardIndicadores';
 import ComercialModuleHome from '@/pages/modules/ComercialModuleHome';
 import ParceirosModuleHome from '@/pages/modules/ParceirosModuleHome';
 import AtendimentosModuleHome from '@/pages/modules/AtendimentosModuleHome';
+import AnalistasCapacityPage from '@/pages/modules/atendimentos/AnalistasCapacityPage';
+import KPIsConsolidadosPage from '@/pages/modules/atendimentos/KPIsConsolidadosPage';
 import ConteudoModuleHome from '@/pages/modules/ConteudoModuleHome';
 import GenteModuleHome from '@/pages/modules/GenteModuleHome';
 import AdminModuleHome from '@/pages/modules/AdminModuleHome';
@@ -260,30 +262,32 @@ const App = () => (
             {/* Atendimentos Module */}
             <Route path="/modulos/atendimentos" element={<AtendimentosModuleHome />} />
             
+            {/* Analistas — Capacity page (950+) */}
+            <Route path="/modulos/atendimentos/analistas" element={<AnalistasCapacityPage />} />
+            
             {/* Legacy Internal Support — redirect to unified ticket module */}
             <Route path="/modulos/atendimentos/interno" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/interno/novo" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/interno/:id" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             
-            {/* Analistas (Gestão do time de suporte interno - 950+) */}
-            <Route path="/modulos/atendimentos/analistas" element={<AnalistasPage />} />
+            {/* Legacy analistas route redirect */}
+            <Route path="/modulos/atendimentos/analistas-suporte" element={<Navigate to="/modulos/atendimentos/analistas" replace />} />
             
-            {/* Support Queue Interno (Fila de Suporte - para técnicos 900+) */}
-            <Route path="/modulos/atendimentos/suporte" element={<SupportQueuePage />} />
+            {/* Support Queue Interno (Legacy - redirect) */}
+            <Route path="/modulos/atendimentos/suporte" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             
-            {/* Support Tickets (Chamados de Clientes - 900/1000) */}
-            <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
-            <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
+            {/* Support Tickets legacy (redirect to core) */}
+            <Route path="/modulos/atendimentos/chamados" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
+            <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             
-            {/* Tickets CORE — novo sistema Supabase-first (rota oficial) */}
+            {/* Tickets CORE — sistema Supabase-first (rota oficial) */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TicketsCoreListPage />} />
             <Route path="/modulos/atendimentos/suporte-tecnico/filas" element={<QueueManagementPage />} />
             <Route path="/modulos/atendimentos/suporte-tecnico/:ticketId" element={<TicketCoreDetailPage />} />
             {/* Redirect old /tickets route to official route */}
             <Route path="/modulos/atendimentos/tickets" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/tickets/:ticketId" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
-            <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
-            <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
+            <Route path="/modulos/atendimentos/meus-chamados" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />
             <Route path="/modulos/atendimentos/relatorios" element={<TicketReportsPage />} />
 
@@ -299,21 +303,24 @@ const App = () => (
             <Route path="/modulos/techops/plantao" element={<TechOpsErrorBoundary><OnCallPage /></TechOpsErrorBoundary>} />
             <Route path="/modulos/techops/seed" element={<TechOpsErrorBoundary><SeedDataPage /></TechOpsErrorBoundary>} />
             
-            {/* Certidão de Nascimento (Birth Certificate) */}
+            {/* Certidão de Nascimento (accessible via direct route, not in main nav) */}
             <Route path="/modulos/atendimentos/certidoes" element={<CertidaoListPage />} />
             <Route path="/modulos/atendimentos/certidoes/novo-cliente" element={<CertidaoNewCustomerPage />} />
             <Route path="/modulos/atendimentos/certidoes/:customerId" element={<CertidaoCustomerPage />} />
             <Route path="/modulos/atendimentos/certidoes/asset/:assetId" element={<CertidaoAssetPage />} />
             
-            {/* Legacy Atendimentos routes */}
-            <Route path="/modulos/atendimentos/suporte" element={<FilaSuporte />} />
+            {/* Legacy Atendimentos routes — redirects */}
+            <Route path="/modulos/atendimentos/novo" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/cs" element={<CustomerSuccess />} />
-            <Route path="/modulos/atendimentos/novo" element={<TicketForm />} />
-            <Route path="/modulos/atendimentos/:id" element={<TicketDetalhe />} />
-            <Route path="/modulos/atendimentos/kpis" element={<Navigate to="/modulos/atendimentos/kpis/gestao" replace />} />
-            <Route path="/modulos/atendimentos/kpis/suporte" element={<KPIsSuporte />} />
-            <Route path="/modulos/atendimentos/kpis/cs" element={<KPIsCS />} />
-            <Route path="/modulos/atendimentos/kpis/gestao" element={<KPIsGestao />} />
+            <Route path="/modulos/atendimentos/kpis" element={<KPIsConsolidadosPage />} />
+            <Route path="/modulos/atendimentos/kpis/suporte" element={<Navigate to="/modulos/atendimentos/kpis" replace />} />
+            <Route path="/modulos/atendimentos/kpis/cs" element={<Navigate to="/modulos/atendimentos/kpis" replace />} />
+            <Route path="/modulos/atendimentos/kpis/gestao" element={<Navigate to="/modulos/atendimentos/kpis" replace />} />
+            
+            {/* Health Score under atendimentos */}
+            <Route path="/modulos/atendimentos/health" element={<Navigate to="/modulos/atendimentos/health/cs" replace />} />
+            <Route path="/modulos/atendimentos/health/cs" element={<HealthScoreCS />} />
+            <Route path="/modulos/atendimentos/health/executivo" element={<HealthScoreExecutivo />} />
             
             {/* Health Score under atendimentos */}
             <Route path="/modulos/atendimentos/health" element={<Navigate to="/modulos/atendimentos/health/cs" replace />} />
