@@ -498,6 +498,15 @@ export const supportTicketCoreService = {
     return resp.data || [];
   },
 
+  async listAnalystCapacitySummary(): Promise<AnalystCapacitySummary[]> {
+    const ctx = getQueueUserContext();
+    const resp = await invoke<AnalystCapacitySummary[]>('support-queue-admin', {
+      action: 'list_analyst_summary',
+      ...ctx,
+    });
+    return resp.data || [];
+  },
+
   async addQueueMember(payload: {
     queue_id: string; user_id: string; user_name: string;
     user_email: string; user_level?: number; is_primary?: boolean;
