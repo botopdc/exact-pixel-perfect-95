@@ -18,8 +18,13 @@ function formatBRL(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-// ─── Generate proposal PDF server-side using pdf-lib ────────
-async function generateProposalPdfBytes(
+// ─── Template PDF path in storage ────────────────────────────
+const TEMPLATE_PDF_PATH = "templates/proposta_modelo_OPEN.pdf";
+
+// ─── Generate summary-only PDF pages using pdf-lib ──────────
+// Returns a PDF document containing ONLY the summary/data pages
+// (no cover pages — those come from the visual template)
+async function generateSummaryPdfBytes(
   proposal: any,
   servers: any[],
   addons: any[],
@@ -33,36 +38,6 @@ async function generateProposalPdfBytes(
   const A4W = 595.28;
   const A4H = 841.89;
 
-  // ── Pages 1-7: Cover / placeholder pages ──────────────────
-  const coverTitles = [
-    "PROPOSTA COMERCIAL",
-    "OPEN DATACENTER",
-    "SOBRE A EMPRESA",
-    "INFRAESTRUTURA",
-    "NOSSOS SERVIÇOS",
-    "DIFERENCIAIS",
-    "TERMOS E CONDIÇÕES",
-  ];
-  for (let i = 0; i < 7; i++) {
-    const coverPage = doc.addPage([A4W, A4H]);
-    coverPage.drawText(coverTitles[i], {
-      x: margin,
-      y: A4H / 2,
-      font: fontBold,
-      size: 24,
-      color: rgb(0.1, 0.1, 0.5),
-    });
-    coverPage.drawText(
-      `Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`,
-      { x: margin, y: A4H / 2 - 40, font, size: 12, color: rgb(0.3, 0.3, 0.3) }
-    );
-    coverPage.drawText(
-      `Página ${i + 1} de capa — gerada automaticamente`,
-      { x: margin, y: margin, font, size: 8, color: rgb(0.6, 0.6, 0.6) }
-    );
-  }
-
-  // ── Pages 8+: Real proposal summary content ───────────────
   let page = doc.addPage([A4W, A4H]);
   let y = A4H - margin;
 
@@ -80,7 +55,7 @@ async function generateProposalPdfBytes(
   }
 
   // Header
-  drawText("PROPOSTA COMERCIAL — RESUMO", margin, y, { font: fontBold, size: 14, color: rgb(0.1, 0.1, 0.5) });
+  drawText("PROPOSTA COMERCIAL — RESUMO DE PREÇOS", margin, y, { font: fontBold, size: 14, color: rgb(0.1, 0.1, 0.5) });
   y -= 24;
   drawText(`Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`, margin, y, { font: fontBold, size: 11 });
   y -= 16;
@@ -188,6 +163,69 @@ async function generateProposalPdfBytes(
   return new Uint8Array(pdfBytes);
 }
 
+// ─── Generate FULL visual proposal PDF ──────────────────────
+// Merges the visual template (7 cover pages) with generated summary pages
+async function generateFullVisualProposalPdf(
+  adminClient: any,
+  proposal: any,
+  servers: any[],
+  addons: any[],
+): Promise<Uint8Array> {
+  const mergedDoc = await PDFDocument.create();
+
+  // Step 1: Download and embed the visual template (7 branded cover pages)
+  let templateLoaded = false;
+  try {
+    const { data: templateFile, error: templateErr } = await adminClient.storage
+      .from("proposal-files")
+      .download(TEMPLATE_PDF_PATH);
+
+    if (templateFile && !templateErr) {
+      const templateBytes = new Uint8Array(await templateFile.arrayBuffer());
+      const templateDoc = await PDFDocument.load(templateBytes);
+      const templatePages = await mergedDoc.copyPages(templateDoc, templateDoc.getPageIndices());
+      for (const p of templatePages) {
+        mergedDoc.addPage(p);
+      }
+      templateLoaded = true;
+      console.log(`[proposal-pdf] template_loaded=true pages=${templatePages.length}`);
+    } else {
+      console.warn(`[proposal-pdf] template_download_failed: ${templateErr?.message}`);
+    }
+  } catch (err: any) {
+    console.warn(`[proposal-pdf] template_load_exception: ${err?.message}`);
+  }
+
+  // Fallback: if template not available, create 7 minimal placeholder pages
+  if (!templateLoaded) {
+    console.warn("[proposal-pdf] FALLBACK: generating placeholder cover pages (template unavailable)");
+    const font = await mergedDoc.embedFont(StandardFonts.HelveticaBold);
+    const coverTitles = [
+      "PROPOSTA COMERCIAL", "OPEN DATACENTER", "SOBRE A EMPRESA",
+      "INFRAESTRUTURA", "NOSSOS SERVIÇOS", "DIFERENCIAIS", "TERMOS E CONDIÇÕES",
+    ];
+    for (let i = 0; i < 7; i++) {
+      const coverPage = mergedDoc.addPage([595.28, 841.89]);
+      coverPage.drawText(coverTitles[i], {
+        x: 50, y: 420, font, size: 24, color: rgb(0.1, 0.1, 0.5),
+      });
+    }
+  }
+
+  // Step 2: Generate summary pages and append
+  const summaryBytes = await generateSummaryPdfBytes(proposal, servers, addons);
+  const summaryDoc = await PDFDocument.load(summaryBytes);
+  const summaryPages = await mergedDoc.copyPages(summaryDoc, summaryDoc.getPageIndices());
+  for (const p of summaryPages) {
+    mergedDoc.addPage(p);
+  }
+
+  console.log(`[proposal-pdf] merged_total_pages=${mergedDoc.getPageCount()} template=${templateLoaded}`);
+
+  const finalBytes = await mergedDoc.save();
+  return new Uint8Array(finalBytes);
+}
+
 // ─── Main handler ───────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -271,15 +309,14 @@ Deno.serve(async (req: Request) => {
     console.log("[proposal-public] pdf_path_before=", proposal.pdf_path);
 
     if (!proposalPdfPath) {
-      console.log("[proposal-public] pdf_path missing, generating official proposal pdf");
+      console.log("[proposal-public] pdf_path missing, generating official visual proposal pdf");
 
       try {
-        // Generate PDF bytes using pdf-lib
-        const pdfBytes = await generateProposalPdfBytes(proposal, servers, addons);
+        // Generate FULL visual PDF (template cover pages + summary)
+        const pdfBytes = await generateFullVisualProposalPdf(adminClient, proposal, servers, addons);
 
         if (!pdfBytes || pdfBytes.length === 0) {
           console.error("[proposal-public] proposal_pdf_generation_failed: empty bytes");
-          // Don't fail the entire request - just return without PDF
         } else {
           // Upload to storage
           const timestamp = Date.now();
@@ -298,7 +335,7 @@ Deno.serve(async (req: Request) => {
             // Persist pdf_path on the proposal
             const { error: updateError } = await adminClient
               .from("calculator_proposals")
-              .update({ pdf_path: storagePath, updated_at: new Date().toISOString() })
+              .update({ pdf_path: storagePath, pdf_generated_at: new Date().toISOString(), updated_at: new Date().toISOString() })
               .eq("id", proposal.id);
 
             if (updateError) {

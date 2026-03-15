@@ -1,7 +1,7 @@
 // ============================================================================
 // EDGE FUNCTION: contract-generate-document
 // Generates Contract DOCX + Annex I PDF from proposal
-// Strategy: proposal_pdf_trim (existing PDF) or proposal_pdf_generated (auto)
+// Strategy: proposal_pdf_trim — always uses visual template PDF as source
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
@@ -27,8 +27,9 @@ function errorResponse(code: string, message: string, status: number, debug?: Re
   return json({ success: false, code, message, debug: debug || {} }, status);
 }
 
-// ─── Locked statuses ────────────────────────────────────────
+// ─── Constants ──────────────────────────────────────────────
 const LOCKED_STATUSES = ["assinado", "finalizado", "cancelado"];
+const TEMPLATE_PDF_PATH = "templates/proposta_modelo_OPEN.pdf";
 
 // ─── Date helpers ───────────────────────────────────────────
 function dateExtenso(dateStr: string | null): string {
@@ -120,12 +121,9 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
   return { trimmedBytes: new Uint8Array(trimmedBytes), trimmedPageCount: copiedPages.length };
 }
 
-// ─── Generate FULL proposal PDF (7 cover pages + summary pages) ──────
-// Used when proposal has no pdf_path. Creates a document with 7+N pages
-// so the standard trim flow (remove pages 1-7) produces the real summary.
-// IMPORTANT: Uses ONLY proposal data — never contract data — to ensure
-// the same PDF is generated regardless of context (public or contract).
-async function generateFullProposalPdf(
+// ─── Generate summary-only PDF pages ────────────────────────
+// Returns a PDF containing ONLY the data/summary pages (no cover pages)
+async function generateSummaryPdfBytes(
   proposal: any,
   servers: any[],
   addons: any[],
@@ -139,36 +137,6 @@ async function generateFullProposalPdf(
   const A4W = 595.28;
   const A4H = 841.89;
 
-  // ── Pages 1-7: Cover / placeholder pages ──────────────────
-  const coverTitles = [
-    "PROPOSTA COMERCIAL",
-    "OPEN DATACENTER",
-    "SOBRE A EMPRESA",
-    "INFRAESTRUTURA",
-    "NOSSOS SERVIÇOS",
-    "DIFERENCIAIS",
-    "TERMOS E CONDIÇÕES",
-  ];
-  for (let i = 0; i < 7; i++) {
-    const coverPage = doc.addPage([A4W, A4H]);
-    coverPage.drawText(coverTitles[i], {
-      x: margin,
-      y: A4H / 2,
-      font: fontBold,
-      size: 24,
-      color: rgb(0.1, 0.1, 0.5),
-    });
-    coverPage.drawText(
-      `Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`,
-      { x: margin, y: A4H / 2 - 40, font, size: 12, color: rgb(0.3, 0.3, 0.3) }
-    );
-    coverPage.drawText(
-      `Página ${i + 1} de capa — gerada automaticamente`,
-      { x: margin, y: margin, font, size: 8, color: rgb(0.6, 0.6, 0.6) }
-    );
-  }
-
-  // ── Pages 8+: Real proposal summary content ───────────────
   let page = doc.addPage([A4W, A4H]);
   let y = A4H - margin;
 
@@ -282,6 +250,69 @@ async function generateFullProposalPdf(
 
   const bytes = await doc.save();
   return new Uint8Array(bytes);
+}
+
+// ─── Generate FULL visual proposal PDF ──────────────────────
+// Merges the visual template (7 branded cover pages) with generated summary pages
+async function generateFullVisualProposalPdf(
+  supabase: any,
+  proposal: any,
+  servers: any[],
+  addons: any[],
+): Promise<Uint8Array> {
+  const mergedDoc = await PDFDocument.create();
+
+  // Step 1: Download and embed the visual template (7 branded cover pages)
+  let templateLoaded = false;
+  try {
+    const { data: templateFile, error: templateErr } = await supabase.storage
+      .from("proposal-files")
+      .download(TEMPLATE_PDF_PATH);
+
+    if (templateFile && !templateErr) {
+      const templateBytes = new Uint8Array(await templateFile.arrayBuffer());
+      const templateDoc = await PDFDocument.load(templateBytes);
+      const templatePages = await mergedDoc.copyPages(templateDoc, templateDoc.getPageIndices());
+      for (const p of templatePages) {
+        mergedDoc.addPage(p);
+      }
+      templateLoaded = true;
+      console.log(`[contract-docs] template_loaded=true pages=${templatePages.length}`);
+    } else {
+      console.warn(`[contract-docs] template_download_failed: ${templateErr?.message}`);
+    }
+  } catch (err: any) {
+    console.warn(`[contract-docs] template_load_exception: ${err?.message}`);
+  }
+
+  // Fallback: if template not available, create 7 minimal placeholder pages
+  if (!templateLoaded) {
+    console.warn("[contract-docs] FALLBACK: generating placeholder cover pages (template unavailable)");
+    const font = await mergedDoc.embedFont(StandardFonts.HelveticaBold);
+    const coverTitles = [
+      "PROPOSTA COMERCIAL", "OPEN DATACENTER", "SOBRE A EMPRESA",
+      "INFRAESTRUTURA", "NOSSOS SERVIÇOS", "DIFERENCIAIS", "TERMOS E CONDIÇÕES",
+    ];
+    for (let i = 0; i < 7; i++) {
+      const coverPage = mergedDoc.addPage([595.28, 841.89]);
+      coverPage.drawText(coverTitles[i], {
+        x: 50, y: 420, font, size: 24, color: rgb(0.1, 0.1, 0.5),
+      });
+    }
+  }
+
+  // Step 2: Generate summary pages and append
+  const summaryBytes = await generateSummaryPdfBytes(proposal, servers, addons);
+  const summaryDoc = await PDFDocument.load(summaryBytes);
+  const summaryPages = await mergedDoc.copyPages(summaryDoc, summaryDoc.getPageIndices());
+  for (const p of summaryPages) {
+    mergedDoc.addPage(p);
+  }
+
+  console.log(`[contract-docs] merged_total_pages=${mergedDoc.getPageCount()} template=${templateLoaded}`);
+
+  const finalBytes = await mergedDoc.save();
+  return new Uint8Array(finalBytes);
 }
 
 // ─── Build proposal snapshot ────────────────────────────────
@@ -421,7 +452,7 @@ Deno.serve(async (req: Request) => {
     debug.servers_count = servers.length;
     debug.addons_count = addons.length;
 
-    // ── STEP 4: Resolve proposal PDF ────────────────────────
+    // ── STEP 4: Resolve proposal PDF (single source of truth) ─
     let proposalPdfPath = proposal.pdf_path || null;
     let pdfAutoGenerated = false;
 
@@ -442,12 +473,11 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!proposalPdfPath) {
-      // Auto-generate a FULL proposal PDF (7 cover pages + summary pages)
-      // This ensures the standard trim flow (remove pages 1-7) always works
-      console.log(`[contract-docs] [STEP 4] auto-generating FULL proposal PDF (7 cover + summary)...`);
+      // Auto-generate a FULL visual proposal PDF (template cover + summary)
+      console.log(`[contract-docs] [STEP 4] auto-generating FULL VISUAL proposal PDF...`);
       try {
-        const fullPdfBytes = await generateFullProposalPdf(proposal, servers, addons);
-        const autoPath = `proposals/${proposalId}/proposal-full-${Date.now()}.pdf`;
+        const fullPdfBytes = await generateFullVisualProposalPdf(supabase, proposal, servers, addons);
+        const autoPath = `proposals/${proposalId}/proposal-official-${Date.now()}.pdf`;
 
         const { error: uploadErr } = await supabase.storage
           .from("proposal-files")
@@ -469,7 +499,7 @@ Deno.serve(async (req: Request) => {
 
         proposalPdfPath = autoPath;
         pdfAutoGenerated = true;
-        console.log(`[contract-docs] [STEP 4] OK auto-generated FULL pdf_path=${autoPath}`);
+        console.log(`[contract-docs] [STEP 4] OK auto-generated VISUAL pdf_path=${autoPath}`);
       } catch (genErr) {
         console.error(`[contract-docs] [STEP 4] EXCEPTION auto-generation`, genErr);
         return errorResponse("proposal_pdf_auto_generation_failed", `Erro ao gerar PDF da proposta: ${genErr}`, 500, debug);
@@ -506,7 +536,6 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── STEP 7: Generate Annex I PDF (ALWAYS via trim) ─────
-    // Rule: Annex I = proposal PDF pages 8+, NEVER a synthetic summary
     const contractCode = contract.contract_number || contract.id.substring(0, 8).toUpperCase();
     const basePath = `contracts/${contract.id}`;
     let annexPdfPath: string | null = null;
@@ -517,11 +546,13 @@ Deno.serve(async (req: Request) => {
     const srcDoc = await PDFDocument.load(proposalPdfBytes);
     const totalPages = srcDoc.getPageCount();
     debug.source_pdf_page_count = totalPages;
-    console.log(`[contract-docs] [STEP 7] proposal_pdf_path=${proposalPdfPath}`);
-    console.log(`[contract-docs] [STEP 7] source_pdf_page_count=${totalPages} auto_generated=${pdfAutoGenerated}`);
+
+    console.log(`[contract-docs] proposal_pdf_path=${proposalPdfPath}`);
+    console.log(`[contract-docs] proposal_pdf_page_count=${totalPages}`);
+    console.log(`[contract-docs] trim_started_from_page=8`);
 
     if (totalPages <= 7) {
-      console.error(`[contract-docs] [STEP 7] BLOCKED: PDF has only ${totalPages} pages, need >7 for trim`);
+      console.error(`[contract-docs] BLOCKED: PDF has only ${totalPages} pages, need >7 for trim`);
       return errorResponse(
         "proposal_pdf_page_count_invalid",
         `O PDF da proposta possui apenas ${totalPages} páginas. São necessárias mais de 7 para gerar o Anexo I.`,
@@ -531,7 +562,6 @@ Deno.serve(async (req: Request) => {
     }
 
     // ALWAYS trim pages 1-7, keep pages 8+
-    console.log(`[contract-docs] [STEP 7] trim_started_from_page=8`);
     const { trimmedBytes, trimmedPageCount } = await trimProposalPdf(proposalPdfBytes);
     annexPageCount = trimmedPageCount;
 
@@ -539,7 +569,7 @@ Deno.serve(async (req: Request) => {
       return errorResponse("contract_annex_trim_empty", "O recorte do PDF resultou em zero páginas.", 500, debug);
     }
 
-    console.log(`[contract-docs] [STEP 7] trimmed_pdf_page_count=${annexPageCount}`);
+    console.log(`[contract-docs] trimmed_pdf_page_count=${annexPageCount}`);
 
     const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
     const { error: annexUpErr } = await supabase.storage
@@ -555,7 +585,8 @@ Deno.serve(async (req: Request) => {
 
     annexPdfPath = annexStoragePath;
     annexGenerated = true;
-    console.log(`[contract-docs] [STEP 7] OK annex saved (trimmed) path=${annexPdfPath} pages=${annexPageCount}`);
+    console.log(`[contract-docs] annex_saved_path=${annexPdfPath}`);
+    console.log(`[contract-docs] annex_generation_strategy=proposal_pdf_trim`);
 
     debug.annex_generated = annexGenerated;
     debug.annex_pdf_path = annexPdfPath;
@@ -646,7 +677,6 @@ Deno.serve(async (req: Request) => {
       generation_strategy: generationStrategy,
       template_code: contract.template_code || "opdc-cloud-default",
       updated_at: new Date().toISOString(),
-      // Store proposal snapshot so contract is independent of future proposal changes
       proposal_payload: snapshot,
       metadata: {
         ...(typeof contract.metadata === "object" && contract.metadata !== null ? contract.metadata : {}),
