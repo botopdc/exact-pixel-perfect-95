@@ -448,7 +448,7 @@ export default function AnalistasCapacityPage() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))
+                      ))}
                     </TableBody>
                   </Table>
                 )}
