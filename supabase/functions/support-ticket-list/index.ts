@@ -53,35 +53,55 @@ Deno.serve(async (req) => {
     // ── VISIBILITY ─────────────────────────────────────────────────────
     const userLevel = body.user_level || 1;
     const userId = body.user_id;
+    const userEmail = body.user_email;
 
-    console.log("support-ticket-list visibility context", { userId, userLevel });
+    console.log("support-ticket-list visibility context", { userId, userLevel, userEmail });
 
     if (userLevel < 600 && userId) {
       // Client (level 1): only own tickets
       query = query.eq("requester_user_id", userId);
-    } else if (userLevel >= 600 && userLevel < 950 && userId) {
+    } else if (userLevel >= 600 && userLevel < 950) {
       // Internal user (not manager/admin): see tickets in their queues OR assigned to them OR opened by them
-      const userIdInt = parseInt(userId);
-      const lookupId = Number.isFinite(userIdInt) ? userIdInt : null;
-
+      // Look up queue memberships by email (reliable) since userId may be UUID but queue_members stores integer
       let queueIds: string[] = [];
-      if (lookupId) {
+
+      if (userEmail) {
         const { data: memberships } = await db
           .from("support_queue_members")
           .select("queue_id")
-          .eq("user_id", lookupId)
+          .eq("user_email", userEmail)
           .eq("is_active", true);
         queueIds = (memberships || []).map((m: any) => m.queue_id);
       }
 
-      console.log("support-ticket-list membership", { userId, userIdInt: lookupId, queueIds });
+      // Fallback: try integer user_id if email lookup returned nothing
+      if (queueIds.length === 0 && userId) {
+        const userIdInt = parseInt(userId);
+        if (Number.isFinite(userIdInt)) {
+          const { data: memberships } = await db
+            .from("support_queue_members")
+            .select("queue_id")
+            .eq("user_id", userIdInt)
+            .eq("is_active", true);
+          queueIds = (memberships || []).map((m: any) => m.queue_id);
+        }
+      }
+
+      console.log("support-ticket-list membership", { userId, userEmail, queueIds });
 
       // Build OR conditions: requester OR assigned OR in queue
       const orConditions: string[] = [];
-      orConditions.push(`requester_user_id.eq.${userId}`);
-      orConditions.push(`assigned_to_user_id.eq.${userId}`);
+      if (userId) {
+        orConditions.push(`requester_user_id.eq.${userId}`);
+        orConditions.push(`assigned_to_user_id.eq.${userId}`);
+      }
       if (queueIds.length > 0) {
         orConditions.push(`current_queue_id.in.(${queueIds.join(",")})`);
+      }
+
+      // If no conditions at all, add a fallback so user sees nothing rather than everything
+      if (orConditions.length === 0) {
+        orConditions.push("id.eq.00000000-0000-0000-0000-000000000000");
       }
 
       console.log("support-ticket-list OR conditions", orConditions);

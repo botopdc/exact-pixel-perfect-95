@@ -29,6 +29,7 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
     ...filters,
     user_level: session?.level,
     user_id: session?.userId,
+    user_email: session?.email,
   };
 
   const { data, isLoading, error, refetch } = useQuery({
