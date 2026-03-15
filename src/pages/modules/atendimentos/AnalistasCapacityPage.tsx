@@ -91,7 +91,7 @@ function useAnalystCapacity() {
         .gte('ends_at', now);
 
       const onCallByEmail = new Map<string, string>();
-      (onCallShifts as OnCallShift[] || []).forEach((s: OnCallShift) => {
+      ((onCallShifts as unknown as OnCallShift[]) || []).forEach((s: OnCallShift) => {
         if (s.user_email) onCallByEmail.set(s.user_email, s.team_code);
       });
 
