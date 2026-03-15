@@ -30,10 +30,12 @@ interface AnalystSummary {
   email: string;
   userId: number;
   level: number;
-  queues: { queueId: string; queueCode: string; isPrimary: boolean; isActive: boolean; memberId: string }[];
+  queues: { queueId: string; queueCode: string; queueName: string; isPrimary: boolean; isActive: boolean; memberId: string }[];
   activeTickets: number;
   breachedTickets: number;
   resolvedToday: number;
+  avgFirstResponseMinutes: number | null;
+  avgResolutionMinutes: number | null;
   isOnCall: boolean;
   onCallTeam: string | null;
 }
@@ -56,96 +58,38 @@ function useAnalystCapacity() {
   return useQuery({
     queryKey: ['analyst-capacity-full'],
     queryFn: async (): Promise<AnalystSummary[]> => {
-      // 1. All active queue members
-      const { data: members } = await supabase
-        .from('support_queue_members')
-        .select('id, user_name, user_email, user_id, user_level, queue_id, is_primary, is_active')
-        .eq('is_active', true);
+      const queueMembers = await supportTicketCoreService.listQueueMembers();
+      console.log('Analistas raw queue members', queueMembers);
 
-      // 2. Queues
-      const { data: queues } = await supabase
-        .from('support_queues')
-        .select('id, code')
-        .eq('is_active', true);
+      const mappedData = await supportTicketCoreService.listAnalystCapacitySummary();
+      const normalizedData: AnalystSummary[] = mappedData.map((item) => ({
+        name: item.name,
+        email: item.email,
+        userId: item.user_id,
+        level: item.level,
+        queues: (item.queues || []).map((queue) => ({
+          queueId: queue.queue_id,
+          queueCode: queue.queue_code,
+          queueName: queue.queue_name,
+          isPrimary: queue.is_primary,
+          isActive: queue.is_active,
+          memberId: queue.member_id,
+        })),
+        activeTickets: item.active_tickets,
+        breachedTickets: item.breached_tickets,
+        resolvedToday: item.resolved_today,
+        avgFirstResponseMinutes: item.avg_first_response_minutes,
+        avgResolutionMinutes: item.avg_resolution_minutes,
+        isOnCall: item.is_oncall,
+        onCallTeam: item.oncall_team,
+      }));
 
-      const queueMap: Record<string, string> = {};
-      (queues || []).forEach(q => { queueMap[q.id] = q.code; });
-
-      // 3. Open tickets
-      const now = new Date().toISOString();
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const openStatuses = ['novo', 'triagem', 'em_atendimento', 'aguardando_cliente', 'aguardando_terceiro', 'reaberto'];
-
-      const { data: tickets } = await supabase
-        .from('support_tickets')
-        .select('assigned_to_name, status, resolution_due_at, first_response_due_at, resolved_at')
-        .is('deleted_at', null);
-
-      // 4. Active on-call shifts
-      const { data: onCallShifts } = await supabase
-        .from('support_oncall_shifts' as any)
-        .select('*')
-        .eq('is_active', true)
-        .lte('starts_at', now)
-        .gte('ends_at', now);
-
-      const onCallByEmail = new Map<string, string>();
-      ((onCallShifts as unknown as OnCallShift[]) || []).forEach((s: OnCallShift) => {
-        if (s.user_email) onCallByEmail.set(s.user_email, s.team_code);
-      });
-
-      // 5. Build per-analyst aggregation
-      const analystMap = new Map<string, AnalystSummary>();
-      (members || []).forEach(m => {
-        const existing = analystMap.get(m.user_email);
-        const queueEntry = {
-          queueId: m.queue_id,
-          queueCode: queueMap[m.queue_id] || '—',
-          isPrimary: m.is_primary,
-          isActive: m.is_active,
-          memberId: m.id,
-        };
-        if (existing) {
-          existing.queues.push(queueEntry);
-        } else {
-          analystMap.set(m.user_email, {
-            name: m.user_name,
-            email: m.user_email,
-            userId: m.user_id,
-            level: m.user_level,
-            queues: [queueEntry],
-            activeTickets: 0,
-            breachedTickets: 0,
-            resolvedToday: 0,
-            isOnCall: onCallByEmail.has(m.user_email),
-            onCallTeam: onCallByEmail.get(m.user_email) || null,
-          });
-        }
-      });
-
-      // 6. Aggregate ticket metrics per analyst
-      (tickets || []).forEach((t: any) => {
-        if (!t.assigned_to_name) return;
-        for (const [, a] of analystMap) {
-          if (a.name === t.assigned_to_name) {
-            if (openStatuses.includes(t.status)) {
-              a.activeTickets++;
-              const isDue = (t.resolution_due_at && t.resolution_due_at < now) ||
-                            (t.first_response_due_at && t.first_response_due_at < now);
-              if (isDue) a.breachedTickets++;
-            }
-            if (t.resolved_at && new Date(t.resolved_at) >= todayStart) {
-              a.resolvedToday++;
-            }
-          }
-        }
-      });
-
-      return Array.from(analystMap.values()).sort((a, b) => b.activeTickets - a.activeTickets);
+      console.log('Analistas mapped data', normalizedData);
+      return normalizedData;
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -165,6 +109,12 @@ function useOnCallShifts() {
     },
     staleTime: 30_000,
   });
+}
+
+function formatDuration(minutes: number | null): string {
+  if (minutes === null || !Number.isFinite(minutes)) return '—';
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  return `${(minutes / 60).toFixed(1)} h`;
 }
 
 // ── Main Component ──────────────────────────────────────────────────────
@@ -239,14 +189,21 @@ export default function AnalistasCapacityPage() {
 
   const handleAddMember = async () => {
     if (!newMember.queue_id || !newMember.user_id || !newMember.user_name || !newMember.user_email) return;
+
     await addMember.mutateAsync({
       queue_id: newMember.queue_id,
       user_id: newMember.user_id,
       user_name: newMember.user_name,
       user_email: newMember.user_email,
-      user_level: parseInt(newMember.user_level),
+      user_level: parseInt(newMember.user_level, 10),
     });
-    queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] });
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] }),
+      queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] }),
+      queryClient.invalidateQueries({ queryKey: ['support-dashboard-stats'] }),
+    ]);
+
     setNewMember({ queue_id: '', user_id: '', user_name: '', user_email: '', user_level: '900' });
     setAddMemberOpen(false);
   };
@@ -297,28 +254,31 @@ export default function AnalistasCapacityPage() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {analysts.map(a => (
-                <Card key={a.email} className="relative">
+                <Card key={`${a.userId}-${a.email}`} className="relative">
                   {a.isOnCall && (
                     <div className="absolute top-2 right-2">
                       <Badge variant="outline" className="bg-accent/50 text-accent-foreground border-accent text-xs">
                         <Phone className="h-3 w-3 mr-1" />
-                        Plantão {a.onCallTeam}
+                        Plantão {a.onCallTeam || 'ativo'}
                       </Badge>
                     </div>
                   )}
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold">{a.name}</CardTitle>
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-sm font-semibold">{a.name}</CardTitle>
+                      <Badge variant="outline">Nível {a.level}</Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground">{a.email}</p>
                     <div className="flex gap-1 flex-wrap mt-1">
                       {a.queues.map(q => (
-                        <Badge key={q.memberId} variant="outline" className="text-xs">
+                        <Badge key={q.memberId} variant="outline" className="text-xs" title={q.queueName}>
                           {q.queueCode}
                           {q.isPrimary && <span className="ml-0.5 text-primary">★</span>}
                         </Badge>
                       ))}
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-3">
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
                         <p className="text-xl font-bold">{a.activeTickets}</p>
@@ -337,6 +297,16 @@ export default function AnalistasCapacityPage() {
                         <p className="text-xs text-muted-foreground flex items-center justify-center gap-0.5">
                           <CheckCircle className="h-3 w-3" /> Hoje
                         </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 rounded-md border p-2 text-xs">
+                      <div className="space-y-0.5">
+                        <p className="text-muted-foreground">Média 1ª resposta</p>
+                        <p className="font-medium">{formatDuration(a.avgFirstResponseMinutes)}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="text-muted-foreground">Média resolução</p>
+                        <p className="font-medium">{formatDuration(a.avgResolutionMinutes)}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -426,19 +396,21 @@ export default function AnalistasCapacityPage() {
                         <TableHead>Nível</TableHead>
                         <TableHead>Filas</TableHead>
                         <TableHead>Tickets</TableHead>
+                        <TableHead>Médias</TableHead>
+                        <TableHead>Plantão</TableHead>
                         <TableHead className="w-20">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {analysts.map(a => (
-                        <TableRow key={a.email}>
+                        <TableRow key={`${a.userId}-${a.email}`}>
                           <TableCell className="font-medium">{a.name}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{a.email}</TableCell>
                           <TableCell><Badge variant="outline">{a.level}</Badge></TableCell>
                           <TableCell>
                             <div className="flex gap-1 flex-wrap">
                               {a.queues.map(q => (
-                                <Badge key={q.memberId} variant={q.isActive ? 'default' : 'secondary'} className="text-xs">
+                                <Badge key={q.memberId} variant={q.isActive ? 'default' : 'secondary'} className="text-xs" title={q.queueName}>
                                   {q.queueCode}
                                 </Badge>
                               ))}
@@ -448,6 +420,20 @@ export default function AnalistasCapacityPage() {
                             <span className="text-sm">{a.activeTickets} ativos</span>
                             {a.breachedTickets > 0 && (
                               <span className="text-xs text-destructive ml-1">({a.breachedTickets} vencidos)</span>
+                            )}
+                            <div className="text-xs text-muted-foreground">{a.resolvedToday} resolvidos hoje</div>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div>1ª resp: <span className="font-medium">{formatDuration(a.avgFirstResponseMinutes)}</span></div>
+                            <div>Resolução: <span className="font-medium">{formatDuration(a.avgResolutionMinutes)}</span></div>
+                          </TableCell>
+                          <TableCell>
+                            {a.isOnCall ? (
+                              <Badge variant="outline" className="bg-accent/50 text-accent-foreground border-accent">
+                                {a.onCallTeam || 'Ativo'}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">Não</Badge>
                             )}
                           </TableCell>
                           <TableCell>
@@ -460,7 +446,6 @@ export default function AnalistasCapacityPage() {
                                   onClick={() => {
                                     if (confirm(`Remover ${a.name} da fila ${q.queueCode}?`)) {
                                       removeMember.mutate(q.memberId);
-                                      queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] });
                                     }
                                   }}
                                 >

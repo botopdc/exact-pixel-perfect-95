@@ -204,6 +204,28 @@ export interface QueueMember {
   support_queues?: { code: string; name: string };
 }
 
+export interface AnalystCapacitySummary {
+  name: string;
+  email: string;
+  user_id: number;
+  level: number;
+  queues: {
+    queue_id: string;
+    queue_code: string;
+    queue_name: string;
+    is_primary: boolean;
+    is_active: boolean;
+    member_id: string;
+  }[];
+  active_tickets: number;
+  breached_tickets: number;
+  resolved_today: number;
+  avg_first_response_minutes: number | null;
+  avg_resolution_minutes: number | null;
+  is_oncall: boolean;
+  oncall_team: string | null;
+}
+
 // ── Filters ─────────────────────────────────────────────────────────────
 
 export interface TicketListFilters {
@@ -471,6 +493,15 @@ export const supportTicketCoreService = {
     const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
       action: 'my_queues', user_id: userId || ctx.actor_user_id,
+      ...ctx,
+    });
+    return resp.data || [];
+  },
+
+  async listAnalystCapacitySummary(): Promise<AnalystCapacitySummary[]> {
+    const ctx = getQueueUserContext();
+    const resp = await invoke<AnalystCapacitySummary[]>('support-queue-admin', {
+      action: 'list_analyst_summary',
       ...ctx,
     });
     return resp.data || [];

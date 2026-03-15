@@ -44,11 +44,19 @@ function resolveUserContext(body: Record<string, unknown>) {
 }
 
 function isReadAction(action: string): boolean {
-  return ["list_queues", "list_members", "my_queues"].includes(action);
+  return ["list_queues", "list_members", "my_queues", "list_analyst_summary"].includes(action);
 }
 
 function isMutationAction(action: string): boolean {
   return ["add_member", "remove_member", "toggle_member"].includes(action);
+}
+
+function normalizeName(value: string | null | undefined): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 Deno.serve(async (req) => {
@@ -175,6 +183,145 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: true, data: memberships });
     }
 
+    if (action === "list_analyst_summary") {
+      const nowIso = new Date().toISOString();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayStartIso = todayStart.toISOString();
+      const openStatuses = ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"];
+
+      const { data: queueMembers, error: membersError } = await db
+        .from("support_queue_members")
+        .select("id, queue_id, user_id, user_name, user_email, user_level, is_primary, is_active, support_queues(id, code, name)")
+        .eq("is_active", true)
+        .order("user_name", { ascending: true });
+
+      if (membersError) return jsonResponse({ success: false, message: membersError.message }, 500);
+
+      const { data: tickets, error: ticketsError } = await db
+        .from("support_tickets")
+        .select("id, assigned_to_name, status, first_response_due_at, resolution_due_at, first_response_at, resolved_at, created_at")
+        .is("deleted_at", null);
+
+      if (ticketsError) return jsonResponse({ success: false, message: ticketsError.message }, 500);
+
+      const { data: shifts, error: shiftsError } = await db
+        .from("support_oncall_shifts")
+        .select("team_code, user_email, starts_at, ends_at, is_active")
+        .eq("is_active", true)
+        .lte("starts_at", nowIso)
+        .gte("ends_at", nowIso);
+
+      if (shiftsError) {
+        console.warn("support-queue-admin list_analyst_summary oncall warning", shiftsError.message);
+      }
+
+      const onCallByEmail = new Map<string, string>();
+      (shifts || []).forEach((shift: any) => {
+        const email = String(shift.user_email || "").toLowerCase();
+        if (!email) return;
+        onCallByEmail.set(email, String(shift.team_code || ""));
+      });
+
+      const analystMap = new Map<string, any>();
+      const analystKeyByNormalizedName = new Map<string, string>();
+
+      (queueMembers || []).forEach((member: any) => {
+        const email = String(member.user_email || "").toLowerCase();
+        const key = `${member.user_id}:${email}`;
+        const queue = {
+          queue_id: member.queue_id,
+          queue_code: member.support_queues?.code || "—",
+          queue_name: member.support_queues?.name || "Fila",
+          is_primary: Boolean(member.is_primary),
+          is_active: Boolean(member.is_active),
+          member_id: member.id,
+        };
+
+        if (!analystMap.has(key)) {
+          analystMap.set(key, {
+            name: member.user_name,
+            email: member.user_email,
+            user_id: member.user_id,
+            level: member.user_level,
+            queues: [queue],
+            active_tickets: 0,
+            breached_tickets: 0,
+            resolved_today: 0,
+            avg_first_response_minutes: null,
+            avg_resolution_minutes: null,
+            is_oncall: onCallByEmail.has(email),
+            oncall_team: onCallByEmail.get(email) || null,
+            _firstResponseSamples: [] as number[],
+            _resolutionSamples: [] as number[],
+          });
+          analystKeyByNormalizedName.set(normalizeName(member.user_name), key);
+          return;
+        }
+
+        const existing = analystMap.get(key);
+        existing.queues.push(queue);
+      });
+
+      (tickets || []).forEach((ticket: any) => {
+        const assignedName = normalizeName(ticket.assigned_to_name);
+        if (!assignedName) return;
+
+        const analystKey = analystKeyByNormalizedName.get(assignedName);
+        if (!analystKey) return;
+
+        const analyst = analystMap.get(analystKey);
+        if (!analyst) return;
+
+        if (openStatuses.includes(ticket.status)) {
+          analyst.active_tickets += 1;
+          const isBreached =
+            (ticket.resolution_due_at && ticket.resolution_due_at < nowIso) ||
+            (ticket.first_response_due_at && ticket.first_response_due_at < nowIso);
+          if (isBreached) analyst.breached_tickets += 1;
+        }
+
+        if (ticket.resolved_at && ticket.resolved_at >= todayStartIso) {
+          analyst.resolved_today += 1;
+        }
+
+        if (ticket.first_response_at && ticket.created_at) {
+          const firstResponseMinutes = (new Date(ticket.first_response_at).getTime() - new Date(ticket.created_at).getTime()) / 60000;
+          if (Number.isFinite(firstResponseMinutes) && firstResponseMinutes >= 0) {
+            analyst._firstResponseSamples.push(firstResponseMinutes);
+          }
+        }
+
+        if (ticket.resolved_at && ticket.created_at) {
+          const resolutionMinutes = (new Date(ticket.resolved_at).getTime() - new Date(ticket.created_at).getTime()) / 60000;
+          if (Number.isFinite(resolutionMinutes) && resolutionMinutes >= 0) {
+            analyst._resolutionSamples.push(resolutionMinutes);
+          }
+        }
+      });
+
+      const data = Array.from(analystMap.values()).map((analyst) => {
+        const firstCount = analyst._firstResponseSamples.length;
+        const resolutionCount = analyst._resolutionSamples.length;
+
+        const avgFirst = firstCount
+          ? analyst._firstResponseSamples.reduce((sum: number, value: number) => sum + value, 0) / firstCount
+          : null;
+        const avgResolution = resolutionCount
+          ? analyst._resolutionSamples.reduce((sum: number, value: number) => sum + value, 0) / resolutionCount
+          : null;
+
+        const { _firstResponseSamples, _resolutionSamples, ...publicData } = analyst;
+        return {
+          ...publicData,
+          avg_first_response_minutes: avgFirst,
+          avg_resolution_minutes: avgResolution,
+        };
+      });
+
+      return jsonResponse({ success: true, data });
+    }
+
     if (action === "add_member") {
       const { queue_id, user_id, user_name, user_email, user_level: memberLevel, is_primary } = body;
 
@@ -194,6 +341,41 @@ Deno.serve(async (req) => {
         return jsonResponse({ success: false, message: "user_id inválido" }, 422);
       }
 
+      const { data: existingRows, error: existingError } = await db
+        .from("support_queue_members")
+        .select("id, is_active")
+        .eq("queue_id", String(queue_id))
+        .eq("user_id", memberUserId)
+        .order("created_at", { ascending: false });
+
+      if (existingError) {
+        return jsonResponse({ success: false, message: existingError.message }, 500);
+      }
+
+      const existingActive = (existingRows || []).find((row: any) => row.is_active);
+      if (existingActive) {
+        return jsonResponse({ success: false, message: "Usuário já pertence a esta fila" }, 409);
+      }
+
+      const existingInactive = (existingRows || [])[0];
+      if (existingInactive) {
+        const { data: reactivated, error: reactivateError } = await db
+          .from("support_queue_members")
+          .update({
+            user_name,
+            user_email,
+            user_level: toInt(memberLevel) || 900,
+            is_primary: Boolean(is_primary),
+            is_active: true,
+          })
+          .eq("id", existingInactive.id)
+          .select()
+          .single();
+
+        if (reactivateError) return jsonResponse({ success: false, message: reactivateError.message }, 500);
+        return jsonResponse({ success: true, data: reactivated, message: "Membro reativado na fila" });
+      }
+
       const insertPayload = {
         queue_id,
         user_id: memberUserId,
@@ -203,15 +385,20 @@ Deno.serve(async (req) => {
         is_primary: Boolean(is_primary),
         is_active: true,
       };
-      console.log("support-queue-admin add_member insert payload", insertPayload);
 
       const { data: member, error } = await db
         .from("support_queue_members")
-        .upsert(insertPayload, { onConflict: "queue_id,user_id" })
+        .insert(insertPayload)
         .select()
         .single();
 
-      if (error) return jsonResponse({ success: false, message: error.message }, 500);
+      if (error) {
+        if ((error as any).code === "23505") {
+          return jsonResponse({ success: false, message: "Usuário já pertence a esta fila" }, 409);
+        }
+        return jsonResponse({ success: false, message: error.message }, 500);
+      }
+
       return jsonResponse({ success: true, data: member, message: "Membro adicionado à fila" });
     }
 
