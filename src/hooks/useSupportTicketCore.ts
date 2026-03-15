@@ -37,14 +37,29 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
     level: session?.level,
     email: session?.email,
     filters,
+    enrichedFilters,
+    only_mine: filters.only_mine ?? false,
   });
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['support-tickets-core', filters],
-    queryFn: () => supportTicketCoreService.listTickets(enrichedFilters),
+    queryFn: async () => {
+      console.log('[useSupportTicketList] fetching with filters:', enrichedFilters);
+      const result = await supportTicketCoreService.listTickets(enrichedFilters);
+      console.log('[useSupportTicketList] result:', {
+        ticketCount: result.tickets.length,
+        meta: result.meta,
+        firstTicket: result.tickets[0]?.public_code,
+      });
+      return result;
+    },
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
+
+  if (error) {
+    console.error('[useSupportTicketList] query error:', error);
+  }
 
   return {
     tickets: data?.tickets ?? [],

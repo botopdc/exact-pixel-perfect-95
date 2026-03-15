@@ -48,7 +48,17 @@ export default function TicketsCoreListPage() {
     ...(permissions.isClient ? { only_mine: true } : {}),
   };
 
-  const { tickets, isLoading, refetch } = useSupportTicketList(mergedFilters);
+  const { tickets, isLoading, error, refetch } = useSupportTicketList(mergedFilters);
+
+  // Debug visibility
+  console.log('[TicketsCoreListPage] render', {
+    tab,
+    mergedFilters,
+    ticketCount: tickets.length,
+    isLoading,
+    hasError: !!error,
+    errorMsg: error?.message,
+  });
 
   const handleCreated = (ticketId: string) => {
     navigate(TICKET_DETAIL_ROUTE(ticketId));
@@ -91,6 +101,13 @@ export default function TicketsCoreListPage() {
 
       {/* Summary cards */}
       {permissions.isInternal && <TicketSummaryCards tickets={tickets} />}
+
+      {/* Error display */}
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-sm text-destructive">
+          Erro ao carregar chamados: {(error as Error).message}
+        </div>
+      )}
 
       {/* Filters */}
       <TicketFilters
