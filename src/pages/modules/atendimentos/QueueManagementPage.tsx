@@ -144,22 +144,29 @@ export default function QueueManagementPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7"
-                            onClick={() => toggleMember.mutate(m.id)}
-                            title={m.is_active ? 'Desativar' : 'Ativar'}
-                          >
-                            {m.is_active
-                              ? <ToggleRight className="h-4 w-4 text-emerald-500" />
-                              : <ToggleLeft className="h-4 w-4 text-muted-foreground" />
-                            }
-                          </Button>
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                            onClick={() => { if (confirm('Remover membro?')) removeMember.mutate(m.id); }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {canManage && (
+                            <>
+                              <Button
+                                variant="ghost" size="icon" className="h-7 w-7"
+                                onClick={() => toggleMember.mutate(m.id)}
+                                title={m.is_active ? 'Desativar' : 'Ativar'}
+                              >
+                                {m.is_active
+                                  ? <ToggleRight className="h-4 w-4 text-emerald-500" />
+                                  : <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+                                }
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                                onClick={() => { if (confirm('Remover membro?')) removeMember.mutate(m.id); }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          {!canManage && (
+                            <span className="text-xs text-muted-foreground">Somente leitura</span>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
