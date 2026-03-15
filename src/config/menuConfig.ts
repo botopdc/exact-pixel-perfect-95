@@ -208,8 +208,15 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: 'ATENDIMENTOS',
     items: [
       {
+        id: 'suporte-tecnico',
+        title: 'Suporte Técnico',
+        url: '/modulos/atendimentos/suporte-tecnico',
+        icon: Wrench,
+        allowedLevels: [775, 900, 950, 1000],
+      },
+      {
         id: 'chamados-fila',
-        title: 'Visão Geral',
+        title: 'Chamados (Legado)',
         url: '/modulos/atendimentos/chamados',
         icon: Wrench,
         allowedLevels: [900, 950, 1000],

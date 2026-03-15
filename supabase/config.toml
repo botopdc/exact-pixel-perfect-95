@@ -53,3 +53,9 @@ verify_jwt = false
 
 [functions.support-sla-admin]
 verify_jwt = false
+
+[functions.support-ticket-upload]
+verify_jwt = false
+
+[functions.support-ticket-ingest]
+verify_jwt = false

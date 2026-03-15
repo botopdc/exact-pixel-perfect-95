@@ -191,6 +191,10 @@ const App = () => (
           <Route path="/academy/reset-password" element={<AcademyResetPassword />} />
           <Route path="/academy" element={<AcademyHome />} />
           
+          {/* Client Portal routes (level 1 only) */}
+          <Route path="/portal/tickets" element={<ClientTicketsPage />} />
+          <Route path="/portal/tickets/:ticketId" element={<ClientTicketDetailPage />} />
+
           {/* Partner protected routes */}
           <Route element={<PartnerLayout />}>
             <Route path="/parceiro/dashboard" element={<DashboardParceiro />} />
