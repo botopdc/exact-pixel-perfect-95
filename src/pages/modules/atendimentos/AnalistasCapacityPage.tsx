@@ -189,14 +189,21 @@ export default function AnalistasCapacityPage() {
 
   const handleAddMember = async () => {
     if (!newMember.queue_id || !newMember.user_id || !newMember.user_name || !newMember.user_email) return;
+
     await addMember.mutateAsync({
       queue_id: newMember.queue_id,
       user_id: newMember.user_id,
       user_name: newMember.user_name,
       user_email: newMember.user_email,
-      user_level: parseInt(newMember.user_level),
+      user_level: parseInt(newMember.user_level, 10),
     });
-    queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] });
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] }),
+      queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] }),
+      queryClient.invalidateQueries({ queryKey: ['support-dashboard-stats'] }),
+    ]);
+
     setNewMember({ queue_id: '', user_id: '', user_name: '', user_email: '', user_level: '900' });
     setAddMemberOpen(false);
   };
