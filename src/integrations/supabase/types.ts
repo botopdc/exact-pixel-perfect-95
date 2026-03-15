@@ -1650,6 +1650,7 @@ export type Database = {
           is_active: boolean
           name: string
           type_id: string | null
+          updated_at: string
         }
         Insert: {
           code: string
@@ -1659,6 +1660,7 @@ export type Database = {
           is_active?: boolean
           name: string
           type_id?: string | null
+          updated_at?: string
         }
         Update: {
           code?: string
@@ -1668,6 +1670,7 @@ export type Database = {
           is_active?: boolean
           name?: string
           type_id?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1896,6 +1899,7 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          updated_at: string
         }
         Insert: {
           code: string
@@ -1906,6 +1910,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          updated_at?: string
         }
         Update: {
           code?: string
@@ -1916,6 +1921,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1971,6 +1977,7 @@ export type Database = {
           category_id: string | null
           close_reason: string | null
           closed_at: string | null
+          closed_by_user_id: number | null
           company_id: string | null
           created_at: string
           cs_closed_by: string | null
@@ -1998,6 +2005,7 @@ export type Database = {
           resolution_due_at: string | null
           resolution_summary: string | null
           resolved_at: string | null
+          resolved_by_user_id: number | null
           service_name: string | null
           severity: Database["public"]["Enums"]["support_severity"]
           sla_policy_id: string | null
@@ -2023,6 +2031,7 @@ export type Database = {
           category_id?: string | null
           close_reason?: string | null
           closed_at?: string | null
+          closed_by_user_id?: number | null
           company_id?: string | null
           created_at?: string
           cs_closed_by?: string | null
@@ -2050,6 +2059,7 @@ export type Database = {
           resolution_due_at?: string | null
           resolution_summary?: string | null
           resolved_at?: string | null
+          resolved_by_user_id?: number | null
           service_name?: string | null
           severity?: Database["public"]["Enums"]["support_severity"]
           sla_policy_id?: string | null
@@ -2075,6 +2085,7 @@ export type Database = {
           category_id?: string | null
           close_reason?: string | null
           closed_at?: string | null
+          closed_by_user_id?: number | null
           company_id?: string | null
           created_at?: string
           cs_closed_by?: string | null
@@ -2102,6 +2113,7 @@ export type Database = {
           resolution_due_at?: string | null
           resolution_summary?: string | null
           resolved_at?: string | null
+          resolved_by_user_id?: number | null
           service_name?: string | null
           severity?: Database["public"]["Enums"]["support_severity"]
           sla_policy_id?: string | null
