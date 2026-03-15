@@ -333,7 +333,7 @@ export default function AnalistasCapacityPage() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-xl font-bold text-green-600 dark:text-green-400">{a.resolvedToday}</p>
+                        <p className="text-xl font-bold text-primary">{a.resolvedToday}</p>
                         <p className="text-xs text-muted-foreground flex items-center justify-center gap-0.5">
                           <CheckCircle className="h-3 w-3" /> Hoje
                         </p>
