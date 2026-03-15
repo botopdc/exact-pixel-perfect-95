@@ -143,6 +143,10 @@ import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
 import TicketsCoreListPage from '@/pages/modules/atendimentos/TicketsCoreListPage';
 import TicketCoreDetailPage from '@/pages/modules/atendimentos/TicketCoreDetailPage';
 
+// Client Portal
+import ClientTicketsPage from '@/pages/portal/ClientTicketsPage';
+import ClientTicketDetailPage from '@/pages/portal/ClientTicketDetailPage';
+
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
 import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
 import CertidaoAssetPage from '@/pages/modules/certidao/CertidaoAssetPage';
@@ -187,6 +191,10 @@ const App = () => (
           <Route path="/academy/reset-password" element={<AcademyResetPassword />} />
           <Route path="/academy" element={<AcademyHome />} />
           
+          {/* Client Portal routes (level 1 only) */}
+          <Route path="/portal/tickets" element={<ClientTicketsPage />} />
+          <Route path="/portal/tickets/:ticketId" element={<ClientTicketDetailPage />} />
+
           {/* Partner protected routes */}
           <Route element={<PartnerLayout />}>
             <Route path="/parceiro/dashboard" element={<DashboardParceiro />} />

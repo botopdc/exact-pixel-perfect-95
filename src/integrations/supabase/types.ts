@@ -1326,6 +1326,56 @@ export type Database = {
         }
         Relationships: []
       }
+      support_notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          event_name: string
+          id: string
+          is_read: boolean
+          metadata: Json
+          ticket_id: string | null
+          ticket_public_code: string | null
+          title: string
+          user_id: string
+          user_level: number | null
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          event_name: string
+          id?: string
+          is_read?: boolean
+          metadata?: Json
+          ticket_id?: string | null
+          ticket_public_code?: string | null
+          title: string
+          user_id: string
+          user_level?: number | null
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          event_name?: string
+          id?: string
+          is_read?: boolean
+          metadata?: Json
+          ticket_id?: string | null
+          ticket_public_code?: string | null
+          title?: string
+          user_id?: string
+          user_level?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_notifications_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_sla_policies: {
         Row: {
           business_hours_only: boolean

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { authService } from '@/services/authService';
 import { ModuleSidebar } from '@/components/navigation/ModuleSidebar';
@@ -52,6 +53,7 @@ function ModuleLayoutHeader() {
           )}
         </div>
 
+        <NotificationBell />
         <ThemeToggle />
       </div>
       
