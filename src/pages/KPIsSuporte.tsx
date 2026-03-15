@@ -1,187 +1,228 @@
-import { useState, useEffect } from 'react';
+// ============================================================================
+// KPIs SUPORTE — Operational support metrics from support_tickets (real data)
+// ============================================================================
+
+import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/kpis/KPICard';
-import { KPIFilters } from '@/components/kpis/KPIFilters';
-import { AlertCard } from '@/components/kpis/AlertCard';
-import { 
-  kpiService, 
-  formatarTempo, 
-  PeriodoFiltro, 
-  getFilterOptions 
-} from '@/services/kpiService';
-import { CATEGORIA_LABELS, STATUS_LABELS, PRIORIDADE_LABELS } from '@/types/ticket';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend
-} from 'recharts';
-import { 
-  Clock, 
-  Users, 
-  AlertTriangle, 
-  CheckCircle2,
-  Inbox,
-  Target
+import { useSupportTicketList } from '@/hooks/useSupportTicketCore';
+import { CoreTicket } from '@/services/supportTicketCoreService';
+import {
+  Clock, Users, Inbox, Target, AlertTriangle,
 } from 'lucide-react';
+import { differenceInMinutes, isToday } from 'date-fns';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
+} from 'recharts';
 
-const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+const COLORS = [
+  'hsl(var(--primary))', 'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))',
+];
+
+function formatMinutes(m: number): string {
+  if (m < 60) return `${Math.round(m)}min`;
+  if (m < 1440) return `${(m / 60).toFixed(1)}h`;
+  return `${(m / 1440).toFixed(1)}d`;
+}
 
 export default function KPIsSuporte() {
-  const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes');
-  const [data, setData] = useState<ReturnType<typeof kpiService.getDashboardSuporte> | null>(null);
-  const [alertas, setAlertas] = useState<ReturnType<typeof kpiService.getAlertas>>([]);
-  const [filterOptions, setFilterOptions] = useState<{ empresas: string[]; servicos: string[] }>({ empresas: [], servicos: [] });
+  // Fetch open tickets (N1/N2/N3 — NOT encerrado or CS)
+  const { tickets: allOpen } = useSupportTicketList({
+    per_page: 100,
+  });
 
-  useEffect(() => {
-    const dashboard = kpiService.getDashboardSuporte({ periodo });
-    setData(dashboard);
-    setAlertas(kpiService.getAlertas());
-    setFilterOptions(getFilterOptions());
-  }, [periodo]);
+  const metrics = useMemo(() => {
+    const now = new Date();
 
-  if (!data) return null;
+    // Separate by support vs CS
+    const supportTickets = allOpen.filter(t =>
+      !['encerrado_cs', 'cancelado'].includes(t.status) &&
+      t.current_support_level !== 'CS'
+    );
 
-  // Prepare chart data
-  const categoriaData = Object.entries(data.porCategoria).map(([key, value]) => ({
-    name: CATEGORIA_LABELS[key as keyof typeof CATEGORIA_LABELS] || key,
-    value
-  }));
+    const backlog = supportTickets.filter(t =>
+      ['novo', 'triagem', 'em_atendimento', 'aguardando_cliente', 'aguardando_terceiro', 'reaberto'].includes(t.status)
+    );
 
-  const prioridadeData = Object.entries(data.porPrioridade).map(([key, value]) => ({
-    name: PRIORIDADE_LABELS[key as keyof typeof PRIORIDADE_LABELS] || key,
-    value
-  }));
+    // By queue
+    const byQueue: Record<string, number> = { N1: 0, N2: 0, N3: 0 };
+    backlog.forEach(t => {
+      const q = t.queue_code || t.current_support_level || 'N1';
+      if (byQueue[q] !== undefined) byQueue[q]++;
+    });
 
-  const tecnicosData = data.topTecnicos.map(t => ({
-    name: t.nome.length > 15 ? t.nome.substring(0, 15) + '...' : t.nome,
-    tickets: t.count
-  }));
+    // By severity
+    const bySeverity: Record<string, number> = {};
+    backlog.forEach(t => {
+      bySeverity[t.severity] = (bySeverity[t.severity] || 0) + 1;
+    });
 
-  const statusData = Object.entries(data.porStatus).map(([key, value]) => ({
-    name: STATUS_LABELS[key as keyof typeof STATUS_LABELS] || key,
-    value
-  }));
+    // SLA breached
+    const breached = backlog.filter(t =>
+      t.resolution_due_at && new Date(t.resolution_due_at) < now && !t.resolved_at
+    );
 
-  const alertasSuporte = alertas.filter(a => 
-    a.titulo.includes('atendimento') || 
-    a.titulo.includes('técnico') || 
-    a.titulo.includes('Acúmulo')
-  );
+    // Opened today
+    const openedToday = allOpen.filter(t => isToday(new Date(t.created_at)));
+
+    // MTTA (first response)
+    const mttaValues = allOpen
+      .filter(t => t.first_response_at && t.created_at)
+      .map(t => differenceInMinutes(new Date(t.first_response_at!), new Date(t.created_at)))
+      .filter(m => m >= 0);
+    const mtta = mttaValues.length > 0
+      ? mttaValues.reduce((a, b) => a + b, 0) / mttaValues.length
+      : 0;
+
+    // MTTR (resolution)
+    const mttrValues = allOpen
+      .filter(t => t.resolved_at && t.created_at)
+      .map(t => differenceInMinutes(new Date(t.resolved_at!), new Date(t.created_at)))
+      .filter(m => m >= 0);
+    const mttr = mttrValues.length > 0
+      ? mttrValues.reduce((a, b) => a + b, 0) / mttrValues.length
+      : 0;
+
+    // By assigned
+    const byAnalyst: Record<string, number> = {};
+    backlog.forEach(t => {
+      const name = t.assigned_to_name || 'Não atribuído';
+      byAnalyst[name] = (byAnalyst[name] || 0) + 1;
+    });
+
+    const analystData = Object.entries(byAnalyst)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6)
+      .map(([name, count]) => ({
+        name: name.length > 15 ? name.slice(0, 15) + '…' : name,
+        count,
+      }));
+
+    // By category
+    const byCategory: Record<string, number> = {};
+    backlog.forEach(t => {
+      byCategory[t.category || 'Outros'] = (byCategory[t.category || 'Outros'] || 0) + 1;
+    });
+    const categoryData = Object.entries(byCategory)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, value]) => ({ name, value }));
+
+    const queueData = Object.entries(byQueue).map(([name, value]) => ({ name, value }));
+    const severityData = Object.entries(bySeverity).map(([name, value]) => ({ name, value }));
+
+    return {
+      backlogCount: backlog.length,
+      openedToday: openedToday.length,
+      breachedCount: breached.length,
+      mtta,
+      mttr,
+      queueData,
+      severityData,
+      analystData,
+      categoryData,
+    };
+  }, [allOpen]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">KPIs de Suporte</h2>
-          <p className="text-muted-foreground">Métricas operacionais do time técnico</p>
-        </div>
-        <KPIFilters
-          periodo={periodo}
-          onPeriodoChange={setPeriodo}
-          showEmpresaFilter
-          empresas={filterOptions.empresas}
-          showServicoFilter
-          servicos={filterOptions.servicos}
-        />
+      <div>
+        <h2 className="text-2xl font-bold">KPIs — Suporte Técnico</h2>
+        <p className="text-muted-foreground">Métricas operacionais do time técnico (N1/N2/N3)</p>
       </div>
 
-      {/* Alertas */}
-      {alertasSuporte.length > 0 && (
-        <div className="space-y-2">
-          {alertasSuporte.map((alerta, i) => (
-            <AlertCard key={i} {...alerta} />
-          ))}
-        </div>
-      )}
-
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <KPICard
-          title="Backlog Atual"
-          value={data.backlog}
+          title="Backlog"
+          value={metrics.backlogCount}
           subtitle="Tickets em aberto"
           icon={<Inbox className="h-4 w-4" />}
-          variant={data.backlog > 10 ? 'warning' : 'default'}
+          variant={metrics.backlogCount > 10 ? 'warning' : 'default'}
         />
         <KPICard
-          title="Tempo Médio de Atendimento"
-          value={formatarTempo(data.tempoMedioAtendimento)}
-          subtitle="Da criação à resolução técnica"
+          title="Abertos Hoje"
+          value={metrics.openedToday}
+          subtitle="Novos tickets"
+          icon={<Target className="h-4 w-4" />}
+        />
+        <KPICard
+          title="SLA Vencido"
+          value={metrics.breachedCount}
+          subtitle="Tickets além do prazo"
+          icon={<AlertTriangle className="h-4 w-4" />}
+          variant={metrics.breachedCount > 0 ? 'error' : 'success'}
+        />
+        <KPICard
+          title="MTTA"
+          value={metrics.mtta > 0 ? formatMinutes(metrics.mtta) : '—'}
+          subtitle="Tempo médio 1ª resposta"
           icon={<Clock className="h-4 w-4" />}
         />
         <KPICard
-          title="SLA Técnico"
-          value={`${data.slaTecnicoCumprido.toFixed(1)}%`}
-          subtitle="Resolvidos dentro do prazo"
-          icon={<Target className="h-4 w-4" />}
-          variant={data.slaTecnicoCumprido >= 80 ? 'success' : data.slaTecnicoCumprido >= 60 ? 'warning' : 'error'}
-        />
-        <KPICard
-          title="Técnicos Ativos"
-          value={data.topTecnicos.length}
-          subtitle="Com tickets atribuídos"
-          icon={<Users className="h-4 w-4" />}
+          title="MTTR"
+          value={metrics.mttr > 0 ? formatMinutes(metrics.mttr) : '—'}
+          subtitle="Tempo médio resolução"
+          icon={<Clock className="h-4 w-4" />}
         />
       </div>
 
       {/* Charts Row 1 */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Por Categoria */}
+        {/* By Queue */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Gargalos por Categoria</CardTitle>
+            <CardTitle className="text-base">Backlog por Fila</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoriaData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                    labelLine={false}
-                  >
-                    {categoriaData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
+                <BarChart data={metrics.queueData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="name" className="text-xs" />
+                  <YAxis className="text-xs" />
                   <Tooltip />
-                </PieChart>
+                  <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
-        {/* Por Prioridade */}
+        {/* By Severity */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Distribuição por Prioridade</CardTitle>
+            <CardTitle className="text-base">Distribuição por Severidade</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={prioridadeData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" className="text-xs" />
-                  <YAxis dataKey="name" type="category" width={80} className="text-xs" />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {metrics.severityData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={metrics.severityData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, value }) => `${name}: ${value}`}
+                    >
+                      {metrics.severityData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  Nenhum dado disponível
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -189,21 +230,21 @@ export default function KPIsSuporte() {
 
       {/* Charts Row 2 */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Top Técnicos */}
+        {/* By Analyst */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Técnicos com Maior Volume</CardTitle>
+            <CardTitle className="text-base">Volume por Analista</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
-              {tecnicosData.length > 0 ? (
+              {metrics.analystData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={tecnicosData}>
+                  <BarChart data={metrics.analystData} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="name" className="text-xs" />
-                    <YAxis className="text-xs" />
+                    <XAxis type="number" className="text-xs" />
+                    <YAxis dataKey="name" type="category" width={120} className="text-xs" />
                     <Tooltip />
-                    <Bar dataKey="tickets" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="count" fill="hsl(var(--chart-2))" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -215,31 +256,36 @@ export default function KPIsSuporte() {
           </CardContent>
         </Card>
 
-        {/* Por Status */}
+        {/* By Category */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Tickets por Status</CardTitle>
+            <CardTitle className="text-base">Gargalos por Categoria</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={statusData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                  >
-                    {statusData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              {metrics.categoryData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={metrics.categoryData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      dataKey="value"
+                      label={({ name, value }) => `${name}: ${value}`}
+                    >
+                      {metrics.categoryData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  Nenhum dado disponível
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

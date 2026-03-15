@@ -1,191 +1,142 @@
-import { useState, useEffect } from 'react';
+// ============================================================================
+// KPIs CS — Operational CS metrics from support_tickets (real data)
+// ============================================================================
+
+import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard } from '@/components/kpis/KPICard';
-import { KPIFilters } from '@/components/kpis/KPIFilters';
-import { AlertCard } from '@/components/kpis/AlertCard';
-import { 
-  kpiService, 
-  formatarTempo, 
-  PeriodoFiltro, 
-  getFilterOptions 
-} from '@/services/kpiService';
-import { TIPO_DEMANDA_LABELS } from '@/types/ticket';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend
+import { useSupportTicketList } from '@/hooks/useSupportTicketCore';
+import { CoreTicket } from '@/services/supportTicketCoreService';
+import { Clock, CheckCircle2, RefreshCw, Users, Timer } from 'lucide-react';
+import { differenceInMinutes } from 'date-fns';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
-import { 
-  Clock, 
-  Users, 
-  AlertTriangle, 
-  CheckCircle2,
-  TrendingUp,
-  ShieldAlert,
-  Timer
-} from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 
-const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+const COLORS = [
+  'hsl(var(--primary))', 'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))', 'hsl(var(--chart-4))',
+];
+
+function formatMinutes(m: number): string {
+  if (m < 60) return `${Math.round(m)}min`;
+  if (m < 1440) return `${(m / 60).toFixed(1)}h`;
+  return `${(m / 1440).toFixed(1)}d`;
+}
 
 export default function KPIsCS() {
-  const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes');
-  const [data, setData] = useState<ReturnType<typeof kpiService.getDashboardCS> | null>(null);
-  const [alertas, setAlertas] = useState<ReturnType<typeof kpiService.getAlertas>>([]);
-  const [filterOptions, setFilterOptions] = useState<{ empresas: string[]; servicos: string[] }>({ empresas: [], servicos: [] });
+  // Fetch all CS-relevant tickets
+  const { tickets: aguardando } = useSupportTicketList({
+    status: 'resolvido_suporte',
+    current_queue: 'CS',
+    per_page: 100,
+  });
 
-  useEffect(() => {
-    const dashboard = kpiService.getDashboardCS({ periodo });
-    setData(dashboard);
-    setAlertas(kpiService.getAlertas());
-    setFilterOptions(getFilterOptions());
-  }, [periodo]);
+  const { tickets: encerrados } = useSupportTicketList({
+    status: 'encerrado_cs',
+    per_page: 100,
+  });
 
-  if (!data) return null;
+  const { tickets: reabertos } = useSupportTicketList({
+    status: 'reaberto',
+    per_page: 100,
+  });
 
-  // Prepare chart data
-  const recorrenciaData = data.topClientesRecorrentes.map(c => ({
-    name: c.empresa.length > 20 ? c.empresa.substring(0, 20) + '...' : c.empresa,
-    tickets: c.count
-  }));
+  const metrics = useMemo(() => {
+    // Tempo médio entre resolvido_suporte e encerrado_cs
+    const closeTimes = encerrados
+      .filter(t => t.resolved_at && t.closed_at)
+      .map(t => differenceInMinutes(new Date(t.closed_at!), new Date(t.resolved_at!)))
+      .filter(m => m >= 0);
 
-  const impactoData = [
-    { name: 'Alto', value: data.impactoAlto, color: 'hsl(var(--destructive))' },
-    { name: 'Médio/Baixo', value: Math.max(0, data.aguardandoValidacao - data.impactoAlto), color: 'hsl(var(--primary))' }
-  ].filter(d => d.value > 0);
+    const avgCloseTime = closeTimes.length > 0
+      ? closeTimes.reduce((a, b) => a + b, 0) / closeTimes.length
+      : 0;
 
-  const demandaData = [
-    { name: 'Risco', value: data.ticketsRisco },
-    { name: 'Expansão', value: data.ticketsExpansao }
-  ].filter(d => d.value > 0);
+    // Volume por responsável CS (who closed)
+    const closedByMap: Record<string, number> = {};
+    encerrados.forEach(t => {
+      const name = t.metadata?.closed_by_name as string || 'Não identificado';
+      closedByMap[name] = (closedByMap[name] || 0) + 1;
+    });
 
-  const alertasCS = alertas.filter(a => 
-    a.titulo.includes('recorrência') || 
-    a.titulo.includes('cliente')
-  );
+    const closedByData = Object.entries(closedByMap)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, count]) => ({ name: name.length > 15 ? name.slice(0, 15) + '…' : name, count }));
+
+    // Severity distribution of waiting tickets
+    const severityMap: Record<string, number> = {};
+    aguardando.forEach(t => {
+      severityMap[t.severity] = (severityMap[t.severity] || 0) + 1;
+    });
+
+    const severityData = Object.entries(severityMap)
+      .map(([name, value]) => ({ name, value }));
+
+    return {
+      aguardandoCount: aguardando.length,
+      encerradosCount: encerrados.length,
+      reabertosCount: reabertos.length,
+      avgCloseTime,
+      closedByData,
+      severityData,
+    };
+  }, [aguardando, encerrados, reabertos]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">KPIs de Customer Success</h2>
-          <p className="text-muted-foreground">Métricas de relacionamento e validação</p>
-        </div>
-        <KPIFilters
-          periodo={periodo}
-          onPeriodoChange={setPeriodo}
-          showEmpresaFilter
-          empresas={filterOptions.empresas}
-        />
+      <div>
+        <h2 className="text-2xl font-bold">KPIs — Customer Success Operacional</h2>
+        <p className="text-muted-foreground">Métricas de validação e encerramento de tickets</p>
       </div>
-
-      {/* Alertas */}
-      {alertasCS.length > 0 && (
-        <div className="space-y-2">
-          {alertasCS.map((alerta, i) => (
-            <AlertCard key={i} {...alerta} />
-          ))}
-        </div>
-      )}
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KPICard
           title="Aguardando Validação"
-          value={data.aguardandoValidacao}
-          subtitle="Tickets pendentes de análise"
+          value={metrics.aguardandoCount}
+          subtitle="Tickets resolvidos pelo suporte"
           icon={<Timer className="h-4 w-4" />}
-          variant={data.aguardandoValidacao > 5 ? 'warning' : 'default'}
+          variant={metrics.aguardandoCount > 5 ? 'warning' : 'default'}
         />
         <KPICard
-          title="Tempo Médio de Fechamento"
-          value={formatarTempo(data.tempoMedioFechamento)}
-          subtitle="Da criação ao encerramento"
+          title="Encerrados"
+          value={metrics.encerradosCount}
+          subtitle="Tickets validados e encerrados"
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          variant="success"
+        />
+        <KPICard
+          title="Reabertos"
+          value={metrics.reabertosCount}
+          subtitle="Devolvidos ao suporte"
+          icon={<RefreshCw className="h-4 w-4" />}
+          variant={metrics.reabertosCount > 0 ? 'error' : 'default'}
+        />
+        <KPICard
+          title="Tempo Médio de Validação"
+          value={metrics.avgCloseTime > 0 ? formatMinutes(metrics.avgCloseTime) : '—'}
+          subtitle="Resolvido → Encerrado"
           icon={<Clock className="h-4 w-4" />}
-        />
-        <KPICard
-          title="Impacto Alto"
-          value={data.impactoAlto}
-          subtitle="Tickets com alto impacto"
-          icon={<AlertTriangle className="h-4 w-4" />}
-          variant={data.impactoAlto > 3 ? 'error' : 'default'}
-        />
-        <KPICard
-          title="Clientes Críticos"
-          value={data.clientesCriticos.length}
-          subtitle="Com tickets de alto impacto"
-          icon={<ShieldAlert className="h-4 w-4" />}
-          variant={data.clientesCriticos.length > 3 ? 'warning' : 'default'}
-        />
-      </div>
-
-      {/* Oportunidades */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <KPICard
-          title="Tickets de Risco"
-          value={data.ticketsRisco}
-          subtitle="Demandas que indicam risco de churn"
-          icon={<ShieldAlert className="h-4 w-4" />}
-          variant={data.ticketsRisco > 0 ? 'error' : 'success'}
-        />
-        <KPICard
-          title="Oportunidades de Expansão"
-          value={data.ticketsExpansao}
-          subtitle="Demandas que indicam upsell/cross-sell"
-          icon={<TrendingUp className="h-4 w-4" />}
-          variant={data.ticketsExpansao > 0 ? 'success' : 'default'}
         />
       </div>
 
       {/* Charts */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Recorrência por Cliente */}
+        {/* Severity distribution */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Top Clientes Recorrentes</CardTitle>
+            <CardTitle className="text-base">Severidade dos Aguardando</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
-              {recorrenciaData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={recorrenciaData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis type="number" className="text-xs" />
-                    <YAxis dataKey="name" type="category" width={120} className="text-xs" />
-                    <Tooltip />
-                    <Bar dataKey="tickets" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Nenhum dado disponível
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Distribuição por Impacto */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Distribuição por Impacto</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px]">
-              {impactoData.length > 0 ? (
+              {metrics.severityData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={impactoData}
+                      data={metrics.severityData}
                       cx="50%"
                       cy="50%"
                       innerRadius={60}
@@ -194,41 +145,48 @@ export default function KPIsCS() {
                       dataKey="value"
                       label={({ name, value }) => `${name}: ${value}`}
                     >
-                      {impactoData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      {metrics.severityData.map((_, index) => (
+                        <Cell key={index} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip />
-                    <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Nenhum dado disponível
+                  Nenhum ticket aguardando
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Closed by */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Volume por Responsável CS</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[250px]">
+              {metrics.closedByData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={metrics.closedByData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis type="number" className="text-xs" />
+                    <YAxis dataKey="name" type="category" width={120} className="text-xs" />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  Nenhum encerramento registrado
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
       </div>
-
-      {/* Clientes Críticos List */}
-      {data.clientesCriticos.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Clientes Críticos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {data.clientesCriticos.map((cliente) => (
-                <Badge key={cliente} variant="destructive" className="text-sm">
-                  {cliente}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
