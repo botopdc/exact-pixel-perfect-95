@@ -247,28 +247,31 @@ export default function AnalistasCapacityPage() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {analysts.map(a => (
-                <Card key={a.email} className="relative">
+                <Card key={`${a.userId}-${a.email}`} className="relative">
                   {a.isOnCall && (
                     <div className="absolute top-2 right-2">
                       <Badge variant="outline" className="bg-accent/50 text-accent-foreground border-accent text-xs">
                         <Phone className="h-3 w-3 mr-1" />
-                        Plantão {a.onCallTeam}
+                        Plantão {a.onCallTeam || 'ativo'}
                       </Badge>
                     </div>
                   )}
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold">{a.name}</CardTitle>
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-sm font-semibold">{a.name}</CardTitle>
+                      <Badge variant="outline">Nível {a.level}</Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground">{a.email}</p>
                     <div className="flex gap-1 flex-wrap mt-1">
                       {a.queues.map(q => (
-                        <Badge key={q.memberId} variant="outline" className="text-xs">
+                        <Badge key={q.memberId} variant="outline" className="text-xs" title={q.queueName}>
                           {q.queueCode}
                           {q.isPrimary && <span className="ml-0.5 text-primary">★</span>}
                         </Badge>
                       ))}
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-3">
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
                         <p className="text-xl font-bold">{a.activeTickets}</p>
@@ -287,6 +290,16 @@ export default function AnalistasCapacityPage() {
                         <p className="text-xs text-muted-foreground flex items-center justify-center gap-0.5">
                           <CheckCircle className="h-3 w-3" /> Hoje
                         </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 rounded-md border p-2 text-xs">
+                      <div className="space-y-0.5">
+                        <p className="text-muted-foreground">Média 1ª resposta</p>
+                        <p className="font-medium">{formatDuration(a.avgFirstResponseMinutes)}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="text-muted-foreground">Média resolução</p>
+                        <p className="font-medium">{formatDuration(a.avgResolutionMinutes)}</p>
                       </div>
                     </div>
                   </CardContent>
