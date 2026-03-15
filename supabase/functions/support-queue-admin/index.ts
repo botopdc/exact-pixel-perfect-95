@@ -44,11 +44,19 @@ function resolveUserContext(body: Record<string, unknown>) {
 }
 
 function isReadAction(action: string): boolean {
-  return ["list_queues", "list_members", "my_queues"].includes(action);
+  return ["list_queues", "list_members", "my_queues", "list_analyst_summary"].includes(action);
 }
 
 function isMutationAction(action: string): boolean {
   return ["add_member", "remove_member", "toggle_member"].includes(action);
+}
+
+function normalizeName(value: string | null | undefined): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 Deno.serve(async (req) => {
