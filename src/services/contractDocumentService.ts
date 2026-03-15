@@ -37,6 +37,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   proposal_pdf_file_not_found: 'PDF oficial da proposta não encontrado no storage.',
   proposal_pdf_invalid_format: 'O arquivo da proposta não é um PDF válido. Regenere o PDF.',
   proposal_pdf_page_count_invalid: 'O PDF da proposta possui 7 ou menos páginas. Impossível gerar Anexo I.',
+  contract_annex_trim_empty: 'O recorte do PDF resultou em zero páginas.',
+  contract_annex_trim_not_executed: 'O recorte do PDF da proposta não foi executado.',
   proposal_pdf_trim_failed: 'Erro ao processar o PDF da proposta.',
   proposal_pdf_auto_generation_failed: 'Não foi possível gerar automaticamente o PDF da proposta.',
   proposal_pdf_storage_failed: 'Falha ao salvar o PDF gerado da proposta.',
