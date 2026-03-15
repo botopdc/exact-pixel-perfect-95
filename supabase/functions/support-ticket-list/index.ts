@@ -1,6 +1,7 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-list
 // Lists tickets with filters, pagination, and QUEUE-BASED visibility
+// Source of truth: current_queue_id (FK) + support_queue_members
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -49,16 +50,15 @@ Deno.serve(async (req) => {
       .select("*", { count: "exact" })
       .is("deleted_at", null);
 
-    // Role-based visibility
+    // ── VISIBILITY ─────────────────────────────────────────────────────
     const userLevel = body.user_level || 1;
     const userId = body.user_id;
 
     if (userLevel < 600 && userId) {
-      // Client: only own tickets
+      // Client (level 1): only own tickets
       query = query.eq("requester_user_id", userId);
     } else if (userLevel >= 600 && userLevel < 950 && userId) {
       // Internal user (not manager/admin): see tickets in their queues OR assigned to them
-      // Fetch queue IDs this user is a member of
       const { data: memberships } = await db
         .from("support_queue_members")
         .select("queue_id")
@@ -68,7 +68,6 @@ Deno.serve(async (req) => {
       const queueIds = (memberships || []).map((m: any) => m.queue_id);
 
       if (queueIds.length > 0) {
-        // User sees: tickets in their queues OR assigned to them
         query = query.or(
           `current_queue_id.in.(${queueIds.join(",")}),assigned_to_user_id.eq.${userId}`
         );
@@ -79,7 +78,7 @@ Deno.serve(async (req) => {
     }
     // Manager (950+) and Admin (1000): see all tickets — no filter applied
 
-    // Filters
+    // ── FILTERS ────────────────────────────────────────────────────────
     if (body.status) {
       if (Array.isArray(body.status)) {
         query = query.in("status", body.status);
@@ -88,8 +87,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Filter by queue CODE — resolve to queue_id (new model)
     if (body.current_queue) {
-      // Filter by queue code — resolve to queue_id
       const { data: queueRow } = await db
         .from("support_queues")
         .select("id")
@@ -155,6 +154,13 @@ Deno.serve(async (req) => {
       query = query.lte("created_at", body.date_to);
     }
 
+    if (body.only_sla_breached) {
+      const now = new Date().toISOString();
+      query = query.or(
+        `resolution_due_at.lt.${now},first_response_due_at.lt.${now}`
+      ).is("resolved_at", null);
+    }
+
     // Sorting
     const sort_by = body.sort_by || "created_at";
     const sort_dir = body.sort_dir === "asc" ? true : false;
@@ -170,8 +176,22 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, message: "Erro ao listar tickets", errors: [error.message] }, 500);
     }
 
-    // Enrich tickets with queue code from current_queue_id
-    const enrichedTickets = tickets || [];
+    // ── ENRICH with queue code/name ────────────────────────────────────
+    // Fetch all queues once for lookup
+    const { data: allQueues } = await db
+      .from("support_queues")
+      .select("id, code, name");
+
+    const queueMap: Record<string, { code: string; name: string }> = {};
+    (allQueues || []).forEach((q: any) => {
+      queueMap[q.id] = { code: q.code, name: q.name };
+    });
+
+    const enrichedTickets = (tickets || []).map((t: any) => ({
+      ...t,
+      queue_code: t.current_queue_id ? queueMap[t.current_queue_id]?.code || t.current_support_level : t.current_support_level,
+      queue_name: t.current_queue_id ? queueMap[t.current_queue_id]?.name || t.current_support_level : t.current_support_level,
+    }));
 
     return jsonResponse({
       success: true,

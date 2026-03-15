@@ -1,6 +1,7 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-get
 // Get single ticket with messages, attachments, status history, queue history
+// Source of truth: current_queue_id (FK) + support_queue_members for access
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, message: "Acesso negado" }, 403);
     }
 
-    // For internal non-manager users: check queue membership
+    // For internal non-manager users: check queue membership or assignment
     if (userLevel >= 600 && userLevel < 950 && userId) {
       const { data: memberships } = await db
         .from("support_queue_members")
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
         .eq("is_active", true);
 
       const queueIds = (memberships || []).map((m: any) => m.queue_id);
-      const isAssigned = ticket.assigned_to_user_id === userId;
+      const isAssigned = String(ticket.assigned_to_user_id) === String(userId);
       const isInQueue = ticket.current_queue_id && queueIds.includes(ticket.current_queue_id);
 
       if (!isAssigned && !isInQueue) {
@@ -78,13 +79,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch messages
+    // ── Fetch related data ──────────────────────────────────────────────
+
+    // Messages (filter internal notes for clients)
     let messagesQuery = db.from("support_ticket_messages").select("*")
       .eq("ticket_id", ticket.id).order("created_at", { ascending: true });
     if (userLevel < 600) messagesQuery = messagesQuery.eq("is_internal_note", false);
     const { data: messages } = await messagesQuery;
 
-    // Fetch attachments
+    // Attachments (filter internal for clients)
     let attachmentsQuery = db.from("support_ticket_attachments").select("*")
       .eq("ticket_id", ticket.id).order("created_at", { ascending: true });
     if (userLevel < 600) attachmentsQuery = attachmentsQuery.eq("is_internal", false);
@@ -114,15 +117,34 @@ Deno.serve(async (req) => {
       queueHistory = qh || [];
     }
 
-    // Resolve queue name
-    let queueName = ticket.current_queue;
+    // ── Resolve queue name from current_queue_id ────────────────────────
+    let queueCode = ticket.current_support_level || "N1";
+    let queueName = queueCode;
     if (ticket.current_queue_id) {
       const { data: q } = await db.from("support_queues").select("code, name")
         .eq("id", ticket.current_queue_id).single();
-      if (q) queueName = q.code;
+      if (q) {
+        queueCode = q.code;
+        queueName = q.name;
+      }
     }
 
-    // SLA
+    // Enrich queue_history with queue names
+    if (queueHistory.length > 0) {
+      const { data: allQueues } = await db.from("support_queues").select("id, code, name");
+      const qMap: Record<string, { code: string; name: string }> = {};
+      (allQueues || []).forEach((q: any) => { qMap[q.id] = { code: q.code, name: q.name }; });
+
+      queueHistory = queueHistory.map((qh: any) => ({
+        ...qh,
+        from_queue_code: qh.from_queue_id ? qMap[qh.from_queue_id]?.code : null,
+        from_queue_name: qh.from_queue_id ? qMap[qh.from_queue_id]?.name : null,
+        to_queue_code: qMap[qh.to_queue_id]?.code || qh.to_support_level,
+        to_queue_name: qMap[qh.to_queue_id]?.name || qh.to_support_level,
+      }));
+    }
+
+    // ── SLA calculation ─────────────────────────────────────────────────
     const now = new Date();
     const sla = {
       is_first_response_breached: ticket.first_response_due_at
@@ -135,6 +157,7 @@ Deno.serve(async (req) => {
         ? Math.max(0, Math.floor((new Date(ticket.resolution_due_at).getTime() - now.getTime()) / 1000)) : null,
     };
 
+    // ── Permissions ─────────────────────────────────────────────────────
     const permissions = {
       can_add_message: true,
       can_add_internal_note: userLevel >= 775,
@@ -154,7 +177,9 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         ...ticket,
-        current_queue: queueName,
+        // Enriched queue fields — these are the source of truth for UI
+        queue_code: queueCode,
+        queue_name: queueName,
         messages: messages || [],
         attachments: attachments || [],
         status_history: statusHistory,

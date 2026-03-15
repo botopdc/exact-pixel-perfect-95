@@ -156,8 +156,8 @@ export default function TicketCoreDetailPage() {
               <Separator />
               {permissions.isInternal && (
                 <>
-                  <InfoRow label="Fila" value={QUEUE_LABELS[ticket.current_queue] || ticket.current_queue} />
-                  <InfoRow label="Nível" value={ticket.current_support_level || ticket.support_level} />
+                  <InfoRow label="Fila" value={ticket.queue_name || ticket.queue_code || QUEUE_LABELS[ticket.current_support_level] || ticket.current_support_level} />
+                  <InfoRow label="Nível" value={ticket.current_support_level} />
                   <InfoRow label="Responsável" value={ticket.assigned_to_name || 'Não atribuído'} />
                   {ticket.assigned_at && <InfoRow label="Atribuído em" value={formatDate(ticket.assigned_at)} />}
                   <Separator />
