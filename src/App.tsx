@@ -262,6 +262,10 @@ const App = () => (
             {/* Support Tickets (Chamados de Clientes - 900/1000) */}
             <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
             <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
+            
+            {/* Tickets CORE — novo sistema Supabase-first */}
+            <Route path="/modulos/atendimentos/tickets" element={<TicketsCoreListPage />} />
+            <Route path="/modulos/atendimentos/tickets/:ticketId" element={<TicketCoreDetailPage />} />
             <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
             <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
             <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />

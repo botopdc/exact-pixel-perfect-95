@@ -87,7 +87,7 @@ function MessageBubble({ message, isInternal }: { message: CoreTicketMessage; is
 // ── Composer ────────────────────────────────────────────────────────────
 
 interface ComposerProps {
-  onSend: (body: string, isInternal: boolean) => Promise<void>;
+  onSend: (body: string, isInternal: boolean) => Promise<unknown>;
   permissions: TicketPermissions;
   isSending: boolean;
 }

@@ -21,7 +21,7 @@ import type { TicketAction, TicketActionPayload } from '@/services/supportTicket
 
 interface Props {
   permissions: TicketPermissions;
-  onAction: (action: TicketAction, extra?: Partial<TicketActionPayload>) => Promise<void>;
+  onAction: (action: TicketAction, extra?: Partial<TicketActionPayload>) => Promise<unknown>;
   isActing: boolean;
 }
 
