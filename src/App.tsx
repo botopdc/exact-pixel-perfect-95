@@ -277,8 +277,8 @@ const App = () => (
             
             {/* Tickets CORE — novo sistema Supabase-first (rota oficial) */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TicketsCoreListPage />} />
-            <Route path="/modulos/atendimentos/suporte-tecnico/:ticketId" element={<TicketCoreDetailPage />} />
             <Route path="/modulos/atendimentos/suporte-tecnico/filas" element={<QueueManagementPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/:ticketId" element={<TicketCoreDetailPage />} />
             {/* Redirect old /tickets route to official route */}
             <Route path="/modulos/atendimentos/tickets" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/tickets/:ticketId" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />

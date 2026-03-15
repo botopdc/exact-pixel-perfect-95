@@ -38,10 +38,13 @@ export default function QueueManagementPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [newMember, setNewMember] = useState({ user_id: '', user_name: '', user_email: '', user_level: '900' });
 
-  if (userLevel < 950) {
+  const canManage = userLevel >= 950; // managers and admins can add/remove
+  const canView = userLevel >= 900; // support can at least view
+
+  if (!canView) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground">Acesso restrito a gerentes e administradores.</p>
+        <p className="text-muted-foreground">Acesso restrito a usuários de suporte.</p>
       </div>
     );
   }
@@ -104,7 +107,7 @@ export default function QueueManagementPage() {
             <CardTitle className="text-sm">
               Membros — {selectedQueueObj?.name || 'Fila'}
             </CardTitle>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Button size="sm" onClick={() => setAddOpen(true)} disabled={!canManage}>
               <Plus className="h-4 w-4 mr-1" /> Adicionar Membro
             </Button>
           </CardHeader>
@@ -141,22 +144,29 @@ export default function QueueManagementPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7"
-                            onClick={() => toggleMember.mutate(m.id)}
-                            title={m.is_active ? 'Desativar' : 'Ativar'}
-                          >
-                            {m.is_active
-                              ? <ToggleRight className="h-4 w-4 text-emerald-500" />
-                              : <ToggleLeft className="h-4 w-4 text-muted-foreground" />
-                            }
-                          </Button>
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                            onClick={() => { if (confirm('Remover membro?')) removeMember.mutate(m.id); }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {canManage && (
+                            <>
+                              <Button
+                                variant="ghost" size="icon" className="h-7 w-7"
+                                onClick={() => toggleMember.mutate(m.id)}
+                                title={m.is_active ? 'Desativar' : 'Ativar'}
+                              >
+                                {m.is_active
+                                  ? <ToggleRight className="h-4 w-4 text-emerald-500" />
+                                  : <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+                                }
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                                onClick={() => { if (confirm('Remover membro?')) removeMember.mutate(m.id); }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          {!canManage && (
+                            <span className="text-xs text-muted-foreground">Somente leitura</span>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

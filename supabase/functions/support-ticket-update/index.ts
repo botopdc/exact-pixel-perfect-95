@@ -3,6 +3,10 @@
 // Queue-based model: status ≠ queue, escalation = queue change
 // Source of truth: current_queue_id + current_support_level
 // Legacy fields (support_level enum, current_queue enum) written for compat
+//
+// CRITICAL: Legacy auth uses integer user IDs (e.g. 5).
+// All *_user_id columns in support_tickets/assignments/status_history are UUID.
+// We MUST NOT write integer IDs to UUID columns — use null + metadata instead.
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -20,26 +24,58 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-type ActionHandler = (db: any, ticket: any, body: any, req: Request) => Promise<Response>;
+// UUID regex for validation
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function recordStatusChange(db: any, ticketId: string, oldStatus: string, newStatus: string, userId: string | null, userName: string | null, reason?: string) {
-  await db.from("support_ticket_status_history").insert({
-    ticket_id: ticketId, old_status: oldStatus, new_status: newStatus,
-    changed_by_user_id: userId, changed_by_name: userName, reason: reason || null,
-  });
+function isValidUuid(val: unknown): boolean {
+  return typeof val === "string" && UUID_RE.test(val);
 }
 
-async function recordEvent(db: any, eventName: string, entityId: string, actorType: string, actorId: string | null, metadata: any, req: Request) {
-  await db.from("support_ticket_events").insert({
-    event_name: eventName, entity_type: "support_ticket", entity_id: entityId,
-    actor_type: actorType, actor_id: actorId, user_id: actorId, metadata,
+/** Safely convert actor_user_id to UUID or null (for UUID columns) */
+function toUuidOrNull(val: unknown): string | null {
+  return isValidUuid(val) ? String(val) : null;
+}
+
+/** Safely convert actor_user_id to integer or null (for integer columns) */
+function toIntOrNull(val: unknown): number | null {
+  if (val === null || val === undefined) return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+type ActionHandler = (db: any, ticket: any, body: any, req: Request) => Promise<Response>;
+
+async function recordStatusChange(db: any, ticketId: string, oldStatus: string, newStatus: string, actorId: unknown, actorName: string | null, reason?: string) {
+  const result = await db.from("support_ticket_status_history").insert({
+    ticket_id: ticketId,
+    old_status: oldStatus,
+    new_status: newStatus,
+    changed_by_user_id: toUuidOrNull(actorId),
+    changed_by_name: actorName,
+    reason: reason || null,
+  });
+  if (result.error) console.error("recordStatusChange error:", result.error.message);
+}
+
+async function recordEvent(db: any, eventName: string, entityId: string, actorType: string, actorId: unknown, metadata: any, req: Request) {
+  const result = await db.from("support_ticket_events").insert({
+    event_name: eventName,
+    entity_type: "support_ticket",
+    entity_id: entityId,
+    actor_type: actorType,
+    actor_id: String(actorId ?? ""),
+    user_id: String(actorId ?? ""),
+    metadata,
     ip_address: req.headers.get("x-forwarded-for") || null,
     user_agent: req.headers.get("user-agent") || null,
   });
+  if (result.error) console.error("recordEvent error:", result.error.message);
 }
 
 async function updateTicket(db: any, ticketId: string, fields: any) {
+  console.log("support-ticket-update updateTicket payload:", JSON.stringify(fields));
   const { data, error } = await db.from("support_tickets").update(fields).eq("id", ticketId).select().single();
+  if (error) console.error("support-ticket-update updateTicket error:", error.message);
   return { data, error };
 }
 
@@ -76,12 +112,13 @@ async function notifyQueueMembers(db: any, queueId: string, eventName: string, t
     metadata: {},
   }));
 
-  await db.from("support_notifications").insert(notifications);
+  const result = await db.from("support_notifications").insert(notifications);
+  if (result.error) console.error("notifyQueueMembers error:", result.error.message);
 }
 
 // Helper: notify specific user
 async function notifyUser(db: any, userId: string, userLevel: number, eventName: string, title: string, body: string | null, ticketId: string, publicCode: string) {
-  await db.from("support_notifications").insert({
+  const result = await db.from("support_notifications").insert({
     user_id: String(userId),
     user_level: userLevel,
     event_name: eventName,
@@ -91,17 +128,56 @@ async function notifyUser(db: any, userId: string, userLevel: number, eventName:
     ticket_public_code: publicCode,
     metadata: {},
   });
+  if (result.error) console.error("notifyUser error:", result.error.message);
+}
+
+// Helper: insert assignment record (UUID columns → null for integer IDs)
+async function recordAssignment(db: any, ticketId: string, opts: {
+  fromUserId?: unknown;
+  fromUserName?: string | null;
+  toUserId?: unknown;
+  toUserName?: string | null;
+  fromQueue?: string | null;
+  toQueue?: string | null;
+  fromSupportLevel?: string | null;
+  toSupportLevel?: string | null;
+  reason?: string | null;
+  assignedById?: unknown;
+  assignedByName?: string | null;
+}) {
+  const result = await db.from("support_ticket_assignments").insert({
+    ticket_id: ticketId,
+    from_user_id: toUuidOrNull(opts.fromUserId),
+    from_user_name: opts.fromUserName || null,
+    to_user_id: toUuidOrNull(opts.toUserId),
+    to_user_name: opts.toUserName || null,
+    from_queue: opts.fromQueue || null,
+    to_queue: opts.toQueue || null,
+    from_support_level: opts.fromSupportLevel || null,
+    to_support_level: opts.toSupportLevel || null,
+    reason: opts.reason || null,
+    assigned_by_user_id: toUuidOrNull(opts.assignedById),
+    assigned_by_name: opts.assignedByName || null,
+  });
+  if (result.error) console.error("recordAssignment error:", result.error.message);
 }
 
 // ── assign: user assumes ticket ─────────────────────────────────────────
 const handleAssign: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [assign]", { actor: body.actor_user_id, actorName: body.actor_name, actorLevel: body.actor_level });
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const now = new Date().toISOString();
+  // assigned_to_user_id is UUID — cannot store integer; use null
+  // assigned_to_name stores the human-readable name
   const updates: any = {
-    assigned_to_user_id: body.actor_user_id,
-    assigned_to_name: body.actor_name,
+    assigned_to_user_id: toUuidOrNull(body.actor_user_id),
+    assigned_to_name: body.actor_name || null,
     assigned_at: now,
+    metadata: {
+      ...(ticket.metadata || {}),
+      assigned_to_legacy_user_id: toIntOrNull(body.actor_user_id),
+    },
   };
   if (ticket.status === "novo" || ticket.status === "reaberto") {
     updates.status = "em_atendimento";
@@ -113,13 +189,16 @@ const handleAssign: ActionHandler = async (db, ticket, body, req) => {
   const { data, error } = await updateTicket(db, ticket.id, updates);
   if (error) return jsonResponse({ success: false, message: error.message }, 500);
 
-  await db.from("support_ticket_assignments").insert({
-    ticket_id: ticket.id,
-    from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
-    to_user_id: body.actor_user_id, to_user_name: body.actor_name,
-    from_queue: ticket.current_support_level, to_queue: ticket.current_support_level,
+  await recordAssignment(db, ticket.id, {
+    fromUserId: ticket.assigned_to_user_id,
+    fromUserName: ticket.assigned_to_name,
+    toUserId: body.actor_user_id,
+    toUserName: body.actor_name,
+    fromQueue: ticket.current_support_level,
+    toQueue: ticket.current_support_level,
     reason: "Assumiu o ticket",
-    assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
+    assignedById: body.actor_user_id,
+    assignedByName: body.actor_name,
   });
 
   if (updates.status && updates.status !== ticket.status) {
@@ -134,14 +213,19 @@ const handleAssign: ActionHandler = async (db, ticket, body, req) => {
 
 // ── start: begin working ────────────────────────────────────────────────
 const handleStart: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [start]", { actor: body.actor_user_id, actorName: body.actor_name, actorLevel: body.actor_level });
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const now = new Date().toISOString();
   const updates: any = {
     status: "em_atendimento",
-    assigned_to_user_id: body.actor_user_id,
-    assigned_to_name: body.actor_name,
+    assigned_to_user_id: toUuidOrNull(body.actor_user_id),
+    assigned_to_name: body.actor_name || null,
     assigned_at: now,
+    metadata: {
+      ...(ticket.metadata || {}),
+      assigned_to_legacy_user_id: toIntOrNull(body.actor_user_id),
+    },
   };
   if (!ticket.first_response_at) updates.first_response_at = now;
 
@@ -149,12 +233,14 @@ const handleStart: ActionHandler = async (db, ticket, body, req) => {
   if (error) return jsonResponse({ success: false, message: error.message }, 500);
 
   await recordStatusChange(db, ticket.id, ticket.status, "em_atendimento", body.actor_user_id, body.actor_name);
-  await db.from("support_ticket_assignments").insert({
-    ticket_id: ticket.id,
-    from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
-    to_user_id: body.actor_user_id, to_user_name: body.actor_name,
+  await recordAssignment(db, ticket.id, {
+    fromUserId: ticket.assigned_to_user_id,
+    fromUserName: ticket.assigned_to_name,
+    toUserId: body.actor_user_id,
+    toUserName: body.actor_name,
     reason: "Assumiu o ticket",
-    assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
+    assignedById: body.actor_user_id,
+    assignedByName: body.actor_name,
   });
   await recordEvent(db, "ticket.status_changed", ticket.id, getActorType(body.actor_level), body.actor_user_id, {
     old_status: ticket.status, new_status: "em_atendimento",
@@ -165,6 +251,7 @@ const handleStart: ActionHandler = async (db, ticket, body, req) => {
 
 // ── escalate: change queue, keep status as em_atendimento ───────────────
 const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [escalate]", { actor: body.actor_user_id, targetLevel: body.target_level });
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão para escalar" }, 403);
 
   const targetLevel = body.target_level;
@@ -175,15 +262,12 @@ const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
   const targetQueueId = await resolveQueueId(db, targetLevel);
   if (!targetQueueId) return jsonResponse({ success: false, message: `Fila ${targetLevel} não encontrada` }, 422);
 
-  // Escalation does NOT change status — queue changes only
   const newStatus = ticket.status === "novo" || ticket.status === "reaberto" ? "em_atendimento" : ticket.status;
   const { data, error } = await updateTicket(db, ticket.id, {
     current_queue_id: targetQueueId,
     current_support_level: targetLevel,
-    // Legacy compat writes
     support_level: targetLevel,
     current_queue: targetLevel,
-    // Clear assignee — new queue needs to pick up
     assigned_to_user_id: null,
     assigned_to_name: null,
     assigned_at: null,
@@ -198,18 +282,21 @@ const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
     to_queue_id: targetQueueId,
     from_support_level: ticket.current_support_level,
     to_support_level: targetLevel,
-    changed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
+    changed_by_user_id: toIntOrNull(body.actor_user_id),
     changed_by_name: body.actor_name,
     reason: body.reason || `Escalado para ${targetLevel}`,
   });
 
-  await db.from("support_ticket_assignments").insert({
-    ticket_id: ticket.id,
-    from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
-    from_queue: ticket.current_support_level, to_queue: targetLevel,
-    from_support_level: ticket.current_support_level, to_support_level: targetLevel,
+  await recordAssignment(db, ticket.id, {
+    fromUserId: ticket.assigned_to_user_id,
+    fromUserName: ticket.assigned_to_name,
+    fromQueue: ticket.current_support_level,
+    toQueue: targetLevel,
+    fromSupportLevel: ticket.current_support_level,
+    toSupportLevel: targetLevel,
     reason: body.reason || `Escalado para ${targetLevel}`,
-    assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
+    assignedById: body.actor_user_id,
+    assignedByName: body.actor_name,
   });
 
   if (newStatus !== ticket.status) {
@@ -220,7 +307,6 @@ const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
     from_level: ticket.current_support_level, to_level: targetLevel, reason: body.reason,
   }, req);
 
-  // Notify target queue members
   await notifyQueueMembers(db, targetQueueId, "ticket.escalated",
     `Ticket ${ticket.public_code} escalado para ${targetLevel}`,
     `${ticket.title}`, ticket.id, ticket.public_code);
@@ -230,6 +316,7 @@ const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
 
 // ── resolve: mark as resolved, move to CS queue ─────────────────────────
 const handleResolve: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [resolve]", { actor: body.actor_user_id, actorLevel: body.actor_level });
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão para resolver" }, 403);
   if (!body.reason?.trim()) return jsonResponse({ success: false, message: "resolution_summary (reason) obrigatório" }, 422);
 
@@ -239,10 +326,11 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "resolvido_suporte",
     resolved_at: now,
-    support_resolved_by: body.actor_user_id,
-    resolved_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
+    // UUID columns — null for integer user IDs
+    support_resolved_by: toUuidOrNull(body.actor_user_id),
+    // Integer column — safe to store
+    resolved_by_user_id: toIntOrNull(body.actor_user_id),
     resolution_summary: body.reason.trim(),
-    // Move to CS queue
     current_queue_id: csQueueId,
     current_support_level: "CS",
     current_queue: "CS",
@@ -261,12 +349,11 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
       to_queue_id: csQueueId,
       from_support_level: ticket.current_support_level,
       to_support_level: "CS",
-      changed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
+      changed_by_user_id: toIntOrNull(body.actor_user_id),
       changed_by_name: body.actor_name,
       reason: "Ticket resolvido — movido para CS",
     });
 
-    // Notify CS queue members
     await notifyQueueMembers(db, csQueueId, "ticket.resolved",
       `Ticket ${ticket.public_code} resolvido — aguardando fechamento`,
       `${ticket.title}`, ticket.id, ticket.public_code);
@@ -282,6 +369,7 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
 
 // ── close (CS only) ─────────────────────────────────────────────────────
 const handleClose: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [close]", { actor: body.actor_user_id, actorLevel: body.actor_level });
   if ((body.actor_level || 0) < 775) return jsonResponse({ success: false, message: "Apenas CS pode encerrar" }, 403);
   if (!body.reason?.trim()) return jsonResponse({ success: false, message: "close_reason (reason) obrigatório" }, 422);
 
@@ -289,8 +377,10 @@ const handleClose: ActionHandler = async (db, ticket, body, req) => {
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "encerrado_cs",
     closed_at: now,
-    cs_closed_by: body.actor_user_id,
-    closed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
+    // UUID column — null for integer user IDs
+    cs_closed_by: toUuidOrNull(body.actor_user_id),
+    // Integer column — safe
+    closed_by_user_id: toIntOrNull(body.actor_user_id),
     close_reason: body.reason.trim(),
   });
 
@@ -304,6 +394,7 @@ const handleClose: ActionHandler = async (db, ticket, body, req) => {
 
 // ── reopen ──────────────────────────────────────────────────────────────
 const handleReopen: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [reopen]", { actor: body.actor_user_id, actorLevel: body.actor_level });
   if ((body.actor_level || 0) < 775) return jsonResponse({ success: false, message: "Sem permissão para reabrir" }, 403);
 
   const n1QueueId = await resolveQueueId(db, "N1");
@@ -336,12 +427,11 @@ const handleReopen: ActionHandler = async (db, ticket, body, req) => {
       to_queue_id: n1QueueId,
       from_support_level: ticket.current_support_level || "CS",
       to_support_level: "N1",
-      changed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
+      changed_by_user_id: toIntOrNull(body.actor_user_id),
       changed_by_name: body.actor_name,
       reason: body.reason || "Ticket reaberto",
     });
 
-    // Notify N1 queue members
     await notifyQueueMembers(db, n1QueueId, "ticket.reopened",
       `Ticket ${ticket.public_code} reaberto`,
       `${ticket.title}`, ticket.id, ticket.public_code);
@@ -355,6 +445,7 @@ const handleReopen: ActionHandler = async (db, ticket, body, req) => {
 
 // ── cancel ──────────────────────────────────────────────────────────────
 const handleCancel: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [cancel]", { actor: body.actor_user_id, actorLevel: body.actor_level });
   if ((body.actor_level || 0) < 950) return jsonResponse({ success: false, message: "Sem permissão para cancelar" }, 403);
 
   const { data, error } = await updateTicket(db, ticket.id, { status: "cancelado" });
@@ -368,6 +459,7 @@ const handleCancel: ActionHandler = async (db, ticket, body, req) => {
 
 // ── waiting ─────────────────────────────────────────────────────────────
 const handleWaiting: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [waiting]", { actor: body.actor_user_id, action: body.action });
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const waitType = body.action === "wait_third_party" ? "aguardando_terceiro" : "aguardando_cliente";
@@ -384,6 +476,7 @@ const handleWaiting: ActionHandler = async (db, ticket, body, req) => {
 
 // ── transfer: move to another user or queue ─────────────────────────────
 const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
+  console.log("support-ticket-update [transfer]", { actor: body.actor_user_id, toQueue: body.to_queue, toUser: body.to_user_id });
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão para transferir" }, 403);
 
   const updates: any = {};
@@ -394,7 +487,6 @@ const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
     if (queueId) {
       updates.current_queue_id = queueId;
       updates.current_support_level = body.to_queue;
-      // Legacy compat
       if (["N1", "N2", "N3"].includes(body.to_queue)) {
         updates.support_level = body.to_queue;
         updates.current_queue = body.to_queue;
@@ -406,21 +498,30 @@ const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
   }
 
   if (body.to_user_id !== undefined) {
-    updates.assigned_to_user_id = body.to_user_id || null;
+    updates.assigned_to_user_id = toUuidOrNull(body.to_user_id);
     updates.assigned_to_name = body.to_user_name || null;
     updates.assigned_at = body.to_user_id ? new Date().toISOString() : null;
+    if (!isValidUuid(body.to_user_id) && body.to_user_id) {
+      updates.metadata = {
+        ...(ticket.metadata || {}),
+        assigned_to_legacy_user_id: toIntOrNull(body.to_user_id),
+      };
+    }
   }
 
   const { data, error } = await updateTicket(db, ticket.id, updates);
   if (error) return jsonResponse({ success: false, message: error.message }, 500);
 
-  await db.from("support_ticket_assignments").insert({
-    ticket_id: ticket.id,
-    from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
-    to_user_id: body.to_user_id || null, to_user_name: body.to_user_name || null,
-    from_queue: ticket.current_support_level, to_queue: targetQueueCode,
+  await recordAssignment(db, ticket.id, {
+    fromUserId: ticket.assigned_to_user_id,
+    fromUserName: ticket.assigned_to_name,
+    toUserId: body.to_user_id,
+    toUserName: body.to_user_name,
+    fromQueue: ticket.current_support_level,
+    toQueue: targetQueueCode,
     reason: body.reason,
-    assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
+    assignedById: body.actor_user_id,
+    assignedByName: body.actor_name,
   });
 
   if (body.to_queue && body.to_queue !== ticket.current_support_level) {
@@ -432,14 +533,13 @@ const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
         to_queue_id: toQueueId,
         from_support_level: ticket.current_support_level,
         to_support_level: body.to_queue,
-        changed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
+        changed_by_user_id: toIntOrNull(body.actor_user_id),
         changed_by_name: body.actor_name,
         reason: body.reason,
       });
     }
   }
 
-  // Notify destination user if transferring to specific user
   if (body.to_user_id) {
     await notifyUser(db, String(body.to_user_id), body.to_user_level || 900,
       "ticket.assigned",
@@ -490,6 +590,15 @@ Deno.serve(async (req) => {
     const db = getSupabaseAdmin();
     const { action, ticket_id } = body;
 
+    console.log("support-ticket-update start", {
+      action,
+      ticket_id,
+      actor_user_id: body.actor_user_id,
+      actor_name: body.actor_name,
+      actor_level: body.actor_level,
+      isActorUuid: isValidUuid(body.actor_user_id),
+    });
+
     if (!action || !ticket_id) {
       return jsonResponse({ success: false, message: "action e ticket_id obrigatórios" }, 422);
     }
@@ -511,8 +620,12 @@ Deno.serve(async (req) => {
     }
 
     return await handler(db, ticket, body, req);
-  } catch (err) {
-    console.error("support-ticket-update error:", err);
-    return jsonResponse({ success: false, message: "Erro interno", errors: [String(err)] }, 500);
+  } catch (err: any) {
+    console.error("support-ticket-update FATAL error:", {
+      message: err?.message,
+      stack: err?.stack,
+      details: String(err),
+    });
+    return jsonResponse({ success: false, message: err?.message || "Erro interno", errors: [String(err)] }, 500);
   }
 });
