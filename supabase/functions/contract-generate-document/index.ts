@@ -120,9 +120,10 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
   return { trimmedBytes: new Uint8Array(trimmedBytes), trimmedPageCount: copiedPages.length };
 }
 
-// ─── Generate proposal summary PDF using pdf-lib ────────────
-// Used when proposal has no pdf_path — creates a clean summary document
-async function generateProposalSummaryPdf(
+// ─── Generate FULL proposal PDF (7 cover pages + summary pages) ──────
+// Used when proposal has no pdf_path. Creates a document with 7+N pages
+// so the standard trim flow (remove pages 1-7) produces the real summary.
+async function generateFullProposalPdf(
   proposal: any,
   servers: any[],
   addons: any[],
@@ -134,14 +135,41 @@ async function generateProposalSummaryPdf(
   const fontSize = 10;
   const lineHeight = 14;
   const margin = 50;
+  const A4W = 595.28;
+  const A4H = 841.89;
 
-  function addPage() {
-    const page = doc.addPage([595.28, 841.89]); // A4
-    return { page, y: 841.89 - margin };
+  // ── Pages 1-7: Cover / placeholder pages ──────────────────
+  const coverTitles = [
+    "PROPOSTA COMERCIAL",
+    "OPEN DATACENTER",
+    "SOBRE A EMPRESA",
+    "INFRAESTRUTURA",
+    "NOSSOS SERVIÇOS",
+    "DIFERENCIAIS",
+    "TERMOS E CONDIÇÕES",
+  ];
+  for (let i = 0; i < 7; i++) {
+    const coverPage = doc.addPage([A4W, A4H]);
+    coverPage.drawText(coverTitles[i], {
+      x: margin,
+      y: A4H / 2,
+      font: fontBold,
+      size: 24,
+      color: rgb(0.1, 0.1, 0.5),
+    });
+    coverPage.drawText(
+      `Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`,
+      { x: margin, y: A4H / 2 - 40, font, size: 12, color: rgb(0.3, 0.3, 0.3) }
+    );
+    coverPage.drawText(
+      `Página ${i + 1} de capa — gerada automaticamente`,
+      { x: margin, y: margin, font, size: 8, color: rgb(0.6, 0.6, 0.6) }
+    );
   }
 
-  let { page, y } = addPage();
-  const pageWidth = 595.28;
+  // ── Pages 8+: Real proposal summary content ───────────────
+  let page = doc.addPage([A4W, A4H]);
+  let y = A4H - margin;
 
   function drawText(text: string, x: number, yPos: number, options?: { font?: any; size?: number; color?: any }) {
     const f = options?.font || font;
@@ -151,9 +179,8 @@ async function generateProposalSummaryPdf(
 
   function checkNewPage() {
     if (y < margin + 40) {
-      const result = addPage();
-      page = result.page;
-      y = result.y;
+      page = doc.addPage([A4W, A4H]);
+      y = A4H - margin;
     }
   }
 
@@ -162,7 +189,7 @@ async function generateProposalSummaryPdf(
   y -= 24;
   drawText(`Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`, margin, y, { font: fontBold, size: 11 });
   y -= 16;
-  drawText(`Gerado automaticamente em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`, margin, y, { size: 8, color: rgb(0.4, 0.4, 0.4) });
+  drawText(`Gerado em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`, margin, y, { size: 8, color: rgb(0.4, 0.4, 0.4) });
   y -= 24;
 
   // Client info
@@ -189,7 +216,6 @@ async function generateProposalSummaryPdf(
     drawText("SERVIDORES / RECURSOS", margin, y, { font: fontBold, size: 11 });
     y -= lineHeight + 4;
 
-    // Header row
     const colX = [margin, margin + 140, margin + 220, margin + 270, margin + 320, margin + 400];
     drawText("Nome", colX[0], y, { font: fontBold, size: 9 });
     drawText("Tipo", colX[1], y, { font: fontBold, size: 9 });
@@ -198,7 +224,7 @@ async function generateProposalSummaryPdf(
     drawText("Qtd", colX[4], y, { font: fontBold, size: 9 });
     drawText("Valor Unit.", colX[5], y, { font: fontBold, size: 9 });
     y -= 2;
-    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    page.drawLine({ start: { x: margin, y }, end: { x: A4W - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
     y -= lineHeight;
 
     for (const srv of servers) {
@@ -225,7 +251,7 @@ async function generateProposalSummaryPdf(
     drawText("Qtd", margin + 280, y, { font: fontBold, size: 9 });
     drawText("Valor", margin + 360, y, { font: fontBold, size: 9 });
     y -= 2;
-    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    page.drawLine({ start: { x: margin, y }, end: { x: A4W - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
     y -= lineHeight;
 
     for (const addon of enabledAddons) {
@@ -241,12 +267,11 @@ async function generateProposalSummaryPdf(
   // Total
   checkNewPage();
   y -= 6;
-  page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: pageWidth - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
+  page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: A4W - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
   drawText("VALOR TOTAL MENSAL:", margin, y, { font: fontBold, size: 12 });
   drawText(formatBRL(proposal.total || contract.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
   y -= lineHeight * 2;
 
-  // Footer note
   checkNewPage();
   drawText("Este documento é um resumo gerado automaticamente a partir dos dados da proposta comercial.", margin, y, { size: 8, color: rgb(0.5, 0.5, 0.5) });
   y -= lineHeight;
