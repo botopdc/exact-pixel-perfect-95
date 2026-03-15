@@ -314,15 +314,31 @@ export default function ContratoDetailPage() {
     const addons = payload?.addons || [];
 
 
+    const [lastGenerationDebug, setLastGenerationDebug] = useState<any>(null);
+
     const handleGenerateDocument = async () => {
       setGeneratingDoc(true);
+      setLastGenerationDebug(null);
       try {
         const result = await contractDocumentService.generate(c.id);
-        toast.success('Documento gerado com sucesso!');
+        console.log('[contract-ui] generation_response=', result);
+        console.log('[contract-ui] documents_from_backend=', result?.documents);
+        console.log('[contract-ui] annex_from_backend=', result?.documents?.find((d: any) => d.type === 'annex_pdf'));
+        console.log('[contract-ui] debug_from_backend=', result?.debug);
+        setLastGenerationDebug(result?.debug || result);
+
+        if (result?.annex_generated) {
+          toast.success('Documentos gerados com sucesso (DOCX + Anexo I)!');
+        } else if (result?.contract_docx_generated) {
+          toast.warning(`DOCX gerado, mas Anexo I não foi gerado: ${result?.annex_skip_reason || 'motivo desconhecido'}`);
+        } else {
+          toast.info('Geração concluída — verifique os documentos.');
+        }
         // Refresh contract data
         window.location.reload();
       } catch (err: any) {
-        console.error('Erro ao gerar documento:', err);
+        console.error('[contract-ui] generation_error=', err);
+        console.error('[contract-ui] generation_error_message=', err?.message);
         toast.error(err.message || 'Erro ao gerar documento');
       } finally {
         setGeneratingDoc(false);
