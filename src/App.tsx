@@ -142,6 +142,7 @@ import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
 // Tickets CORE (Supabase-first)
 import TicketsCoreListPage from '@/pages/modules/atendimentos/TicketsCoreListPage';
 import TicketCoreDetailPage from '@/pages/modules/atendimentos/TicketCoreDetailPage';
+import QueueManagementPage from '@/pages/modules/atendimentos/QueueManagementPage';
 
 // Client Portal
 import ClientTicketsPage from '@/pages/portal/ClientTicketsPage';
