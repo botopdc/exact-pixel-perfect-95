@@ -177,11 +177,17 @@ export function useQueueMembers(queueId?: string) {
 export function useQueueMemberMutations() {
   const queryClient = useQueryClient();
 
+  const refreshAnalystViews = () => {
+    queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+    queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] });
+    queryClient.invalidateQueries({ queryKey: ['support-dashboard-stats'] });
+  };
+
   const addMember = useMutation({
     mutationFn: supportTicketCoreService.addQueueMember,
     onSuccess: () => {
       toast.success('Membro adicionado à fila');
-      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+      refreshAnalystViews();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -190,7 +196,7 @@ export function useQueueMemberMutations() {
     mutationFn: supportTicketCoreService.removeQueueMember,
     onSuccess: () => {
       toast.success('Membro removido');
-      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+      refreshAnalystViews();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -198,7 +204,7 @@ export function useQueueMemberMutations() {
   const toggleMember = useMutation({
     mutationFn: supportTicketCoreService.toggleQueueMember,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+      refreshAnalystViews();
     },
     onError: (err: Error) => toast.error(err.message),
   });
