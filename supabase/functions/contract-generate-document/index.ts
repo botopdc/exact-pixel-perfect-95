@@ -123,11 +123,12 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
 // ─── Generate FULL proposal PDF (7 cover pages + summary pages) ──────
 // Used when proposal has no pdf_path. Creates a document with 7+N pages
 // so the standard trim flow (remove pages 1-7) produces the real summary.
+// IMPORTANT: Uses ONLY proposal data — never contract data — to ensure
+// the same PDF is generated regardless of context (public or contract).
 async function generateFullProposalPdf(
   proposal: any,
   servers: any[],
   addons: any[],
-  contract: any,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
