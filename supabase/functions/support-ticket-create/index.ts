@@ -140,9 +140,35 @@ Deno.serve(async (req) => {
     const origin_channel = validChannels.includes(body.origin_channel) ? body.origin_channel : "portal";
     const requester_level = body.requester_level || 1;
 
+    // ── User context (legacy integer IDs vs UUID columns) ───────────────
+    // The CORE auth uses integer user.id. DB has both UUID legacy columns
+    // and newer integer columns. We must NOT put integers into UUID columns.
+    const rawUserId = body.requester_user_id;
+    const isUuid = typeof rawUserId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawUserId);
+    const isInteger = typeof rawUserId === "number" || (typeof rawUserId === "string" && /^\d+$/.test(rawUserId));
+
+    console.log("support-ticket-create user context", {
+      rawUserId,
+      isUuid,
+      isInteger,
+      userLevel: requester_level,
+      userEmail: body.requester_email,
+      userName: body.requester_name,
+    });
+
+    // requester_user_id column is UUID → only set if we have a valid UUID
+    const requesterUserIdUuid = isUuid ? rawUserId : null;
+
+    // Store integer user id in metadata for traceability
+    const ticketMetadata = {
+      ...(body.metadata || {}),
+      ...(isInteger ? { legacy_user_id: Number(rawUserId) } : {}),
+    };
+
     const ticketPayload = {
       company_id: body.company_id || null,
-      requester_user_id: body.requester_user_id || null,
+      // UUID column – only accept valid UUIDs
+      requester_user_id: requesterUserIdUuid,
       requester_level,
       requester_name: body.requester_name,
       requester_email: body.requester_email || null,
@@ -160,9 +186,18 @@ Deno.serve(async (req) => {
       // Legacy compat writes
       support_level: "N1",
       current_queue: "N1",
-      // No assignee on creation
+      // No assignee on creation – all UUID columns null
       assigned_to_user_id: null,
       assigned_to_name: null,
+      // Legacy UUID columns – explicitly null on creation
+      support_resolved_by: null,
+      cs_closed_by: null,
+      // Integer columns – explicitly null on creation
+      resolved_by_user_id: null,
+      closed_by_user_id: null,
+      resolved_at: null,
+      closed_at: null,
+      assigned_at: null,
       service_name: body.service_name || null,
       asset_id: body.asset_id || null,
       asset_label: body.asset_label || null,
@@ -174,7 +209,7 @@ Deno.serve(async (req) => {
       resolution_due_at,
       source_system: body.source_system || null,
       external_reference: body.external_reference || null,
-      metadata: body.metadata || {},
+      metadata: ticketMetadata,
     };
 
     console.log("support-ticket-create INSERT payload:", JSON.stringify(ticketPayload));
@@ -209,7 +244,8 @@ Deno.serve(async (req) => {
         ticket_id: ticket.id,
         old_status: null,
         new_status: "novo",
-        changed_by_user_id: body.requester_user_id || null,
+        // changed_by_user_id is UUID – only set if we have valid UUID
+        changed_by_user_id: requesterUserIdUuid,
         changed_by_name: body.requester_name,
         reason: "Ticket criado",
       });
