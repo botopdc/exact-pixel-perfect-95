@@ -462,7 +462,7 @@ export const supportTicketCoreService = {
   async getMyQueues(userId: string): Promise<QueueMember[]> {
     const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
-      action: 'my_queues', user_id: userId || ctx.user_id,
+      action: 'my_queues', user_id: userId || ctx.actor_user_id,
       ...ctx,
     });
     return resp.data || [];
