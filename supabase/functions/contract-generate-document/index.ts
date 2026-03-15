@@ -1,6 +1,11 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+// ============================================================================
+// EDGE FUNCTION: contract-generate-document
+// Generates Contract DOCX + Annex I PDF from proposal
+// Strategy: proposal_pdf_trim (existing PDF) or proposal_pdf_generated (auto)
+// ============================================================================
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
-import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
+import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
@@ -22,7 +27,10 @@ function errorResponse(code: string, message: string, status: number, debug?: Re
   return json({ success: false, code, message, debug: debug || {} }, status);
 }
 
-// ─── Helpers ────────────────────────────────────────────────
+// ─── Locked statuses ────────────────────────────────────────
+const LOCKED_STATUSES = ["assinado", "finalizado", "cancelado"];
+
+// ─── Date helpers ───────────────────────────────────────────
 function dateExtenso(dateStr: string | null): string {
   if (!dateStr) return "_____ de _____________ de _______";
   const d = new Date(dateStr + "T12:00:00");
@@ -46,6 +54,10 @@ function escapeXml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function formatBRL(value: number): string {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 // ─── DOCX template merge ────────────────────────────────────
@@ -90,8 +102,6 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
   const srcDoc = await PDFDocument.load(pdfBytes);
   const totalPages = srcDoc.getPageCount();
 
-  console.log(`[contract-docs] [STEP 5] source_pdf_page_count=${totalPages}`);
-
   if (totalPages <= 7) {
     throw new Error("proposal_pdf_page_count_invalid");
   }
@@ -107,18 +117,205 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
   }
 
   const trimmedBytes = await newDoc.save();
-  const trimmedPageCount = copiedPages.length;
-  console.log(`[contract-docs] [STEP 5] trimmed_pdf_page_count=${trimmedPageCount}`);
-  return { trimmedBytes: new Uint8Array(trimmedBytes), trimmedPageCount };
+  return { trimmedBytes: new Uint8Array(trimmedBytes), trimmedPageCount: copiedPages.length };
+}
+
+// ─── Generate proposal summary PDF using pdf-lib ────────────
+// Used when proposal has no pdf_path — creates a clean summary document
+async function generateProposalSummaryPdf(
+  proposal: any,
+  servers: any[],
+  addons: any[],
+  contract: any,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fontSize = 10;
+  const lineHeight = 14;
+  const margin = 50;
+
+  function addPage() {
+    const page = doc.addPage([595.28, 841.89]); // A4
+    return { page, y: 841.89 - margin };
+  }
+
+  let { page, y } = addPage();
+  const pageWidth = 595.28;
+
+  function drawText(text: string, x: number, yPos: number, options?: { font?: any; size?: number; color?: any }) {
+    const f = options?.font || font;
+    const s = options?.size || fontSize;
+    page.drawText(text, { x, y: yPos, font: f, size: s, color: options?.color || rgb(0, 0, 0) });
+  }
+
+  function checkNewPage() {
+    if (y < margin + 40) {
+      const result = addPage();
+      page = result.page;
+      y = result.y;
+    }
+  }
+
+  // Header
+  drawText("ANEXO I — RESUMO DA PROPOSTA", margin, y, { font: fontBold, size: 14, color: rgb(0.1, 0.1, 0.5) });
+  y -= 24;
+  drawText(`Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`, margin, y, { font: fontBold, size: 11 });
+  y -= 16;
+  drawText(`Gerado automaticamente em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`, margin, y, { size: 8, color: rgb(0.4, 0.4, 0.4) });
+  y -= 24;
+
+  // Client info
+  drawText("DADOS DO CLIENTE", margin, y, { font: fontBold, size: 11 });
+  y -= lineHeight + 2;
+  const clientFields = [
+    ["Empresa", contract.company || proposal.company || "—"],
+    ["Contato", contract.client_name || proposal.name || "—"],
+    ["Email", contract.email || proposal.email || "—"],
+    ["Datacenter", contract.datacenter || proposal.datacenter || "SP1"],
+    ["Moeda", contract.currency || proposal.currency || "BRL"],
+    ["Duração", `${contract.contract_duration || proposal.contract_duration || 12} meses`],
+  ];
+  for (const [label, value] of clientFields) {
+    drawText(`${label}:`, margin, y, { font: fontBold });
+    drawText(String(value), margin + 100, y);
+    y -= lineHeight;
+  }
+  y -= 10;
+
+  // Servers table
+  if (servers.length > 0) {
+    checkNewPage();
+    drawText("SERVIDORES / RECURSOS", margin, y, { font: fontBold, size: 11 });
+    y -= lineHeight + 4;
+
+    // Header row
+    const colX = [margin, margin + 140, margin + 220, margin + 270, margin + 320, margin + 400];
+    drawText("Nome", colX[0], y, { font: fontBold, size: 9 });
+    drawText("Tipo", colX[1], y, { font: fontBold, size: 9 });
+    drawText("vCPU", colX[2], y, { font: fontBold, size: 9 });
+    drawText("RAM", colX[3], y, { font: fontBold, size: 9 });
+    drawText("Qtd", colX[4], y, { font: fontBold, size: 9 });
+    drawText("Valor Unit.", colX[5], y, { font: fontBold, size: 9 });
+    y -= 2;
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    y -= lineHeight;
+
+    for (const srv of servers) {
+      checkNewPage();
+      drawText((srv.name || "Servidor").substring(0, 22), colX[0], y, { size: 9 });
+      drawText(srv.server_type || "vm", colX[1], y, { size: 9 });
+      drawText(String(srv.vcpu || "—"), colX[2], y, { size: 9 });
+      drawText(srv.ram_gb ? `${srv.ram_gb}GB` : "—", colX[3], y, { size: 9 });
+      drawText(String(srv.qty_servers || 1), colX[4], y, { size: 9 });
+      drawText(formatBRL(srv.unit_price || 0), colX[5], y, { size: 9 });
+      y -= lineHeight;
+    }
+    y -= 10;
+  }
+
+  // Addons table
+  const enabledAddons = addons.filter((a: any) => a.enabled && a.total_price > 0);
+  if (enabledAddons.length > 0) {
+    checkNewPage();
+    drawText("SERVIÇOS ADICIONAIS", margin, y, { font: fontBold, size: 11 });
+    y -= lineHeight + 4;
+
+    drawText("Serviço", margin, y, { font: fontBold, size: 9 });
+    drawText("Qtd", margin + 280, y, { font: fontBold, size: 9 });
+    drawText("Valor", margin + 360, y, { font: fontBold, size: 9 });
+    y -= 2;
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    y -= lineHeight;
+
+    for (const addon of enabledAddons) {
+      checkNewPage();
+      drawText((addon.label || addon.addon_key || "Serviço").substring(0, 40), margin, y, { size: 9 });
+      drawText(String(addon.quantity || 1), margin + 280, y, { size: 9 });
+      drawText(formatBRL(addon.total_price || 0), margin + 360, y, { size: 9 });
+      y -= lineHeight;
+    }
+    y -= 10;
+  }
+
+  // Total
+  checkNewPage();
+  y -= 6;
+  page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: pageWidth - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
+  drawText("VALOR TOTAL MENSAL:", margin, y, { font: fontBold, size: 12 });
+  drawText(formatBRL(proposal.total || contract.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
+  y -= lineHeight * 2;
+
+  // Footer note
+  checkNewPage();
+  drawText("Este documento é um resumo gerado automaticamente a partir dos dados da proposta comercial.", margin, y, { size: 8, color: rgb(0.5, 0.5, 0.5) });
+  y -= lineHeight;
+  drawText("Os termos e condições completos estão definidos no contrato principal.", margin, y, { size: 8, color: rgb(0.5, 0.5, 0.5) });
+
+  const bytes = await doc.save();
+  return new Uint8Array(bytes);
+}
+
+// ─── Build proposal snapshot ────────────────────────────────
+function buildProposalSnapshot(proposal: any, servers: any[], addons: any[]): Record<string, unknown> {
+  return {
+    proposal_id: proposal.id,
+    display_id: proposal.display_id,
+    company: proposal.company,
+    name: proposal.name,
+    email: proposal.email,
+    phone: proposal.phone,
+    datacenter: proposal.datacenter,
+    currency: proposal.currency,
+    channel_type: proposal.channel_type,
+    contract_duration: proposal.contract_duration,
+    discount_pct: proposal.discount_pct,
+    total: proposal.total,
+    fx: proposal.fx,
+    status: proposal.status,
+    pdf_path: proposal.pdf_path,
+    created_at: proposal.created_at,
+    servers: servers.map((s: any) => ({
+      id: s.id,
+      server_type: s.server_type,
+      name: s.name,
+      vcpu: s.vcpu,
+      ram_gb: s.ram_gb,
+      nvme_tb: s.nvme_tb,
+      traffic_tb: s.traffic_tb,
+      ips: s.ips,
+      qty_servers: s.qty_servers,
+      gpu: s.gpu,
+      gpu_qty: s.gpu_qty,
+      bm_cpu: s.bm_cpu,
+      bm_ram: s.bm_ram,
+      disks: s.disks,
+      storage_type: s.storage_type,
+      storage_region: s.storage_region,
+      volume_tb: s.volume_tb,
+      unit_price: s.unit_price,
+      total_price: s.total_price,
+    })),
+    addons: addons.map((a: any) => ({
+      id: a.id,
+      addon_key: a.addon_key,
+      label: a.label,
+      enabled: a.enabled,
+      quantity: a.quantity,
+      unit_price: a.unit_price,
+      total_price: a.total_price,
+    })),
+    snapshot_taken_at: new Date().toISOString(),
+    snapshot_strategy: "contract_document_generation",
+  };
 }
 
 // ─── Main handler ────────────────────────────────────────────
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Debug object accumulated throughout the flow
   const debug: Record<string, unknown> = {};
 
   try {
@@ -136,71 +333,215 @@ serve(async (req: Request) => {
     }
 
     debug.contract_id = contract_id;
-    console.log(`[contract-docs] [STEP 1] loading contract_id=${contract_id}`);
 
     // ── STEP 1: Load contract ───────────────────────────────
-    let contract: any;
-    try {
-      const { data, error } = await supabase
-        .from("contracts")
-        .select("*")
-        .eq("id", contract_id)
-        .is("deleted_at", null)
-        .single();
+    console.log(`[contract-docs] [STEP 1] loading contract_id=${contract_id}`);
+    const { data: contract, error: contractErr } = await supabase
+      .from("contracts")
+      .select("*")
+      .eq("id", contract_id)
+      .is("deleted_at", null)
+      .single();
 
-      if (error || !data) {
-        console.error("[contract-docs] [STEP 1] FAILED contract_load_error", error);
-        return errorResponse("contract_not_found", "Contrato não encontrado.", 404, debug);
-      }
-      contract = data;
-      console.log(`[contract-docs] [STEP 1] OK contract loaded`);
-    } catch (e) {
-      console.error("[contract-docs] [STEP 1] EXCEPTION", e);
-      return errorResponse("contract_load_failed", `Erro ao carregar contrato: ${e}`, 500, debug);
+    if (contractErr || !contract) {
+      return errorResponse("contract_not_found", "Contrato não encontrado.", 404, debug);
+    }
+    console.log(`[contract-docs] [STEP 1] OK contract loaded status=${contract.status}`);
+    debug.contract_status = contract.status;
+
+    // ── CHECK LOCK: immutable after certain statuses ────────
+    if (LOCKED_STATUSES.includes(contract.status)) {
+      return errorResponse(
+        "contract_documents_locked",
+        `Contrato com status "${contract.status}" não permite regeração de documentos.`,
+        422,
+        debug
+      );
     }
 
     // ── STEP 2: Validate & load proposal ────────────────────
     const proposalId = contract.proposal_id;
     debug.proposal_id = proposalId;
-    console.log(`[contract-docs] [STEP 2] proposal_id=${proposalId}`);
 
     if (!proposalId) {
-      console.error("[contract-docs] [STEP 2] FAILED contract_without_proposal_id");
-      return errorResponse(
-        "contract_without_proposal_id",
-        "Contrato sem proposta vinculada (proposal_id).",
-        400,
-        debug
-      );
+      return errorResponse("contract_without_proposal_id", "Contrato sem proposta vinculada (proposal_id).", 400, debug);
     }
 
-    let proposal: any;
-    try {
-      const { data, error } = await supabase
-        .from("calculator_proposals")
-        .select("id, pdf_path, display_id")
-        .eq("id", proposalId)
-        .single();
+    console.log(`[contract-docs] [STEP 2] loading proposal_id=${proposalId}`);
+    const { data: proposal, error: propErr } = await supabase
+      .from("calculator_proposals")
+      .select("*")
+      .eq("id", proposalId)
+      .single();
 
-      if (error || !data) {
-        console.error("[contract-docs] [STEP 2] FAILED proposal_not_found", error);
-        return errorResponse("proposal_not_found", "Proposta vinculada não encontrada.", 404, debug);
-      }
-      proposal = data;
-      console.log(`[contract-docs] [STEP 2] OK proposal loaded display_id=${proposal.display_id}`);
-    } catch (e) {
-      console.error("[contract-docs] [STEP 2] EXCEPTION", e);
-      return errorResponse("proposal_load_failed", `Erro ao carregar proposta: ${e}`, 500, debug);
+    if (propErr || !proposal) {
+      return errorResponse("proposal_not_found", "Proposta vinculada não encontrada.", 404, debug);
     }
-
+    console.log(`[contract-docs] [STEP 2] OK proposal loaded display_id=${proposal.display_id} pdf_path=${proposal.pdf_path}`);
     debug.proposal_display_id = proposal.display_id;
-    debug.source_pdf_path = proposal.pdf_path;
-    console.log(`[contract-docs] [STEP 3] source_pdf_path=${proposal.pdf_path}`);
+    debug.proposal_pdf_path_before = proposal.pdf_path;
 
+    // ── STEP 3: Load proposal servers & addons ──────────────
+    console.log(`[contract-docs] [STEP 3] loading proposal items...`);
+    const [serversRes, addonsRes] = await Promise.all([
+      supabase.from("calculator_proposal_servers").select("*").eq("proposal_id", proposalId).order("sort_order"),
+      supabase.from("calculator_proposal_addons").select("*").eq("proposal_id", proposalId).order("sort_order"),
+    ]);
+    const servers = serversRes.data || [];
+    const addons = addonsRes.data || [];
+    console.log(`[contract-docs] [STEP 3] OK servers=${servers.length} addons=${addons.length}`);
+    debug.servers_count = servers.length;
+    debug.addons_count = addons.length;
+
+    // ── STEP 4: Resolve proposal PDF ────────────────────────
+    let proposalPdfPath = proposal.pdf_path || null;
+    let pdfAutoGenerated = false;
+
+    if (!proposalPdfPath) {
+      // Check calculator_proposal_files for existing PDF
+      console.log(`[contract-docs] [STEP 4] pdf_path is null, checking proposal_files...`);
+      const { data: existingFiles } = await supabase
+        .from("calculator_proposal_files")
+        .select("file_path, file_type")
+        .eq("proposal_id", proposalId)
+        .eq("file_type", "application/pdf")
+        .limit(1);
+
+      if (existingFiles && existingFiles.length > 0) {
+        proposalPdfPath = existingFiles[0].file_path;
+        console.log(`[contract-docs] [STEP 4] found existing file in proposal_files: ${proposalPdfPath}`);
+      }
+    }
+
+    if (!proposalPdfPath) {
+      // Auto-generate a summary PDF
+      console.log(`[contract-docs] [STEP 4] auto-generating proposal summary PDF...`);
+      try {
+        const summaryPdfBytes = await generateProposalSummaryPdf(proposal, servers, addons, contract);
+        const autoPath = `proposals/${proposalId}/auto-summary-${Date.now()}.pdf`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from("proposal-files")
+          .upload(autoPath, summaryPdfBytes, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+
+        if (uploadErr) {
+          console.error(`[contract-docs] [STEP 4] FAILED auto-upload`, uploadErr);
+          return errorResponse("proposal_pdf_auto_generation_failed", `Falha ao salvar PDF gerado: ${uploadErr.message}`, 500, debug);
+        }
+
+        // Update proposal.pdf_path
+        await supabase
+          .from("calculator_proposals")
+          .update({ pdf_path: autoPath, pdf_generated_at: new Date().toISOString() })
+          .eq("id", proposalId);
+
+        proposalPdfPath = autoPath;
+        pdfAutoGenerated = true;
+        console.log(`[contract-docs] [STEP 4] OK auto-generated pdf_path=${autoPath}`);
+      } catch (genErr) {
+        console.error(`[contract-docs] [STEP 4] EXCEPTION auto-generation`, genErr);
+        return errorResponse("proposal_pdf_auto_generation_failed", `Erro ao gerar PDF da proposta: ${genErr}`, 500, debug);
+      }
+    }
+
+    debug.proposal_pdf_path_after = proposalPdfPath;
+    debug.pdf_auto_generated = pdfAutoGenerated;
+
+    // ── STEP 5: Create proposal snapshot ────────────────────
+    console.log(`[contract-docs] [STEP 5] creating proposal snapshot...`);
+    const snapshot = buildProposalSnapshot(proposal, servers, addons);
+    debug.snapshot_created = true;
+
+    // ── STEP 6: Download source PDF ─────────────────────────
+    console.log(`[contract-docs] [STEP 6] downloading source pdf path=${proposalPdfPath}`);
+    const { data: pdfFile, error: pdfDlErr } = await supabase.storage
+      .from("proposal-files")
+      .download(proposalPdfPath!);
+
+    if (!pdfFile || pdfDlErr) {
+      return errorResponse("proposal_pdf_file_not_found", `Arquivo PDF não encontrado no storage (path=${proposalPdfPath})`, 404, debug);
+    }
+
+    const proposalPdfBytes = new Uint8Array(await pdfFile.arrayBuffer());
+    console.log(`[contract-docs] [STEP 6] OK downloaded size=${proposalPdfBytes.length}`);
+    debug.source_pdf_exists = true;
+    debug.source_pdf_size_bytes = proposalPdfBytes.length;
+
+    // Validate PDF header
+    const header = new TextDecoder().decode(proposalPdfBytes.slice(0, 5));
+    if (!header.startsWith("%PDF")) {
+      return errorResponse("proposal_pdf_invalid_format", `Arquivo não é PDF válido (header=${header})`, 422, debug);
+    }
+
+    // ── STEP 7: Generate Annex I PDF ────────────────────────
     const contractCode = contract.contract_number || contract.id.substring(0, 8).toUpperCase();
     const basePath = `contracts/${contract.id}`;
+    let annexPdfPath: string | null = null;
+    let annexGenerated = false;
+    let generationStrategy: string;
+    let annexPageCount = 0;
 
-    // ── STEP 7: DOCX template merge ─────────────────────────
+    const srcDoc = await PDFDocument.load(proposalPdfBytes);
+    const totalPages = srcDoc.getPageCount();
+    debug.source_pdf_page_count = totalPages;
+    console.log(`[contract-docs] [STEP 7] source_pdf_page_count=${totalPages} auto_generated=${pdfAutoGenerated}`);
+
+    if (pdfAutoGenerated || totalPages <= 7) {
+      // Auto-generated PDF or short PDF: use entire document as Annex I (no marketing pages to trim)
+      generationStrategy = pdfAutoGenerated ? "proposal_pdf_generated" : "proposal_pdf_full";
+      console.log(`[contract-docs] [STEP 7] using strategy=${generationStrategy} (no trim needed)`);
+
+      const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
+      const { error: annexUpErr } = await supabase.storage
+        .from("contracts-generated")
+        .upload(annexStoragePath, proposalPdfBytes, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (annexUpErr) {
+        return errorResponse("contract_annex_pdf_storage_failed", `Erro ao salvar Anexo I: ${annexUpErr.message}`, 500, debug);
+      }
+
+      annexPdfPath = annexStoragePath;
+      annexGenerated = true;
+      annexPageCount = totalPages;
+      console.log(`[contract-docs] [STEP 7] OK annex saved (full) path=${annexPdfPath} pages=${annexPageCount}`);
+    } else {
+      // Official PDF with 8+ pages: trim pages 1-7
+      generationStrategy = "proposal_pdf_trim";
+      console.log(`[contract-docs] [STEP 7] trimming pages 1-7 from ${totalPages} page PDF...`);
+
+      const { trimmedBytes, trimmedPageCount } = await trimProposalPdf(proposalPdfBytes);
+      annexPageCount = trimmedPageCount;
+
+      const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
+      const { error: annexUpErr } = await supabase.storage
+        .from("contracts-generated")
+        .upload(annexStoragePath, trimmedBytes, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (annexUpErr) {
+        return errorResponse("contract_annex_pdf_storage_failed", `Erro ao salvar Anexo I: ${annexUpErr.message}`, 500, debug);
+      }
+
+      annexPdfPath = annexStoragePath;
+      annexGenerated = true;
+      console.log(`[contract-docs] [STEP 7] OK annex saved (trimmed) path=${annexPdfPath} pages=${annexPageCount}`);
+    }
+
+    debug.annex_generated = annexGenerated;
+    debug.annex_pdf_path = annexPdfPath;
+    debug.annex_page_count = annexPageCount;
+    debug.generation_strategy = generationStrategy;
+
+    // ── STEP 8: Generate DOCX ───────────────────────────────
+    console.log(`[contract-docs] [STEP 8] generating DOCX...`);
     let docxPath: string | null = null;
     let docxGenerated = false;
 
@@ -233,7 +574,6 @@ serve(async (req: Request) => {
         .single();
 
       if (template) {
-        console.log(`[contract-docs] [STEP 7] loading_template code=${templateCode} path=${template.path}`);
         const { data: templateFile, error: dlErr } = await supabase.storage
           .from(template.bucket)
           .download(template.path);
@@ -253,157 +593,68 @@ serve(async (req: Request) => {
           if (!upErr) {
             docxPath = docxStoragePath;
             docxGenerated = true;
-            console.log(`[contract-docs] [STEP 7] OK docx_saved path=${docxPath}`);
+            console.log(`[contract-docs] [STEP 8] OK docx_saved path=${docxPath}`);
           } else {
-            console.error("[contract-docs] [STEP 7] FAILED docx_upload_error", upErr);
+            console.error("[contract-docs] [STEP 8] FAILED docx_upload_error", upErr);
           }
         } else {
-          console.warn(`[contract-docs] [STEP 7] template_file_not_found bucket=${template.bucket} path=${template.path}`, dlErr);
+          console.warn(`[contract-docs] [STEP 8] template_file_not_found bucket=${template.bucket} path=${template.path}`);
         }
       } else {
-        console.warn(`[contract-docs] [STEP 7] no_active_template code=${templateCode}`);
+        console.warn(`[contract-docs] [STEP 8] no_active_template code=${templateCode}`);
       }
     } catch (e) {
-      console.error("[contract-docs] [STEP 7] EXCEPTION docx generation", e);
-      // DOCX failure is non-fatal — continue to annex
+      console.error("[contract-docs] [STEP 8] EXCEPTION docx generation", e);
     }
 
     debug.contract_docx_generated = docxGenerated;
     debug.contract_docx_path = docxPath;
 
-    // ── STEP 3-6: Annex I PDF flow ──────────────────────────
-    let annexPdfPath: string | null = null;
-    let annexGenerated = false;
-    let annexSkipReason: string | null = null;
-    const generationStrategy = "proposal_pdf_trim";
-
-    // STEP 3: Validate source pdf path
-    if (!proposal.pdf_path) {
-      annexSkipReason = "proposal_pdf_path_missing: A proposta vinculada não possui PDF oficial gerado (pdf_path=null). Gere o PDF da proposta antes.";
-      console.warn(`[contract-docs] [STEP 3] SKIPPED source_pdf_path is null/empty`);
-      debug.source_pdf_exists = false;
-      debug.annex_skip_reason = annexSkipReason;
-    } else {
-      // STEP 4: Download source PDF
-      console.log(`[contract-docs] [STEP 4] downloading source pdf path=${proposal.pdf_path}`);
-      let proposalPdfBytes: Uint8Array | null = null;
-
-      try {
-        const { data: pdfFile, error: pdfDlErr } = await supabase.storage
-          .from("proposal-files")
-          .download(proposal.pdf_path);
-
-        if (!pdfFile || pdfDlErr) {
-          annexSkipReason = `proposal_pdf_file_not_found: Arquivo não encontrado no storage (path=${proposal.pdf_path})`;
-          console.error(`[contract-docs] [STEP 4] FAILED pdf_download_error`, pdfDlErr);
-          debug.source_pdf_exists = false;
-          debug.annex_skip_reason = annexSkipReason;
-        } else {
-          proposalPdfBytes = new Uint8Array(await pdfFile.arrayBuffer());
-          console.log(`[contract-docs] [STEP 4] OK source pdf downloaded size=${proposalPdfBytes.length}`);
-          debug.source_pdf_exists = true;
-          debug.source_pdf_size_bytes = proposalPdfBytes.length;
-
-          // Validate PDF header
-          const header = new TextDecoder().decode(proposalPdfBytes.slice(0, 5));
-          if (!header.startsWith("%PDF")) {
-            annexSkipReason = `proposal_pdf_invalid_format: Arquivo não é PDF válido (header=${header})`;
-            console.error(`[contract-docs] [STEP 4] FAILED file_is_not_pdf header=${header}`);
-            debug.source_pdf_valid = false;
-            debug.annex_skip_reason = annexSkipReason;
-            proposalPdfBytes = null;
-          } else {
-            debug.source_pdf_valid = true;
-          }
-        }
-      } catch (e) {
-        annexSkipReason = `proposal_pdf_download_exception: ${e}`;
-        console.error("[contract-docs] [STEP 4] EXCEPTION", e);
-        debug.source_pdf_exists = false;
-        debug.annex_skip_reason = annexSkipReason;
-      }
-
-      // STEP 5: Trim PDF
-      if (proposalPdfBytes) {
-        try {
-          console.log(`[contract-docs] [STEP 5] trimming pdf...`);
-          const { trimmedBytes, trimmedPageCount } = await trimProposalPdf(proposalPdfBytes);
-          debug.source_pdf_page_count = trimmedPageCount + 7;
-          debug.trimmed_pdf_page_count = trimmedPageCount;
-
-          // STEP 6: Save annex PDF
-          console.log(`[contract-docs] [STEP 6] saving annex pdf...`);
-          const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
-          debug.annex_storage_path = annexStoragePath;
-
-          const { error: annexUpErr } = await supabase.storage
-            .from("contracts-generated")
-            .upload(annexStoragePath, trimmedBytes, {
-              contentType: "application/pdf",
-              upsert: true,
-            });
-
-          if (annexUpErr) {
-            annexSkipReason = `annex_upload_failed: ${annexUpErr.message}`;
-            console.error(`[contract-docs] [STEP 6] FAILED annex_upload_error`, annexUpErr);
-            debug.annex_saved = false;
-            debug.annex_skip_reason = annexSkipReason;
-          } else {
-            annexPdfPath = annexStoragePath;
-            annexGenerated = true;
-            console.log(`[contract-docs] [STEP 6] OK annex_saved path=${annexPdfPath}`);
-            debug.annex_saved = true;
-          }
-        } catch (trimErr) {
-          const errMsg = String(trimErr);
-          if (errMsg.includes("proposal_pdf_page_count_invalid")) {
-            annexSkipReason = "proposal_pdf_page_count_invalid: O PDF da proposta possui 7 ou menos páginas.";
-            debug.annex_skip_reason = annexSkipReason;
-          } else {
-            annexSkipReason = `proposal_pdf_trim_failed: ${trimErr}`;
-            debug.annex_skip_reason = annexSkipReason;
-          }
-          console.error(`[contract-docs] [STEP 5] FAILED trim error`, trimErr);
-          debug.annex_saved = false;
-        }
-      }
+    // ── STEP 9: Validate completeness ───────────────────────
+    if (!annexGenerated) {
+      return errorResponse("contract_documents_incomplete", "Falha na geração do Anexo I. Documentos incompletos.", 500, debug);
     }
 
-    debug.annex_generated = annexGenerated;
-    debug.annex_pdf_path = annexPdfPath;
+    // ── STEP 10: Update contract record with snapshot + paths
+    console.log(`[contract-docs] [STEP 10] updating contract record with documents + snapshot...`);
+    const updatePayload: Record<string, unknown> = {
+      docx_path: docxPath,
+      annex_pdf_path: annexPdfPath,
+      proposal_pdf_source_path: proposalPdfPath,
+      generation_strategy: generationStrategy,
+      template_code: contract.template_code || "opdc-cloud-default",
+      updated_at: new Date().toISOString(),
+      // Store proposal snapshot so contract is independent of future proposal changes
+      proposal_payload: snapshot,
+      metadata: {
+        ...(typeof contract.metadata === "object" && contract.metadata !== null ? contract.metadata : {}),
+        document_generation: {
+          generated_at: new Date().toISOString(),
+          strategy: generationStrategy,
+          pdf_auto_generated: pdfAutoGenerated,
+          source_pdf_page_count: totalPages,
+          annex_page_count: annexPageCount,
+          docx_generated: docxGenerated,
+          annex_generated: annexGenerated,
+          snapshot_taken: true,
+        },
+      },
+    };
 
-    // ── STEP 8: Update contract record ──────────────────────
-    console.log(`[contract-docs] [STEP 8] updating contract record...`);
-    const templateCode = contract.template_code || "opdc-cloud-default";
-    try {
-      const updatePayload = {
-        docx_path: docxPath,
-        annex_pdf_path: annexPdfPath,
-        proposal_pdf_source_path: proposal.pdf_path,
-        generation_strategy: generationStrategy,
-        template_code: templateCode,
-        updated_at: new Date().toISOString(),
-      };
-      debug.contract_update_payload = updatePayload;
+    const { error: updateErr } = await supabase
+      .from("contracts")
+      .update(updatePayload)
+      .eq("id", contract_id);
 
-      const { error } = await supabase
-        .from("contracts")
-        .update(updatePayload)
-        .eq("id", contract_id);
-
-      if (error) {
-        console.error("[contract-docs] [STEP 8] FAILED contract_update_error", error);
-        debug.contract_updated = false;
-      } else {
-        console.log(`[contract-docs] [STEP 8] OK contract_record_updated`);
-        debug.contract_updated = true;
-      }
-    } catch (e) {
-      console.error("[contract-docs] [STEP 8] EXCEPTION", e);
+    if (updateErr) {
+      console.error("[contract-docs] [STEP 10] FAILED contract_update_error", updateErr);
       debug.contract_updated = false;
+    } else {
+      console.log(`[contract-docs] [STEP 10] OK contract record updated with snapshot + document paths`);
+      debug.contract_updated = true;
     }
 
-    // ── STEP 9: Build response documents ────────────────────
+    // ── STEP 11: Build response ─────────────────────────────
     const documents: Array<{ type: string; name: string; path: string }> = [];
     if (docxGenerated && docxPath) {
       documents.push({
@@ -412,41 +663,36 @@ serve(async (req: Request) => {
         path: docxPath,
       });
     }
-    if (annexGenerated && annexPdfPath) {
-      documents.push({
-        type: "annex_pdf",
-        name: "Anexo I — Resumo da Proposta (PDF)",
-        path: annexPdfPath,
-      });
-    }
+    documents.push({
+      type: "annex_pdf",
+      name: "Anexo I — Resumo da Proposta (PDF)",
+      path: annexPdfPath!,
+    });
 
     debug.documents_count = documents.length;
     debug.documents = documents;
-    console.log(`[contract-docs] [STEP 9] response documents_count=${documents.length} docx=${docxGenerated} annex=${annexGenerated}`);
-    console.log(`[contract-docs] [STEP 9] debug=`, JSON.stringify(debug));
 
-    const responsePayload = {
+    console.log(`[contract-docs] [STEP 11] COMPLETED strategy=${generationStrategy} docs=${documents.length}`);
+
+    return json({
       success: true,
       contract_id,
       proposal_id: proposalId,
-      annex_strategy: generationStrategy,
+      generation_strategy: generationStrategy,
+      snapshot_created: true,
       annex_generated: annexGenerated,
-      annex_skip_reason: annexSkipReason,
       contract_docx_generated: docxGenerated,
       docx_path: docxPath,
       annex_pdf_path: annexPdfPath,
-      proposal_pdf_source_path: proposal.pdf_path,
+      proposal_pdf_source_path: proposalPdfPath,
+      pdf_auto_generated: pdfAutoGenerated,
       documents,
       debug,
-    };
-
-    console.log(`[contract-docs] [STEP 9] COMPLETED`);
-    return json(responsePayload);
+    });
 
   } catch (err) {
-    console.error("[contract-docs] UNHANDLED_ERROR", err);
-    console.error("[contract-docs] error_message=", (err as Error)?.message);
-    console.error("[contract-docs] error_stack=", (err as Error)?.stack);
-    return errorResponse("internal_error", `Erro interno inesperado: ${err}`, 500, debug);
+    console.error("[contract-docs] UNHANDLED ERROR:", err);
+    console.error("[contract-docs] error_stack:", (err as Error)?.stack);
+    return errorResponse("internal_error", `Erro interno: ${err}`, 500, debug);
   }
 });
