@@ -20,6 +20,8 @@ export interface GenerateDocumentResult {
   code?: string;
   message?: string;
   error?: string;
+  documents?: Array<{ type: string; name: string; path: string }>;
+  debug?: Record<string, unknown>;
 }
 
 // Map error codes to user-friendly messages
