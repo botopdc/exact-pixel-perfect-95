@@ -30,10 +30,12 @@ interface AnalystSummary {
   email: string;
   userId: number;
   level: number;
-  queues: { queueId: string; queueCode: string; isPrimary: boolean; isActive: boolean; memberId: string }[];
+  queues: { queueId: string; queueCode: string; queueName: string; isPrimary: boolean; isActive: boolean; memberId: string }[];
   activeTickets: number;
   breachedTickets: number;
   resolvedToday: number;
+  avgFirstResponseMinutes: number | null;
+  avgResolutionMinutes: number | null;
   isOnCall: boolean;
   onCallTeam: string | null;
 }
