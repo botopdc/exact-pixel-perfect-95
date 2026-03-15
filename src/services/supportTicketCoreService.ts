@@ -337,6 +337,41 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
   return resp;
 }
 
+// ── Queue user context (standalone to avoid `this` issues in object literal) ──
+
+function getQueueUserContext(): {
+  user_id?: string;
+  user_level: number;
+  user_email?: string;
+  user_name?: string;
+} {
+  const session = authService.getSession();
+  if (session) {
+    const numericId = session.apiUser?.id
+      ? String(session.apiUser.id)
+      : (/^\d+$/.test(session.userId) ? session.userId : undefined);
+    return {
+      user_id: numericId,
+      user_level: session.level ?? 0,
+      user_email: session.email,
+      user_name: session.name,
+    };
+  }
+  try {
+    const raw = localStorage.getItem('open_user');
+    if (raw) {
+      const u = JSON.parse(raw);
+      return {
+        user_id: u?.id ? String(u.id) : undefined,
+        user_level: Number(u?.level) || 0,
+        user_email: u?.email,
+        user_name: u?.name,
+      };
+    }
+  } catch { /* ignore */ }
+  return { user_level: 0 };
+}
+
 // ── Service Methods ─────────────────────────────────────────────────────
 
 export const supportTicketCoreService = {
