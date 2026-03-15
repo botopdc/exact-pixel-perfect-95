@@ -55,16 +55,29 @@ Deno.serve(async (req) => {
     const userId = body.user_id;
     const userEmail = body.user_email;
 
-    console.log("support-ticket-list visibility context", { userId, userLevel, userEmail });
+    // UUID regex for detecting legacy integer IDs
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUuidUser = userId && UUID_RE.test(userId);
+    const userIdInt = userId ? parseInt(userId) : NaN;
+    const isLegacyUser = !isUuidUser && Number.isFinite(userIdInt);
+
+    console.log("[visibility] context", { userId, userLevel, userEmail, isUuidUser, isLegacyUser });
 
     if (userLevel < 600 && userId) {
-      // Client (level 1): only own tickets
-      query = query.eq("requester_user_id", userId);
+      // Client (level 1): only own tickets — match by email (reliable for both UUID and legacy)
+      if (userEmail) {
+        query = query.eq("requester_email", userEmail);
+      } else if (isUuidUser) {
+        query = query.eq("requester_user_id", userId);
+      } else {
+        // Fallback: no tickets visible
+        query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+      }
     } else if (userLevel >= 600 && userLevel < 950) {
       // Internal user (not manager/admin): see tickets in their queues OR assigned to them OR opened by them
-      // Look up queue memberships by email (reliable) since userId may be UUID but queue_members stores integer
-      let queueIds: string[] = [];
 
+      // ── 1) Queue memberships by email ──
+      let queueIds: string[] = [];
       if (userEmail) {
         const { data: memberships } = await db
           .from("support_queue_members")
@@ -75,36 +88,74 @@ Deno.serve(async (req) => {
       }
 
       // Fallback: try integer user_id if email lookup returned nothing
-      if (queueIds.length === 0 && userId) {
-        const userIdInt = parseInt(userId);
-        if (Number.isFinite(userIdInt)) {
-          const { data: memberships } = await db
-            .from("support_queue_members")
-            .select("queue_id")
-            .eq("user_id", userIdInt)
-            .eq("is_active", true);
-          queueIds = (memberships || []).map((m: any) => m.queue_id);
+      if (queueIds.length === 0 && isLegacyUser) {
+        const { data: memberships } = await db
+          .from("support_queue_members")
+          .select("queue_id")
+          .eq("user_id", userIdInt)
+          .eq("is_active", true);
+        queueIds = (memberships || []).map((m: any) => m.queue_id);
+      }
+
+      // ── 2) On-call shifts: add queue IDs from active shifts ──
+      const now = new Date().toISOString();
+      let oncallQueueIds: string[] = [];
+      if (userEmail) {
+        const { data: shifts } = await db
+          .from("support_oncall_shifts")
+          .select("team_code")
+          .eq("user_email", userEmail)
+          .eq("is_active", true)
+          .lte("starts_at", now)
+          .gte("ends_at", now);
+
+        if (shifts && shifts.length > 0) {
+          // Map team_code to queue code
+          const teamToQueue: Record<string, string> = { infra: "N1", cloud: "N2", cs: "CS" };
+          const oncallQueueCodes = shifts.map((s: any) => teamToQueue[s.team_code]).filter(Boolean);
+          if (oncallQueueCodes.length > 0) {
+            const { data: queues } = await db
+              .from("support_queues")
+              .select("id")
+              .in("code", oncallQueueCodes);
+            oncallQueueIds = (queues || []).map((q: any) => q.id);
+          }
         }
       }
 
-      console.log("support-ticket-list membership", { userId, userEmail, queueIds });
+      // Merge queue IDs from memberships + oncall
+      const allQueueIds = [...new Set([...queueIds, ...oncallQueueIds])];
 
-      // Build OR conditions: requester OR assigned OR in queue
+      console.log("[visibility] memberships", { userId, userEmail, memberQueueIds: queueIds, oncallQueueIds, allQueueIds });
+
+      // ── 3) Build OR conditions ──
+      // CRITICAL: Do NOT use UUID columns (requester_user_id, assigned_to_user_id)
+      // with legacy integer IDs — PostgREST will throw "invalid UUID" and break the entire query.
       const orConditions: string[] = [];
-      if (userId) {
-        orConditions.push(`requester_user_id.eq.${userId}`);
+
+      // Requester match by email (reliable for both UUID and legacy users)
+      if (userEmail) {
+        orConditions.push(`requester_email.eq.${userEmail}`);
+      }
+
+      // Assigned match — UUID users can match directly, legacy users match by name
+      if (isUuidUser) {
         orConditions.push(`assigned_to_user_id.eq.${userId}`);
       }
-      if (queueIds.length > 0) {
-        orConditions.push(`current_queue_id.in.(${queueIds.join(",")})`);
+      // For legacy users, we can't filter by assigned_to_user_id (UUID column).
+      // We rely on queue membership visibility instead — if the ticket is in your queue, you see it.
+
+      // Queue membership + oncall
+      if (allQueueIds.length > 0) {
+        orConditions.push(`current_queue_id.in.(${allQueueIds.join(",")})`);
       }
 
-      // If no conditions at all, add a fallback so user sees nothing rather than everything
+      // Fallback: no conditions = see nothing
       if (orConditions.length === 0) {
         orConditions.push("id.eq.00000000-0000-0000-0000-000000000000");
       }
 
-      console.log("support-ticket-list OR conditions", orConditions);
+      console.log("[visibility] OR conditions", orConditions);
       query = query.or(orConditions.join(","));
     }
     // Manager (950+) and Admin (1000): see all tickets — no filter applied
@@ -143,8 +194,13 @@ Deno.serve(async (req) => {
       query = query.is("assigned_to_user_id", null);
     }
 
-    if (body.only_mine && userId) {
-      query = query.eq("assigned_to_user_id", userId);
+    if (body.only_mine) {
+      if (isUuidUser) {
+        query = query.eq("assigned_to_user_id", userId);
+      } else if (isLegacyUser) {
+        // Legacy users: assigned_to_user_id is NULL, legacy ID stored in metadata
+        query = query.contains("metadata", { assigned_to_legacy_user_id: userIdInt });
+      }
     }
 
     if (body.severity) {
