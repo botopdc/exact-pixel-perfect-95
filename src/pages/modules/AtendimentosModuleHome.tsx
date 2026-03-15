@@ -195,12 +195,12 @@ export default function AtendimentosModuleHome() {
           description="Acesse rapidamente as funcionalidades"
         />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {/* Atendimento Interno */}
+          {/* Chamados — fluxo unificado */}
           <ShortcutCard
             title="Meus Chamados"
-            description="Chamados internos"
+            description="Abrir e acompanhar chamados"
             icon={HeadphonesIcon}
-            href="/modulos/atendimentos/interno"
+            href="/modulos/atendimentos/suporte-tecnico"
           />
           
           {/* Fila de Suporte (apenas para suporte 900+) */}

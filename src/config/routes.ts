@@ -45,7 +45,7 @@ export const ROUTES = {
     },
     atendimentos: {
       home: '/modulos/atendimentos',
-      interno: '/modulos/atendimentos/interno',
+      chamados: '/modulos/atendimentos/suporte-tecnico',
       suporte: '/modulos/atendimentos/suporte',
       analistas: '/modulos/atendimentos/analistas',
     },
