@@ -139,12 +139,37 @@ Deno.serve(async (req) => {
       avgResolutionMinutes = Math.round(totalMinutes / resolvedTickets.length);
     }
 
-    // 8. On-call shifts
-    const { data: onCallShifts } = await db
-      .from("support_oncall")
+    // 8. On-call shifts (from support_oncall_shifts — new table, fallback to support_oncall)
+    let onCallShifts: any[] = [];
+    const { data: newShifts } = await db
+      .from("support_oncall_shifts")
       .select("*")
       .eq("is_active", true)
-      .order("team");
+      .lte("starts_at", now)
+      .gte("ends_at", now)
+      .order("team_code");
+
+    if (newShifts && newShifts.length > 0) {
+      // Map to the same shape the frontend expects
+      onCallShifts = newShifts.map((s: any) => ({
+        id: s.id,
+        team: s.team_code,
+        user_id: s.user_id,
+        user_name: s.user_name,
+        user_email: s.user_email,
+        start_at: s.starts_at,
+        end_at: s.ends_at,
+        is_active: true,
+      }));
+    } else {
+      // Fallback to legacy support_oncall
+      const { data: legacyShifts } = await db
+        .from("support_oncall")
+        .select("*")
+        .eq("is_active", true)
+        .order("team");
+      onCallShifts = legacyShifts || [];
+    }
 
     // 9. Service status
     const { data: serviceStatus } = await db
