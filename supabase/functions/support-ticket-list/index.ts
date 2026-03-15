@@ -1,6 +1,6 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-list
-// Lists tickets with filters, pagination, and role-based visibility
+// Lists tickets with filters, pagination, and QUEUE-BASED visibility
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -56,8 +56,28 @@ Deno.serve(async (req) => {
     if (userLevel < 600 && userId) {
       // Client: only own tickets
       query = query.eq("requester_user_id", userId);
+    } else if (userLevel >= 600 && userLevel < 950 && userId) {
+      // Internal user (not manager/admin): see tickets in their queues OR assigned to them
+      // Fetch queue IDs this user is a member of
+      const { data: memberships } = await db
+        .from("support_queue_members")
+        .select("queue_id")
+        .eq("user_id", parseInt(userId))
+        .eq("is_active", true);
+
+      const queueIds = (memberships || []).map((m: any) => m.queue_id);
+
+      if (queueIds.length > 0) {
+        // User sees: tickets in their queues OR assigned to them
+        query = query.or(
+          `current_queue_id.in.(${queueIds.join(",")}),assigned_to_user_id.eq.${userId}`
+        );
+      } else {
+        // No queue memberships: only see tickets assigned to them
+        query = query.eq("assigned_to_user_id", userId);
+      }
     }
-    // Internal users (>= 600): see all tickets (filtered by optional params below)
+    // Manager (950+) and Admin (1000): see all tickets — no filter applied
 
     // Filters
     if (body.status) {
@@ -69,11 +89,32 @@ Deno.serve(async (req) => {
     }
 
     if (body.current_queue) {
-      query = query.eq("current_queue", body.current_queue);
+      // Filter by queue code — resolve to queue_id
+      const { data: queueRow } = await db
+        .from("support_queues")
+        .select("id")
+        .eq("code", body.current_queue)
+        .single();
+
+      if (queueRow) {
+        query = query.eq("current_queue_id", queueRow.id);
+      }
+    }
+
+    if (body.current_queue_id) {
+      query = query.eq("current_queue_id", body.current_queue_id);
     }
 
     if (body.assigned_to_user_id) {
       query = query.eq("assigned_to_user_id", body.assigned_to_user_id);
+    }
+
+    if (body.only_unassigned) {
+      query = query.is("assigned_to_user_id", null);
+    }
+
+    if (body.only_mine && userId) {
+      query = query.eq("assigned_to_user_id", userId);
     }
 
     if (body.severity) {
@@ -129,9 +170,12 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, message: "Erro ao listar tickets", errors: [error.message] }, 500);
     }
 
+    // Enrich tickets with queue code from current_queue_id
+    const enrichedTickets = tickets || [];
+
     return jsonResponse({
       success: true,
-      data: tickets || [],
+      data: enrichedTickets,
       meta: {
         current_page: page,
         per_page,

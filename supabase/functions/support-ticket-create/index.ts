@@ -1,6 +1,6 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-create
-// Creates a new support ticket with SLA calculation and event logging
+// Creates a new support ticket with queue-based routing and SLA calculation
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -18,7 +18,6 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-// Severity → Priority mapping
 const SEVERITY_PRIORITY_MAP: Record<string, string> = {
   S1: "critical",
   S2: "high",
@@ -36,7 +35,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Auth
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
     const authResult = await validateExternalToken(token);
@@ -55,9 +53,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Determine severity and priority
     const severity = body.severity || "S4";
     const priority = body.priority || SEVERITY_PRIORITY_MAP[severity] || "medium";
+
+    // Resolve default queue (N1)
+    const { data: defaultQueue } = await db
+      .from("support_queues")
+      .select("id")
+      .eq("code", "N1")
+      .eq("is_active", true)
+      .single();
+
+    const currentQueueId = defaultQueue?.id || null;
 
     // Find matching SLA policy
     let sla_policy_id = null;
@@ -71,21 +78,17 @@ Deno.serve(async (req) => {
       .order("sort_order", { ascending: true });
 
     if (policies && policies.length > 0) {
-      // Find most specific match: severity + ticket_type + category
       let matched = policies.find(
         (p: any) => p.severity === severity && p.ticket_type === body.ticket_type && p.category === body.category
       );
-      // Fallback: severity + ticket_type
       if (!matched) {
         matched = policies.find(
           (p: any) => p.severity === severity && p.ticket_type === body.ticket_type && !p.category
         );
       }
-      // Fallback: severity only
       if (!matched) {
         matched = policies.find((p: any) => p.severity === severity && !p.ticket_type && !p.category);
       }
-      // Fallback: default
       if (!matched) {
         matched = policies[0];
       }
@@ -98,14 +101,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Determine origin_channel
     const validChannels = ["portal", "internal_portal", "zabbix", "api", "email"];
     const origin_channel = validChannels.includes(body.origin_channel) ? body.origin_channel : "portal";
-
-    // Determine author type based on level
     const requester_level = body.requester_level || 1;
 
-    // Insert ticket
     const ticketPayload = {
       company_id: body.company_id || null,
       requester_user_id: body.requester_user_id || null,
@@ -122,6 +121,8 @@ Deno.serve(async (req) => {
       status: "novo",
       support_level: "N1",
       current_queue: "N1",
+      current_queue_id: currentQueueId,
+      current_support_level: "N1",
       service_name: body.service_name || null,
       asset_id: body.asset_id || null,
       asset_label: body.asset_label || null,
@@ -157,6 +158,19 @@ Deno.serve(async (req) => {
       reason: "Ticket criado",
     });
 
+    // Record queue history
+    if (currentQueueId) {
+      await db.from("support_ticket_queue_history").insert({
+        ticket_id: ticket.id,
+        from_queue_id: null,
+        to_queue_id: currentQueueId,
+        from_support_level: null,
+        to_support_level: "N1",
+        changed_by_name: body.requester_name,
+        reason: "Ticket criado - entrada na fila N1",
+      });
+    }
+
     // Record event
     await db.from("support_ticket_events").insert({
       event_name: "ticket.created",
@@ -172,6 +186,7 @@ Deno.serve(async (req) => {
         ticket_type: body.ticket_type,
         sla_policy_id,
         public_code: ticket.public_code,
+        queue: "N1",
       },
       ip_address: req.headers.get("x-forwarded-for") || null,
       user_agent: req.headers.get("user-agent") || null,
