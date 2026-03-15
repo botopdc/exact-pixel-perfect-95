@@ -436,6 +436,77 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: true, data: updated, message: updated.is_active ? "Membro ativado" : "Membro desativado" });
     }
 
+    // ── On-call shifts ──────────────────────────────────────────────────
+
+    if (action === "list_oncall_shifts") {
+      let query = db
+        .from("support_oncall_shifts")
+        .select("*")
+        .order("starts_at", { ascending: false })
+        .limit(50);
+
+      if (body.is_active !== undefined) {
+        query = query.eq("is_active", body.is_active);
+      }
+
+      const { data: shifts, error } = await query;
+      if (error) return jsonResponse({ success: false, message: error.message }, 500);
+      return jsonResponse({ success: true, data: shifts });
+    }
+
+    if (action === "create_oncall_shift") {
+      const { team_code, team_name, user_name: shiftUserName, user_email: shiftUserEmail, user_id: shiftUserId, starts_at, ends_at, notes } = body;
+
+      if (!team_code || !shiftUserName || !starts_at || !ends_at) {
+        return jsonResponse({ success: false, message: "team_code, user_name, starts_at e ends_at obrigatórios" }, 422);
+      }
+
+      // Deactivate existing active shifts for same user+team
+      const shiftUserIdInt = toInt(shiftUserId);
+      if (shiftUserIdInt) {
+        await db
+          .from("support_oncall_shifts")
+          .update({ is_active: false })
+          .eq("user_id", shiftUserIdInt)
+          .eq("team_code", String(team_code))
+          .eq("is_active", true);
+      }
+
+      const insertPayload: Record<string, unknown> = {
+        team_code: String(team_code),
+        team_name: String(team_name || team_code),
+        user_name: String(shiftUserName),
+        user_email: shiftUserEmail ? String(shiftUserEmail) : null,
+        user_id: shiftUserIdInt,
+        starts_at: String(starts_at),
+        ends_at: String(ends_at),
+        is_active: true,
+        notes: notes ? String(notes) : null,
+        created_by: toInt(user.id),
+      };
+
+      const { data: shift, error } = await db
+        .from("support_oncall_shifts")
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (error) return jsonResponse({ success: false, message: error.message }, 500);
+      return jsonResponse({ success: true, data: shift, message: "Plantão criado" }, 201);
+    }
+
+    if (action === "delete_oncall_shift") {
+      if (!body.shift_id) return jsonResponse({ success: false, message: "shift_id obrigatório" }, 422);
+
+      const { error } = await db
+        .from("support_oncall_shifts")
+        .update({ is_active: false })
+        .eq("id", String(body.shift_id));
+
+      if (error) return jsonResponse({ success: false, message: error.message }, 500);
+      return jsonResponse({ success: true, message: "Plantão encerrado" });
+    }
+
     return jsonResponse({ success: false, message: `Ação desconhecida: ${action}` }, 422);
   } catch (err: any) {
     console.error("support-queue-admin error", {
