@@ -48,7 +48,17 @@ export default function TicketsCoreListPage() {
     ...(permissions.isClient ? { only_mine: true } : {}),
   };
 
-  const { tickets, isLoading, refetch } = useSupportTicketList(mergedFilters);
+  const { tickets, isLoading, error, refetch } = useSupportTicketList(mergedFilters);
+
+  // Debug visibility
+  console.log('[TicketsCoreListPage] render', {
+    tab,
+    mergedFilters,
+    ticketCount: tickets.length,
+    isLoading,
+    hasError: !!error,
+    errorMsg: error?.message,
+  });
 
   const handleCreated = (ticketId: string) => {
     navigate(TICKET_DETAIL_ROUTE(ticketId));
