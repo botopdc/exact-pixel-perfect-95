@@ -143,20 +143,15 @@ export default function AnalistasCapacityPage() {
   const createOnCallMutation = useMutation({
     mutationFn: async (payload: typeof newOnCall) => {
       const team = TEAM_OPTIONS.find(t => t.code === payload.team_code);
-      const { error } = await supabase
-        .from('support_oncall_shifts' as any)
-        .insert({
-          team_code: payload.team_code,
-          team_name: team?.name || payload.team_code,
-          user_name: payload.user_name,
-          user_email: payload.user_email || null,
-          user_id: payload.user_id ? parseInt(payload.user_id) : null,
-          starts_at: payload.starts_at,
-          ends_at: payload.ends_at,
-          is_active: true,
-          created_by: session?.userId ? parseInt(String(session.userId)) : null,
-        } as any);
-      if (error) throw error;
+      await supportTicketCoreService.createOnCallShift({
+        team_code: payload.team_code,
+        team_name: team?.name || payload.team_code,
+        user_name: payload.user_name,
+        user_email: payload.user_email || undefined,
+        user_id: payload.user_id ? parseInt(payload.user_id) : undefined,
+        starts_at: payload.starts_at,
+        ends_at: payload.ends_at,
+      });
     },
     onSuccess: () => {
       toast.success('Plantão criado');
@@ -171,14 +166,10 @@ export default function AnalistasCapacityPage() {
 
   const deleteOnCallMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('support_oncall_shifts' as any)
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
+      await supportTicketCoreService.deleteOnCallShift(id);
     },
     onSuccess: () => {
-      toast.success('Plantão removido');
+      toast.success('Plantão encerrado');
       queryClient.invalidateQueries({ queryKey: ['oncall-shifts-all'] });
       queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] });
       queryClient.invalidateQueries({ queryKey: ['support-dashboard-stats'] });
