@@ -19,7 +19,7 @@ import { getTicketPermissions, TICKET_LIST_ROUTE, TICKET_DETAIL_ROUTE } from '@/
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { TicketListFilters } from '@/services/supportTicketCoreService';
 
-type QueueTab = 'todos' | 'novos' | 'em_atendimento' | 'aguardando' | 'resolvido' | 'meus';
+type QueueTab = 'todos' | 'novos' | 'em_atendimento' | 'aguardando' | 'resolvido' | 'meus' | 'nao_atribuidos';
 
 const TAB_FILTERS: Record<QueueTab, Partial<TicketListFilters>> = {
   todos: {},
@@ -28,6 +28,7 @@ const TAB_FILTERS: Record<QueueTab, Partial<TicketListFilters>> = {
   aguardando: { status: 'aguardando_cliente' },
   resolvido: { status: 'resolvido_suporte' },
   meus: { only_mine: true },
+  nao_atribuidos: { only_unassigned: true },
 };
 
 export default function TicketsCoreListPage() {
