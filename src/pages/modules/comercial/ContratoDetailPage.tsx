@@ -407,6 +407,9 @@ export default function ContratoDetailPage() {
               {hasAnyDocument ? 'Regerar documentos' : 'Gerar documentos'}
             </Button>
           )}
+          {['assinado', 'finalizado', 'cancelado'].includes(c.status) && hasAnyDocument && (
+            <Badge variant="outline" className="text-xs">🔒 Documentos congelados</Badge>
+          )}
           {c.status === 'rascunho' && (
             <Button variant="outline" size="sm"
               onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
