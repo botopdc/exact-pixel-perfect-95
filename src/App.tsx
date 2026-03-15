@@ -143,6 +143,10 @@ import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
 import TicketsCoreListPage from '@/pages/modules/atendimentos/TicketsCoreListPage';
 import TicketCoreDetailPage from '@/pages/modules/atendimentos/TicketCoreDetailPage';
 
+// Client Portal
+import ClientTicketsPage from '@/pages/portal/ClientTicketsPage';
+import ClientTicketDetailPage from '@/pages/portal/ClientTicketDetailPage';
+
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
 import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
 import CertidaoAssetPage from '@/pages/modules/certidao/CertidaoAssetPage';
