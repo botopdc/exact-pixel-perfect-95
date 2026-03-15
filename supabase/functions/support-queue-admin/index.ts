@@ -48,7 +48,7 @@ function isReadAction(action: string): boolean {
 }
 
 function isMutationAction(action: string): boolean {
-  return ["add_member", "remove_member", "toggle_member"].includes(action);
+  return ["add_member", "remove_member", "toggle_member", "create_oncall_shift", "delete_oncall_shift"].includes(action);
 }
 
 function normalizeName(value: string | null | undefined): string {
