@@ -58,96 +58,38 @@ function useAnalystCapacity() {
   return useQuery({
     queryKey: ['analyst-capacity-full'],
     queryFn: async (): Promise<AnalystSummary[]> => {
-      // 1. All active queue members
-      const { data: members } = await supabase
-        .from('support_queue_members')
-        .select('id, user_name, user_email, user_id, user_level, queue_id, is_primary, is_active')
-        .eq('is_active', true);
+      const queueMembers = await supportTicketCoreService.listQueueMembers();
+      console.log('Analistas raw queue members', queueMembers);
 
-      // 2. Queues
-      const { data: queues } = await supabase
-        .from('support_queues')
-        .select('id, code')
-        .eq('is_active', true);
+      const mappedData = await supportTicketCoreService.listAnalystCapacitySummary();
+      const normalizedData: AnalystSummary[] = mappedData.map((item) => ({
+        name: item.name,
+        email: item.email,
+        userId: item.user_id,
+        level: item.level,
+        queues: (item.queues || []).map((queue) => ({
+          queueId: queue.queue_id,
+          queueCode: queue.queue_code,
+          queueName: queue.queue_name,
+          isPrimary: queue.is_primary,
+          isActive: queue.is_active,
+          memberId: queue.member_id,
+        })),
+        activeTickets: item.active_tickets,
+        breachedTickets: item.breached_tickets,
+        resolvedToday: item.resolved_today,
+        avgFirstResponseMinutes: item.avg_first_response_minutes,
+        avgResolutionMinutes: item.avg_resolution_minutes,
+        isOnCall: item.is_oncall,
+        onCallTeam: item.oncall_team,
+      }));
 
-      const queueMap: Record<string, string> = {};
-      (queues || []).forEach(q => { queueMap[q.id] = q.code; });
-
-      // 3. Open tickets
-      const now = new Date().toISOString();
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const openStatuses = ['novo', 'triagem', 'em_atendimento', 'aguardando_cliente', 'aguardando_terceiro', 'reaberto'];
-
-      const { data: tickets } = await supabase
-        .from('support_tickets')
-        .select('assigned_to_name, status, resolution_due_at, first_response_due_at, resolved_at')
-        .is('deleted_at', null);
-
-      // 4. Active on-call shifts
-      const { data: onCallShifts } = await supabase
-        .from('support_oncall_shifts' as any)
-        .select('*')
-        .eq('is_active', true)
-        .lte('starts_at', now)
-        .gte('ends_at', now);
-
-      const onCallByEmail = new Map<string, string>();
-      ((onCallShifts as unknown as OnCallShift[]) || []).forEach((s: OnCallShift) => {
-        if (s.user_email) onCallByEmail.set(s.user_email, s.team_code);
-      });
-
-      // 5. Build per-analyst aggregation
-      const analystMap = new Map<string, AnalystSummary>();
-      (members || []).forEach(m => {
-        const existing = analystMap.get(m.user_email);
-        const queueEntry = {
-          queueId: m.queue_id,
-          queueCode: queueMap[m.queue_id] || '—',
-          isPrimary: m.is_primary,
-          isActive: m.is_active,
-          memberId: m.id,
-        };
-        if (existing) {
-          existing.queues.push(queueEntry);
-        } else {
-          analystMap.set(m.user_email, {
-            name: m.user_name,
-            email: m.user_email,
-            userId: m.user_id,
-            level: m.user_level,
-            queues: [queueEntry],
-            activeTickets: 0,
-            breachedTickets: 0,
-            resolvedToday: 0,
-            isOnCall: onCallByEmail.has(m.user_email),
-            onCallTeam: onCallByEmail.get(m.user_email) || null,
-          });
-        }
-      });
-
-      // 6. Aggregate ticket metrics per analyst
-      (tickets || []).forEach((t: any) => {
-        if (!t.assigned_to_name) return;
-        for (const [, a] of analystMap) {
-          if (a.name === t.assigned_to_name) {
-            if (openStatuses.includes(t.status)) {
-              a.activeTickets++;
-              const isDue = (t.resolution_due_at && t.resolution_due_at < now) ||
-                            (t.first_response_due_at && t.first_response_due_at < now);
-              if (isDue) a.breachedTickets++;
-            }
-            if (t.resolved_at && new Date(t.resolved_at) >= todayStart) {
-              a.resolvedToday++;
-            }
-          }
-        }
-      });
-
-      return Array.from(analystMap.values()).sort((a, b) => b.activeTickets - a.activeTickets);
+      console.log('Analistas mapped data', normalizedData);
+      return normalizedData;
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 
