@@ -368,7 +368,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download
+  // Handle PDF download via proposal-download edge function
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -378,30 +378,32 @@ const SupabaseProposalsList: React.FC = () => {
     setPdfLoadingId(proposal.id);
 
     try {
-      const res = await getProposalFromEdge(proposal.id);
+      console.log('[proposal-download] proposal_id=', proposal.id);
 
-      if (!res?.success) {
-        toast({ title: 'Erro', description: res?.error || 'Falha ao buscar proposta', variant: 'destructive' });
-        return;
+      const token = localStorage.getItem('open_access_token')
+        || localStorage.getItem('open_api_token')
+        || localStorage.getItem('open_token')
+        || localStorage.getItem('auth_token')
+        || localStorage.getItem('token');
+
+      const { data, error } = await supabase.functions.invoke('proposal-download', {
+        body: { proposalId: proposal.id },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (error) {
+        console.error('[proposal-download] error=', error);
+        throw new Error(error.message || 'Falha ao preparar o arquivo para download');
       }
 
-      const pdfPath = res.proposal?.pdf_path;
-      if (!pdfPath) {
-        toast({ title: 'PDF ainda não gerado', description: 'Abra a proposta e clique em PDF na calculadora.' });
-        return;
+      if (!data?.success || !data?.pdfSignedUrl) {
+        console.error('[proposal-download] error_message=', data?.error);
+        throw new Error(data?.error || 'Não foi possível gerar o PDF desta proposta');
       }
 
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('proposal-files')
-        .createSignedUrl(pdfPath, 60 * 10);
-
-      if (signedUrlError || !signedUrlData?.signedUrl) {
-        throw new Error(signedUrlError?.message || 'Falha ao gerar link de download do PDF');
-      }
-
-      const filename = `OPEN_proposta_${res.proposal.display_id || res.proposal.id}.pdf`;
+      const filename = `OPEN_proposta_${proposal.display_id || proposal.id.substring(0, 8)}.pdf`;
       const a = document.createElement('a');
-      a.href = signedUrlData.signedUrl;
+      a.href = data.pdfSignedUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       a.download = filename;
@@ -410,9 +412,10 @@ const SupabaseProposalsList: React.FC = () => {
       a.remove();
 
       trackProposalEvent({ proposalId: proposal.id, source: 'pdf_download' });
-      toast({ title: 'Download iniciado', description: 'O PDF salvo foi aberto para download.' });
+      toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
     } catch (error: any) {
-      toast({ title: 'Erro', description: error.message || 'Falha ao baixar PDF', variant: 'destructive' });
+      console.error('[proposal-download] error=', error);
+      toast({ title: 'Erro ao baixar PDF', description: error.message || 'Não foi possível gerar o PDF desta proposta', variant: 'destructive' });
     } finally {
       setPdfLoadingId(null);
     }
