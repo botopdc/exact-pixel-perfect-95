@@ -159,7 +159,6 @@ const PropostaAprovacaoPublica: React.FC = () => {
     }
   };
 
-  const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownloadPdf = async () => {
     if (!proposal) return;
