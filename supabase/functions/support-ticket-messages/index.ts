@@ -26,6 +26,15 @@ function getAuthorType(level: number): string {
   return "client";
 }
 
+// UUID v4 regex for validation
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function toUuidOrNull(val: unknown): string | null {
+  if (!val) return null;
+  const s = String(val);
+  return UUID_RE.test(s) ? s : null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -46,17 +55,29 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const db = getSupabaseAdmin();
 
-    const { ticket_id, body: messageBody, is_internal_note, author_user_id, author_name, author_email } = body;
-    // Accept both author_level (from frontend) and user_level (legacy)
-    const level = body.author_level || body.user_level || 1;
+    // ── Normalize payload ───────────────────────────────────────────────
+    const ticket_id = body.ticket_id;
+    const messageBody = body.body;
+    const is_internal_note = body.is_internal_note;
+    const author_name = body.author_name;
+    const author_email = body.author_email || null;
 
-    console.log("support-ticket-messages user context", {
-      author_user_id,
+    // Accept both naming conventions
+    const rawAuthorUserId = body.author_user_id ?? body.user_id ?? null;
+    const level = body.author_level ?? body.user_level ?? 1;
+
+    // author_user_id column is UUID — only write valid UUIDs, else null
+    const authorUserIdUuid = toUuidOrNull(rawAuthorUserId);
+    // Keep the raw integer for permission checks and metadata
+    const authorUserIdRaw = rawAuthorUserId != null ? String(rawAuthorUserId) : null;
+
+    console.log("support-ticket-messages normalized context", {
+      rawAuthorUserId,
+      authorUserIdUuid,
+      authorUserIdRaw,
       author_name,
       author_email,
       level,
-      raw_author_level: body.author_level,
-      raw_user_level: body.user_level,
     });
 
     if (!ticket_id || !messageBody || !author_name) {
@@ -76,24 +97,19 @@ Deno.serve(async (req) => {
     }
 
     // ── PERMISSION CHECK ──────────────────────────────────────────────
-    // Admin (1000) / Manager (950): full access
-    // Support (900) / CS (775) / Internal (600+): can message if requester, assigned, or in queue
-    // Client (< 600): own tickets only
-
     if (level < 600) {
       // Client: only own tickets
-      if (author_user_id && String(ticket.requester_user_id) !== String(author_user_id)) {
-        console.log("support-ticket-messages access denied (client)", { author_user_id, requesterUserId: ticket.requester_user_id });
+      if (authorUserIdRaw && String(ticket.requester_user_id) !== authorUserIdRaw) {
+        console.log("support-ticket-messages access denied (client)", { authorUserIdRaw, requesterUserId: ticket.requester_user_id });
         return jsonResponse({ success: false, message: "Acesso negado" }, 403);
       }
     } else if (level < 950) {
-      // Internal non-manager: check requester, assignment, or queue membership
-      const isRequester = author_user_id && String(ticket.requester_user_id) === String(author_user_id);
-      const isAssigned = author_user_id && ticket.assigned_to_user_id && String(ticket.assigned_to_user_id) === String(author_user_id);
+      const isRequester = authorUserIdRaw && String(ticket.requester_user_id) === authorUserIdRaw;
+      const isAssigned = authorUserIdRaw && ticket.assigned_to_user_id && String(ticket.assigned_to_user_id) === authorUserIdRaw;
 
       let isInQueue = false;
-      if (!isRequester && !isAssigned && ticket.current_queue_id && author_user_id) {
-        const userIdInt = parseInt(author_user_id);
+      if (!isRequester && !isAssigned && ticket.current_queue_id && authorUserIdRaw) {
+        const userIdInt = parseInt(authorUserIdRaw);
         if (Number.isFinite(userIdInt)) {
           const { data: memberships } = await db
             .from("support_queue_members")
@@ -106,11 +122,7 @@ Deno.serve(async (req) => {
       }
 
       console.log("support-ticket-messages permission check", {
-        author_user_id,
-        level,
-        isRequester,
-        isAssigned,
-        isInQueue,
+        authorUserIdRaw, level, isRequester, isAssigned, isInQueue,
         ticketRequester: ticket.requester_user_id,
         ticketAssigned: ticket.assigned_to_user_id,
         ticketQueue: ticket.current_queue_id,
@@ -124,66 +136,65 @@ Deno.serve(async (req) => {
         }, 403);
       }
     }
-    // 950+ (Manager/Admin): full access, no check needed
+    // 950+ full access
 
-    // Internal notes only for level >= 775
     const isInternal = is_internal_note === true && level >= 775;
-
-    // Clients cannot create internal notes
     if (is_internal_note === true && level < 775) {
       return jsonResponse({ success: false, message: "Sem permissão para nota interna" }, 403);
     }
 
     const authorType = body.author_type || getAuthorType(level);
 
-    console.log("support-ticket-messages inserting", {
+    // ── Build message insert payload ────────────────────────────────────
+    const messageInsertPayload = {
       ticket_id,
-      author_user_id,
+      author_user_id: authorUserIdUuid,       // UUID or null — NEVER integer
+      author_level: level,
       author_name,
-      authorType,
-      isInternal,
-      bodyLength: messageBody.length,
-    });
+      author_email,
+      author_type: authorType,
+      is_internal_note: isInternal,
+      body: messageBody,
+      metadata: {
+        ...(body.metadata || {}),
+        // Preserve integer user id for traceability
+        ...(authorUserIdRaw && !authorUserIdUuid ? { external_user_id: authorUserIdRaw } : {}),
+      },
+    };
+
+    console.log("support-ticket-messages message insert payload", messageInsertPayload);
 
     const { data: message, error: insertErr } = await db
       .from("support_ticket_messages")
-      .insert({
-        ticket_id,
-        author_user_id: author_user_id || null,
-        author_level: level,
-        author_name,
-        author_email: author_email || null,
-        author_type: authorType,
-        is_internal_note: isInternal,
-        body: messageBody,
-        metadata: body.metadata || {},
-      })
+      .insert(messageInsertPayload)
       .select()
       .single();
 
     if (insertErr) {
-      console.error("Insert message error:", insertErr);
+      console.error("support-ticket-messages insert error:", insertErr);
       return jsonResponse({ success: false, message: insertErr.message }, 500);
     }
 
-    // Update ticket timestamps
+    // ── Update ticket timestamps ────────────────────────────────────────
     const updateFields: any = {};
     if (level < 600) {
       updateFields.last_customer_message_at = new Date().toISOString();
-      // If ticket was aguardando_cliente, move back to em_atendimento
       if (ticket.status === "aguardando_cliente") {
         updateFields.status = "em_atendimento";
-        await db.from("support_ticket_status_history").insert({
+        const statusPayload = {
           ticket_id,
           old_status: "aguardando_cliente",
           new_status: "em_atendimento",
           changed_by_name: "Sistema",
           reason: "Cliente respondeu",
-        });
+          // changed_by_user_id is UUID — only write valid UUID
+          changed_by_user_id: authorUserIdUuid,
+        };
+        console.log("support-ticket-messages status history payload", statusPayload);
+        await db.from("support_ticket_status_history").insert(statusPayload);
       }
     } else {
       updateFields.last_internal_update_at = new Date().toISOString();
-      // Record first response if not yet
       const { data: ticketFull } = await db
         .from("support_tickets")
         .select("first_response_at")
@@ -199,21 +210,23 @@ Deno.serve(async (req) => {
       await db.from("support_tickets").update(updateFields).eq("id", ticket_id);
     }
 
-    // Record event
-    await db.from("support_ticket_events").insert({
+    // ── Record event (actor_id and user_id are TEXT — safe for integers) ─
+    const eventPayload = {
       event_name: "ticket.message_added",
       entity_type: "support_ticket",
       entity_id: ticket_id,
       actor_type: authorType,
-      actor_id: author_user_id || null,
-      user_id: author_user_id || null,
+      actor_id: authorUserIdRaw,   // TEXT column — integer string is fine
+      user_id: authorUserIdRaw,    // TEXT column — integer string is fine
       metadata: {
         is_internal_note: isInternal,
         message_id: message.id,
       },
       ip_address: req.headers.get("x-forwarded-for") || null,
       user_agent: req.headers.get("user-agent") || null,
-    });
+    };
+    console.log("support-ticket-messages event payload", eventPayload);
+    await db.from("support_ticket_events").insert(eventPayload);
 
     return jsonResponse({
       success: true,
@@ -222,6 +235,6 @@ Deno.serve(async (req) => {
     }, 201);
   } catch (err) {
     console.error("support-ticket-messages error:", err);
-    return jsonResponse({ success: false, message: "Erro interno", errors: [String(err)] }, 500);
+    return jsonResponse({ success: false, message: String(err), errors: [String(err)] }, 500);
   }
 });
