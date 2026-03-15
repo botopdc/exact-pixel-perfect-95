@@ -36,47 +36,79 @@ Deno.serve(async (req) => {
   }
 
   try {
+    console.log("support-ticket-create START");
+
+    // ── Auth ────────────────────────────────────────────────────────────
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
+    console.log("support-ticket-create auth token present:", !!token);
+
     const authResult = await validateExternalToken(token);
+    console.log("support-ticket-create auth result:", { valid: authResult.valid });
     if (!authResult.valid) {
       return jsonResponse({ success: false, message: "Unauthorized" }, 401);
     }
 
+    // ── Parse body ──────────────────────────────────────────────────────
     const body = await req.json();
+    console.log("support-ticket-create payload:", JSON.stringify(body));
+
     const db = getSupabaseAdmin();
 
-    // Validate required fields
+    // ── Validate required fields ────────────────────────────────────────
     const required = ["requester_name", "ticket_type", "category", "title", "description"];
     for (const field of required) {
       if (!body[field]) {
+        console.error(`support-ticket-create VALIDATION FAIL: missing ${field}`);
         return jsonResponse({ success: false, message: `Campo obrigatório: ${field}` }, 422);
       }
     }
 
     const severity = body.severity || "S4";
     const priority = body.priority || SEVERITY_PRIORITY_MAP[severity] || "medium";
+    console.log("support-ticket-create severity/priority:", { severity, priority });
 
     // ── Resolve N1 queue (source of truth) ──────────────────────────────
-    const { data: defaultQueue } = await db
+    console.log("support-ticket-create looking up N1 queue...");
+    const { data: defaultQueue, error: queueError } = await db
       .from("support_queues")
-      .select("id")
+      .select("id, code, name")
       .eq("code", "N1")
       .eq("is_active", true)
       .single();
 
-    const currentQueueId = defaultQueue?.id || null;
+    if (queueError) {
+      console.error("support-ticket-create QUEUE LOOKUP ERROR:", JSON.stringify(queueError));
+    }
+    console.log("support-ticket-create queue lookup result:", JSON.stringify(defaultQueue));
+
+    if (!defaultQueue) {
+      console.error("support-ticket-create FATAL: N1 queue not found in support_queues");
+      return jsonResponse({
+        success: false,
+        message: "Fila N1 não encontrada em support_queues. Verifique se os seeds foram executados.",
+        errors: [queueError?.message || "N1 queue row missing"],
+      }, 500);
+    }
+
+    const currentQueueId = defaultQueue.id;
 
     // ── SLA policy matching ─────────────────────────────────────────────
-    let sla_policy_id = null;
-    let first_response_due_at = null;
-    let resolution_due_at = null;
+    console.log("support-ticket-create looking up SLA policies...");
+    let sla_policy_id: string | null = null;
+    let first_response_due_at: string | null = null;
+    let resolution_due_at: string | null = null;
 
-    const { data: policies } = await db
+    const { data: policies, error: slaError } = await db
       .from("support_sla_policies")
       .select("*")
       .eq("is_active", true)
       .order("sort_order", { ascending: true });
+
+    if (slaError) {
+      console.error("support-ticket-create SLA LOOKUP ERROR:", JSON.stringify(slaError));
+    }
+    console.log("support-ticket-create SLA policies found:", policies?.length ?? 0);
 
     if (policies && policies.length > 0) {
       let matched = policies.find(
@@ -99,9 +131,11 @@ Deno.serve(async (req) => {
         const now = new Date();
         first_response_due_at = new Date(now.getTime() + matched.first_response_minutes * 60000).toISOString();
         resolution_due_at = new Date(now.getTime() + matched.resolution_minutes * 60000).toISOString();
+        console.log("support-ticket-create SLA matched:", { id: matched.id, code: matched.code });
       }
     }
 
+    // ── Build payload ───────────────────────────────────────────────────
     const validChannels = ["portal", "internal_portal", "zabbix", "api", "email"];
     const origin_channel = validChannels.includes(body.origin_channel) ? body.origin_channel : "portal";
     const requester_level = body.requester_level || 1;
@@ -143,6 +177,9 @@ Deno.serve(async (req) => {
       metadata: body.metadata || {},
     };
 
+    console.log("support-ticket-create INSERT payload:", JSON.stringify(ticketPayload));
+
+    // ── Insert ticket ───────────────────────────────────────────────────
     const { data: ticket, error: insertError } = await db
       .from("support_tickets")
       .insert(ticketPayload)
@@ -150,23 +187,44 @@ Deno.serve(async (req) => {
       .single();
 
     if (insertError) {
-      console.error("Insert error:", insertError);
-      return jsonResponse({ success: false, message: "Erro ao criar ticket", errors: [insertError.message] }, 500);
+      console.error("support-ticket-create INSERT ERROR:", JSON.stringify({
+        message: insertError.message,
+        details: insertError.details,
+        hint: insertError.hint,
+        code: insertError.code,
+      }));
+      return jsonResponse({
+        success: false,
+        message: "Erro ao criar ticket",
+        errors: [insertError.message],
+        debug: { code: insertError.code, details: insertError.details, hint: insertError.hint },
+      }, 500);
     }
 
-    // Record status history
-    await db.from("support_ticket_status_history").insert({
-      ticket_id: ticket.id,
-      old_status: null,
-      new_status: "novo",
-      changed_by_user_id: body.requester_user_id || null,
-      changed_by_name: body.requester_name,
-      reason: "Ticket criado",
-    });
+    console.log("support-ticket-create TICKET CREATED:", { id: ticket.id, public_code: ticket.public_code });
 
-    // Record queue history
-    if (currentQueueId) {
-      await db.from("support_ticket_queue_history").insert({
+    // ── Record status history ───────────────────────────────────────────
+    try {
+      const { error: shError } = await db.from("support_ticket_status_history").insert({
+        ticket_id: ticket.id,
+        old_status: null,
+        new_status: "novo",
+        changed_by_user_id: body.requester_user_id || null,
+        changed_by_name: body.requester_name,
+        reason: "Ticket criado",
+      });
+      if (shError) {
+        console.error("support-ticket-create STATUS_HISTORY INSERT ERROR:", JSON.stringify(shError));
+      } else {
+        console.log("support-ticket-create status_history OK");
+      }
+    } catch (shErr) {
+      console.error("support-ticket-create STATUS_HISTORY EXCEPTION:", shErr);
+    }
+
+    // ── Record queue history ────────────────────────────────────────────
+    try {
+      const { error: qhError } = await db.from("support_ticket_queue_history").insert({
         ticket_id: ticket.id,
         from_queue_id: null,
         to_queue_id: currentQueueId,
@@ -175,36 +233,57 @@ Deno.serve(async (req) => {
         changed_by_name: body.requester_name,
         reason: "Ticket criado - entrada na fila N1",
       });
+      if (qhError) {
+        console.error("support-ticket-create QUEUE_HISTORY INSERT ERROR:", JSON.stringify(qhError));
+      } else {
+        console.log("support-ticket-create queue_history OK");
+      }
+    } catch (qhErr) {
+      console.error("support-ticket-create QUEUE_HISTORY EXCEPTION:", qhErr);
     }
 
-    // Record event
-    await db.from("support_ticket_events").insert({
-      event_name: "ticket.created",
-      entity_type: "support_ticket",
-      entity_id: ticket.id,
-      actor_type: requester_level >= 600 ? "support" : "client",
-      actor_id: body.requester_user_id || null,
-      user_id: body.requester_user_id || null,
-      metadata: {
-        severity,
-        priority,
-        category: body.category,
-        ticket_type: body.ticket_type,
-        sla_policy_id,
-        public_code: ticket.public_code,
-        queue: "N1",
-      },
-      ip_address: req.headers.get("x-forwarded-for") || null,
-      user_agent: req.headers.get("user-agent") || null,
-    });
+    // ── Record event ────────────────────────────────────────────────────
+    try {
+      const { error: evError } = await db.from("support_ticket_events").insert({
+        event_name: "ticket.created",
+        entity_type: "support_ticket",
+        entity_id: ticket.id,
+        actor_type: requester_level >= 600 ? "support" : "client",
+        actor_id: body.requester_user_id || null,
+        user_id: body.requester_user_id || null,
+        metadata: {
+          severity,
+          priority,
+          category: body.category,
+          ticket_type: body.ticket_type,
+          sla_policy_id,
+          public_code: ticket.public_code,
+          queue: "N1",
+        },
+        ip_address: req.headers.get("x-forwarded-for") || null,
+        user_agent: req.headers.get("user-agent") || null,
+      });
+      if (evError) {
+        console.error("support-ticket-create EVENT INSERT ERROR:", JSON.stringify(evError));
+      } else {
+        console.log("support-ticket-create event OK");
+      }
+    } catch (evErr) {
+      console.error("support-ticket-create EVENT EXCEPTION:", evErr);
+    }
 
     // ── Notify N1 queue members ─────────────────────────────────────────
-    if (currentQueueId) {
-      const { data: members } = await db
+    try {
+      const { data: members, error: memError } = await db
         .from("support_queue_members")
         .select("user_id, user_level")
         .eq("queue_id", currentQueueId)
         .eq("is_active", true);
+
+      if (memError) {
+        console.error("support-ticket-create MEMBERS LOOKUP ERROR:", JSON.stringify(memError));
+      }
+      console.log("support-ticket-create N1 members found:", members?.length ?? 0);
 
       if (members && members.length > 0) {
         const notifications = members.map((m: any) => ({
@@ -217,17 +296,34 @@ Deno.serve(async (req) => {
           ticket_public_code: ticket.public_code,
           metadata: {},
         }));
-        await db.from("support_notifications").insert(notifications);
+        const { error: notifError } = await db.from("support_notifications").insert(notifications);
+        if (notifError) {
+          console.error("support-ticket-create NOTIFICATIONS INSERT ERROR:", JSON.stringify(notifError));
+        } else {
+          console.log("support-ticket-create notifications OK, count:", notifications.length);
+        }
       }
+    } catch (notifErr) {
+      console.error("support-ticket-create NOTIFICATIONS EXCEPTION:", notifErr);
     }
 
+    console.log("support-ticket-create SUCCESS:", ticket.public_code);
     return jsonResponse({
       success: true,
       data: ticket,
       message: `Ticket ${ticket.public_code} criado com sucesso`,
     }, 201);
-  } catch (err) {
-    console.error("support-ticket-create error:", err);
-    return jsonResponse({ success: false, message: "Erro interno", errors: [String(err)] }, 500);
+  } catch (err: any) {
+    console.error("support-ticket-create UNHANDLED ERROR:", JSON.stringify({
+      message: err?.message,
+      stack: err?.stack,
+      name: err?.name,
+      raw: String(err),
+    }));
+    return jsonResponse({
+      success: false,
+      message: err?.message || "Erro interno ao criar ticket",
+      errors: [String(err)],
+    }, 500);
   }
 });
