@@ -460,25 +460,8 @@ export default function ContratoDetailPage() {
                   Anexo I — Resumo da Proposta (PDF)
                 </Button>
               )}
-              {cAny.proposal_pdf_source_path && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-start gap-2 text-muted-foreground"
-                  disabled={downloadingFile === cAny.proposal_pdf_source_path}
-                  onClick={() => handleDownloadFile(
-                    'contracts-generated',
-                    cAny.proposal_pdf_source_path,
-                    `anexo-i-fallback-${c.contract_number || c.id.substring(0, 8)}.pdf`
-                  )}
-                >
-                  {downloadingFile === cAny.proposal_pdf_source_path ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  Anexo I — Fallback (PDF proposta, páginas 8+)
-                </Button>
+              {!hasAnnex && !hasDocx && (
+                <p className="text-sm text-muted-foreground">Nenhum documento gerado ainda.</p>
               )}
               <p className="text-xs text-muted-foreground mt-1">
                 Estratégia: {cAny.generation_strategy || 'N/A'}
