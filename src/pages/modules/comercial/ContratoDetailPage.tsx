@@ -375,29 +375,29 @@ export default function ContratoDetailPage() {
 
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
+          {(c.status === 'rascunho' || c.status === 'pendente_assinatura') && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleGenerateDocument}
+              disabled={generatingDoc}
+            >
+              {generatingDoc ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : hasAnyDocument ? (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              {hasAnyDocument ? 'Regerar documentos' : 'Gerar documentos'}
+            </Button>
+          )}
           {c.status === 'rascunho' && (
-            <>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleGenerateDocument}
-                disabled={generatingDoc}
-              >
-                {generatingDoc ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : hasAnyDocument ? (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                ) : (
-                  <FileDown className="h-4 w-4 mr-2" />
-                )}
-                {hasAnyDocument ? 'Regerar documentos' : 'Gerar documentos'}
-              </Button>
-              <Button variant="outline" size="sm"
-                onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
-                disabled={updateStatus.isPending}>
-                Enviar para assinatura
-              </Button>
-            </>
+            <Button variant="outline" size="sm"
+              onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
+              disabled={updateStatus.isPending}>
+              Enviar para assinatura
+            </Button>
           )}
           {c.status === 'pendente_assinatura' && (
             <>
