@@ -89,7 +89,7 @@ export function getTicketPermissions(
     canViewInternalNotes: isInternal,
     canViewQueue: isInternal,
     canManageSLA: isAdmin || isManager,
-    canManageQueues: isAdmin || isManager,
+    canManageQueues: isSupport || isManager || isAdmin,
     canUploadAttachment: !isTerminal && (isClient || isInternal),
     isClient,
     isPartner,
