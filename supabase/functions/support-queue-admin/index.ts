@@ -32,13 +32,21 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const authResult = await validateExternalToken(token);
     if (!authResult.valid) {
+      console.error("support-queue-admin auth failed", { tokenLength: token?.length });
       return jsonResponse({ success: false, message: "Unauthorized" }, 401);
     }
 
     const body = await req.json();
     const db = getSupabaseAdmin();
     const action = body.action;
-    const userLevel = body.user_level || 0;
+    const userLevel = typeof body.user_level === 'number' ? body.user_level : parseInt(body.user_level) || 0;
+
+    console.log("support-queue-admin request", {
+      action,
+      userLevel,
+      rawUserLevel: body.user_level,
+      userId: body.user_id,
+    });
 
     // ── list_queues: all internal users can see ─────────────────────────
     if (action === "list_queues") {
@@ -84,9 +92,14 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: true, data: memberships });
     }
 
-    // ── Admin-only actions below ────────────────────────────────────────
+    // ── Admin-only actions below (950+ for mutations) ─────────────────
     if (userLevel < 950) {
-      return jsonResponse({ success: false, message: "Apenas gerentes e admins podem gerenciar membros" }, 403);
+      console.warn("support-queue-admin mutation denied", { action, userLevel });
+      return jsonResponse({
+        success: false,
+        message: "Apenas gerentes e admins podem gerenciar membros",
+        debug: { required_levels: [950, 1000], received_level: userLevel },
+      }, 403);
     }
 
     // ── add_member ──────────────────────────────────────────────────────

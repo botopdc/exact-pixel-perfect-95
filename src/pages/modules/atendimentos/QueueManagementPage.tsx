@@ -5,12 +5,13 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Plus, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { ArrowLeft, Users, Plus, Trash2, ToggleLeft, ToggleRight, AlertCircle, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -31,20 +32,27 @@ export default function QueueManagementPage() {
   const userLevel = session?.level ?? 0;
   const navigate = useNavigate();
 
-  const { data: queues, isLoading: queuesLoading } = useQueues();
+  const { data: queues, isLoading: queuesLoading, error: queuesError } = useQueues();
   const [selectedQueue, setSelectedQueue] = useState<string | undefined>();
-  const { data: members, isLoading: membersLoading } = useQueueMembers(selectedQueue);
+  const { data: members, isLoading: membersLoading, error: membersError } = useQueueMembers(selectedQueue);
   const { addMember, removeMember, toggleMember } = useQueueMemberMutations();
   const [addOpen, setAddOpen] = useState(false);
   const [newMember, setNewMember] = useState({ user_id: '', user_name: '', user_email: '', user_level: '900' });
 
-  const canManage = userLevel >= 950; // managers and admins can add/remove
-  const canView = userLevel >= 900; // support can at least view
+  const canManage = userLevel >= 950;
+  const canView = userLevel >= 900;
 
   if (!canView) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">Acesso restrito a usuários de suporte.</p>
+      <div className="space-y-5">
+        <Alert variant="destructive">
+          <ShieldAlert className="h-4 w-4" />
+          <AlertTitle>Acesso restrito</AlertTitle>
+          <AlertDescription>
+            Você não tem permissão para acessar a gestão de filas. Nível mínimo: 900 (Suporte).
+            Seu nível atual: {userLevel}.
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -64,6 +72,19 @@ export default function QueueManagementPage() {
 
   const selectedQueueObj = queues?.find((q: SupportQueueRecord) => q.id === selectedQueue);
 
+  const renderError = (error: Error | null, context: string) => {
+    if (!error) return null;
+    const msg = error.message || 'Erro desconhecido';
+    const isPermission = msg.toLowerCase().includes('acesso negado') || msg.toLowerCase().includes('gerentes');
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>{isPermission ? 'Permissão insuficiente' : `Erro ao carregar ${context}`}</AlertTitle>
+        <AlertDescription>{msg}</AlertDescription>
+      </Alert>
+    );
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
@@ -77,28 +98,43 @@ export default function QueueManagementPage() {
         </div>
       </div>
 
+      {/* Error state for queues */}
+      {queuesError && renderError(queuesError as Error, 'filas')}
+
       {/* Queue selector */}
-      <div className="flex flex-wrap gap-2">
-        {queuesLoading ? (
-          <Skeleton className="h-10 w-40" />
-        ) : (
-          queues?.map((q: SupportQueueRecord) => (
-            <Button
-              key={q.id}
-              variant={selectedQueue === q.id ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedQueue(q.id)}
-            >
-              {q.name}
-              <Badge variant="secondary" className="ml-2 h-4 px-1 text-[10px]">
-                {members && selectedQueue === q.id
-                  ? members.filter((m: any) => m.is_active).length
-                  : ''}
-              </Badge>
-            </Button>
-          ))
-        )}
-      </div>
+      {!queuesError && (
+        <div className="flex flex-wrap gap-2">
+          {queuesLoading ? (
+            <>
+              <Skeleton className="h-10 w-24" />
+              <Skeleton className="h-10 w-24" />
+              <Skeleton className="h-10 w-24" />
+            </>
+          ) : !queues || queues.length === 0 ? (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Nenhuma fila encontrada</AlertTitle>
+              <AlertDescription>Não existem filas de suporte cadastradas no sistema.</AlertDescription>
+            </Alert>
+          ) : (
+            queues.map((q: SupportQueueRecord) => (
+              <Button
+                key={q.id}
+                variant={selectedQueue === q.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setSelectedQueue(q.id)}
+              >
+                {q.name}
+                <Badge variant="secondary" className="ml-2 h-4 px-1 text-[10px]">
+                  {members && selectedQueue === q.id
+                    ? members.filter((m: any) => m.is_active).length
+                    : ''}
+                </Badge>
+              </Button>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Members table */}
       {selectedQueue && (
@@ -107,18 +143,21 @@ export default function QueueManagementPage() {
             <CardTitle className="text-sm">
               Membros — {selectedQueueObj?.name || 'Fila'}
             </CardTitle>
-            <Button size="sm" onClick={() => setAddOpen(true)} disabled={!canManage}>
-              <Plus className="h-4 w-4 mr-1" /> Adicionar Membro
-            </Button>
+            {canManage && (
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" /> Adicionar Membro
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
+            {membersError && renderError(membersError as Error, 'membros')}
             {membersLoading ? (
               <Skeleton className="h-32 w-full" />
-            ) : !members || members.length === 0 ? (
+            ) : !membersError && (!members || members.length === 0) ? (
               <p className="text-sm text-muted-foreground text-center py-6">
-                Nenhum membro nesta fila. Adicione membros para que possam ver e assumir tickets.
+                Nenhum membro nesta fila. {canManage ? 'Adicione membros para que possam ver e assumir tickets.' : ''}
               </p>
-            ) : (
+            ) : !membersError && (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -130,7 +169,7 @@ export default function QueueManagementPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map((m: any) => (
+                  {members?.map((m: any) => (
                     <TableRow key={m.id}>
                       <TableCell className="font-medium">{m.user_name}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{m.user_email}</TableCell>
@@ -144,7 +183,7 @@ export default function QueueManagementPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          {canManage && (
+                          {canManage ? (
                             <>
                               <Button
                                 variant="ghost" size="icon" className="h-7 w-7"
@@ -163,8 +202,7 @@ export default function QueueManagementPage() {
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </>
-                          )}
-                          {!canManage && (
+                          ) : (
                             <span className="text-xs text-muted-foreground">Somente leitura</span>
                           )}
                         </div>

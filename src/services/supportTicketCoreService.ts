@@ -405,15 +405,26 @@ export const supportTicketCoreService = {
     return resp.data!.signed_url;
   },
 
-  // Queue management
+  // Queue management — inject user_level from session
+  _getQueueUserLevel(): number {
+    try {
+      const raw = localStorage.getItem('open_user');
+      if (raw) { const u = JSON.parse(raw); return u?.level ?? 0; }
+    } catch {}
+    return 0;
+  },
+
   async listQueues(): Promise<SupportQueueRecord[]> {
-    const resp = await invoke<SupportQueueRecord[]>('support-queue-admin', { action: 'list_queues' });
+    const resp = await invoke<SupportQueueRecord[]>('support-queue-admin', {
+      action: 'list_queues', user_level: this._getQueueUserLevel(),
+    });
     return resp.data || [];
   },
 
   async listQueueMembers(queueId?: string, queueCode?: string): Promise<QueueMember[]> {
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
       action: 'list_members', queue_id: queueId, queue_code: queueCode,
+      user_level: this._getQueueUserLevel(),
     });
     return resp.data || [];
   },
@@ -421,6 +432,7 @@ export const supportTicketCoreService = {
   async getMyQueues(userId: string): Promise<QueueMember[]> {
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
       action: 'my_queues', user_id: userId,
+      user_level: this._getQueueUserLevel(),
     });
     return resp.data || [];
   },
@@ -429,16 +441,25 @@ export const supportTicketCoreService = {
     queue_id: string; user_id: string; user_name: string;
     user_email: string; user_level?: number; is_primary?: boolean;
   }): Promise<QueueMember> {
-    const resp = await invoke<QueueMember>('support-queue-admin', { action: 'add_member', ...payload });
+    const resp = await invoke<QueueMember>('support-queue-admin', {
+      action: 'add_member', ...payload,
+      user_level: supportTicketCoreService._getQueueUserLevel(),
+    });
     return resp.data!;
   },
 
   async removeQueueMember(memberId: string): Promise<void> {
-    await invoke('support-queue-admin', { action: 'remove_member', member_id: memberId });
+    await invoke('support-queue-admin', {
+      action: 'remove_member', member_id: memberId,
+      user_level: supportTicketCoreService._getQueueUserLevel(),
+    });
   },
 
   async toggleQueueMember(memberId: string): Promise<QueueMember> {
-    const resp = await invoke<QueueMember>('support-queue-admin', { action: 'toggle_member', member_id: memberId });
+    const resp = await invoke<QueueMember>('support-queue-admin', {
+      action: 'toggle_member', member_id: memberId,
+      user_level: supportTicketCoreService._getQueueUserLevel(),
+    });
     return resp.data!;
   },
 
