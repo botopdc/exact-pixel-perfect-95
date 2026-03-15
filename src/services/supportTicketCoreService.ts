@@ -326,12 +326,19 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
 
   if (error) {
     console.error(`[supportTicketCore] ${fn} error:`, error);
-    throw new Error(error.message || `Erro ao chamar ${fn}`);
+    // Preserve status code info in the error message for UI differentiation
+    const errMsg = error.message || `Erro ao chamar ${fn}`;
+    const enrichedError = new Error(errMsg);
+    (enrichedError as any).status = error.status;
+    throw enrichedError;
   }
 
   const resp = data as EdgeResponse<T>;
   if (!resp.success) {
-    throw new Error(resp.message || resp.errors?.join(', ') || 'Erro desconhecido');
+    const errMsg = resp.message || resp.errors?.join(', ') || 'Erro desconhecido';
+    const enrichedError = new Error(errMsg);
+    (enrichedError as any).debug = (resp as any).debug;
+    throw enrichedError;
   }
 
   return resp;

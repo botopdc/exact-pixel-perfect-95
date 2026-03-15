@@ -60,8 +60,7 @@ Deno.serve(async (req) => {
       // Client (level 1): only own tickets
       query = query.eq("requester_user_id", userId);
     } else if (userLevel >= 600 && userLevel < 950 && userId) {
-      // Internal user (not manager/admin): see tickets in their queues OR assigned to them
-      // Try parsing userId as integer for queue membership lookup
+      // Internal user (not manager/admin): see tickets in their queues OR assigned to them OR opened by them
       const userIdInt = parseInt(userId);
       const lookupId = Number.isFinite(userIdInt) ? userIdInt : null;
 
@@ -77,18 +76,16 @@ Deno.serve(async (req) => {
 
       console.log("support-ticket-list membership", { userId, userIdInt: lookupId, queueIds });
 
+      // Build OR conditions: requester OR assigned OR in queue
+      const orConditions: string[] = [];
+      orConditions.push(`requester_user_id.eq.${userId}`);
+      orConditions.push(`assigned_to_user_id.eq.${userId}`);
       if (queueIds.length > 0) {
-        // Show tickets in user's queues OR assigned to them (by name match too)
-        query = query.or(
-          `current_queue_id.in.(${queueIds.join(",")}),assigned_to_name.neq.IMPOSSIBLE_SENTINEL`
-        );
-        // Note: we show all tickets in member queues; further filtering by assigned is done via tabs
-      } else {
-        // No queue memberships: show nothing (no tickets visible)
-        // This forces admins to add them to a queue first
-        console.warn("support-ticket-list: user has NO queue memberships, showing empty list", { userId });
-        query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+        orConditions.push(`current_queue_id.in.(${queueIds.join(",")})`);
       }
+
+      console.log("support-ticket-list OR conditions", orConditions);
+      query = query.or(orConditions.join(","));
     }
     // Manager (950+) and Admin (1000): see all tickets — no filter applied
 
