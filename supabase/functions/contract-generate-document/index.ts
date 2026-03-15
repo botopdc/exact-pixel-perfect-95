@@ -197,12 +197,14 @@ async function generateFullProposalPdf(
   drawText("DADOS DO CLIENTE", margin, y, { font: fontBold, size: 11 });
   y -= lineHeight + 2;
   const clientFields = [
-    ["Empresa", contract.company || proposal.company || "—"],
-    ["Contato", contract.client_name || proposal.name || "—"],
-    ["Email", contract.email || proposal.email || "—"],
-    ["Datacenter", contract.datacenter || proposal.datacenter || "SP1"],
-    ["Moeda", contract.currency || proposal.currency || "BRL"],
-    ["Duração", `${contract.contract_duration || proposal.contract_duration || 12} meses`],
+    ["Empresa", proposal.company || "—"],
+    ["Contato", proposal.name || "—"],
+    ["Email", proposal.email || "—"],
+    ["Telefone", proposal.phone || "—"],
+    ["Datacenter", proposal.datacenter || "SP1"],
+    ["Moeda", proposal.currency || "BRL"],
+    ["Duração", `${proposal.contract_duration || 12} meses`],
+    ["Desconto", `${proposal.discount_pct || 0}%`],
   ];
   for (const [label, value] of clientFields) {
     drawText(`${label}:`, margin, y, { font: fontBold });
