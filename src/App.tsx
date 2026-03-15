@@ -139,7 +139,10 @@ import AnalistasSuportePage from '@/pages/modules/atendimentos/AnalistasSuporteP
 import SLAPoliciesPage from '@/pages/modules/atendimentos/SLAPoliciesPage';
 import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
 
-// Birth Certificate (Certidão de Nascimento) Pages
+// Tickets CORE (Supabase-first)
+import TicketsCoreListPage from '@/pages/modules/atendimentos/TicketsCoreListPage';
+import TicketCoreDetailPage from '@/pages/modules/atendimentos/TicketCoreDetailPage';
+
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
 import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
 import CertidaoAssetPage from '@/pages/modules/certidao/CertidaoAssetPage';
@@ -262,6 +265,10 @@ const App = () => (
             {/* Support Tickets (Chamados de Clientes - 900/1000) */}
             <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
             <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
+            
+            {/* Tickets CORE — novo sistema Supabase-first */}
+            <Route path="/modulos/atendimentos/tickets" element={<TicketsCoreListPage />} />
+            <Route path="/modulos/atendimentos/tickets/:ticketId" element={<TicketCoreDetailPage />} />
             <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
             <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
             <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />

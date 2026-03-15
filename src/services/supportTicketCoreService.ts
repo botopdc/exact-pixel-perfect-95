@@ -1,0 +1,328 @@
+// ============================================================================
+// SUPPORT TICKET CORE SERVICE - Supabase Edge Functions
+// Replaces legacy Laravel endpoints for the new ticket system
+// ============================================================================
+
+import { supabase } from '@/integrations/supabase/client';
+
+const AUTH_TOKEN_KEY = 'open_access_token';
+const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+
+function getToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// ── Response types ──────────────────────────────────────────────────────
+
+export interface EdgeResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  errors?: string[];
+  meta?: { current_page: number; last_page: number; per_page: number; total: number };
+}
+
+// ── Ticket types (matching DB schema) ───────────────────────────────────
+
+export type TicketStatus =
+  | 'novo' | 'triagem' | 'em_atendimento'
+  | 'aguardando_cliente' | 'aguardando_terceiro'
+  | 'escalado_n2' | 'escalado_n3'
+  | 'resolvido_suporte' | 'encerrado_cs'
+  | 'reaberto' | 'cancelado';
+
+export type TicketSeverity = 'S1' | 'S2' | 'S3' | 'S4';
+export type TicketPriority = 'critical' | 'high' | 'medium' | 'low';
+export type SupportLevel = 'N1' | 'N2' | 'N3';
+export type SupportQueue = 'N1' | 'N2' | 'N3' | 'CS';
+export type AuthorType = 'client' | 'support' | 'cs' | 'manager' | 'system' | 'integration';
+export type OriginChannel = 'portal' | 'internal_portal' | 'zabbix' | 'api' | 'email';
+
+export interface CoreTicket {
+  id: string;
+  ticket_number: number;
+  public_code: string;
+  company_id: string | null;
+  requester_user_id: string | null;
+  requester_level: number | null;
+  requester_name: string;
+  requester_email: string | null;
+  requester_phone: string | null;
+  origin_channel: OriginChannel;
+  ticket_type: string;
+  category: string;
+  subcategory: string | null;
+  severity: TicketSeverity;
+  priority: TicketPriority;
+  status: TicketStatus;
+  support_level: SupportLevel;
+  current_queue: SupportQueue;
+  service_name: string | null;
+  asset_id: string | null;
+  asset_label: string | null;
+  title: string;
+  description: string;
+  customer_visible: boolean;
+  assigned_to_user_id: string | null;
+  assigned_to_name: string | null;
+  assigned_team: string | null;
+  support_resolved_by: string | null;
+  cs_closed_by: string | null;
+  sla_policy_id: string | null;
+  first_response_due_at: string | null;
+  resolution_due_at: string | null;
+  first_response_at: string | null;
+  resolved_at: string | null;
+  closed_at: string | null;
+  last_customer_message_at: string | null;
+  last_internal_update_at: string | null;
+  source_system: string | null;
+  external_reference: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface CoreTicketMessage {
+  id: string;
+  ticket_id: string;
+  author_user_id: string | null;
+  author_level: number | null;
+  author_name: string;
+  author_email: string | null;
+  author_type: AuthorType;
+  is_internal_note: boolean;
+  body: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoreTicketStatusHistory {
+  id: string;
+  ticket_id: string;
+  old_status: string | null;
+  new_status: string;
+  changed_by_user_id: string | null;
+  changed_by_name: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface CoreTicketAssignment {
+  id: string;
+  ticket_id: string;
+  from_user_name: string | null;
+  to_user_name: string | null;
+  from_queue: string | null;
+  to_queue: string | null;
+  reason: string | null;
+  assigned_by_name: string | null;
+  created_at: string;
+}
+
+export interface CoreTicketDetail extends CoreTicket {
+  messages: CoreTicketMessage[];
+  status_history: CoreTicketStatusHistory[];
+  assignments: CoreTicketAssignment[];
+  attachments: CoreTicketAttachment[];
+  sla_computed?: {
+    first_response_remaining_seconds: number | null;
+    resolution_remaining_seconds: number | null;
+    is_first_response_breached: boolean;
+    is_resolution_breached: boolean;
+  };
+}
+
+export interface CoreTicketAttachment {
+  id: string;
+  ticket_id: string;
+  original_filename: string;
+  mime_type: string | null;
+  file_size: number | null;
+  is_internal: boolean;
+  created_at: string;
+  uploaded_by_name: string | null;
+}
+
+// ── Filters ─────────────────────────────────────────────────────────────
+
+export interface TicketListFilters {
+  status?: string;
+  current_queue?: string;
+  assigned_to_user_id?: string;
+  severity?: string;
+  priority?: string;
+  ticket_type?: string;
+  category?: string;
+  company_id?: string;
+  requester_name?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  only_mine?: boolean;
+  only_unassigned?: boolean;
+  only_sla_breached?: boolean;
+  page?: number;
+  per_page?: number;
+  order_by?: string;
+  order_dir?: 'asc' | 'desc';
+}
+
+// ── Create payload ──────────────────────────────────────────────────────
+
+export interface CreateTicketPayload {
+  requester_name: string;
+  requester_email?: string;
+  requester_phone?: string;
+  requester_user_id?: string;
+  requester_level?: number;
+  company_id?: string;
+  ticket_type: string;
+  category: string;
+  subcategory?: string;
+  severity: TicketSeverity;
+  title: string;
+  description: string;
+  service_name?: string;
+  asset_id?: string;
+  asset_label?: string;
+  origin_channel?: OriginChannel;
+}
+
+// ── Action payloads ─────────────────────────────────────────────────────
+
+export type TicketAction =
+  | 'assign' | 'start' | 'transfer' | 'escalate'
+  | 'wait_customer' | 'wait_third_party'
+  | 'resolve' | 'close' | 'reopen' | 'cancel';
+
+export interface TicketActionPayload {
+  ticket_id: string;
+  action: TicketAction;
+  actor_user_id?: string;
+  actor_name?: string;
+  actor_level?: number;
+  // For assign/transfer
+  assigned_to_user_id?: string;
+  assigned_to_name?: string;
+  new_queue?: string;
+  // For escalate
+  target_level?: 'N2' | 'N3';
+  // For resolve/close/reopen/cancel/transfer/escalate
+  reason?: string;
+}
+
+// ── Message payload ─────────────────────────────────────────────────────
+
+export interface AddMessagePayload {
+  ticket_id: string;
+  body: string;
+  is_internal_note: boolean;
+  author_name: string;
+  author_email?: string;
+  author_user_id?: string;
+  author_level?: number;
+  author_type?: AuthorType;
+}
+
+// ── SLA Policy ──────────────────────────────────────────────────────────
+
+export interface CoreSLAPolicy {
+  id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+  ticket_type: string | null;
+  category: string | null;
+  severity: string | null;
+  customer_plan: string | null;
+  business_hours_only: boolean;
+  first_response_minutes: number;
+  resolution_minutes: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Edge Function Caller ────────────────────────────────────────────────
+
+async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<EdgeResponse<T>> {
+  const { data, error } = await supabase.functions.invoke(fn, {
+    body,
+    headers: authHeaders(),
+  });
+
+  if (error) {
+    console.error(`[supportTicketCore] ${fn} error:`, error);
+    throw new Error(error.message || `Erro ao chamar ${fn}`);
+  }
+
+  // Edge functions return { success, data, message, errors }
+  const resp = data as EdgeResponse<T>;
+  if (!resp.success) {
+    throw new Error(resp.message || resp.errors?.join(', ') || 'Erro desconhecido');
+  }
+
+  return resp;
+}
+
+// ── Service Methods ─────────────────────────────────────────────────────
+
+export const supportTicketCoreService = {
+  // Create ticket
+  async createTicket(payload: CreateTicketPayload): Promise<CoreTicket> {
+    const resp = await invoke<CoreTicket>('support-ticket-create', payload as unknown as Record<string, unknown>);
+    return resp.data!;
+  },
+
+  // List tickets
+  async listTickets(filters: TicketListFilters = {}): Promise<{ tickets: CoreTicket[]; meta: EdgeResponse['meta'] }> {
+    const resp = await invoke<CoreTicket[]>('support-ticket-list', filters as unknown as Record<string, unknown>);
+    return { tickets: resp.data || [], meta: resp.meta };
+  },
+
+  // Get single ticket with all related data
+  async getTicket(ticketId: string): Promise<CoreTicketDetail> {
+    const resp = await invoke<CoreTicketDetail>('support-ticket-get', { ticket_id: ticketId });
+    return resp.data!;
+  },
+
+  // Perform action on ticket
+  async updateTicket(payload: TicketActionPayload): Promise<CoreTicket> {
+    const resp = await invoke<CoreTicket>('support-ticket-update', payload as unknown as Record<string, unknown>);
+    return resp.data!;
+  },
+
+  // Add message
+  async addMessage(payload: AddMessagePayload): Promise<CoreTicketMessage> {
+    const resp = await invoke<CoreTicketMessage>('support-ticket-messages', payload as unknown as Record<string, unknown>);
+    return resp.data!;
+  },
+
+  // SLA Policies
+  async listSlaPolicies(): Promise<CoreSLAPolicy[]> {
+    const resp = await invoke<CoreSLAPolicy[]>('support-sla-admin', { action: 'list' });
+    return resp.data || [];
+  },
+
+  async createSlaPolicy(policy: Partial<CoreSLAPolicy>): Promise<CoreSLAPolicy> {
+    const resp = await invoke<CoreSLAPolicy>('support-sla-admin', { action: 'create', ...policy });
+    return resp.data!;
+  },
+
+  async updateSlaPolicy(id: string, policy: Partial<CoreSLAPolicy>): Promise<CoreSLAPolicy> {
+    const resp = await invoke<CoreSLAPolicy>('support-sla-admin', { action: 'update', id, ...policy });
+    return resp.data!;
+  },
+
+  async deleteSlaPolicy(id: string): Promise<void> {
+    await invoke('support-sla-admin', { action: 'delete', id });
+  },
+};
