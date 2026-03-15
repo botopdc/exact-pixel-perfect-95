@@ -103,15 +103,8 @@ function useOnCallShifts() {
   return useQuery({
     queryKey: ['oncall-shifts-all'],
     queryFn: async () => {
-      const session = authService.getSession();
-      const res = await supportTicketCoreService.callQueueAdmin({
-        action: 'list_oncall_shifts',
-        actor_user_id: session?.userId,
-        actor_level: session?.level,
-        actor_email: session?.email,
-        actor_name: session?.name,
-      });
-      return (res.data || []) as OnCallShift[];
+      const shifts = await supportTicketCoreService.listOnCallShifts();
+      return shifts as OnCallShift[];
     },
     staleTime: 30_000,
   });
