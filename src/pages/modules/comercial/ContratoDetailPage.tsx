@@ -314,9 +314,6 @@ export default function ContratoDetailPage() {
     const servers = payload?.servers || [];
     const addons = payload?.addons || [];
 
-
-    const [lastGenerationDebug, setLastGenerationDebug] = useState<any>(null);
-
     const handleGenerateDocument = async () => {
       setGeneratingDoc(true);
       setLastGenerationDebug(null);
