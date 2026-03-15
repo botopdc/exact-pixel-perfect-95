@@ -315,9 +315,9 @@ const PropostaAprovacaoPublica: React.FC = () => {
           </div>
 
           {/* PDF Download */}
-          <Button variant="outline" className="w-full gap-2" onClick={handleDownloadPdf}>
-            <FileDown className="w-4 h-4" />
-            Baixar PDF da Proposta
+          <Button variant="outline" className="w-full gap-2" onClick={handleDownloadPdf} disabled={isDownloading}>
+            {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            {isDownloading ? 'Gerando PDF...' : 'Baixar PDF da Proposta'}
           </Button>
 
           {/* Decision result */}
