@@ -79,6 +79,7 @@ export default function ContratoDetailPage() {
   const [contractDate, setContractDate] = useState('');
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+  const [lastGenerationDebug, setLastGenerationDebug] = useState<any>(null);
 
   // Queries
   const { data: existingContract, isLoading: isLoadingContract } = useContract(isViewing ? id : undefined);
@@ -313,16 +314,29 @@ export default function ContratoDetailPage() {
     const servers = payload?.servers || [];
     const addons = payload?.addons || [];
 
-
     const handleGenerateDocument = async () => {
       setGeneratingDoc(true);
+      setLastGenerationDebug(null);
       try {
         const result = await contractDocumentService.generate(c.id);
-        toast.success('Documento gerado com sucesso!');
+        console.log('[contract-ui] generation_response=', result);
+        console.log('[contract-ui] documents_from_backend=', result?.documents);
+        console.log('[contract-ui] annex_from_backend=', result?.documents?.find((d: any) => d.type === 'annex_pdf'));
+        console.log('[contract-ui] debug_from_backend=', result?.debug);
+        setLastGenerationDebug(result?.debug || result);
+
+        if (result?.annex_generated) {
+          toast.success('Documentos gerados com sucesso (DOCX + Anexo I)!');
+        } else if (result?.contract_docx_generated) {
+          toast.warning(`DOCX gerado, mas Anexo I não foi gerado: ${result?.annex_skip_reason || 'motivo desconhecido'}`);
+        } else {
+          toast.info('Geração concluída — verifique os documentos.');
+        }
         // Refresh contract data
         window.location.reload();
       } catch (err: any) {
-        console.error('Erro ao gerar documento:', err);
+        console.error('[contract-ui] generation_error=', err);
+        console.error('[contract-ui] generation_error_message=', err?.message);
         toast.error(err.message || 'Erro ao gerar documento');
       } finally {
         setGeneratingDoc(false);
@@ -469,6 +483,55 @@ export default function ContratoDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Debug panel — diagnostic info */}
+        {(lastGenerationDebug || cAny.generation_strategy) && (
+          <Card className="border-dashed border-yellow-500/50">
+            <CardHeader>
+              <CardTitle className="text-base text-yellow-600 dark:text-yellow-400">
+                🔍 Diagnóstico — Geração de Documentos
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <span className="text-muted-foreground">source_pdf_path:</span>
+                <span>{cAny.proposal_pdf_source_path || lastGenerationDebug?.source_pdf_path || 'null'}</span>
+                <span className="text-muted-foreground">source_pdf_exists:</span>
+                <span>{lastGenerationDebug?.source_pdf_exists !== undefined ? String(lastGenerationDebug.source_pdf_exists) : 'N/A'}</span>
+                <span className="text-muted-foreground">source_pdf_page_count:</span>
+                <span>{lastGenerationDebug?.source_pdf_page_count ?? 'N/A'}</span>
+                <span className="text-muted-foreground">trimmed_pdf_page_count:</span>
+                <span>{lastGenerationDebug?.trimmed_pdf_page_count ?? 'N/A'}</span>
+                <span className="text-muted-foreground">annex_saved:</span>
+                <span className={lastGenerationDebug?.annex_saved ? 'text-green-600' : 'text-red-500'}>
+                  {lastGenerationDebug?.annex_saved !== undefined ? String(lastGenerationDebug.annex_saved) : 'N/A'}
+                </span>
+                <span className="text-muted-foreground">annex_pdf_path (DB):</span>
+                <span>{cAny.annex_pdf_path || 'null'}</span>
+                <span className="text-muted-foreground">docx_path (DB):</span>
+                <span>{cAny.docx_path || 'null'}</span>
+                <span className="text-muted-foreground">generation_strategy:</span>
+                <span>{cAny.generation_strategy || 'N/A'}</span>
+                <span className="text-muted-foreground">documents_count:</span>
+                <span>{lastGenerationDebug?.documents_count ?? 'N/A'}</span>
+              </div>
+              {lastGenerationDebug?.annex_skip_reason && (
+                <Alert variant="destructive" className="mt-2">
+                  <AlertCircle className="h-3 w-3" />
+                  <AlertDescription className="text-xs">
+                    {lastGenerationDebug.annex_skip_reason}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {!hasAnnex && !lastGenerationDebug?.annex_skip_reason && cAny.generation_strategy && (
+                <p className="text-yellow-600 dark:text-yellow-400 mt-1">
+                  ⚠️ Anexo I não aparece — provavelmente a proposta não possui PDF gerado (pdf_path=null).
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
