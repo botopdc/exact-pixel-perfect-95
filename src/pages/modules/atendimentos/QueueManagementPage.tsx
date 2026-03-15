@@ -75,11 +75,20 @@ export default function QueueManagementPage() {
   const renderError = (error: Error | null, context: string) => {
     if (!error) return null;
     const msg = error.message || 'Erro desconhecido';
-    const isPermission = msg.toLowerCase().includes('acesso negado') || msg.toLowerCase().includes('gerentes');
+    const normalized = msg.toLowerCase();
+    const isAuth = normalized.includes('falha ao identificar usuário autenticado') || normalized.includes('unauthorized');
+    const isPermission = normalized.includes('acesso negado') || normalized.includes('gerentes');
+
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
-        <AlertTitle>{isPermission ? 'Permissão insuficiente' : `Erro ao carregar ${context}`}</AlertTitle>
+        <AlertTitle>
+          {isAuth
+            ? 'Falha de autenticação'
+            : isPermission
+              ? 'Permissão insuficiente'
+              : `Erro ao carregar ${context}`}
+        </AlertTitle>
         <AlertDescription>{msg}</AlertDescription>
       </Alert>
     );
