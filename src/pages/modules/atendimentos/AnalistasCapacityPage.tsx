@@ -50,6 +50,14 @@ interface OnCallShift {
   starts_at: string;
   ends_at: string;
   is_active: boolean;
+  notes: string | null;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
 }
 
 // ── Hook: aggregate analyst data ────────────────────────────────────────
