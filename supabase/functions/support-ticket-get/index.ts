@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const authResult = await validateExternalToken(token);
     if (!authResult.valid) {
-      return jsonResponse({ success: false, message: "Unauthorized" }, 401);
+      return jsonResponse({ success: false, message: "Falha ao identificar usuário autenticado" }, 401);
     }
 
     const body = await req.json();
@@ -42,6 +42,8 @@ Deno.serve(async (req) => {
     const publicCode = body.public_code;
     const userLevel = body.user_level || 1;
     const userId = body.user_id;
+
+    console.log("support-ticket-get user context", { userId, userLevel, ticketId, publicCode });
 
     if (!ticketId && !publicCode) {
       return jsonResponse({ success: false, message: "ticket_id ou public_code obrigatório" }, 422);
@@ -54,30 +56,59 @@ Deno.serve(async (req) => {
 
     const { data: ticket, error: ticketError } = await ticketQuery.single();
     if (ticketError || !ticket) {
-      return jsonResponse({ success: false, message: "Ticket não encontrado" }, 404);
+      console.log("support-ticket-get ticket not found", { ticketId, publicCode, error: ticketError?.message });
+      return jsonResponse({ success: false, message: "Chamado não encontrado" }, 404);
     }
 
-    // Access check: client can only see own tickets
-    if (userLevel < 600 && userId && ticket.requester_user_id !== userId) {
+    // ── ACCESS CHECK ────────────────────────────────────────────────────
+    // Client (level < 600): own tickets only
+    if (userLevel < 600 && userId && String(ticket.requester_user_id) !== String(userId)) {
+      console.log("support-ticket-get access denied (client)", { userId, requesterUserId: ticket.requester_user_id });
       return jsonResponse({ success: false, message: "Acesso negado" }, 403);
     }
 
-    // For internal non-manager users: check queue membership or assignment
+    // Internal non-manager (600-949): check requester OR assignment OR queue membership
     if (userLevel >= 600 && userLevel < 950 && userId) {
-      const { data: memberships } = await db
-        .from("support_queue_members")
-        .select("queue_id")
-        .eq("user_id", parseInt(userId))
-        .eq("is_active", true);
+      const isRequester = String(ticket.requester_user_id) === String(userId);
+      const isAssigned = ticket.assigned_to_user_id && String(ticket.assigned_to_user_id) === String(userId);
 
-      const queueIds = (memberships || []).map((m: any) => m.queue_id);
-      const isAssigned = String(ticket.assigned_to_user_id) === String(userId);
-      const isInQueue = ticket.current_queue_id && queueIds.includes(ticket.current_queue_id);
+      let isInQueue = false;
+      let memberQueueIds: string[] = [];
+      if (!isRequester && !isAssigned && ticket.current_queue_id) {
+        const userIdInt = parseInt(userId);
+        if (Number.isFinite(userIdInt)) {
+          const { data: memberships } = await db
+            .from("support_queue_members")
+            .select("queue_id")
+            .eq("user_id", userIdInt)
+            .eq("is_active", true);
+          memberQueueIds = (memberships || []).map((m: any) => m.queue_id);
+          isInQueue = memberQueueIds.includes(ticket.current_queue_id);
+        }
+      }
 
-      if (!isAssigned && !isInQueue) {
-        return jsonResponse({ success: false, message: "Acesso negado — você não faz parte da fila deste ticket" }, 403);
+      console.log("support-ticket-get access check", {
+        ticketId: ticket.id,
+        requesterUserId: ticket.requester_user_id,
+        assignedToUserId: ticket.assigned_to_user_id,
+        currentQueueId: ticket.current_queue_id,
+        memberQueueIds,
+        userId,
+        userLevel,
+        isRequester,
+        isAssigned,
+        isInQueue,
+      });
+
+      if (!isRequester && !isAssigned && !isInQueue) {
+        return jsonResponse({
+          success: false,
+          message: "Você não tem permissão para acessar este chamado",
+          debug: { reason: "not_requester_not_assigned_not_in_queue" },
+        }, 403);
       }
     }
+    // Manager (950+) and Admin (1000): full access — no filter
 
     // ── Fetch related data ──────────────────────────────────────────────
 
@@ -177,7 +208,6 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         ...ticket,
-        // Enriched queue fields — these are the source of truth for UI
         queue_code: queueCode,
         queue_name: queueName,
         messages: messages || [],

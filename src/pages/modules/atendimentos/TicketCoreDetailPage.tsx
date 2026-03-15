@@ -46,11 +46,26 @@ export default function TicketCoreDetailPage() {
   }
 
   if (error || !ticket) {
+    const errorMsg = error?.message || '';
+    const isPermissionError = errorMsg.includes('permissão') || errorMsg.includes('Acesso negado');
+    const isNotFound = errorMsg.includes('não encontrado');
+    
+    let title = 'Erro ao carregar chamado';
+    let description = errorMsg || 'Ocorreu um erro inesperado ao carregar o chamado.';
+    
+    if (isPermissionError) {
+      title = 'Acesso negado';
+      description = 'Você não tem permissão para acessar este chamado. Verifique se você pertence à fila correta.';
+    } else if (isNotFound) {
+      title = 'Chamado não encontrado';
+      description = 'O chamado solicitado não existe ou foi removido.';
+    }
+
     return (
       <div className="text-center py-12">
         <FileWarning className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-        <p className="text-lg font-medium">Chamado não encontrado</p>
-        <p className="text-sm text-muted-foreground mb-4">{error?.message || 'O chamado solicitado não existe ou você não tem permissão.'}</p>
+        <p className="text-lg font-medium">{title}</p>
+        <p className="text-sm text-muted-foreground mb-4">{description}</p>
         <Button variant="outline" onClick={() => navigate(TICKET_LIST_ROUTE)}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
         </Button>

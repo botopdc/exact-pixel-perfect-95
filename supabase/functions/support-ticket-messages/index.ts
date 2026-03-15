@@ -40,24 +40,33 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const authResult = await validateExternalToken(token);
     if (!authResult.valid) {
-      return jsonResponse({ success: false, message: "Unauthorized" }, 401);
+      return jsonResponse({ success: false, message: "Falha ao identificar usuário autenticado" }, 401);
     }
 
     const body = await req.json();
     const db = getSupabaseAdmin();
 
-    const { ticket_id, body: messageBody, is_internal_note, author_user_id, author_name, author_email, user_level } = body;
+    const { ticket_id, body: messageBody, is_internal_note, author_user_id, author_name, author_email } = body;
+    // Accept both author_level (from frontend) and user_level (legacy)
+    const level = body.author_level || body.user_level || 1;
+
+    console.log("support-ticket-messages user context", {
+      author_user_id,
+      author_name,
+      author_email,
+      level,
+      raw_author_level: body.author_level,
+      raw_user_level: body.user_level,
+    });
 
     if (!ticket_id || !messageBody || !author_name) {
       return jsonResponse({ success: false, message: "ticket_id, body e author_name obrigatórios" }, 422);
     }
 
-    const level = user_level || 1;
-
     // Fetch ticket to validate access
     const { data: ticket, error: fetchErr } = await db
       .from("support_tickets")
-      .select("id, requester_user_id, status")
+      .select("id, requester_user_id, status, current_queue_id, assigned_to_user_id")
       .eq("id", ticket_id)
       .is("deleted_at", null)
       .single();
@@ -66,10 +75,56 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, message: "Ticket não encontrado" }, 404);
     }
 
-    // Client can only message own tickets
-    if (level < 600 && author_user_id && ticket.requester_user_id !== author_user_id) {
-      return jsonResponse({ success: false, message: "Acesso negado" }, 403);
+    // ── PERMISSION CHECK ──────────────────────────────────────────────
+    // Admin (1000) / Manager (950): full access
+    // Support (900) / CS (775) / Internal (600+): can message if requester, assigned, or in queue
+    // Client (< 600): own tickets only
+
+    if (level < 600) {
+      // Client: only own tickets
+      if (author_user_id && String(ticket.requester_user_id) !== String(author_user_id)) {
+        console.log("support-ticket-messages access denied (client)", { author_user_id, requesterUserId: ticket.requester_user_id });
+        return jsonResponse({ success: false, message: "Acesso negado" }, 403);
+      }
+    } else if (level < 950) {
+      // Internal non-manager: check requester, assignment, or queue membership
+      const isRequester = author_user_id && String(ticket.requester_user_id) === String(author_user_id);
+      const isAssigned = author_user_id && ticket.assigned_to_user_id && String(ticket.assigned_to_user_id) === String(author_user_id);
+
+      let isInQueue = false;
+      if (!isRequester && !isAssigned && ticket.current_queue_id && author_user_id) {
+        const userIdInt = parseInt(author_user_id);
+        if (Number.isFinite(userIdInt)) {
+          const { data: memberships } = await db
+            .from("support_queue_members")
+            .select("queue_id")
+            .eq("user_id", userIdInt)
+            .eq("is_active", true);
+          const memberQueueIds = (memberships || []).map((m: any) => m.queue_id);
+          isInQueue = memberQueueIds.includes(ticket.current_queue_id);
+        }
+      }
+
+      console.log("support-ticket-messages permission check", {
+        author_user_id,
+        level,
+        isRequester,
+        isAssigned,
+        isInQueue,
+        ticketRequester: ticket.requester_user_id,
+        ticketAssigned: ticket.assigned_to_user_id,
+        ticketQueue: ticket.current_queue_id,
+      });
+
+      if (!isRequester && !isAssigned && !isInQueue) {
+        return jsonResponse({
+          success: false,
+          message: "Você não tem permissão para responder este chamado",
+          debug: { reason: "not_requester_not_assigned_not_in_queue", level },
+        }, 403);
+      }
     }
+    // 950+ (Manager/Admin): full access, no check needed
 
     // Internal notes only for level >= 775
     const isInternal = is_internal_note === true && level >= 775;
@@ -79,7 +134,16 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, message: "Sem permissão para nota interna" }, 403);
     }
 
-    const authorType = getAuthorType(level);
+    const authorType = body.author_type || getAuthorType(level);
+
+    console.log("support-ticket-messages inserting", {
+      ticket_id,
+      author_user_id,
+      author_name,
+      authorType,
+      isInternal,
+      bodyLength: messageBody.length,
+    });
 
     const { data: message, error: insertErr } = await db
       .from("support_ticket_messages")
