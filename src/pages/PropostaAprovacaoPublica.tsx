@@ -57,7 +57,6 @@ const PropostaAprovacaoPublica: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [finalDecision, setFinalDecision] = useState<'accepted' | 'rejected' | null>(null);
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
   const actionInProgressRef = useRef(false);
 
   useEffect(() => {
@@ -159,55 +158,21 @@ const PropostaAprovacaoPublica: React.FC = () => {
     }
   };
 
-
-  const handleDownloadPdf = async () => {
-    if (!proposal) return;
-
-    // If we have a signed URL from the edge function, use it directly
-    if (pdfSignedUrl) {
-      console.log('[proposal-public] downloading from signed URL, proposal_id=', proposal.id);
-      console.log('[proposal-public] signed_url_generated_from=', proposal.pdf_path || 'db_pdf_path');
-      console.log('[proposal-public] reused_old_pdf_url=', false);
-
-      const a = document.createElement('a');
-      a.href = pdfSignedUrl;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.download = `OPEN_proposta_${proposal.display_id || proposal.id.substring(0, 8)}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
+  const handleDownloadPdf = () => {
+    if (!pdfSignedUrl) {
+      toast({ title: 'PDF indisponível', description: 'O PDF desta proposta não está disponível no momento.', variant: 'destructive' });
       return;
     }
 
-    // No signed URL — generate using calculator renderer (same as panel)
-    console.log('[proposal-public] pdf_path missing, generating via calculator renderer for proposal_id=', proposal.id);
-    setIsDownloading(true);
-
-    try {
-      const { downloadProposalPdfFromSupabase } = await import('@/services/proposalPdfService');
-      const result = await downloadProposalPdfFromSupabase(proposal.id);
-
-      if (!result.success) {
-        toast({ title: 'Erro ao gerar PDF', description: result.error || 'Não foi possível gerar o PDF.', variant: 'destructive' });
-        return;
-      }
-
-      toast({ title: 'Download iniciado', description: 'O PDF foi gerado e o download iniciou.' });
-
-      // After generation, reload to get the new signed URL for future clicks
-      const reloadResult = await loadPublicProposalByToken(token!);
-      if (reloadResult.proposal) {
-        setProposal(reloadResult.proposal);
-        setPdfSignedUrl(reloadResult.pdfSignedUrl || null);
-      }
-    } catch (err: any) {
-      console.error('[proposal-public] PDF generation error:', err);
-      toast({ title: 'Erro', description: 'Não foi possível gerar o PDF desta proposta.', variant: 'destructive' });
-    } finally {
-      setIsDownloading(false);
-    }
+    const a = document.createElement('a');
+    a.href = pdfSignedUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.download = `OPEN_proposta_${proposal?.display_id || proposal?.id.substring(0, 8)}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
   };
 
   // ============================================================================
@@ -315,9 +280,9 @@ const PropostaAprovacaoPublica: React.FC = () => {
           </div>
 
           {/* PDF Download */}
-          <Button variant="outline" className="w-full gap-2" onClick={handleDownloadPdf} disabled={isDownloading}>
-            {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-            {isDownloading ? 'Gerando PDF...' : 'Baixar PDF da Proposta'}
+          <Button variant="outline" className="w-full gap-2" onClick={handleDownloadPdf}>
+            <FileDown className="w-4 h-4" />
+            Baixar PDF da Proposta
           </Button>
 
           {/* Decision result */}
