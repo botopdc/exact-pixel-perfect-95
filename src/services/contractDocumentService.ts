@@ -17,6 +17,8 @@ export interface GenerateDocumentResult {
   annex_skip_reason?: string;
   contract_docx_generated?: boolean;
   generation_strategy?: string;
+  snapshot_created?: boolean;
+  pdf_auto_generated?: boolean;
   code?: string;
   message?: string;
   error?: string;
@@ -29,14 +31,19 @@ const ERROR_MESSAGES: Record<string, string> = {
   contract_id_required: 'ID do contrato é obrigatório.',
   contract_not_found: 'Contrato não encontrado.',
   contract_without_proposal_id: 'Contrato sem proposta vinculada.',
+  contract_documents_locked: 'Documentos bloqueados — contrato já assinado ou finalizado.',
   proposal_not_found: 'Proposta vinculada não encontrada.',
   proposal_pdf_path_missing: 'A proposta vinculada não possui PDF oficial gerado.',
   proposal_pdf_file_not_found: 'PDF oficial da proposta não encontrado no storage.',
   proposal_pdf_invalid_format: 'O arquivo da proposta não é um PDF válido. Regenere o PDF.',
   proposal_pdf_page_count_invalid: 'O PDF da proposta possui 7 ou menos páginas. Impossível gerar Anexo I.',
   proposal_pdf_trim_failed: 'Erro ao processar o PDF da proposta.',
+  proposal_pdf_auto_generation_failed: 'Não foi possível gerar automaticamente o PDF da proposta.',
+  proposal_pdf_storage_failed: 'Falha ao salvar o PDF gerado da proposta.',
+  contract_annex_pdf_storage_failed: 'Erro ao salvar o Anexo I no storage.',
+  contract_annex_pdf_generation_failed: 'Erro ao gerar o Anexo I.',
+  contract_documents_incomplete: 'Geração de documentos incompleta — Anexo I não foi gerado.',
   annex_upload_failed: 'Erro ao salvar o Anexo I.',
-  annex_save_failed: 'Erro ao salvar o Anexo I.',
   internal_error: 'Erro interno inesperado. Tente novamente.',
 };
 
@@ -46,9 +53,7 @@ export async function generateContractDocument(contractId: string): Promise<Gene
   });
 
   // supabase.functions.invoke sets error for non-2xx but still returns the body in data
-  // If data has our structured error, use that instead of the generic error
   if (error) {
-    // Try to extract the structured error from the response body
     if (data && typeof data === 'object' && data.success === false) {
       const friendlyMessage = (data.code && ERROR_MESSAGES[data.code])
         || data.message
@@ -56,7 +61,6 @@ export async function generateContractDocument(contractId: string): Promise<Gene
         || 'Erro ao gerar documento do contrato';
       throw new Error(friendlyMessage);
     }
-    // Fallback: try to parse error context (some versions put it in error.context)
     const ctx = (error as any)?.context;
     if (ctx && typeof ctx === 'object' && ctx.success === false) {
       const friendlyMessage = (ctx.code && ERROR_MESSAGES[ctx.code])
@@ -82,7 +86,7 @@ export async function generateContractDocument(contractId: string): Promise<Gene
 export async function getContractFileUrl(bucket: string, path: string): Promise<string | null> {
   const { data, error } = await supabase.storage
     .from(bucket)
-    .createSignedUrl(path, 3600); // 1 hour
+    .createSignedUrl(path, 3600);
 
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
