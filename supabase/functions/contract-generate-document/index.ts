@@ -272,7 +272,7 @@ async function generateFullProposalPdf(
   y -= 6;
   page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: A4W - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
   drawText("VALOR TOTAL MENSAL:", margin, y, { font: fontBold, size: 12 });
-  drawText(formatBRL(proposal.total || contract.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
+  drawText(formatBRL(proposal.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
   y -= lineHeight * 2;
 
   checkNewPage();
