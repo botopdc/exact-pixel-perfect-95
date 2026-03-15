@@ -244,7 +244,8 @@ Deno.serve(async (req) => {
         ticket_id: ticket.id,
         old_status: null,
         new_status: "novo",
-        changed_by_user_id: body.requester_user_id || null,
+        // changed_by_user_id is UUID – only set if we have valid UUID
+        changed_by_user_id: requesterUserIdUuid,
         changed_by_name: body.requester_name,
         reason: "Ticket criado",
       });
