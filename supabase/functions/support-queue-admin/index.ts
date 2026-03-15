@@ -44,7 +44,7 @@ function resolveUserContext(body: Record<string, unknown>) {
 }
 
 function isReadAction(action: string): boolean {
-  return ["list_queues", "list_members", "my_queues", "list_analyst_summary"].includes(action);
+  return ["list_queues", "list_members", "my_queues", "list_analyst_summary", "list_oncall_shifts"].includes(action);
 }
 
 function isMutationAction(action: string): boolean {
