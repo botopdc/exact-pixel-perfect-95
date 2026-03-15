@@ -337,6 +337,41 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
   return resp;
 }
 
+// ── Queue user context (standalone to avoid `this` issues in object literal) ──
+
+function getQueueUserContext(): {
+  user_id?: string;
+  user_level: number;
+  user_email?: string;
+  user_name?: string;
+} {
+  const session = authService.getSession();
+  if (session) {
+    const numericId = session.apiUser?.id
+      ? String(session.apiUser.id)
+      : (/^\d+$/.test(session.userId) ? session.userId : undefined);
+    return {
+      user_id: numericId,
+      user_level: session.level ?? 0,
+      user_email: session.email,
+      user_name: session.name,
+    };
+  }
+  try {
+    const raw = localStorage.getItem('open_user');
+    if (raw) {
+      const u = JSON.parse(raw);
+      return {
+        user_id: u?.id ? String(u.id) : undefined,
+        user_level: Number(u?.level) || 0,
+        user_email: u?.email,
+        user_name: u?.name,
+      };
+    }
+  } catch { /* ignore */ }
+  return { user_level: 0 };
+}
+
 // ── Service Methods ─────────────────────────────────────────────────────
 
 export const supportTicketCoreService = {
@@ -406,48 +441,8 @@ export const supportTicketCoreService = {
     return resp.data!.signed_url;
   },
 
-  // Queue management — inject auth context from current session
-  _getQueueUserContext(): {
-    user_id?: string;
-    user_level: number;
-    user_email?: string;
-    user_name?: string;
-  } {
-    const session = authService.getSession();
-    if (session) {
-      const numericId = session.apiUser?.id
-        ? String(session.apiUser.id)
-        : (/^\d+$/.test(session.userId) ? session.userId : undefined);
-
-      return {
-        user_id: numericId,
-        user_level: session.level ?? 0,
-        user_email: session.email,
-        user_name: session.name,
-      };
-    }
-
-    // Fallback for legacy pages that may still store plain open_user
-    try {
-      const raw = localStorage.getItem('open_user');
-      if (raw) {
-        const u = JSON.parse(raw);
-        return {
-          user_id: u?.id ? String(u.id) : undefined,
-          user_level: Number(u?.level) || 0,
-          user_email: u?.email,
-          user_name: u?.name,
-        };
-      }
-    } catch {
-      // ignore parsing issues
-    }
-
-    return { user_level: 0 };
-  },
-
   async listQueues(): Promise<SupportQueueRecord[]> {
-    const ctx = this._getQueueUserContext();
+    const ctx = getQueueUserContext();
     const resp = await invoke<SupportQueueRecord[]>('support-queue-admin', {
       action: 'list_queues',
       ...ctx,
@@ -456,7 +451,7 @@ export const supportTicketCoreService = {
   },
 
   async listQueueMembers(queueId?: string, queueCode?: string): Promise<QueueMember[]> {
-    const ctx = this._getQueueUserContext();
+    const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
       action: 'list_members', queue_id: queueId, queue_code: queueCode,
       ...ctx,
@@ -465,7 +460,7 @@ export const supportTicketCoreService = {
   },
 
   async getMyQueues(userId: string): Promise<QueueMember[]> {
-    const ctx = this._getQueueUserContext();
+    const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
       action: 'my_queues', user_id: userId || ctx.user_id,
       ...ctx,
@@ -477,7 +472,7 @@ export const supportTicketCoreService = {
     queue_id: string; user_id: string; user_name: string;
     user_email: string; user_level?: number; is_primary?: boolean;
   }): Promise<QueueMember> {
-    const ctx = this._getQueueUserContext();
+    const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember>('support-queue-admin', {
       action: 'add_member', ...payload,
       ...ctx,
@@ -486,7 +481,7 @@ export const supportTicketCoreService = {
   },
 
   async removeQueueMember(memberId: string): Promise<void> {
-    const ctx = this._getQueueUserContext();
+    const ctx = getQueueUserContext();
     await invoke('support-queue-admin', {
       action: 'remove_member', member_id: memberId,
       ...ctx,
@@ -494,7 +489,7 @@ export const supportTicketCoreService = {
   },
 
   async toggleQueueMember(memberId: string): Promise<QueueMember> {
-    const ctx = this._getQueueUserContext();
+    const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember>('support-queue-admin', {
       action: 'toggle_member', member_id: memberId,
       ...ctx,
