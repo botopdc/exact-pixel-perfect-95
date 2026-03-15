@@ -1,6 +1,6 @@
 // ============================================================================
 // EDGE FUNCTION: support-dashboard-stats
-// Returns operational KPIs for the Atendimentos dashboard
+// Returns operational KPIs for the Atendimentos NOC dashboard
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -33,13 +33,14 @@ Deno.serve(async (req) => {
 
     const db = getSupabaseAdmin();
     const now = new Date().toISOString();
+    const openStatuses = ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"];
 
     // 1. Open tickets count
     const { count: openCount } = await db
       .from("support_tickets")
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
-      .in("status", ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"]);
+      .in("status", openStatuses);
 
     // 2. SLA breached tickets (open + past due)
     const { count: slaBreachedCount } = await db
@@ -47,7 +48,7 @@ Deno.serve(async (req) => {
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
       .is("resolved_at", null)
-      .in("status", ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"])
+      .in("status", openStatuses)
       .or(`resolution_due_at.lt.${now},first_response_due_at.lt.${now}`);
 
     // 3. Distribution by queue
@@ -61,18 +62,25 @@ Deno.serve(async (req) => {
       queueMap[q.id] = { code: q.code, name: q.name };
     });
 
-    // Get ticket counts per queue
+    // Get open tickets with queue info
     const { data: openTickets } = await db
       .from("support_tickets")
-      .select("current_queue_id, current_support_level")
+      .select("id, current_queue_id, current_support_level, assigned_to_user_id, resolution_due_at, first_response_due_at")
       .is("deleted_at", null)
-      .in("status", ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"]);
+      .in("status", openStatuses);
 
     const queueDistribution: Record<string, number> = { N1: 0, N2: 0, N3: 0, CS: 0 };
+    const queueUnassigned: Record<string, number> = { N1: 0, N2: 0, N3: 0, CS: 0 };
+    const queueBreached: Record<string, number> = { N1: 0, N2: 0, N3: 0, CS: 0 };
+
     (openTickets || []).forEach((t: any) => {
       const code = t.current_queue_id ? queueMap[t.current_queue_id]?.code : t.current_support_level;
       if (code && queueDistribution[code] !== undefined) {
         queueDistribution[code]++;
+        if (!t.assigned_to_user_id) queueUnassigned[code]++;
+        const isDue = (t.resolution_due_at && t.resolution_due_at < now) ||
+                      (t.first_response_due_at && t.first_response_due_at < now);
+        if (isDue) queueBreached[code]++;
       }
     });
 
@@ -81,10 +89,20 @@ Deno.serve(async (req) => {
       .from("support_tickets")
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
-      .in("status", ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"])
+      .in("status", openStatuses)
       .in("severity", ["S1", "S2"]);
 
-    // 5. Average first response time (last 30 days, resolved tickets)
+    // 5. Active critical incidents detail (top 5)
+    const { data: activeIncidents } = await db
+      .from("support_tickets")
+      .select("id, public_code, title, severity, priority, created_at, status")
+      .is("deleted_at", null)
+      .in("status", openStatuses)
+      .in("severity", ["S1", "S2"])
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    // 6. Average first response time (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { data: respondedTickets } = await db
       .from("support_tickets")
@@ -103,7 +121,7 @@ Deno.serve(async (req) => {
       avgFirstResponseMinutes = Math.round(totalMinutes / respondedTickets.length);
     }
 
-    // 6. Average resolution time (last 30 days)
+    // 7. Average resolution time (last 30 days)
     const { data: resolvedTickets } = await db
       .from("support_tickets")
       .select("created_at, resolved_at")
@@ -121,12 +139,18 @@ Deno.serve(async (req) => {
       avgResolutionMinutes = Math.round(totalMinutes / resolvedTickets.length);
     }
 
-    // 7. On-call shifts
+    // 8. On-call shifts
     const { data: onCallShifts } = await db
       .from("support_oncall")
       .select("*")
       .eq("is_active", true)
       .order("team");
+
+    // 9. Service status
+    const { data: serviceStatus } = await db
+      .from("ops_service_status")
+      .select("*")
+      .order("service_code");
 
     return jsonResponse({
       success: true,
@@ -138,7 +162,11 @@ Deno.serve(async (req) => {
         avg_first_response_minutes: avgFirstResponseMinutes,
         avg_resolution_minutes: avgResolutionMinutes,
         queue_distribution: queueDistribution,
+        queue_unassigned: queueUnassigned,
+        queue_breached: queueBreached,
         oncall_shifts: onCallShifts || [],
+        active_incidents: activeIncidents || [],
+        service_status: serviceStatus || [],
       },
     });
   } catch (err) {
