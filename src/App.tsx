@@ -142,6 +142,7 @@ import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
 // Tickets CORE (Supabase-first)
 import TicketsCoreListPage from '@/pages/modules/atendimentos/TicketsCoreListPage';
 import TicketCoreDetailPage from '@/pages/modules/atendimentos/TicketCoreDetailPage';
+import QueueManagementPage from '@/pages/modules/atendimentos/QueueManagementPage';
 
 // Client Portal
 import ClientTicketsPage from '@/pages/portal/ClientTicketsPage';
@@ -277,6 +278,7 @@ const App = () => (
             {/* Tickets CORE — novo sistema Supabase-first (rota oficial) */}
             <Route path="/modulos/atendimentos/suporte-tecnico" element={<TicketsCoreListPage />} />
             <Route path="/modulos/atendimentos/suporte-tecnico/:ticketId" element={<TicketCoreDetailPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/filas" element={<QueueManagementPage />} />
             {/* Redirect old /tickets route to official route */}
             <Route path="/modulos/atendimentos/tickets" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/tickets/:ticketId" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />

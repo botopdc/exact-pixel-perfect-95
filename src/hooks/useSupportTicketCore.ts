@@ -1,6 +1,5 @@
 // ============================================================================
-// HOOKS: useSupportTicketCore — list, detail, actions
-// Consumes Edge Functions via supportTicketCoreService
+// HOOKS: useSupportTicketCore — list, detail, actions, queues
 // ============================================================================
 
 import { useState, useCallback } from 'react';
@@ -14,6 +13,8 @@ import {
   AddMessagePayload,
   CoreTicket,
   CoreTicketDetail,
+  SupportQueueRecord,
+  QueueMember,
 } from '@/services/supportTicketCoreService';
 import { authService } from '@/services/authService';
 import { getTicketPermissions } from '@/lib/ticketPermissions';
@@ -24,19 +25,13 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
   const queryClient = useQueryClient();
   const session = authService.getSession();
 
-  // Inject user context into filters for backend visibility
   const enrichedFilters: TicketListFilters & { user_level?: number; user_id?: string } = {
     ...filters,
     user_level: session?.level,
     user_id: session?.userId,
   };
 
-  const {
-    data,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['support-tickets-core', filters],
     queryFn: () => supportTicketCoreService.listTickets(enrichedFilters),
     staleTime: 0,
@@ -61,12 +56,7 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
   const userLevel = session?.level ?? 0;
   const userId = session?.userId;
 
-  const {
-    data: ticket,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
+  const { data: ticket, isLoading, error, refetch } = useQuery({
     queryKey: ['support-ticket-core', ticketId],
     queryFn: () => supportTicketCoreService.getTicket(ticketId!),
     enabled: !!ticketId,
@@ -75,7 +65,6 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
   const permissions = getTicketPermissions(userLevel, ticket, userId);
 
-  // Action mutation
   const actionMutation = useMutation({
     mutationFn: (payload: TicketActionPayload) => supportTicketCoreService.updateTicket(payload),
     onSuccess: () => {
@@ -88,7 +77,6 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
     },
   });
 
-  // Message mutation
   const messageMutation = useMutation({
     mutationFn: (payload: AddMessagePayload) => supportTicketCoreService.addMessage(payload),
     onSuccess: () => {
@@ -164,4 +152,54 @@ export function useCreateTicket() {
     isCreating: mutation.isPending,
     session,
   };
+}
+
+// ── Queue hooks ─────────────────────────────────────────────────────────
+
+export function useQueues() {
+  return useQuery({
+    queryKey: ['support-queues'],
+    queryFn: () => supportTicketCoreService.listQueues(),
+    staleTime: 60_000,
+  });
+}
+
+export function useQueueMembers(queueId?: string) {
+  return useQuery({
+    queryKey: ['support-queue-members', queueId],
+    queryFn: () => supportTicketCoreService.listQueueMembers(queueId),
+    staleTime: 30_000,
+  });
+}
+
+export function useQueueMemberMutations() {
+  const queryClient = useQueryClient();
+
+  const addMember = useMutation({
+    mutationFn: supportTicketCoreService.addQueueMember,
+    onSuccess: () => {
+      toast.success('Membro adicionado à fila');
+      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const removeMember = useMutation({
+    mutationFn: supportTicketCoreService.removeQueueMember,
+    onSuccess: () => {
+      toast.success('Membro removido');
+      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const toggleMember = useMutation({
+    mutationFn: supportTicketCoreService.toggleQueueMember,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support-queue-members'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  return { addMember, removeMember, toggleMember };
 }

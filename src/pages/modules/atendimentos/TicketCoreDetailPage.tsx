@@ -86,9 +86,8 @@ export default function TicketCoreDetailPage() {
       <TicketActionsPanel permissions={permissions} onAction={performAction} isActing={isActing} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left column — messages + timeline */}
+        {/* Left column */}
         <div className="lg:col-span-2 space-y-5">
-          {/* Description */}
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Descrição</CardTitle>
@@ -98,7 +97,30 @@ export default function TicketCoreDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Messages */}
+          {/* Resolution summary */}
+          {ticket.resolution_summary && (
+            <Card className="border-emerald-500/30 bg-emerald-500/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-emerald-500">Resumo da Resolução</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap">{ticket.resolution_summary}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Close reason */}
+          {ticket.close_reason && (
+            <Card className="border-border/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Motivo do Encerramento</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap">{ticket.close_reason}</p>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Conversação</CardTitle>
@@ -109,7 +131,6 @@ export default function TicketCoreDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Attachments */}
           <TicketAttachments
             ticketId={ticket.id}
             attachments={ticket.attachments || []}
@@ -118,9 +139,8 @@ export default function TicketCoreDetailPage() {
           />
         </div>
 
-        {/* Right column — info + timeline */}
+        {/* Right column */}
         <div className="space-y-5">
-          {/* Info card */}
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Informações</CardTitle>
@@ -137,8 +157,9 @@ export default function TicketCoreDetailPage() {
               {permissions.isInternal && (
                 <>
                   <InfoRow label="Fila" value={QUEUE_LABELS[ticket.current_queue] || ticket.current_queue} />
-                  <InfoRow label="Nível" value={ticket.support_level} />
+                  <InfoRow label="Nível" value={ticket.current_support_level || ticket.support_level} />
                   <InfoRow label="Responsável" value={ticket.assigned_to_name || 'Não atribuído'} />
+                  {ticket.assigned_at && <InfoRow label="Atribuído em" value={formatDate(ticket.assigned_at)} />}
                   <Separator />
                 </>
               )}
@@ -149,7 +170,6 @@ export default function TicketCoreDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Timeline */}
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Histórico</CardTitle>

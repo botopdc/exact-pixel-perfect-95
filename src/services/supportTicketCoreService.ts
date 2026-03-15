@@ -1,6 +1,5 @@
 // ============================================================================
 // SUPPORT TICKET CORE SERVICE - Supabase Edge Functions
-// Replaces legacy Laravel endpoints for the new ticket system
 // ============================================================================
 
 import { supabase } from '@/integrations/supabase/client';
@@ -27,12 +26,11 @@ export interface EdgeResponse<T = unknown> {
   meta?: { current_page: number; last_page: number; per_page: number; total: number };
 }
 
-// ── Ticket types (matching DB schema) ───────────────────────────────────
+// ── Ticket types ────────────────────────────────────────────────────────
 
 export type TicketStatus =
   | 'novo' | 'triagem' | 'em_atendimento'
   | 'aguardando_cliente' | 'aguardando_terceiro'
-  | 'escalado_n2' | 'escalado_n3'
   | 'resolvido_suporte' | 'encerrado_cs'
   | 'reaberto' | 'cancelado';
 
@@ -62,6 +60,8 @@ export interface CoreTicket {
   status: TicketStatus;
   support_level: SupportLevel;
   current_queue: SupportQueue;
+  current_queue_id: string | null;
+  current_support_level: string;
   service_name: string | null;
   asset_id: string | null;
   asset_label: string | null;
@@ -70,9 +70,12 @@ export interface CoreTicket {
   customer_visible: boolean;
   assigned_to_user_id: string | null;
   assigned_to_name: string | null;
+  assigned_at: string | null;
   assigned_team: string | null;
   support_resolved_by: string | null;
   cs_closed_by: string | null;
+  resolution_summary: string | null;
+  close_reason: string | null;
   sla_policy_id: string | null;
   first_response_due_at: string | null;
   resolution_due_at: string | null;
@@ -140,11 +143,24 @@ export interface CoreTicketAttachment {
   signed_url?: string;
 }
 
+export interface CoreTicketQueueHistory {
+  id: string;
+  ticket_id: string;
+  from_queue_id: string | null;
+  to_queue_id: string;
+  from_support_level: string | null;
+  to_support_level: string;
+  changed_by_name: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
 export interface CoreTicketDetail extends CoreTicket {
   messages: CoreTicketMessage[];
   status_history: CoreTicketStatusHistory[];
   assignments: CoreTicketAssignment[];
   attachments: CoreTicketAttachment[];
+  queue_history?: CoreTicketQueueHistory[];
   sla_computed?: {
     first_response_remaining_seconds: number | null;
     resolution_remaining_seconds: number | null;
@@ -153,11 +169,37 @@ export interface CoreTicketDetail extends CoreTicket {
   };
 }
 
+// ── Queue types ─────────────────────────────────────────────────────────
+
+export interface SupportQueueRecord {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  queue_type: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface QueueMember {
+  id: string;
+  queue_id: string;
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  user_level: number;
+  is_primary: boolean;
+  can_receive_auto_assign: boolean;
+  is_active: boolean;
+  support_queues?: { code: string; name: string };
+}
+
 // ── Filters ─────────────────────────────────────────────────────────────
 
 export interface TicketListFilters {
   status?: string;
   current_queue?: string;
+  current_queue_id?: string;
   assigned_to_user_id?: string;
   severity?: string;
   priority?: string;
@@ -213,7 +255,9 @@ export interface TicketActionPayload {
   actor_level?: number;
   assigned_to_user_id?: string;
   assigned_to_name?: string;
-  new_queue?: string;
+  to_user_id?: string;
+  to_user_name?: string;
+  to_queue?: string;
   target_level?: 'N2' | 'N3';
   reason?: string;
 }
@@ -231,8 +275,6 @@ export interface AddMessagePayload {
   author_type?: AuthorType;
 }
 
-// ── Upload payload ──────────────────────────────────────────────────────
-
 export interface UploadAttachmentResult {
   id: string;
   original_filename: string;
@@ -242,8 +284,6 @@ export interface UploadAttachmentResult {
   storage_path: string;
   signed_url?: string;
 }
-
-// ── SLA Policy ──────────────────────────────────────────────────────────
 
 export interface CoreSLAPolicy {
   id: string;
@@ -311,14 +351,9 @@ export const supportTicketCoreService = {
     return resp.data!;
   },
 
-  // Upload attachment
   async uploadAttachment(
-    ticketId: string,
-    file: File,
-    isInternal: boolean = false,
-    uploaderName?: string,
-    uploaderUserId?: string,
-    uploaderLevel?: number
+    ticketId: string, file: File, isInternal: boolean = false,
+    uploaderName?: string, uploaderUserId?: string, uploaderLevel?: number
   ): Promise<UploadAttachmentResult> {
     const token = getToken();
     const formData = new FormData();
@@ -342,20 +377,52 @@ export const supportTicketCoreService = {
     });
 
     const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.message || 'Erro ao enviar anexo');
-    }
+    if (!result.success) throw new Error(result.message || 'Erro ao enviar anexo');
     return result.data;
   },
 
-  // Get signed download URL for an attachment
   async getAttachmentUrl(attachmentId: string, ticketId: string): Promise<string> {
     const resp = await invoke<{ signed_url: string }>('support-ticket-upload', {
-      action: 'get_url',
-      attachment_id: attachmentId,
-      ticket_id: ticketId,
+      action: 'get_url', attachment_id: attachmentId, ticket_id: ticketId,
     });
     return resp.data!.signed_url;
+  },
+
+  // Queue management
+  async listQueues(): Promise<SupportQueueRecord[]> {
+    const resp = await invoke<SupportQueueRecord[]>('support-queue-admin', { action: 'list_queues' });
+    return resp.data || [];
+  },
+
+  async listQueueMembers(queueId?: string, queueCode?: string): Promise<QueueMember[]> {
+    const resp = await invoke<QueueMember[]>('support-queue-admin', {
+      action: 'list_members', queue_id: queueId, queue_code: queueCode,
+    });
+    return resp.data || [];
+  },
+
+  async getMyQueues(userId: string): Promise<QueueMember[]> {
+    const resp = await invoke<QueueMember[]>('support-queue-admin', {
+      action: 'my_queues', user_id: userId,
+    });
+    return resp.data || [];
+  },
+
+  async addQueueMember(payload: {
+    queue_id: string; user_id: string; user_name: string;
+    user_email: string; user_level?: number; is_primary?: boolean;
+  }): Promise<QueueMember> {
+    const resp = await invoke<QueueMember>('support-queue-admin', { action: 'add_member', ...payload });
+    return resp.data!;
+  },
+
+  async removeQueueMember(memberId: string): Promise<void> {
+    await invoke('support-queue-admin', { action: 'remove_member', member_id: memberId });
+  },
+
+  async toggleQueueMember(memberId: string): Promise<QueueMember> {
+    const resp = await invoke<QueueMember>('support-queue-admin', { action: 'toggle_member', member_id: memberId });
+    return resp.data!;
   },
 
   // SLA Policies

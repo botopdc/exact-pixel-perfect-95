@@ -1376,6 +1376,92 @@ export type Database = {
           },
         ]
       }
+      support_queue_members: {
+        Row: {
+          can_receive_auto_assign: boolean
+          created_at: string
+          id: string
+          is_active: boolean
+          is_primary: boolean
+          queue_id: string
+          updated_at: string
+          user_email: string
+          user_id: number
+          user_level: number
+          user_name: string
+        }
+        Insert: {
+          can_receive_auto_assign?: boolean
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          queue_id: string
+          updated_at?: string
+          user_email: string
+          user_id: number
+          user_level: number
+          user_name: string
+        }
+        Update: {
+          can_receive_auto_assign?: boolean
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          queue_id?: string
+          updated_at?: string
+          user_email?: string
+          user_id?: number
+          user_level?: number
+          user_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_queue_members_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: false
+            referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_queues: {
+        Row: {
+          code: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          queue_type: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          queue_type?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          queue_type?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       support_sla_policies: {
         Row: {
           business_hours_only: boolean
@@ -1555,6 +1641,51 @@ export type Database = {
           },
         ]
       }
+      support_ticket_categories: {
+        Row: {
+          code: string
+          created_at: string
+          default_queue_id: string | null
+          id: string
+          is_active: boolean
+          name: string
+          type_id: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          default_queue_id?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          type_id?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          default_queue_id?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          type_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_categories_default_queue_id_fkey"
+            columns: ["default_queue_id"]
+            isOneToOne: false
+            referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_ticket_categories_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "support_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_ticket_events: {
         Row: {
           actor_id: string | null
@@ -1653,6 +1784,67 @@ export type Database = {
           },
         ]
       }
+      support_ticket_queue_history: {
+        Row: {
+          changed_by_name: string | null
+          changed_by_user_id: number | null
+          created_at: string
+          from_queue_id: string | null
+          from_support_level: string | null
+          id: string
+          reason: string | null
+          ticket_id: string
+          to_queue_id: string
+          to_support_level: string
+        }
+        Insert: {
+          changed_by_name?: string | null
+          changed_by_user_id?: number | null
+          created_at?: string
+          from_queue_id?: string | null
+          from_support_level?: string | null
+          id?: string
+          reason?: string | null
+          ticket_id: string
+          to_queue_id: string
+          to_support_level: string
+        }
+        Update: {
+          changed_by_name?: string | null
+          changed_by_user_id?: number | null
+          created_at?: string
+          from_queue_id?: string | null
+          from_support_level?: string | null
+          id?: string
+          reason?: string | null
+          ticket_id?: string
+          to_queue_id?: string
+          to_support_level?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_queue_history_from_queue_id_fkey"
+            columns: ["from_queue_id"]
+            isOneToOne: false
+            referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_ticket_queue_history_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_ticket_queue_history_to_queue_id_fkey"
+            columns: ["to_queue_id"]
+            isOneToOne: false
+            referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_ticket_status_history: {
         Row: {
           changed_by_name: string | null
@@ -1694,6 +1886,47 @@ export type Database = {
           },
         ]
       }
+      support_ticket_types: {
+        Row: {
+          code: string
+          created_at: string
+          default_priority: string | null
+          default_queue_id: string | null
+          default_severity: string | null
+          id: string
+          is_active: boolean
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          default_priority?: string | null
+          default_queue_id?: string | null
+          default_severity?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          default_priority?: string | null
+          default_queue_id?: string | null
+          default_severity?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_types_default_queue_id_fkey"
+            columns: ["default_queue_id"]
+            isOneToOne: false
+            referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_ticket_watchers: {
         Row: {
           created_at: string
@@ -1730,15 +1963,20 @@ export type Database = {
         Row: {
           asset_id: string | null
           asset_label: string | null
+          assigned_at: string | null
           assigned_team: string | null
           assigned_to_name: string | null
           assigned_to_user_id: string | null
           category: string
+          category_id: string | null
+          close_reason: string | null
           closed_at: string | null
           company_id: string | null
           created_at: string
           cs_closed_by: string | null
           current_queue: Database["public"]["Enums"]["support_queue_enum"]
+          current_queue_id: string | null
+          current_support_level: string
           customer_visible: boolean
           deleted_at: string | null
           description: string
@@ -1758,6 +1996,7 @@ export type Database = {
           requester_phone: string | null
           requester_user_id: string | null
           resolution_due_at: string | null
+          resolution_summary: string | null
           resolved_at: string | null
           service_name: string | null
           severity: Database["public"]["Enums"]["support_severity"]
@@ -1770,20 +2009,26 @@ export type Database = {
           ticket_number: number | null
           ticket_type: string
           title: string
+          type_id: string | null
           updated_at: string
         }
         Insert: {
           asset_id?: string | null
           asset_label?: string | null
+          assigned_at?: string | null
           assigned_team?: string | null
           assigned_to_name?: string | null
           assigned_to_user_id?: string | null
           category: string
+          category_id?: string | null
+          close_reason?: string | null
           closed_at?: string | null
           company_id?: string | null
           created_at?: string
           cs_closed_by?: string | null
           current_queue?: Database["public"]["Enums"]["support_queue_enum"]
+          current_queue_id?: string | null
+          current_support_level?: string
           customer_visible?: boolean
           deleted_at?: string | null
           description: string
@@ -1803,6 +2048,7 @@ export type Database = {
           requester_phone?: string | null
           requester_user_id?: string | null
           resolution_due_at?: string | null
+          resolution_summary?: string | null
           resolved_at?: string | null
           service_name?: string | null
           severity?: Database["public"]["Enums"]["support_severity"]
@@ -1815,20 +2061,26 @@ export type Database = {
           ticket_number?: number | null
           ticket_type: string
           title: string
+          type_id?: string | null
           updated_at?: string
         }
         Update: {
           asset_id?: string | null
           asset_label?: string | null
+          assigned_at?: string | null
           assigned_team?: string | null
           assigned_to_name?: string | null
           assigned_to_user_id?: string | null
           category?: string
+          category_id?: string | null
+          close_reason?: string | null
           closed_at?: string | null
           company_id?: string | null
           created_at?: string
           cs_closed_by?: string | null
           current_queue?: Database["public"]["Enums"]["support_queue_enum"]
+          current_queue_id?: string | null
+          current_support_level?: string
           customer_visible?: boolean
           deleted_at?: string | null
           description?: string
@@ -1848,6 +2100,7 @@ export type Database = {
           requester_phone?: string | null
           requester_user_id?: string | null
           resolution_due_at?: string | null
+          resolution_summary?: string | null
           resolved_at?: string | null
           service_name?: string | null
           severity?: Database["public"]["Enums"]["support_severity"]
@@ -1860,9 +2113,32 @@ export type Database = {
           ticket_number?: number | null
           ticket_type?: string
           title?: string
+          type_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "support_tickets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "support_ticket_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_current_queue_id_fkey"
+            columns: ["current_queue_id"]
+            isOneToOne: false
+            referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "support_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tech_assets: {
         Row: {

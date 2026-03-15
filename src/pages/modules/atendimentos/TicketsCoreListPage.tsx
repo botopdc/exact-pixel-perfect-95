@@ -1,11 +1,11 @@
 // ============================================================================
-// TICKETS CORE — Main page (role-based)
+// TICKETS CORE — Main page (role-based) with queue tabs
 // Route: /modulos/atendimentos/suporte-tecnico
 // ============================================================================
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Headphones, Plus, RefreshCw } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Headphones, Plus, RefreshCw, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +41,6 @@ export default function TicketsCoreListPage() {
   const [filters, setFilters] = useState<TicketListFilters>({});
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Merge tab filters
   const mergedFilters: TicketListFilters = {
     ...TAB_FILTERS[tab],
     ...filters,
@@ -70,6 +69,14 @@ export default function TicketsCoreListPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {permissions.canManageQueues && (
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`${TICKET_LIST_ROUTE}/filas`}>
+                <Settings className="h-4 w-4 mr-1" />
+                Filas
+              </Link>
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
             Atualizar
@@ -81,7 +88,7 @@ export default function TicketsCoreListPage() {
         </div>
       </div>
 
-      {/* Summary cards — internal only */}
+      {/* Summary cards */}
       {permissions.isInternal && <TicketSummaryCards tickets={tickets} />}
 
       {/* Filters */}
@@ -122,7 +129,6 @@ export default function TicketsCoreListPage() {
           </TabsContent>
         </Tabs>
       ) : (
-        // Client view — just the list
         isMobile ? (
           <div className="space-y-2">
             {tickets.map(t => <TicketCardMobile key={t.id} ticket={t} routePrefix={TICKET_LIST_ROUTE} />)}
@@ -135,7 +141,6 @@ export default function TicketsCoreListPage() {
         )
       )}
 
-      {/* Create modal */}
       <TicketCreateModal open={createOpen} onOpenChange={setCreateOpen} onCreated={handleCreated} />
     </div>
   );
