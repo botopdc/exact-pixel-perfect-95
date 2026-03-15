@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
+import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,181 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function formatBRL(value: number): string {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// ─── Generate proposal PDF server-side using pdf-lib ────────
+async function generateProposalPdfBytes(
+  proposal: any,
+  servers: any[],
+  addons: any[],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fontSize = 10;
+  const lineHeight = 14;
+  const margin = 50;
+  const A4W = 595.28;
+  const A4H = 841.89;
+
+  // ── Pages 1-7: Cover / placeholder pages ──────────────────
+  const coverTitles = [
+    "PROPOSTA COMERCIAL",
+    "OPEN DATACENTER",
+    "SOBRE A EMPRESA",
+    "INFRAESTRUTURA",
+    "NOSSOS SERVIÇOS",
+    "DIFERENCIAIS",
+    "TERMOS E CONDIÇÕES",
+  ];
+  for (let i = 0; i < 7; i++) {
+    const coverPage = doc.addPage([A4W, A4H]);
+    coverPage.drawText(coverTitles[i], {
+      x: margin,
+      y: A4H / 2,
+      font: fontBold,
+      size: 24,
+      color: rgb(0.1, 0.1, 0.5),
+    });
+    coverPage.drawText(
+      `Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`,
+      { x: margin, y: A4H / 2 - 40, font, size: 12, color: rgb(0.3, 0.3, 0.3) }
+    );
+    coverPage.drawText(
+      `Página ${i + 1} de capa — gerada automaticamente`,
+      { x: margin, y: margin, font, size: 8, color: rgb(0.6, 0.6, 0.6) }
+    );
+  }
+
+  // ── Pages 8+: Real proposal summary content ───────────────
+  let page = doc.addPage([A4W, A4H]);
+  let y = A4H - margin;
+
+  function drawText(text: string, x: number, yPos: number, options?: { font?: any; size?: number; color?: any }) {
+    const f = options?.font || font;
+    const s = options?.size || fontSize;
+    page.drawText(text, { x, y: yPos, font: f, size: s, color: options?.color || rgb(0, 0, 0) });
+  }
+
+  function checkNewPage() {
+    if (y < margin + 40) {
+      page = doc.addPage([A4W, A4H]);
+      y = A4H - margin;
+    }
+  }
+
+  // Header
+  drawText("PROPOSTA COMERCIAL — RESUMO", margin, y, { font: fontBold, size: 14, color: rgb(0.1, 0.1, 0.5) });
+  y -= 24;
+  drawText(`Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`, margin, y, { font: fontBold, size: 11 });
+  y -= 16;
+  drawText(`Gerado em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`, margin, y, { size: 8, color: rgb(0.4, 0.4, 0.4) });
+  y -= 24;
+
+  // Client info
+  drawText("DADOS DO CLIENTE", margin, y, { font: fontBold, size: 11 });
+  y -= lineHeight + 2;
+  const clientFields = [
+    ["Empresa", proposal.company || "—"],
+    ["Contato", proposal.name || "—"],
+    ["Email", proposal.email || "—"],
+    ["Telefone", proposal.phone || "—"],
+    ["Datacenter", proposal.datacenter || "SP1"],
+    ["Moeda", proposal.currency || "BRL"],
+    ["Duração", `${proposal.contract_duration || 12} meses`],
+    ["Desconto", `${proposal.discount_pct || 0}%`],
+  ];
+  for (const [label, value] of clientFields) {
+    drawText(`${label}:`, margin, y, { font: fontBold });
+    drawText(String(value), margin + 100, y);
+    y -= lineHeight;
+  }
+  y -= 10;
+
+  // Servers table
+  if (servers.length > 0) {
+    checkNewPage();
+    drawText("SERVIDORES / RECURSOS", margin, y, { font: fontBold, size: 11 });
+    y -= lineHeight + 4;
+
+    const colX = [margin, margin + 140, margin + 220, margin + 270, margin + 320, margin + 400];
+    drawText("Nome", colX[0], y, { font: fontBold, size: 9 });
+    drawText("Tipo", colX[1], y, { font: fontBold, size: 9 });
+    drawText("vCPU", colX[2], y, { font: fontBold, size: 9 });
+    drawText("RAM", colX[3], y, { font: fontBold, size: 9 });
+    drawText("Qtd", colX[4], y, { font: fontBold, size: 9 });
+    drawText("Valor Unit.", colX[5], y, { font: fontBold, size: 9 });
+    y -= 2;
+    page.drawLine({ start: { x: margin, y }, end: { x: A4W - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    y -= lineHeight;
+
+    for (const srv of servers) {
+      checkNewPage();
+      drawText((srv.name || "Servidor").substring(0, 22), colX[0], y, { size: 9 });
+      drawText(srv.server_type || "vm", colX[1], y, { size: 9 });
+      drawText(String(srv.vcpu || "—"), colX[2], y, { size: 9 });
+      drawText(srv.ram_gb ? `${srv.ram_gb}GB` : "—", colX[3], y, { size: 9 });
+      drawText(String(srv.qty_servers || 1), colX[4], y, { size: 9 });
+      drawText(formatBRL(srv.unit_price || 0), colX[5], y, { size: 9 });
+      y -= lineHeight;
+    }
+    y -= 10;
+  }
+
+  // Addons table
+  const enabledAddons = addons.filter((a: any) => a.enabled && a.total_price > 0);
+  if (enabledAddons.length > 0) {
+    checkNewPage();
+    drawText("SERVIÇOS ADICIONAIS", margin, y, { font: fontBold, size: 11 });
+    y -= lineHeight + 4;
+
+    drawText("Serviço", margin, y, { font: fontBold, size: 9 });
+    drawText("Qtd", margin + 250, y, { font: fontBold, size: 9 });
+    drawText("Valor Unit.", margin + 310, y, { font: fontBold, size: 9 });
+    drawText("Total", margin + 410, y, { font: fontBold, size: 9 });
+    y -= 2;
+    page.drawLine({ start: { x: margin, y }, end: { x: A4W - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    y -= lineHeight;
+
+    for (const addon of enabledAddons) {
+      checkNewPage();
+      drawText((addon.label || addon.addon_key || "Addon").substring(0, 35), margin, y, { size: 9 });
+      drawText(String(addon.quantity || 1), margin + 250, y, { size: 9 });
+      drawText(formatBRL(addon.unit_price || 0), margin + 310, y, { size: 9 });
+      drawText(formatBRL(addon.total_price || 0), margin + 410, y, { size: 9 });
+      y -= lineHeight;
+    }
+    y -= 10;
+  }
+
+  // Total
+  checkNewPage();
+  y -= 10;
+  page.drawLine({ start: { x: margin, y: y + 6 }, end: { x: A4W - margin, y: y + 6 }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
+  drawText("TOTAL MENSAL:", margin, y - 8, { font: fontBold, size: 13 });
+  drawText(formatBRL(proposal.total || 0), margin + 200, y - 8, { font: fontBold, size: 13, color: rgb(0.1, 0.1, 0.5) });
+
+  // Observations
+  if (proposal.observations) {
+    y -= 40;
+    checkNewPage();
+    drawText("OBSERVAÇÕES", margin, y, { font: fontBold, size: 11 });
+    y -= lineHeight + 2;
+    const obsLines = String(proposal.observations).split("\n");
+    for (const line of obsLines) {
+      checkNewPage();
+      drawText(line.substring(0, 80), margin, y, { size: 9 });
+      y -= lineHeight;
+    }
+  }
+
+  const pdfBytes = await doc.save();
+  return new Uint8Array(pdfBytes);
+}
+
+// ─── Main handler ───────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -84,13 +260,69 @@ Deno.serve(async (req: Request) => {
         .order("sort_order"),
     ]);
 
+    const servers = serversRes.data || [];
+    const addons = addonsRes.data || [];
+
+    // ── STEP: Ensure PDF exists ─────────────────────────────
+    let proposalPdfPath = proposal.pdf_path || null;
+
+    console.log("[proposal-public] proposal_id=", proposal.id);
+    console.log("[proposal-public] proposal_status=", proposal.status);
+    console.log("[proposal-public] pdf_path_before=", proposal.pdf_path);
+
+    if (!proposalPdfPath) {
+      console.log("[proposal-public] pdf_path missing, generating official proposal pdf");
+
+      try {
+        // Generate PDF bytes using pdf-lib
+        const pdfBytes = await generateProposalPdfBytes(proposal, servers, addons);
+
+        if (!pdfBytes || pdfBytes.length === 0) {
+          console.error("[proposal-public] proposal_pdf_generation_failed: empty bytes");
+          // Don't fail the entire request - just return without PDF
+        } else {
+          // Upload to storage
+          const timestamp = Date.now();
+          const storagePath = `proposals/${proposal.id}/proposal-official-${timestamp}.pdf`;
+
+          const { error: uploadError } = await adminClient.storage
+            .from("proposal-files")
+            .upload(storagePath, pdfBytes, {
+              contentType: "application/pdf",
+              upsert: true,
+            });
+
+          if (uploadError) {
+            console.error("[proposal-public] proposal_pdf_storage_failed:", uploadError.message);
+          } else {
+            // Persist pdf_path on the proposal
+            const { error: updateError } = await adminClient
+              .from("calculator_proposals")
+              .update({ pdf_path: storagePath, updated_at: new Date().toISOString() })
+              .eq("id", proposal.id);
+
+            if (updateError) {
+              console.error("[proposal-public] proposal_pdf_path_update_failed:", updateError.message);
+            } else {
+              proposalPdfPath = storagePath;
+              console.log("[proposal-public] proposal_pdf_generated=true");
+              console.log("[proposal-public] proposal_pdf_path_after=", proposalPdfPath);
+            }
+          }
+        }
+      } catch (genErr: any) {
+        console.error("[proposal-public] pdf_auto_generation_error:", genErr?.message || genErr);
+        // Non-blocking: proposal data still returned even if PDF generation fails
+      }
+    }
+
     // Generate signed PDF URL if available
     let pdfSignedUrl: string | null = null;
-    if (proposal.pdf_path) {
+    if (proposalPdfPath) {
       try {
         const { data: urlData, error: urlError } = await adminClient.storage
           .from("proposal-files")
-          .createSignedUrl(proposal.pdf_path, 60 * 30);
+          .createSignedUrl(proposalPdfPath, 60 * 30);
 
         if (!urlError && urlData?.signedUrl) {
           pdfSignedUrl = urlData.signedUrl;
@@ -101,6 +333,11 @@ Deno.serve(async (req: Request) => {
         console.warn("[proposal-public] PDF signed URL exception:", err);
       }
     }
+
+    console.log("[proposal-public] pdf_generated=", !!proposalPdfPath);
+    console.log("[proposal-public] pdf_path_after=", proposalPdfPath);
+    console.log("[proposal-public] public_token=", proposal.public_approval_token);
+    console.log("[proposal-public] signed_url_generated=", !!pdfSignedUrl);
 
     return json({
       proposal: {
@@ -121,7 +358,7 @@ Deno.serve(async (req: Request) => {
         observations: proposal.observations,
         due_at: proposal.due_at,
         created_at: proposal.created_at,
-        pdf_path: proposal.pdf_path,
+        pdf_path: proposalPdfPath,
         approval_decision: proposal.approval_decision,
         approved_at: proposal.approved_at,
         rejected_at: proposal.rejected_at,
@@ -129,8 +366,8 @@ Deno.serve(async (req: Request) => {
         public_approval_enabled: proposal.public_approval_enabled,
         public_approval_expires_at: proposal.public_approval_expires_at,
       },
-      servers: serversRes.data || [],
-      addons: addonsRes.data || [],
+      servers,
+      addons,
       pdfSignedUrl,
     });
   } catch (err) {
