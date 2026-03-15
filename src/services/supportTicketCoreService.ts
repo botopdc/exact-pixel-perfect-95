@@ -342,6 +342,13 @@ export interface CoreSLAPolicy {
 // ── Edge Function Caller ────────────────────────────────────────────────
 
 async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<EdgeResponse<T>> {
+  const token = getToken();
+  console.log(`[supportTicketCore] invoke ${fn}`, {
+    hasToken: !!token,
+    tokenLen: token?.length,
+    bodyKeys: Object.keys(body),
+  });
+
   const { data, error } = await supabase.functions.invoke(fn, {
     body,
     headers: authHeaders(),
@@ -349,20 +356,25 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
 
   if (error) {
     console.error(`[supportTicketCore] ${fn} error:`, error);
-    // Preserve status code info in the error message for UI differentiation
     const errMsg = error.message || `Erro ao chamar ${fn}`;
     const enrichedError = new Error(errMsg);
     (enrichedError as any).status = error.status;
     throw enrichedError;
   }
 
+  console.log(`[supportTicketCore] ${fn} raw response type:`, typeof data, data ? Object.keys(data) : 'null');
+
   const resp = data as EdgeResponse<T>;
   if (!resp.success) {
+    console.error(`[supportTicketCore] ${fn} not success:`, resp);
     const errMsg = resp.message || resp.errors?.join(', ') || 'Erro desconhecido';
     const enrichedError = new Error(errMsg);
     (enrichedError as any).debug = (resp as any).debug;
     throw enrichedError;
   }
+
+  const resultCount = Array.isArray(resp.data) ? resp.data.length : (resp.data ? 1 : 0);
+  console.log(`[supportTicketCore] ${fn} success — items: ${resultCount}, meta:`, resp.meta);
 
   return resp;
 }
