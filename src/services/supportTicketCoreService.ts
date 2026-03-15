@@ -567,4 +567,43 @@ export const supportTicketCoreService = {
   async deleteSlaPolicy(id: string): Promise<void> {
     await invoke('support-sla-admin', { action: 'delete', id });
   },
+
+  // On-call shifts
+  async listOnCallShifts(isActive?: boolean): Promise<any[]> {
+    const ctx = getQueueUserContext();
+    const resp = await invoke<any[]>('support-queue-admin', {
+      action: 'list_oncall_shifts',
+      is_active: isActive,
+      ...ctx,
+    });
+    return resp.data || [];
+  },
+
+  async createOnCallShift(payload: {
+    team_code: string;
+    team_name: string;
+    user_name: string;
+    user_email?: string;
+    user_id?: number;
+    starts_at: string;
+    ends_at: string;
+    notes?: string;
+  }): Promise<any> {
+    const ctx = getQueueUserContext();
+    const resp = await invoke<any>('support-queue-admin', {
+      action: 'create_oncall_shift',
+      ...payload,
+      ...ctx,
+    });
+    return resp.data;
+  },
+
+  async deleteOnCallShift(shiftId: string): Promise<void> {
+    const ctx = getQueueUserContext();
+    await invoke('support-queue-admin', {
+      action: 'delete_oncall_shift',
+      shift_id: shiftId,
+      ...ctx,
+    });
+  },
 };
