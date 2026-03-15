@@ -139,7 +139,10 @@ import AnalistasSuportePage from '@/pages/modules/atendimentos/AnalistasSuporteP
 import SLAPoliciesPage from '@/pages/modules/atendimentos/SLAPoliciesPage';
 import TicketReportsPage from '@/pages/modules/atendimentos/TicketReportsPage';
 
-// Birth Certificate (Certidão de Nascimento) Pages
+// Tickets CORE (Supabase-first)
+import TicketsCoreListPage from '@/pages/modules/atendimentos/TicketsCoreListPage';
+import TicketCoreDetailPage from '@/pages/modules/atendimentos/TicketCoreDetailPage';
+
 import CertidaoListPage from '@/pages/modules/certidao/CertidaoListPage';
 import CertidaoCustomerPage from '@/pages/modules/certidao/CertidaoCustomerPage';
 import CertidaoAssetPage from '@/pages/modules/certidao/CertidaoAssetPage';
