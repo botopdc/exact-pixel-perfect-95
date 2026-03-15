@@ -368,7 +368,7 @@ const SupabaseProposalsList: React.FC = () => {
     }
   };
 
-  // Handle PDF download via proposal-download edge function
+  // Handle PDF download — uses the same calculator renderer (client-side)
   const handleDownloadPDF = async (proposal: ProposalRow) => {
     if (!proposal.id) {
       toast({ title: 'Erro', description: 'ID da proposta não encontrado', variant: 'destructive' });
@@ -378,43 +378,22 @@ const SupabaseProposalsList: React.FC = () => {
     setPdfLoadingId(proposal.id);
 
     try {
-      console.log('[proposal-download] proposal_id=', proposal.id);
+      console.log('[proposal-pdf] proposal_id=', proposal.id);
+      console.log('[proposal-pdf] source=', 'proposals');
 
-      const token = localStorage.getItem('open_access_token')
-        || localStorage.getItem('open_api_token')
-        || localStorage.getItem('open_token')
-        || localStorage.getItem('auth_token')
-        || localStorage.getItem('token');
+      // Use the same client-side renderer as the calculator
+      const { downloadProposalPdfFromSupabase } = await import('@/services/proposalPdfService');
+      const result = await downloadProposalPdfFromSupabase(proposal.id);
 
-      const { data, error } = await supabase.functions.invoke('proposal-download', {
-        body: { proposalId: proposal.id },
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (error) {
-        console.error('[proposal-download] error=', error);
-        throw new Error(error.message || 'Falha ao preparar o arquivo para download');
+      if (!result.success) {
+        throw new Error(result.error || 'Não foi possível gerar o PDF desta proposta');
       }
 
-      if (!data?.success || !data?.pdfSignedUrl) {
-        console.error('[proposal-download] error_message=', data?.error);
-        throw new Error(data?.error || 'Não foi possível gerar o PDF desta proposta');
-      }
-
-      const filename = `OPEN_proposta_${proposal.display_id || proposal.id.substring(0, 8)}.pdf`;
-      const a = document.createElement('a');
-      a.href = data.pdfSignedUrl;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
+      console.log('[proposal-pdf] generator=', 'calculator_renderer');
       trackProposalEvent({ proposalId: proposal.id, source: 'pdf_download' });
-      toast({ title: 'Download iniciado', description: 'O PDF foi aberto para download.' });
+      toast({ title: 'Download iniciado', description: 'O PDF foi gerado e baixado com sucesso.' });
     } catch (error: any) {
-      console.error('[proposal-download] error=', error);
+      console.error('[proposal-pdf] error=', error);
       toast({ title: 'Erro ao baixar PDF', description: error.message || 'Não foi possível gerar o PDF desta proposta', variant: 'destructive' });
     } finally {
       setPdfLoadingId(null);

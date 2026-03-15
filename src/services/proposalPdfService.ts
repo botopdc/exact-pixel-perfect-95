@@ -635,8 +635,10 @@ export async function downloadProposalPdfFromSupabase(proposalUuid: string): Pro
       }
     }
 
-    // 3. No stored PDF, generate locally from proposal data
-    console.log('[proposalPdfService] Generating PDF locally from Supabase data...');
+    // 3. No stored PDF, generate locally using the same calculator renderer
+    console.log('[proposalPdfService] Generating PDF locally from Supabase data (calculator renderer)...');
+    console.log('[proposal-pdf] generator=', 'calculator_renderer');
+    console.log('[proposal-pdf] used_alternative_price_renderer=', false);
 
     // Fetch full proposal with items
     const fullProposal = await getProposalWithItems(proposalUuid);
@@ -702,8 +704,8 @@ export async function downloadProposalPdfFromSupabase(proposalUuid: string): Pro
       validityDays: 30,
     };
 
-    // Generate and download PDF
-    await generateOpenPDF({
+    // Generate PDF blob using the SAME calculator renderer
+    const { blob, filename } = await generateOpenPDFBlob({
       client,
       proposal: proposalMeta,
       result,
@@ -713,7 +715,33 @@ export async function downloadProposalPdfFromSupabase(proposalUuid: string): Pro
       attachments: [],
     });
 
-    console.log('[proposalPdfService] PDF generated from Supabase data successfully');
+    // Persist the generated PDF to storage so all other origins reuse it
+    try {
+      const { uploadPdfToStorage } = await import('@/services/supabaseProposalService');
+      const uploaded = await uploadPdfToStorage(proposalUuid, blob, filename);
+      console.log('[proposal-pdf] saved_pdf_path=', uploaded.path);
+
+      // Update pdf_path on the proposal
+      await supabase
+        .from('calculator_proposals')
+        .update({ pdf_path: uploaded.path, pdf_generated_at: new Date().toISOString() })
+        .eq('id', proposalUuid);
+
+      console.log('[proposal-pdf] reused_existing_pdf=', false);
+      console.log('[proposal-pdf] pdf_path_persisted=', uploaded.path);
+    } catch (persistErr) {
+      console.warn('[proposalPdfService] Failed to persist PDF to storage (download still works):', persistErr);
+    }
+
+    // Download the file
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    console.log('[proposalPdfService] PDF generated from Supabase data successfully (calculator renderer)');
     return { success: true };
 
   } catch (error: any) {

@@ -1,11 +1,12 @@
 // ============================================================================
 // EDGE FUNCTION: contract-generate-document
 // Generates Contract DOCX + Annex I PDF from proposal
-// Strategy: proposal_pdf_trim — always uses visual template PDF as source
+// Strategy: proposal_pdf_trim — uses the calculator-generated PDF as source
+// IMPORTANT: Does NOT generate PDFs. Uses existing pdf_path only.
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.2";
-import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
+import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
@@ -29,29 +30,6 @@ function errorResponse(code: string, message: string, status: number, debug?: Re
 
 // ─── Constants ──────────────────────────────────────────────
 const LOCKED_STATUSES = ["assinado", "finalizado", "cancelado"];
-const TEMPLATE_PDF_PATH = "templates/proposta_modelo_OPEN.pdf";
-
-// ─── OPEN brand colors (shared with proposal-public) ────────
-const BRAND = {
-  navy: rgb(0.059, 0.071, 0.306),
-  navyLight: rgb(0.118, 0.141, 0.420),
-  accent: rgb(0.220, 0.557, 0.878),
-  white: rgb(1, 1, 1),
-  lightGray: rgb(0.945, 0.949, 0.961),
-  medGray: rgb(0.720, 0.737, 0.780),
-  darkGray: rgb(0.310, 0.333, 0.400),
-  black: rgb(0.133, 0.149, 0.200),
-};
-
-const A4W = 595.28;
-const A4H = 841.89;
-const MARGIN_LEFT = 50;
-const MARGIN_RIGHT = 50;
-const CONTENT_WIDTH = A4W - MARGIN_LEFT - MARGIN_RIGHT;
-const HEADER_HEIGHT = 60;
-const FOOTER_HEIGHT = 40;
-const MARGIN_TOP = HEADER_HEIGHT + 30;
-const MARGIN_BOTTOM = FOOTER_HEIGHT + 20;
 
 // ─── Date helpers ───────────────────────────────────────────
 function dateExtenso(dateStr: string | null): string {
@@ -72,10 +50,6 @@ function dateShort(dateStr: string | null): string {
 
 function escapeXml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-
-function formatBRL(value: number): string {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 // ─── DOCX template merge ────────────────────────────────────
@@ -118,243 +92,6 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
   for (const p of copiedPages) newDoc.addPage(p);
   const trimmedBytes = await newDoc.save();
   return { trimmedBytes: new Uint8Array(trimmedBytes), trimmedPageCount: copiedPages.length };
-}
-
-// ─── Branded summary page renderer (same as proposal-public) ─
-async function generateBrandedSummaryPdfBytes(
-  proposal: any,
-  servers: any[],
-  addons: any[],
-): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
-
-  let page = doc.addPage([A4W, A4H]);
-  let y = A4H - MARGIN_TOP;
-  let pageNum = 1;
-
-  function drawHeader() {
-    page.drawRectangle({ x: 0, y: A4H - HEADER_HEIGHT, width: A4W, height: HEADER_HEIGHT, color: BRAND.navy });
-    page.drawText("OPEN", { x: MARGIN_LEFT, y: A4H - 38, font: fontBold, size: 20, color: BRAND.white });
-    page.drawText("PROPOSTA COMERCIAL", { x: MARGIN_LEFT + 80, y: A4H - 35, font, size: 10, color: rgb(0.6, 0.65, 0.85) });
-    page.drawRectangle({ x: 0, y: A4H - HEADER_HEIGHT - 3, width: A4W, height: 3, color: BRAND.accent });
-  }
-
-  function drawFooter() {
-    page.drawLine({ start: { x: MARGIN_LEFT, y: FOOTER_HEIGHT }, end: { x: A4W - MARGIN_RIGHT, y: FOOTER_HEIGHT }, thickness: 0.5, color: BRAND.medGray });
-    page.drawText("OPEN Datacenter — Proposta Comercial", { x: MARGIN_LEFT, y: FOOTER_HEIGHT - 14, font, size: 7, color: BRAND.medGray });
-    page.drawText(`Página ${pageNum}`, { x: A4W - MARGIN_RIGHT - 45, y: FOOTER_HEIGHT - 14, font, size: 7, color: BRAND.medGray });
-  }
-
-  function newBrandedPage() {
-    drawFooter();
-    page = doc.addPage([A4W, A4H]);
-    pageNum++;
-    drawHeader();
-    drawFooter();
-    y = A4H - MARGIN_TOP;
-  }
-
-  function checkNewPage(needed = 30) {
-    if (y < MARGIN_BOTTOM + needed) newBrandedPage();
-  }
-
-  function drawSectionTitle(title: string) {
-    checkNewPage(50);
-    page.drawRectangle({ x: MARGIN_LEFT, y: y - 4, width: 4, height: 18, color: BRAND.accent });
-    page.drawText(title, { x: MARGIN_LEFT + 12, y, font: fontBold, size: 12, color: BRAND.navy });
-    y -= 26;
-  }
-
-  function drawTableHeader(columns: { label: string; x: number }[]) {
-    checkNewPage(40);
-    page.drawRectangle({ x: MARGIN_LEFT, y: y - 5, width: CONTENT_WIDTH, height: 20, color: BRAND.navy });
-    for (const col of columns) {
-      page.drawText(col.label, { x: col.x, y, font: fontBold, size: 8, color: BRAND.white });
-    }
-    y -= 22;
-  }
-
-  function drawTableRow(values: { text: string; x: number }[], rowIndex: number, rowHeight = 16) {
-    checkNewPage(rowHeight + 5);
-    if (rowIndex % 2 === 0) {
-      page.drawRectangle({ x: MARGIN_LEFT, y: y - 4, width: CONTENT_WIDTH, height: rowHeight, color: BRAND.lightGray });
-    }
-    for (const v of values) {
-      page.drawText(v.text, { x: v.x, y, font, size: 8.5, color: BRAND.darkGray });
-    }
-    y -= rowHeight;
-  }
-
-  // Start
-  drawHeader();
-
-  page.drawText("RESUMO DE PREÇOS", { x: MARGIN_LEFT, y: y + 2, font: fontBold, size: 18, color: BRAND.navy });
-  y -= 10;
-  page.drawLine({ start: { x: MARGIN_LEFT, y }, end: { x: A4W - MARGIN_RIGHT, y }, thickness: 1, color: BRAND.accent });
-  y -= 20;
-
-  page.drawText(`Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`, { x: MARGIN_LEFT, y, font: fontBold, size: 10, color: BRAND.black });
-  const dateStr = new Date().toLocaleDateString("pt-BR");
-  page.drawText(`Gerado em: ${dateStr}`, { x: A4W - MARGIN_RIGHT - 120, y, font, size: 8, color: BRAND.medGray });
-  y -= 28;
-
-  // Client info
-  drawSectionTitle("DADOS DO CLIENTE");
-  const clientFields = [
-    ["Empresa", proposal.company || "—"],
-    ["Contato", proposal.name || "—"],
-    ["Email", proposal.email || "—"],
-    ["Telefone", proposal.phone || "—"],
-    ["Datacenter", proposal.datacenter || "SP1"],
-    ["Moeda", proposal.currency || "BRL"],
-    ["Duração do Contrato", `${proposal.contract_duration || 12} meses`],
-    ["Desconto", `${proposal.discount_pct || 0}%`],
-  ];
-  const cardHeight = clientFields.length * 16 + 10;
-  page.drawRectangle({ x: MARGIN_LEFT, y: y - cardHeight + 10, width: CONTENT_WIDTH, height: cardHeight, color: BRAND.lightGray, borderColor: BRAND.medGray, borderWidth: 0.5 });
-  for (const [label, value] of clientFields) {
-    page.drawText(`${label}:`, { x: MARGIN_LEFT + 12, y: y - 2, font: fontBold, size: 9, color: BRAND.navy });
-    page.drawText(String(value), { x: MARGIN_LEFT + 150, y: y - 2, font, size: 9, color: BRAND.darkGray });
-    y -= 16;
-  }
-  y -= 16;
-
-  // Servers
-  if (servers.length > 0) {
-    drawSectionTitle("SERVIDORES / RECURSOS");
-    const srvCols = [
-      { label: "Nome", x: MARGIN_LEFT + 6 },
-      { label: "Tipo", x: MARGIN_LEFT + 140 },
-      { label: "vCPU", x: MARGIN_LEFT + 205 },
-      { label: "RAM", x: MARGIN_LEFT + 250 },
-      { label: "Qtd", x: MARGIN_LEFT + 305 },
-      { label: "Valor Unit.", x: MARGIN_LEFT + 380 },
-    ];
-    drawTableHeader(srvCols);
-    servers.forEach((srv: any, idx: number) => {
-      drawTableRow([
-        { text: (srv.name || "Servidor").substring(0, 24), x: srvCols[0].x },
-        { text: (srv.server_type || "vm").toUpperCase(), x: srvCols[1].x },
-        { text: String(srv.vcpu || "—"), x: srvCols[2].x },
-        { text: srv.ram_gb ? `${srv.ram_gb} GB` : "—", x: srvCols[3].x },
-        { text: String(srv.qty_servers || 1), x: srvCols[4].x },
-        { text: formatBRL(srv.unit_price || 0), x: srvCols[5].x },
-      ], idx);
-    });
-    y -= 12;
-  }
-
-  // Addons
-  const enabledAddons = addons.filter((a: any) => a.enabled && a.total_price > 0);
-  if (enabledAddons.length > 0) {
-    drawSectionTitle("SERVIÇOS ADICIONAIS");
-    const addonCols = [
-      { label: "Serviço", x: MARGIN_LEFT + 6 },
-      { label: "Qtd", x: MARGIN_LEFT + 240 },
-      { label: "Valor Unit.", x: MARGIN_LEFT + 300 },
-      { label: "Total", x: MARGIN_LEFT + 400 },
-    ];
-    drawTableHeader(addonCols);
-    enabledAddons.forEach((addon: any, idx: number) => {
-      drawTableRow([
-        { text: (addon.label || addon.addon_key || "Serviço").substring(0, 38), x: addonCols[0].x },
-        { text: String(addon.quantity || 1), x: addonCols[1].x },
-        { text: formatBRL(addon.unit_price || 0), x: addonCols[2].x },
-        { text: formatBRL(addon.total_price || 0), x: addonCols[3].x },
-      ], idx);
-    });
-    y -= 12;
-  }
-
-  // Total box
-  checkNewPage(60);
-  y -= 8;
-  const totalBoxH = 44;
-  page.drawRectangle({ x: MARGIN_LEFT, y: y - totalBoxH + 14, width: CONTENT_WIDTH, height: totalBoxH, color: BRAND.navy });
-  page.drawText("VALOR TOTAL MENSAL", { x: MARGIN_LEFT + 16, y: y - 6, font: fontBold, size: 12, color: BRAND.white });
-  page.drawText(formatBRL(proposal.total || 0), { x: A4W - MARGIN_RIGHT - 160, y: y - 6, font: fontBold, size: 16, color: BRAND.white });
-  page.drawRectangle({ x: MARGIN_LEFT, y: y - totalBoxH + 14, width: CONTENT_WIDTH, height: 3, color: BRAND.accent });
-  y -= totalBoxH + 16;
-
-  // Observations
-  if (proposal.observations) {
-    drawSectionTitle("OBSERVAÇÕES");
-    const obsLines = String(proposal.observations).split("\n");
-    for (const line of obsLines) {
-      checkNewPage(16);
-      page.drawText(line.substring(0, 90), { x: MARGIN_LEFT + 12, y, font, size: 9, color: BRAND.darkGray });
-      y -= 14;
-    }
-  }
-
-  drawFooter();
-
-  console.log(`[proposal-pdf] generation_mode=official_standard_template_full`);
-  console.log(`[proposal-pdf] used_alternative_price_renderer=false`);
-  console.log(`[proposal-pdf] output_page_count=${doc.getPageCount()}`);
-
-  const pdfBytes = await doc.save();
-  return new Uint8Array(pdfBytes);
-}
-
-// ─── Generate FULL visual proposal PDF ──────────────────────
-async function generateFullVisualProposalPdf(
-  supabase: any,
-  proposal: any,
-  servers: any[],
-  addons: any[],
-): Promise<Uint8Array> {
-  const mergedDoc = await PDFDocument.create();
-
-  let templateLoaded = false;
-  try {
-    const { data: templateFile, error: templateErr } = await supabase.storage
-      .from("proposal-files")
-      .download(TEMPLATE_PDF_PATH);
-
-    if (templateFile && !templateErr) {
-      const templateBytes = new Uint8Array(await templateFile.arrayBuffer());
-      const templateDoc = await PDFDocument.load(templateBytes);
-      const templatePages = await mergedDoc.copyPages(templateDoc, templateDoc.getPageIndices());
-      for (const p of templatePages) mergedDoc.addPage(p);
-      templateLoaded = true;
-      console.log(`[contract-docs] template_loaded=true pages=${templatePages.length}`);
-    } else {
-      console.warn(`[contract-docs] template_download_failed: ${templateErr?.message}`);
-    }
-  } catch (err: any) {
-    console.warn(`[contract-docs] template_load_exception: ${err?.message}`);
-  }
-
-  if (!templateLoaded) {
-    console.warn("[contract-docs] FALLBACK: generating branded placeholder cover pages");
-    const font = await mergedDoc.embedFont(StandardFonts.HelveticaBold);
-    const fontReg = await mergedDoc.embedFont(StandardFonts.Helvetica);
-    const coverTitles = [
-      "PROPOSTA COMERCIAL", "OPEN DATACENTER", "SOBRE A EMPRESA",
-      "INFRAESTRUTURA", "NOSSOS SERVIÇOS", "DIFERENCIAIS", "TERMOS E CONDIÇÕES",
-    ];
-    for (let i = 0; i < 7; i++) {
-      const coverPage = mergedDoc.addPage([A4W, A4H]);
-      coverPage.drawRectangle({ x: 0, y: 0, width: A4W, height: A4H, color: BRAND.navy });
-      coverPage.drawRectangle({ x: 0, y: A4H / 2 + 30, width: A4W, height: 4, color: BRAND.accent });
-      coverPage.drawText(coverTitles[i], { x: MARGIN_LEFT, y: A4H / 2, font, size: 28, color: BRAND.white });
-      coverPage.drawText("OPEN", { x: MARGIN_LEFT, y: A4H - 60, font, size: 24, color: BRAND.white });
-      coverPage.drawText("Datacenter", { x: MARGIN_LEFT + 85, y: A4H - 57, font: fontReg, size: 14, color: BRAND.accent });
-    }
-  }
-
-  const summaryBytes = await generateBrandedSummaryPdfBytes(proposal, servers, addons);
-  const summaryDoc = await PDFDocument.load(summaryBytes);
-  const summaryPages = await mergedDoc.copyPages(summaryDoc, summaryDoc.getPageIndices());
-  for (const p of summaryPages) mergedDoc.addPage(p);
-
-  console.log(`[contract-docs] merged_total_pages=${mergedDoc.getPageCount()} template=${templateLoaded}`);
-
-  const finalBytes = await mergedDoc.save();
-  return new Uint8Array(finalBytes);
 }
 
 // ─── Build proposal snapshot ────────────────────────────────
@@ -440,7 +177,7 @@ Deno.serve(async (req: Request) => {
       .from("calculator_proposals").select("*").eq("id", proposalId).single();
 
     if (propErr || !proposal) return errorResponse("proposal_not_found", "Proposta vinculada não encontrada.", 404, debug);
-    debug.proposal_pdf_path_before = proposal.pdf_path;
+    debug.proposal_pdf_path = proposal.pdf_path;
 
     // ── STEP 3: Load servers & addons ────────────────────────
     const [serversRes, addonsRes] = await Promise.all([
@@ -452,11 +189,11 @@ Deno.serve(async (req: Request) => {
     debug.servers_count = servers.length;
     debug.addons_count = addons.length;
 
-    // ── STEP 4: Resolve proposal PDF ─────────────────────────
+    // ── STEP 4: Resolve proposal PDF (NO alternative renderer) ──
     let proposalPdfPath = proposal.pdf_path || null;
-    let pdfAutoGenerated = false;
 
     if (!proposalPdfPath) {
+      // Check calculator_proposal_files as fallback
       const { data: existingFiles } = await supabase
         .from("calculator_proposal_files").select("file_path, file_type")
         .eq("proposal_id", proposalId).eq("file_type", "application/pdf").limit(1);
@@ -467,30 +204,21 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!proposalPdfPath) {
-      console.log(`[contract-docs] [STEP 4] auto-generating FULL VISUAL proposal PDF...`);
-      try {
-        const fullPdfBytes = await generateFullVisualProposalPdf(supabase, proposal, servers, addons);
-        const autoPath = `proposals/${proposalId}/proposal-official-${Date.now()}.pdf`;
-
-        const { error: uploadErr } = await supabase.storage
-          .from("proposal-files").upload(autoPath, fullPdfBytes, { contentType: "application/pdf", upsert: true });
-
-        if (uploadErr) return errorResponse("proposal_pdf_auto_generation_failed", `Falha ao salvar PDF: ${uploadErr.message}`, 500, debug);
-
-        await supabase.from("calculator_proposals")
-          .update({ pdf_path: autoPath, pdf_generated_at: new Date().toISOString() })
-          .eq("id", proposalId);
-
-        proposalPdfPath = autoPath;
-        pdfAutoGenerated = true;
-        console.log(`[contract-docs] [STEP 4] OK auto-generated pdf_path=${autoPath}`);
-      } catch (genErr) {
-        return errorResponse("proposal_pdf_auto_generation_failed", `Erro ao gerar PDF: ${genErr}`, 500, debug);
-      }
+      console.error("[contract-docs] pdf_path missing — calculator must generate PDF first");
+      console.error("[proposal-pdf] invalid_alternative_renderer_used=false (blocked)");
+      return errorResponse(
+        "proposal_pdf_not_generated",
+        "O PDF da proposta ainda não foi gerado. Abra a proposta na calculadora e salve para gerar o PDF oficial.",
+        422,
+        debug
+      );
     }
 
-    debug.proposal_pdf_path_after = proposalPdfPath;
-    debug.pdf_auto_generated = pdfAutoGenerated;
+    console.log("[proposal-pdf] proposal_id=", proposal.id);
+    console.log("[proposal-pdf] source=", "contract");
+    console.log("[proposal-pdf] reused_existing_pdf=", true);
+    console.log("[proposal-pdf] generator=", "calculator_renderer");
+    console.log("[proposal-pdf] saved_pdf_path=", proposalPdfPath);
 
     // ── STEP 5: Snapshot ─────────────────────────────────────
     const snapshot = buildProposalSnapshot(proposal, servers, addons);
@@ -603,7 +331,6 @@ Deno.serve(async (req: Request) => {
         document_generation: {
           generated_at: new Date().toISOString(),
           strategy: "proposal_pdf_trim",
-          pdf_auto_generated: pdfAutoGenerated,
           source_pdf_page_count: totalPages,
           annex_page_count: trimmedPageCount,
           docx_generated: docxGenerated,
@@ -632,7 +359,6 @@ Deno.serve(async (req: Request) => {
       docx_path: docxPath,
       annex_pdf_path: annexStoragePath,
       proposal_pdf_source_path: proposalPdfPath,
-      pdf_auto_generated: pdfAutoGenerated,
       documents,
       debug,
     });
