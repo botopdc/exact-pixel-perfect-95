@@ -92,9 +92,14 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: true, data: memberships });
     }
 
-    // ── Admin-only actions below ────────────────────────────────────────
+    // ── Admin-only actions below (950+ for mutations) ─────────────────
     if (userLevel < 950) {
-      return jsonResponse({ success: false, message: "Apenas gerentes e admins podem gerenciar membros" }, 403);
+      console.warn("support-queue-admin mutation denied", { action, userLevel });
+      return jsonResponse({
+        success: false,
+        message: "Apenas gerentes e admins podem gerenciar membros",
+        debug: { required_levels: [950, 1000], received_level: userLevel },
+      }, 403);
     }
 
     // ── add_member ──────────────────────────────────────────────────────
