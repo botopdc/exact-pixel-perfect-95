@@ -1209,6 +1209,42 @@ export type Database = {
         }
         Relationships: []
       }
+      ops_service_status: {
+        Row: {
+          created_at: string
+          id: string
+          service_code: string
+          service_name: string
+          source: string
+          status: string
+          status_message: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          service_code: string
+          service_name: string
+          source?: string
+          status?: string
+          status_message?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          service_code?: string
+          service_name?: string
+          source?: string
+          status?: string
+          status_message?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       proposal_participants: {
         Row: {
           commission_pct: number | null
