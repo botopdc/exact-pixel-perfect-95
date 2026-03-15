@@ -267,12 +267,16 @@ export function generateStaticCoverage(): { source_type: string; source_name: st
     'proposal-save', 'proposal-get', 'proposal-list', 'proposal-track',
     'proposal-gateway', 'public-approval', 'pricing-admin',
     'send-proposal-email', 'send-password-reset',
+    'support-ticket-create', 'support-ticket-list', 'support-ticket-get',
+    'support-ticket-update', 'support-ticket-messages', 'support-ticket-upload',
+    'support-ticket-ingest', 'support-sla-admin', 'support-queue-admin',
+    'support-dashboard-stats',
   ];
   for (const fn of edgeFunctions) {
     items.push({
       source_type: 'edge_function',
       source_name: fn,
-      doc_slug: 'api',
+      doc_slug: fn.startsWith('support-') ? 'support/api-reference' : 'api',
       is_covered: true,
     });
   }

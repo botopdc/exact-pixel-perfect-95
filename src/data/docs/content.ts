@@ -16,6 +16,12 @@ import PLANO_7_PASSOS from '../../../docs/PLANO_7_PASSOS.md?raw';
 import EVIDENCIAS_7_PASSOS from '../../../docs/EVIDENCIAS_7_PASSOS.md?raw';
 import PLANO_7_PASSOS_PRECOS from '../../../docs/PLANO_7_PASSOS_PRECOS.md?raw';
 import EVIDENCIAS_7_PASSOS_PRECOS from '../../../docs/EVIDENCIAS_7_PASSOS_PRECOS.md?raw';
+import OPEN_SUPPORT_ARCHITECTURE from '../../../docs/architecture/OPEN_SUPPORT_ARCHITECTURE.md?raw';
+import OPEN_SUPPORT_DATA_MODEL from '../../../docs/data/OPEN_SUPPORT_DATA_MODEL.md?raw';
+import OPEN_SUPPORT_RBAC from '../../../docs/security/OPEN_SUPPORT_RBAC.md?raw';
+import OPEN_SUPPORT_API_REFERENCE from '../../../docs/api/OPEN_SUPPORT_API_REFERENCE.md?raw';
+import OPEN_SUPPORT_RUNBOOK from '../../../docs/runbooks/OPEN_SUPPORT_RUNBOOK.md?raw';
+import OPEN_SUPPORT_KPIS from '../../../docs/metrics/OPEN_SUPPORT_KPIS.md?raw';
 
 // ============================================================================
 // NEW CONTENT (inline for now, migrates to Supabase later)
@@ -1875,6 +1881,14 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
 
   // ======== CHANGELOG ========
   'core/open_changelog': OPEN_CHANGELOG_CONTENT,
+
+  // ======== SUPPORT MODULE DOCS ========
+  '_existing/OPEN_SUPPORT_ARCHITECTURE': OPEN_SUPPORT_ARCHITECTURE,
+  '_existing/OPEN_SUPPORT_DATA_MODEL': OPEN_SUPPORT_DATA_MODEL,
+  '_existing/OPEN_SUPPORT_RBAC': OPEN_SUPPORT_RBAC,
+  '_existing/OPEN_SUPPORT_API_REFERENCE': OPEN_SUPPORT_API_REFERENCE,
+  '_existing/OPEN_SUPPORT_RUNBOOK': OPEN_SUPPORT_RUNBOOK,
+  '_existing/OPEN_SUPPORT_KPIS': OPEN_SUPPORT_KPIS,
 };
 
 export function getDocContent(fileKey: string): string | null {
