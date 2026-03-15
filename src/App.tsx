@@ -266,9 +266,12 @@ const App = () => (
             <Route path="/modulos/atendimentos/chamados" element={<SupportTicketQueuePage />} />
             <Route path="/modulos/atendimentos/chamados/:ticketNumber" element={<SupportTicketDetailPage />} />
             
-            {/* Tickets CORE — novo sistema Supabase-first */}
-            <Route path="/modulos/atendimentos/tickets" element={<TicketsCoreListPage />} />
-            <Route path="/modulos/atendimentos/tickets/:ticketId" element={<TicketCoreDetailPage />} />
+            {/* Tickets CORE — novo sistema Supabase-first (rota oficial) */}
+            <Route path="/modulos/atendimentos/suporte-tecnico" element={<TicketsCoreListPage />} />
+            <Route path="/modulos/atendimentos/suporte-tecnico/:ticketId" element={<TicketCoreDetailPage />} />
+            {/* Redirect old /tickets route to official route */}
+            <Route path="/modulos/atendimentos/tickets" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
+            <Route path="/modulos/atendimentos/tickets/:ticketId" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             <Route path="/modulos/atendimentos/meus-chamados" element={<MeusTicketsPage />} />
             <Route path="/modulos/atendimentos/analistas-suporte" element={<AnalistasSuportePage />} />
             <Route path="/modulos/atendimentos/slas" element={<SLAPoliciesPage />} />
