@@ -107,7 +107,7 @@ export default function QueueManagementPage() {
             <CardTitle className="text-sm">
               Membros — {selectedQueueObj?.name || 'Fila'}
             </CardTitle>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Button size="sm" onClick={() => setAddOpen(true)} disabled={!canManage}>
               <Plus className="h-4 w-4 mr-1" /> Adicionar Membro
             </Button>
           </CardHeader>
