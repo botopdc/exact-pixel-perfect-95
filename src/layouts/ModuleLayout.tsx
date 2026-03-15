@@ -53,6 +53,7 @@ function ModuleLayoutHeader() {
           )}
         </div>
 
+        <NotificationBell />
         <ThemeToggle />
       </div>
       
