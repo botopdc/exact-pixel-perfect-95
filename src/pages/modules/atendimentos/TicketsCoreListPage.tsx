@@ -102,6 +102,13 @@ export default function TicketsCoreListPage() {
       {/* Summary cards */}
       {permissions.isInternal && <TicketSummaryCards tickets={tickets} />}
 
+      {/* Error display */}
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-sm text-destructive">
+          Erro ao carregar chamados: {(error as Error).message}
+        </div>
+      )}
+
       {/* Filters */}
       <TicketFilters
         filters={filters}
