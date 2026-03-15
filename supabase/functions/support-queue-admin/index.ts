@@ -32,13 +32,21 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const authResult = await validateExternalToken(token);
     if (!authResult.valid) {
+      console.error("support-queue-admin auth failed", { tokenLength: token?.length });
       return jsonResponse({ success: false, message: "Unauthorized" }, 401);
     }
 
     const body = await req.json();
     const db = getSupabaseAdmin();
     const action = body.action;
-    const userLevel = body.user_level || 0;
+    const userLevel = typeof body.user_level === 'number' ? body.user_level : parseInt(body.user_level) || 0;
+
+    console.log("support-queue-admin request", {
+      action,
+      userLevel,
+      rawUserLevel: body.user_level,
+      userId: body.user_id,
+    });
 
     // ── list_queues: all internal users can see ─────────────────────────
     if (action === "list_queues") {
