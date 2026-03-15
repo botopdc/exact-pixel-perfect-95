@@ -120,9 +120,10 @@ async function trimProposalPdf(pdfBytes: Uint8Array): Promise<{ trimmedBytes: Ui
   return { trimmedBytes: new Uint8Array(trimmedBytes), trimmedPageCount: copiedPages.length };
 }
 
-// ─── Generate proposal summary PDF using pdf-lib ────────────
-// Used when proposal has no pdf_path — creates a clean summary document
-async function generateProposalSummaryPdf(
+// ─── Generate FULL proposal PDF (7 cover pages + summary pages) ──────
+// Used when proposal has no pdf_path. Creates a document with 7+N pages
+// so the standard trim flow (remove pages 1-7) produces the real summary.
+async function generateFullProposalPdf(
   proposal: any,
   servers: any[],
   addons: any[],
@@ -134,14 +135,41 @@ async function generateProposalSummaryPdf(
   const fontSize = 10;
   const lineHeight = 14;
   const margin = 50;
+  const A4W = 595.28;
+  const A4H = 841.89;
 
-  function addPage() {
-    const page = doc.addPage([595.28, 841.89]); // A4
-    return { page, y: 841.89 - margin };
+  // ── Pages 1-7: Cover / placeholder pages ──────────────────
+  const coverTitles = [
+    "PROPOSTA COMERCIAL",
+    "OPEN DATACENTER",
+    "SOBRE A EMPRESA",
+    "INFRAESTRUTURA",
+    "NOSSOS SERVIÇOS",
+    "DIFERENCIAIS",
+    "TERMOS E CONDIÇÕES",
+  ];
+  for (let i = 0; i < 7; i++) {
+    const coverPage = doc.addPage([A4W, A4H]);
+    coverPage.drawText(coverTitles[i], {
+      x: margin,
+      y: A4H / 2,
+      font: fontBold,
+      size: 24,
+      color: rgb(0.1, 0.1, 0.5),
+    });
+    coverPage.drawText(
+      `Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`,
+      { x: margin, y: A4H / 2 - 40, font, size: 12, color: rgb(0.3, 0.3, 0.3) }
+    );
+    coverPage.drawText(
+      `Página ${i + 1} de capa — gerada automaticamente`,
+      { x: margin, y: margin, font, size: 8, color: rgb(0.6, 0.6, 0.6) }
+    );
   }
 
-  let { page, y } = addPage();
-  const pageWidth = 595.28;
+  // ── Pages 8+: Real proposal summary content ───────────────
+  let page = doc.addPage([A4W, A4H]);
+  let y = A4H - margin;
 
   function drawText(text: string, x: number, yPos: number, options?: { font?: any; size?: number; color?: any }) {
     const f = options?.font || font;
@@ -151,9 +179,8 @@ async function generateProposalSummaryPdf(
 
   function checkNewPage() {
     if (y < margin + 40) {
-      const result = addPage();
-      page = result.page;
-      y = result.y;
+      page = doc.addPage([A4W, A4H]);
+      y = A4H - margin;
     }
   }
 
@@ -162,7 +189,7 @@ async function generateProposalSummaryPdf(
   y -= 24;
   drawText(`Proposta: ${proposal.display_id || proposal.id?.substring(0, 8) || "—"}`, margin, y, { font: fontBold, size: 11 });
   y -= 16;
-  drawText(`Gerado automaticamente em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`, margin, y, { size: 8, color: rgb(0.4, 0.4, 0.4) });
+  drawText(`Gerado em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`, margin, y, { size: 8, color: rgb(0.4, 0.4, 0.4) });
   y -= 24;
 
   // Client info
@@ -189,7 +216,6 @@ async function generateProposalSummaryPdf(
     drawText("SERVIDORES / RECURSOS", margin, y, { font: fontBold, size: 11 });
     y -= lineHeight + 4;
 
-    // Header row
     const colX = [margin, margin + 140, margin + 220, margin + 270, margin + 320, margin + 400];
     drawText("Nome", colX[0], y, { font: fontBold, size: 9 });
     drawText("Tipo", colX[1], y, { font: fontBold, size: 9 });
@@ -198,7 +224,7 @@ async function generateProposalSummaryPdf(
     drawText("Qtd", colX[4], y, { font: fontBold, size: 9 });
     drawText("Valor Unit.", colX[5], y, { font: fontBold, size: 9 });
     y -= 2;
-    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    page.drawLine({ start: { x: margin, y }, end: { x: A4W - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
     y -= lineHeight;
 
     for (const srv of servers) {
@@ -225,7 +251,7 @@ async function generateProposalSummaryPdf(
     drawText("Qtd", margin + 280, y, { font: fontBold, size: 9 });
     drawText("Valor", margin + 360, y, { font: fontBold, size: 9 });
     y -= 2;
-    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+    page.drawLine({ start: { x: margin, y }, end: { x: A4W - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
     y -= lineHeight;
 
     for (const addon of enabledAddons) {
@@ -241,12 +267,11 @@ async function generateProposalSummaryPdf(
   // Total
   checkNewPage();
   y -= 6;
-  page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: pageWidth - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
+  page.drawLine({ start: { x: margin, y: y + lineHeight }, end: { x: A4W - margin, y: y + lineHeight }, thickness: 1, color: rgb(0.1, 0.1, 0.5) });
   drawText("VALOR TOTAL MENSAL:", margin, y, { font: fontBold, size: 12 });
   drawText(formatBRL(proposal.total || contract.total || 0), margin + 280, y, { font: fontBold, size: 12, color: rgb(0.1, 0.1, 0.5) });
   y -= lineHeight * 2;
 
-  // Footer note
   checkNewPage();
   drawText("Este documento é um resumo gerado automaticamente a partir dos dados da proposta comercial.", margin, y, { size: 8, color: rgb(0.5, 0.5, 0.5) });
   y -= lineHeight;
@@ -414,15 +439,16 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!proposalPdfPath) {
-      // Auto-generate a summary PDF
-      console.log(`[contract-docs] [STEP 4] auto-generating proposal summary PDF...`);
+      // Auto-generate a FULL proposal PDF (7 cover pages + summary pages)
+      // This ensures the standard trim flow (remove pages 1-7) always works
+      console.log(`[contract-docs] [STEP 4] auto-generating FULL proposal PDF (7 cover + summary)...`);
       try {
-        const summaryPdfBytes = await generateProposalSummaryPdf(proposal, servers, addons, contract);
-        const autoPath = `proposals/${proposalId}/auto-summary-${Date.now()}.pdf`;
+        const fullPdfBytes = await generateFullProposalPdf(proposal, servers, addons, contract);
+        const autoPath = `proposals/${proposalId}/proposal-full-${Date.now()}.pdf`;
 
         const { error: uploadErr } = await supabase.storage
           .from("proposal-files")
-          .upload(autoPath, summaryPdfBytes, {
+          .upload(autoPath, fullPdfBytes, {
             contentType: "application/pdf",
             upsert: true,
           });
@@ -440,7 +466,7 @@ Deno.serve(async (req: Request) => {
 
         proposalPdfPath = autoPath;
         pdfAutoGenerated = true;
-        console.log(`[contract-docs] [STEP 4] OK auto-generated pdf_path=${autoPath}`);
+        console.log(`[contract-docs] [STEP 4] OK auto-generated FULL pdf_path=${autoPath}`);
       } catch (genErr) {
         console.error(`[contract-docs] [STEP 4] EXCEPTION auto-generation`, genErr);
         return errorResponse("proposal_pdf_auto_generation_failed", `Erro ao gerar PDF da proposta: ${genErr}`, 500, debug);
@@ -476,64 +502,57 @@ Deno.serve(async (req: Request) => {
       return errorResponse("proposal_pdf_invalid_format", `Arquivo não é PDF válido (header=${header})`, 422, debug);
     }
 
-    // ── STEP 7: Generate Annex I PDF ────────────────────────
+    // ── STEP 7: Generate Annex I PDF (ALWAYS via trim) ─────
+    // Rule: Annex I = proposal PDF pages 8+, NEVER a synthetic summary
     const contractCode = contract.contract_number || contract.id.substring(0, 8).toUpperCase();
     const basePath = `contracts/${contract.id}`;
     let annexPdfPath: string | null = null;
     let annexGenerated = false;
-    let generationStrategy: string;
+    const generationStrategy = "proposal_pdf_trim";
     let annexPageCount = 0;
 
     const srcDoc = await PDFDocument.load(proposalPdfBytes);
     const totalPages = srcDoc.getPageCount();
     debug.source_pdf_page_count = totalPages;
+    console.log(`[contract-docs] [STEP 7] proposal_pdf_path=${proposalPdfPath}`);
     console.log(`[contract-docs] [STEP 7] source_pdf_page_count=${totalPages} auto_generated=${pdfAutoGenerated}`);
 
-    if (pdfAutoGenerated || totalPages <= 7) {
-      // Auto-generated PDF or short PDF: use entire document as Annex I (no marketing pages to trim)
-      generationStrategy = pdfAutoGenerated ? "proposal_pdf_generated" : "proposal_pdf_full";
-      console.log(`[contract-docs] [STEP 7] using strategy=${generationStrategy} (no trim needed)`);
-
-      const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
-      const { error: annexUpErr } = await supabase.storage
-        .from("contracts-generated")
-        .upload(annexStoragePath, proposalPdfBytes, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-
-      if (annexUpErr) {
-        return errorResponse("contract_annex_pdf_storage_failed", `Erro ao salvar Anexo I: ${annexUpErr.message}`, 500, debug);
-      }
-
-      annexPdfPath = annexStoragePath;
-      annexGenerated = true;
-      annexPageCount = totalPages;
-      console.log(`[contract-docs] [STEP 7] OK annex saved (full) path=${annexPdfPath} pages=${annexPageCount}`);
-    } else {
-      // Official PDF with 8+ pages: trim pages 1-7
-      generationStrategy = "proposal_pdf_trim";
-      console.log(`[contract-docs] [STEP 7] trimming pages 1-7 from ${totalPages} page PDF...`);
-
-      const { trimmedBytes, trimmedPageCount } = await trimProposalPdf(proposalPdfBytes);
-      annexPageCount = trimmedPageCount;
-
-      const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
-      const { error: annexUpErr } = await supabase.storage
-        .from("contracts-generated")
-        .upload(annexStoragePath, trimmedBytes, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-
-      if (annexUpErr) {
-        return errorResponse("contract_annex_pdf_storage_failed", `Erro ao salvar Anexo I: ${annexUpErr.message}`, 500, debug);
-      }
-
-      annexPdfPath = annexStoragePath;
-      annexGenerated = true;
-      console.log(`[contract-docs] [STEP 7] OK annex saved (trimmed) path=${annexPdfPath} pages=${annexPageCount}`);
+    if (totalPages <= 7) {
+      console.error(`[contract-docs] [STEP 7] BLOCKED: PDF has only ${totalPages} pages, need >7 for trim`);
+      return errorResponse(
+        "proposal_pdf_page_count_invalid",
+        `O PDF da proposta possui apenas ${totalPages} páginas. São necessárias mais de 7 para gerar o Anexo I.`,
+        422,
+        { ...debug, source_pdf_page_count: totalPages }
+      );
     }
+
+    // ALWAYS trim pages 1-7, keep pages 8+
+    console.log(`[contract-docs] [STEP 7] trim_started_from_page=8`);
+    const { trimmedBytes, trimmedPageCount } = await trimProposalPdf(proposalPdfBytes);
+    annexPageCount = trimmedPageCount;
+
+    if (annexPageCount < 1) {
+      return errorResponse("contract_annex_trim_empty", "O recorte do PDF resultou em zero páginas.", 500, debug);
+    }
+
+    console.log(`[contract-docs] [STEP 7] trimmed_pdf_page_count=${annexPageCount}`);
+
+    const annexStoragePath = `${basePath}/anexo-i-${contractCode}.pdf`;
+    const { error: annexUpErr } = await supabase.storage
+      .from("contracts-generated")
+      .upload(annexStoragePath, trimmedBytes, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (annexUpErr) {
+      return errorResponse("contract_annex_pdf_storage_failed", `Erro ao salvar Anexo I: ${annexUpErr.message}`, 500, debug);
+    }
+
+    annexPdfPath = annexStoragePath;
+    annexGenerated = true;
+    console.log(`[contract-docs] [STEP 7] OK annex saved (trimmed) path=${annexPdfPath} pages=${annexPageCount}`);
 
     debug.annex_generated = annexGenerated;
     debug.annex_pdf_path = annexPdfPath;
