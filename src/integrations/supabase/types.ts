@@ -1448,6 +1448,54 @@ export type Database = {
         }
         Relationships: []
       }
+      support_oncall_shifts: {
+        Row: {
+          created_at: string
+          created_by: number | null
+          ends_at: string
+          id: string
+          is_active: boolean
+          notes: string | null
+          starts_at: string
+          team_code: string
+          team_name: string
+          updated_at: string
+          user_email: string | null
+          user_id: number | null
+          user_name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: number | null
+          ends_at: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          starts_at: string
+          team_code: string
+          team_name: string
+          updated_at?: string
+          user_email?: string | null
+          user_id?: number | null
+          user_name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: number | null
+          ends_at?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          starts_at?: string
+          team_code?: string
+          team_name?: string
+          updated_at?: string
+          user_email?: string | null
+          user_id?: number | null
+          user_name?: string
+        }
+        Relationships: []
+      }
       support_queue_members: {
         Row: {
           can_receive_auto_assign: boolean
