@@ -32,6 +32,13 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
     user_email: session?.email,
   };
 
+  console.log('[useSupportTicketList] context', {
+    userId: session?.userId,
+    level: session?.level,
+    email: session?.email,
+    filters,
+  });
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['support-tickets-core', filters],
     queryFn: () => supportTicketCoreService.listTickets(enrichedFilters),
