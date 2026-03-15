@@ -340,10 +340,10 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
 // ── Queue user context (standalone to avoid `this` issues in object literal) ──
 
 function getQueueUserContext(): {
-  user_id?: string;
-  user_level: number;
-  user_email?: string;
-  user_name?: string;
+  actor_user_id?: string;
+  actor_level: number;
+  actor_email?: string;
+  actor_name?: string;
 } {
   const session = authService.getSession();
   if (session) {
@@ -351,10 +351,10 @@ function getQueueUserContext(): {
       ? String(session.apiUser.id)
       : (/^\d+$/.test(session.userId) ? session.userId : undefined);
     return {
-      user_id: numericId,
-      user_level: session.level ?? 0,
-      user_email: session.email,
-      user_name: session.name,
+      actor_user_id: numericId,
+      actor_level: session.level ?? 0,
+      actor_email: session.email,
+      actor_name: session.name,
     };
   }
   try {
@@ -362,14 +362,14 @@ function getQueueUserContext(): {
     if (raw) {
       const u = JSON.parse(raw);
       return {
-        user_id: u?.id ? String(u.id) : undefined,
-        user_level: Number(u?.level) || 0,
-        user_email: u?.email,
-        user_name: u?.name,
+        actor_user_id: u?.id ? String(u.id) : undefined,
+        actor_level: Number(u?.level) || 0,
+        actor_email: u?.email,
+        actor_name: u?.name,
       };
     }
   } catch { /* ignore */ }
-  return { user_level: 0 };
+  return { actor_level: 0 };
 }
 
 // ── Service Methods ─────────────────────────────────────────────────────
@@ -462,7 +462,7 @@ export const supportTicketCoreService = {
   async getMyQueues(userId: string): Promise<QueueMember[]> {
     const ctx = getQueueUserContext();
     const resp = await invoke<QueueMember[]>('support-queue-admin', {
-      action: 'my_queues', user_id: userId || ctx.user_id,
+      action: 'my_queues', user_id: userId || ctx.actor_user_id,
       ...ctx,
     });
     return resp.data || [];

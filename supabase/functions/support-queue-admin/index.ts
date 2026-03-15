@@ -26,11 +26,13 @@ function toInt(val: unknown): number | null {
 }
 
 function resolveUserContext(body: Record<string, unknown>) {
-  const level = toInt(body.user_level ?? body.actor_level ?? (body.user as any)?.level);
-  const id = body.user_id ?? body.actor_user_id ?? (body.user as any)?.id ?? null;
+  // IMPORTANT: Use actor_* fields (the authenticated user performing the action)
+  // NOT user_* fields which may refer to the target member in add_member actions
+  const level = toInt(body.actor_level ?? (body.user as any)?.level);
+  const id = body.actor_user_id ?? (body.user as any)?.id ?? null;
   const uuid = body.user_uuid ?? (body.user as any)?.uuid ?? null;
-  const email = body.user_email ?? (body.user as any)?.email ?? null;
-  const name = body.user_name ?? body.actor_name ?? (body.user as any)?.name ?? null;
+  const email = body.actor_email ?? (body.user as any)?.email ?? null;
+  const name = body.actor_name ?? (body.user as any)?.name ?? null;
 
   return {
     id: id ? String(id) : null,
@@ -175,6 +177,14 @@ Deno.serve(async (req) => {
 
     if (action === "add_member") {
       const { queue_id, user_id, user_name, user_email, user_level: memberLevel, is_primary } = body;
+
+      console.log("support-queue-admin add_member actor", {
+        actorId: user.id, actorLevel: user.level, actorEmail: user.email,
+      });
+      console.log("support-queue-admin add_member payload", {
+        queue_id, user_id, user_name, user_email, user_level: memberLevel,
+      });
+
       if (!queue_id || !user_id || !user_name || !user_email) {
         return jsonResponse({ success: false, message: "queue_id, user_id, user_name e user_email obrigatórios" }, 422);
       }
@@ -184,17 +194,20 @@ Deno.serve(async (req) => {
         return jsonResponse({ success: false, message: "user_id inválido" }, 422);
       }
 
+      const insertPayload = {
+        queue_id,
+        user_id: memberUserId,
+        user_name,
+        user_email,
+        user_level: toInt(memberLevel) || 900,
+        is_primary: Boolean(is_primary),
+        is_active: true,
+      };
+      console.log("support-queue-admin add_member insert payload", insertPayload);
+
       const { data: member, error } = await db
         .from("support_queue_members")
-        .upsert({
-          queue_id,
-          user_id: memberUserId,
-          user_name,
-          user_email,
-          user_level: toInt(memberLevel) || 900,
-          is_primary: Boolean(is_primary),
-          is_active: true,
-        }, { onConflict: "queue_id,user_id" })
+        .upsert(insertPayload, { onConflict: "queue_id,user_id" })
         .select()
         .single();
 
