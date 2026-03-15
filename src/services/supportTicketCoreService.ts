@@ -127,6 +127,19 @@ export interface CoreTicketAssignment {
   created_at: string;
 }
 
+export interface CoreTicketAttachment {
+  id: string;
+  ticket_id: string;
+  original_filename: string;
+  mime_type: string | null;
+  file_size: number | null;
+  is_internal: boolean;
+  created_at: string;
+  uploaded_by_name: string | null;
+  storage_path: string;
+  signed_url?: string;
+}
+
 export interface CoreTicketDetail extends CoreTicket {
   messages: CoreTicketMessage[];
   status_history: CoreTicketStatusHistory[];
@@ -138,17 +151,6 @@ export interface CoreTicketDetail extends CoreTicket {
     is_first_response_breached: boolean;
     is_resolution_breached: boolean;
   };
-}
-
-export interface CoreTicketAttachment {
-  id: string;
-  ticket_id: string;
-  original_filename: string;
-  mime_type: string | null;
-  file_size: number | null;
-  is_internal: boolean;
-  created_at: string;
-  uploaded_by_name: string | null;
 }
 
 // ── Filters ─────────────────────────────────────────────────────────────
@@ -209,13 +211,10 @@ export interface TicketActionPayload {
   actor_user_id?: string;
   actor_name?: string;
   actor_level?: number;
-  // For assign/transfer
   assigned_to_user_id?: string;
   assigned_to_name?: string;
   new_queue?: string;
-  // For escalate
   target_level?: 'N2' | 'N3';
-  // For resolve/close/reopen/cancel/transfer/escalate
   reason?: string;
 }
 
@@ -230,6 +229,18 @@ export interface AddMessagePayload {
   author_user_id?: string;
   author_level?: number;
   author_type?: AuthorType;
+}
+
+// ── Upload payload ──────────────────────────────────────────────────────
+
+export interface UploadAttachmentResult {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  file_size: number;
+  is_internal: boolean;
+  storage_path: string;
+  signed_url?: string;
 }
 
 // ── SLA Policy ──────────────────────────────────────────────────────────
@@ -264,7 +275,6 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
     throw new Error(error.message || `Erro ao chamar ${fn}`);
   }
 
-  // Edge functions return { success, data, message, errors }
   const resp = data as EdgeResponse<T>;
   if (!resp.success) {
     throw new Error(resp.message || resp.errors?.join(', ') || 'Erro desconhecido');
@@ -276,34 +286,76 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
 // ── Service Methods ─────────────────────────────────────────────────────
 
 export const supportTicketCoreService = {
-  // Create ticket
   async createTicket(payload: CreateTicketPayload): Promise<CoreTicket> {
     const resp = await invoke<CoreTicket>('support-ticket-create', payload as unknown as Record<string, unknown>);
     return resp.data!;
   },
 
-  // List tickets
   async listTickets(filters: TicketListFilters = {}): Promise<{ tickets: CoreTicket[]; meta: EdgeResponse['meta'] }> {
     const resp = await invoke<CoreTicket[]>('support-ticket-list', filters as unknown as Record<string, unknown>);
     return { tickets: resp.data || [], meta: resp.meta };
   },
 
-  // Get single ticket with all related data
   async getTicket(ticketId: string): Promise<CoreTicketDetail> {
     const resp = await invoke<CoreTicketDetail>('support-ticket-get', { ticket_id: ticketId });
     return resp.data!;
   },
 
-  // Perform action on ticket
   async updateTicket(payload: TicketActionPayload): Promise<CoreTicket> {
     const resp = await invoke<CoreTicket>('support-ticket-update', payload as unknown as Record<string, unknown>);
     return resp.data!;
   },
 
-  // Add message
   async addMessage(payload: AddMessagePayload): Promise<CoreTicketMessage> {
     const resp = await invoke<CoreTicketMessage>('support-ticket-messages', payload as unknown as Record<string, unknown>);
     return resp.data!;
+  },
+
+  // Upload attachment
+  async uploadAttachment(
+    ticketId: string,
+    file: File,
+    isInternal: boolean = false,
+    uploaderName?: string,
+    uploaderUserId?: string,
+    uploaderLevel?: number
+  ): Promise<UploadAttachmentResult> {
+    const token = getToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('ticket_id', ticketId);
+    formData.append('is_internal', String(isInternal));
+    if (uploaderName) formData.append('uploader_name', uploaderName);
+    if (uploaderUserId) formData.append('uploader_user_id', uploaderUserId);
+    if (uploaderLevel !== undefined) formData.append('uploader_level', String(uploaderLevel));
+
+    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+    const url = `https://${projectId}.supabase.co/functions/v1/support-ticket-upload`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: formData,
+    });
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || 'Erro ao enviar anexo');
+    }
+    return result.data;
+  },
+
+  // Get signed download URL for an attachment
+  async getAttachmentUrl(attachmentId: string, ticketId: string): Promise<string> {
+    const resp = await invoke<{ signed_url: string }>('support-ticket-upload', {
+      action: 'get_url',
+      attachment_id: attachmentId,
+      ticket_id: ticketId,
+    });
+    return resp.data!.signed_url;
   },
 
   // SLA Policies

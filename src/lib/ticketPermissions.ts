@@ -24,9 +24,21 @@ export interface TicketPermissions {
   canViewInternalNotes: boolean;
   canViewQueue: boolean;
   canManageSLA: boolean;
+  canUploadAttachment: boolean;
   isClient: boolean;
+  isPartner: boolean;
   isInternal: boolean;
 }
+
+// ── Level helpers (exported for guards) ─────────────────────────────────
+
+export function isClientUser(level: number): boolean { return level === 1; }
+export function isPartnerUser(level: number): boolean { return level === 200; }
+export function isInternalUser(level: number): boolean { return level >= 600; }
+export function isSupportUser(level: number): boolean { return level >= 900; }
+export function isCSUser(level: number): boolean { return level >= 775 && level < 900; }
+export function isSupportManager(level: number): boolean { return level >= 950; }
+export function isAdminUser(level: number): boolean { return level >= 1000; }
 
 const ACTIVE_STATUSES: TicketStatus[] = [
   'novo', 'triagem', 'em_atendimento',
@@ -43,8 +55,9 @@ export function getTicketPermissions(
   ticket?: CoreTicket | null,
   userId?: string
 ): TicketPermissions {
-  const isClient = userLevel <= 200;
-  const isInternal = userLevel >= 600;
+  const isClient = isClientUser(userLevel);
+  const isPartner = isPartnerUser(userLevel);
+  const isInternal = isInternalUser(userLevel);
   const isCS = userLevel >= 775;
   const isSupport = userLevel >= 900;
   const isManager = userLevel >= 950;
@@ -52,7 +65,6 @@ export function getTicketPermissions(
 
   const status = ticket?.status;
   const isActive = status ? ACTIVE_STATUSES.includes(status) : false;
-  const isAssignedToMe = ticket?.assigned_to_user_id === userId;
   const isResolved = status === 'resolvido_suporte';
   const isClosed = status === 'encerrado_cs';
   const isCancelled = status === 'cancelado';
@@ -60,7 +72,7 @@ export function getTicketPermissions(
 
   return {
     canView: true,
-    canCreate: true,
+    canCreate: isClient || isInternal, // Partners cannot create tickets unless explicit rule
     canAssign: (isSupport || isManager || isAdmin) && isActive,
     canStart: (isSupport || isAdmin) && (status === 'novo' || status === 'triagem' || status === 'reaberto'),
     canTransfer: (isManager || isAdmin) && isActive,
@@ -71,12 +83,14 @@ export function getTicketPermissions(
     canClose: (isCS || isManager || isAdmin) && (isResolved || isActive),
     canReopen: (isCS || isManager || isAdmin) && (isResolved || isClosed),
     canCancel: (isManager || isAdmin) && !isTerminal,
-    canAddPublicMessage: !isTerminal,
+    canAddPublicMessage: !isTerminal && (isClient || isInternal),
     canAddInternalNote: isInternal && !isTerminal,
     canViewInternalNotes: isInternal,
     canViewQueue: isInternal,
     canManageSLA: isAdmin || isManager,
+    canUploadAttachment: !isTerminal && (isClient || isInternal),
     isClient,
+    isPartner,
     isInternal,
   };
 }
@@ -159,3 +173,24 @@ export const QUEUE_LABELS: Record<string, string> = {
   N3: 'Fila N3',
   CS: 'Fila CS',
 };
+
+// ── Route helpers ───────────────────────────────────────────────────────
+
+/** Internal route for ticket list */
+export const TICKET_LIST_ROUTE = '/modulos/atendimentos/suporte-tecnico';
+/** Internal route for ticket detail */
+export const TICKET_DETAIL_ROUTE = (id: string) => `/modulos/atendimentos/suporte-tecnico/${id}`;
+/** Client portal route for ticket list */
+export const CLIENT_TICKET_LIST_ROUTE = '/portal/tickets';
+/** Client portal route for ticket detail */
+export const CLIENT_TICKET_DETAIL_ROUTE = (id: string) => `/portal/tickets/${id}`;
+
+/** Get the correct list route based on user level */
+export function getTicketListRoute(userLevel: number): string {
+  return isInternalUser(userLevel) ? TICKET_LIST_ROUTE : CLIENT_TICKET_LIST_ROUTE;
+}
+
+/** Get the correct detail route based on user level */
+export function getTicketDetailRoute(userLevel: number, ticketId: string): string {
+  return isInternalUser(userLevel) ? TICKET_DETAIL_ROUTE(ticketId) : CLIENT_TICKET_DETAIL_ROUTE(ticketId);
+}
