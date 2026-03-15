@@ -38,10 +38,13 @@ export default function QueueManagementPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [newMember, setNewMember] = useState({ user_id: '', user_name: '', user_email: '', user_level: '900' });
 
-  if (userLevel < 950) {
+  const canManage = userLevel >= 950; // managers and admins can add/remove
+  const canView = userLevel >= 900; // support can at least view
+
+  if (!canView) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground">Acesso restrito a gerentes e administradores.</p>
+        <p className="text-muted-foreground">Acesso restrito a usuários de suporte.</p>
       </div>
     );
   }
