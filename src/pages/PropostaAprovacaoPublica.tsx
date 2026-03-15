@@ -57,6 +57,7 @@ const PropostaAprovacaoPublica: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [finalDecision, setFinalDecision] = useState<'accepted' | 'rejected' | null>(null);
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const actionInProgressRef = useRef(false);
 
   useEffect(() => {
