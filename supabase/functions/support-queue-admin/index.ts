@@ -177,6 +177,14 @@ Deno.serve(async (req) => {
 
     if (action === "add_member") {
       const { queue_id, user_id, user_name, user_email, user_level: memberLevel, is_primary } = body;
+
+      console.log("support-queue-admin add_member actor", {
+        actorId: user.id, actorLevel: user.level, actorEmail: user.email,
+      });
+      console.log("support-queue-admin add_member payload", {
+        queue_id, user_id, user_name, user_email, user_level: memberLevel,
+      });
+
       if (!queue_id || !user_id || !user_name || !user_email) {
         return jsonResponse({ success: false, message: "queue_id, user_id, user_name e user_email obrigatórios" }, 422);
       }
@@ -186,17 +194,20 @@ Deno.serve(async (req) => {
         return jsonResponse({ success: false, message: "user_id inválido" }, 422);
       }
 
+      const insertPayload = {
+        queue_id,
+        user_id: memberUserId,
+        user_name,
+        user_email,
+        user_level: toInt(memberLevel) || 900,
+        is_primary: Boolean(is_primary),
+        is_active: true,
+      };
+      console.log("support-queue-admin add_member insert payload", insertPayload);
+
       const { data: member, error } = await db
         .from("support_queue_members")
-        .upsert({
-          queue_id,
-          user_id: memberUserId,
-          user_name,
-          user_email,
-          user_level: toInt(memberLevel) || 900,
-          is_primary: Boolean(is_primary),
-          is_active: true,
-        }, { onConflict: "queue_id,user_id" })
+        .upsert(insertPayload, { onConflict: "queue_id,user_id" })
         .select()
         .single();
 
