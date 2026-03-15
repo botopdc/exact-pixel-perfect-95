@@ -24,6 +24,7 @@ export interface TicketPermissions {
   canViewInternalNotes: boolean;
   canViewQueue: boolean;
   canManageSLA: boolean;
+  canManageQueues: boolean;
   canUploadAttachment: boolean;
   isClient: boolean;
   isPartner: boolean;
@@ -43,7 +44,7 @@ export function isAdminUser(level: number): boolean { return level >= 1000; }
 const ACTIVE_STATUSES: TicketStatus[] = [
   'novo', 'triagem', 'em_atendimento',
   'aguardando_cliente', 'aguardando_terceiro',
-  'escalado_n2', 'escalado_n3', 'reaberto',
+  'reaberto',
 ];
 
 const WAITING_STATUSES: TicketStatus[] = [
@@ -72,10 +73,10 @@ export function getTicketPermissions(
 
   return {
     canView: true,
-    canCreate: isClient || isInternal, // Partners cannot create tickets unless explicit rule
+    canCreate: isClient || isInternal,
     canAssign: (isSupport || isManager || isAdmin) && isActive,
     canStart: (isSupport || isAdmin) && (status === 'novo' || status === 'triagem' || status === 'reaberto'),
-    canTransfer: (isManager || isAdmin) && isActive,
+    canTransfer: (isSupport || isManager || isAdmin) && isActive,
     canEscalate: (isSupport || isManager || isAdmin) && isActive,
     canWaitCustomer: (isSupport || isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
     canWaitThirdParty: (isSupport || isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
@@ -88,6 +89,7 @@ export function getTicketPermissions(
     canViewInternalNotes: isInternal,
     canViewQueue: isInternal,
     canManageSLA: isAdmin || isManager,
+    canManageQueues: isAdmin || isManager,
     canUploadAttachment: !isTerminal && (isClient || isInternal),
     isClient,
     isPartner,
@@ -97,28 +99,24 @@ export function getTicketPermissions(
 
 // ── Display labels ──────────────────────────────────────────────────────
 
-export const STATUS_LABELS: Record<TicketStatus, string> = {
+export const STATUS_LABELS: Record<string, string> = {
   novo: 'Novo',
   triagem: 'Em Triagem',
   em_atendimento: 'Em Atendimento',
   aguardando_cliente: 'Aguardando Cliente',
   aguardando_terceiro: 'Aguardando Terceiro',
-  escalado_n2: 'Escalado N2',
-  escalado_n3: 'Escalado N3',
   resolvido_suporte: 'Resolvido (Suporte)',
   encerrado_cs: 'Encerrado',
   reaberto: 'Reaberto',
   cancelado: 'Cancelado',
 };
 
-export const STATUS_VARIANT: Record<TicketStatus, string> = {
+export const STATUS_VARIANT: Record<string, string> = {
   novo: 'bg-blue-500/15 text-blue-500 border-blue-500/30',
   triagem: 'bg-cyan-500/15 text-cyan-500 border-cyan-500/30',
   em_atendimento: 'bg-yellow-500/15 text-yellow-500 border-yellow-500/30',
   aguardando_cliente: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
   aguardando_terceiro: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-  escalado_n2: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
-  escalado_n3: 'bg-red-500/15 text-red-400 border-red-500/30',
   resolvido_suporte: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   encerrado_cs: 'bg-muted text-muted-foreground border-border',
   reaberto: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
@@ -147,6 +145,16 @@ export const PRIORITY_LABELS: Record<string, string> = {
 };
 
 export const CATEGORY_LABELS: Record<string, string> = {
+  VM: 'VM / Virtualização',
+  BARE_METAL: 'Bare Metal',
+  BACKUP: 'Backup',
+  STORAGE: 'Storage',
+  REDE: 'Rede',
+  FIREWALL: 'Firewall',
+  BANCO: 'Banco de Dados',
+  CLOUD: 'Cloud',
+  OUTROS: 'Outros',
+  // Legacy codes
   infraestrutura: 'Infraestrutura',
   virtualizacao: 'Virtualização',
   backup: 'Backup',
@@ -160,6 +168,11 @@ export const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export const TICKET_TYPE_LABELS: Record<string, string> = {
+  INCIDENTE: 'Incidente',
+  SOLICITACAO: 'Solicitação',
+  DUVIDA: 'Dúvida',
+  ALTERACAO: 'Alteração',
+  // Legacy codes
   incidente: 'Incidente',
   solicitacao: 'Solicitação',
   duvida: 'Dúvida',
@@ -176,21 +189,15 @@ export const QUEUE_LABELS: Record<string, string> = {
 
 // ── Route helpers ───────────────────────────────────────────────────────
 
-/** Internal route for ticket list */
 export const TICKET_LIST_ROUTE = '/modulos/atendimentos/suporte-tecnico';
-/** Internal route for ticket detail */
 export const TICKET_DETAIL_ROUTE = (id: string) => `/modulos/atendimentos/suporte-tecnico/${id}`;
-/** Client portal route for ticket list */
 export const CLIENT_TICKET_LIST_ROUTE = '/portal/tickets';
-/** Client portal route for ticket detail */
 export const CLIENT_TICKET_DETAIL_ROUTE = (id: string) => `/portal/tickets/${id}`;
 
-/** Get the correct list route based on user level */
 export function getTicketListRoute(userLevel: number): string {
   return isInternalUser(userLevel) ? TICKET_LIST_ROUTE : CLIENT_TICKET_LIST_ROUTE;
 }
 
-/** Get the correct detail route based on user level */
 export function getTicketDetailRoute(userLevel: number, ticketId: string): string {
   return isInternalUser(userLevel) ? TICKET_DETAIL_ROUTE(ticketId) : CLIENT_TICKET_DETAIL_ROUTE(ticketId);
 }
