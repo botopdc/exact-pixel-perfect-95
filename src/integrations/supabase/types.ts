@@ -1376,6 +1376,42 @@ export type Database = {
           },
         ]
       }
+      support_oncall: {
+        Row: {
+          created_at: string
+          end_at: string | null
+          id: string
+          is_active: boolean
+          start_at: string
+          team: string
+          user_email: string
+          user_id: number
+          user_name: string
+        }
+        Insert: {
+          created_at?: string
+          end_at?: string | null
+          id?: string
+          is_active?: boolean
+          start_at?: string
+          team: string
+          user_email: string
+          user_id: number
+          user_name: string
+        }
+        Update: {
+          created_at?: string
+          end_at?: string | null
+          id?: string
+          is_active?: boolean
+          start_at?: string
+          team?: string
+          user_email?: string
+          user_id?: number
+          user_name?: string
+        }
+        Relationships: []
+      }
       support_queue_members: {
         Row: {
           can_receive_auto_assign: boolean
