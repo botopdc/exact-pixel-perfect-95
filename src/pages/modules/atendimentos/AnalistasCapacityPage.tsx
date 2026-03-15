@@ -382,7 +382,7 @@ export default function AnalistasCapacityPage() {
                             <TableCell className="text-xs">{new Date(s.ends_at).toLocaleString('pt-BR')}</TableCell>
                             <TableCell>
                               {isCurrentlyActive ? (
-                                <Badge className="bg-green-500/10 text-green-600 border-green-500/30">Ativo</Badge>
+                                <Badge variant="outline" className="bg-accent/50 text-accent-foreground border-accent">Ativo</Badge>
                               ) : (
                                 <Badge variant="secondary">Inativo</Badge>
                               )}
