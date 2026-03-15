@@ -258,12 +258,12 @@ const App = () => (
             <Route path="/modulos/parceiros/comissoes" element={<GestaoComissoes />} />
             
             {/* Atendimentos Module */}
-            <Route path="/modulos/atendimentos" element={<InternalSupportPage />} />
+            <Route path="/modulos/atendimentos" element={<AtendimentosModuleHome />} />
             
-            {/* Internal Support (Atendimento Interno) */}
-            <Route path="/modulos/atendimentos/interno" element={<InternalSupportPage />} />
-            <Route path="/modulos/atendimentos/interno/novo" element={<CreateInternalTicketPage />} />
-            <Route path="/modulos/atendimentos/interno/:id" element={<InternalTicketDetailPage />} />
+            {/* Legacy Internal Support — redirect to unified ticket module */}
+            <Route path="/modulos/atendimentos/interno" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
+            <Route path="/modulos/atendimentos/interno/novo" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
+            <Route path="/modulos/atendimentos/interno/:id" element={<Navigate to="/modulos/atendimentos/suporte-tecnico" replace />} />
             
             {/* Analistas (Gestão do time de suporte interno - 950+) */}
             <Route path="/modulos/atendimentos/analistas" element={<AnalistasPage />} />

@@ -328,8 +328,15 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
       {
         id: 'visao-geral',
         title: 'Visão Geral',
-        url: '/modulos/atendimentos/interno',
+        url: '/modulos/atendimentos',
         // Todos os usuários internos
+        allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
+      },
+      {
+        id: 'suporte-tecnico',
+        title: 'Chamados',
+        url: '/modulos/atendimentos/suporte-tecnico',
+        // Todos os usuários internos podem abrir e ver chamados
         allowedLevels: [600, 680, 690, 700, 750, 775, 900, 950, 1000],
       },
       {
@@ -338,19 +345,6 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
         url: '/modulos/atendimentos/analistas',
         // Apenas gestores de suporte e admin
         allowedLevels: [950, 1000],
-      },
-      {
-        id: 'suporte-tecnico',
-        title: 'Suporte Técnico',
-        url: '/modulos/atendimentos/suporte-tecnico',
-        allowedLevels: [900, 950, 1000],
-        tabs: [
-          { id: 'home', title: 'Home (NOC)', url: '/modulos/atendimentos/suporte-tecnico', allowedLevels: [900, 950, 1000] },
-          { id: 'incidentes', title: 'Incidentes', url: '/modulos/atendimentos/suporte-tecnico/incidentes', allowedLevels: [900, 950, 1000] },
-          { id: 'clientes', title: 'Clientes', url: '/modulos/atendimentos/suporte-tecnico/clientes', allowedLevels: [900, 950, 1000] },
-          { id: 'infra', title: 'Infra (Assets)', url: '/modulos/atendimentos/suporte-tecnico/infra', allowedLevels: [900, 950, 1000] },
-          { id: 'plantao', title: 'Plantão', url: '/modulos/atendimentos/suporte-tecnico/plantao', allowedLevels: [900, 950, 1000] },
-        ],
       },
       {
         id: 'certidoes',
