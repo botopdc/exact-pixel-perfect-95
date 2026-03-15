@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Headphones, Plus, RefreshCw, LogOut } from 'lucide-react';
+import { Headphones, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TicketTable, TicketCardMobile } from '@/components/tickets-core/TicketTable';
 import { TicketCreateModal } from '@/components/tickets-core/TicketCreateModal';
@@ -19,6 +19,13 @@ export default function ClientTicketsPage() {
   const session = authService.getSession();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [search, setSearch] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const { tickets, isLoading, refetch } = useSupportTicketList({
+    only_mine: true,
+    search: search || undefined,
+  });
 
   // Guard: only level 1 clients
   if (!session || !isClientUser(session.level)) {
@@ -32,14 +39,6 @@ export default function ClientTicketsPage() {
       </div>
     );
   }
-
-  const [search, setSearch] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
-
-  const { tickets, isLoading, refetch } = useSupportTicketList({
-    only_mine: true,
-    search: search || undefined,
-  });
 
   const handleCreated = (ticketId: string) => {
     navigate(CLIENT_TICKET_DETAIL_ROUTE(ticketId));

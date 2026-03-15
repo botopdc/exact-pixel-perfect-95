@@ -1,10 +1,10 @@
 // ============================================================================
 // TICKET DETAIL PAGE — full ticket view with timeline, messages, actions
-// Route: /modulos/atendimentos/tickets/:ticketId
+// Route: /modulos/atendimentos/suporte-tecnico/:ticketId
 // ============================================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Paperclip, FileWarning } from 'lucide-react';
+import { ArrowLeft, FileWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -15,8 +15,9 @@ import { TicketSlaBadge } from '@/components/tickets-core/TicketSlaBadge';
 import { TicketTimeline } from '@/components/tickets-core/TicketTimeline';
 import { TicketMessages, TicketMessageComposer } from '@/components/tickets-core/TicketMessages';
 import { TicketActionsPanel } from '@/components/tickets-core/TicketActionsPanel';
+import { TicketAttachments } from '@/components/tickets-core/TicketAttachments';
 import { useSupportTicketDetail } from '@/hooks/useSupportTicketCore';
-import { CATEGORY_LABELS, TICKET_TYPE_LABELS, QUEUE_LABELS } from '@/lib/ticketPermissions';
+import { CATEGORY_LABELS, TICKET_TYPE_LABELS, QUEUE_LABELS, TICKET_LIST_ROUTE } from '@/lib/ticketPermissions';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', {
@@ -30,7 +31,7 @@ export default function TicketCoreDetailPage() {
   const navigate = useNavigate();
 
   const {
-    ticket, isLoading, error, permissions,
+    ticket, isLoading, error, permissions, refetch,
     performAction, sendMessage, isActing, isSending,
   } = useSupportTicketDetail(ticketId);
 
@@ -50,7 +51,7 @@ export default function TicketCoreDetailPage() {
         <FileWarning className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
         <p className="text-lg font-medium">Chamado não encontrado</p>
         <p className="text-sm text-muted-foreground mb-4">{error?.message || 'O chamado solicitado não existe ou você não tem permissão.'}</p>
-        <Button variant="outline" onClick={() => navigate('/modulos/atendimentos/tickets')}>
+        <Button variant="outline" onClick={() => navigate(TICKET_LIST_ROUTE)}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
         </Button>
       </div>
@@ -61,7 +62,7 @@ export default function TicketCoreDetailPage() {
     <div className="space-y-5">
       {/* Back + header */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/modulos/atendimentos/tickets')}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(TICKET_LIST_ROUTE)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -108,33 +109,13 @@ export default function TicketCoreDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Attachments placeholder */}
-          <Card className="border-border/50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Paperclip className="h-4 w-4" /> Anexos
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {ticket.attachments && ticket.attachments.length > 0 ? (
-                <div className="space-y-2">
-                  {ticket.attachments.map(a => (
-                    <div key={a.id} className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
-                      <Paperclip className="h-3 w-3 text-muted-foreground" />
-                      <span>{a.original_filename}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {a.file_size ? `${(a.file_size / 1024).toFixed(0)} KB` : ''}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Upload de anexos será disponibilizado em breve.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          {/* Attachments */}
+          <TicketAttachments
+            ticketId={ticket.id}
+            attachments={ticket.attachments || []}
+            permissions={permissions}
+            onUploaded={refetch}
+          />
         </div>
 
         {/* Right column — info + timeline */}

@@ -1,6 +1,6 @@
 // ============================================================================
 // TICKETS CORE — Main page (role-based)
-// Route: /modulos/atendimentos/tickets
+// Route: /modulos/atendimentos/suporte-tecnico
 // ============================================================================
 
 import { useState } from 'react';
@@ -15,7 +15,7 @@ import { TicketSummaryCards } from '@/components/tickets-core/TicketSummaryCards
 import { TicketCreateModal } from '@/components/tickets-core/TicketCreateModal';
 import { useSupportTicketList } from '@/hooks/useSupportTicketCore';
 import { authService } from '@/services/authService';
-import { getTicketPermissions } from '@/lib/ticketPermissions';
+import { getTicketPermissions, TICKET_LIST_ROUTE, TICKET_DETAIL_ROUTE } from '@/lib/ticketPermissions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { TicketListFilters } from '@/services/supportTicketCoreService';
 
@@ -37,7 +37,7 @@ export default function TicketsCoreListPage() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState<QueueTab>(permissions.isClient ? 'todos' : 'novos');
+  const [tab, setTab] = useState<QueueTab>(permissions.isInternal ? 'novos' : 'todos');
   const [filters, setFilters] = useState<TicketListFilters>({});
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -51,7 +51,7 @@ export default function TicketsCoreListPage() {
   const { tickets, isLoading, refetch } = useSupportTicketList(mergedFilters);
 
   const handleCreated = (ticketId: string) => {
-    navigate(`/modulos/atendimentos/tickets/${ticketId}`);
+    navigate(TICKET_DETAIL_ROUTE(ticketId));
   };
 
   return (
@@ -111,13 +111,13 @@ export default function TicketsCoreListPage() {
           <TabsContent value={tab} className="mt-4">
             {isMobile ? (
               <div className="space-y-2">
-                {tickets.map(t => <TicketCardMobile key={t.id} ticket={t} />)}
+                {tickets.map(t => <TicketCardMobile key={t.id} ticket={t} routePrefix={TICKET_LIST_ROUTE} />)}
                 {!isLoading && tickets.length === 0 && (
                   <p className="text-center text-sm text-muted-foreground py-8">Nenhum chamado nesta aba</p>
                 )}
               </div>
             ) : (
-              <TicketTable tickets={tickets} isLoading={isLoading} />
+              <TicketTable tickets={tickets} isLoading={isLoading} routePrefix={TICKET_LIST_ROUTE} />
             )}
           </TabsContent>
         </Tabs>
@@ -125,13 +125,13 @@ export default function TicketsCoreListPage() {
         // Client view — just the list
         isMobile ? (
           <div className="space-y-2">
-            {tickets.map(t => <TicketCardMobile key={t.id} ticket={t} />)}
+            {tickets.map(t => <TicketCardMobile key={t.id} ticket={t} routePrefix={TICKET_LIST_ROUTE} />)}
             {!isLoading && tickets.length === 0 && (
               <p className="text-center text-sm text-muted-foreground py-8">Você ainda não possui chamados</p>
             )}
           </div>
         ) : (
-          <TicketTable tickets={tickets} isLoading={isLoading} showQueue={false} />
+          <TicketTable tickets={tickets} isLoading={isLoading} showQueue={false} routePrefix={TICKET_LIST_ROUTE} />
         )
       )}
 

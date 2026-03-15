@@ -13,19 +13,20 @@ import { TicketStatusBadge } from './TicketStatusBadge';
 import { TicketSeverityBadge } from './TicketSeverityBadge';
 import { TicketSlaBadge } from './TicketSlaBadge';
 import type { CoreTicket } from '@/services/supportTicketCoreService';
-import { CATEGORY_LABELS, TICKET_TYPE_LABELS, QUEUE_LABELS } from '@/lib/ticketPermissions';
+import { CATEGORY_LABELS, TICKET_TYPE_LABELS, QUEUE_LABELS, TICKET_LIST_ROUTE } from '@/lib/ticketPermissions';
 
 interface Props {
   tickets: CoreTicket[];
   isLoading: boolean;
   showQueue?: boolean;
+  routePrefix?: string;
 }
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-export function TicketTable({ tickets, isLoading, showQueue = true }: Props) {
+export function TicketTable({ tickets, isLoading, showQueue = true, routePrefix = TICKET_LIST_ROUTE }: Props) {
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -68,7 +69,7 @@ export function TicketTable({ tickets, isLoading, showQueue = true }: Props) {
             <TableRow
               key={t.id}
               className="cursor-pointer hover:bg-muted/50"
-              onClick={() => navigate(`/modulos/atendimentos/tickets/${t.id}`)}
+              onClick={() => navigate(`${routePrefix}/${t.id}`)}
             >
               <TableCell className="font-mono text-xs text-primary">{t.public_code}</TableCell>
               <TableCell className="font-medium truncate max-w-[250px]">{t.title}</TableCell>
@@ -93,12 +94,12 @@ export function TicketTable({ tickets, isLoading, showQueue = true }: Props) {
 
 // ── Mobile card variant ─────────────────────────────────────────────────
 
-export function TicketCardMobile({ ticket }: { ticket: CoreTicket }) {
+export function TicketCardMobile({ ticket, routePrefix = TICKET_LIST_ROUTE }: { ticket: CoreTicket; routePrefix?: string }) {
   const navigate = useNavigate();
   return (
     <Card
       className="border-border/50 cursor-pointer hover:bg-muted/30 transition-colors"
-      onClick={() => navigate(`/modulos/atendimentos/tickets/${ticket.id}`)}
+      onClick={() => navigate(`${routePrefix}/${ticket.id}`)}
     >
       <CardContent className="p-4 space-y-2">
         <div className="flex items-center justify-between">
