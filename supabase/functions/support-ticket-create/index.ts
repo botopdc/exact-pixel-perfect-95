@@ -1,6 +1,7 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-create
 // Creates a new support ticket with queue-based routing and SLA calculation
+// Source of truth: current_queue_id (FK to support_queues)
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -56,7 +57,7 @@ Deno.serve(async (req) => {
     const severity = body.severity || "S4";
     const priority = body.priority || SEVERITY_PRIORITY_MAP[severity] || "medium";
 
-    // Resolve default queue (N1)
+    // ── Resolve N1 queue (source of truth) ──────────────────────────────
     const { data: defaultQueue } = await db
       .from("support_queues")
       .select("id")
@@ -66,7 +67,7 @@ Deno.serve(async (req) => {
 
     const currentQueueId = defaultQueue?.id || null;
 
-    // Find matching SLA policy
+    // ── SLA policy matching ─────────────────────────────────────────────
     let sla_policy_id = null;
     let first_response_due_at = null;
     let resolution_due_at = null;
@@ -119,10 +120,15 @@ Deno.serve(async (req) => {
       severity,
       priority,
       status: "novo",
-      support_level: "N1",
-      current_queue: "N1",
+      // New model (source of truth)
       current_queue_id: currentQueueId,
       current_support_level: "N1",
+      // Legacy compat writes
+      support_level: "N1",
+      current_queue: "N1",
+      // No assignee on creation
+      assigned_to_user_id: null,
+      assigned_to_name: null,
       service_name: body.service_name || null,
       asset_id: body.asset_id || null,
       asset_label: body.asset_label || null,
@@ -191,6 +197,29 @@ Deno.serve(async (req) => {
       ip_address: req.headers.get("x-forwarded-for") || null,
       user_agent: req.headers.get("user-agent") || null,
     });
+
+    // ── Notify N1 queue members ─────────────────────────────────────────
+    if (currentQueueId) {
+      const { data: members } = await db
+        .from("support_queue_members")
+        .select("user_id, user_level")
+        .eq("queue_id", currentQueueId)
+        .eq("is_active", true);
+
+      if (members && members.length > 0) {
+        const notifications = members.map((m: any) => ({
+          user_id: String(m.user_id),
+          user_level: m.user_level,
+          event_name: "ticket.created",
+          title: `Novo ticket ${ticket.public_code}`,
+          body: ticket.title,
+          ticket_id: ticket.id,
+          ticket_public_code: ticket.public_code,
+          metadata: {},
+        }));
+        await db.from("support_notifications").insert(notifications);
+      }
+    }
 
     return jsonResponse({
       success: true,

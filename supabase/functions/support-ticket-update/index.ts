@@ -1,6 +1,8 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-update
 // Queue-based model: status ≠ queue, escalation = queue change
+// Source of truth: current_queue_id + current_support_level
+// Legacy fields (support_level enum, current_queue enum) written for compat
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -53,6 +55,44 @@ function getActorType(level: number): string {
   return "client";
 }
 
+// Helper: notify queue members about an event
+async function notifyQueueMembers(db: any, queueId: string, eventName: string, title: string, body: string | null, ticketId: string, publicCode: string) {
+  const { data: members } = await db
+    .from("support_queue_members")
+    .select("user_id, user_level")
+    .eq("queue_id", queueId)
+    .eq("is_active", true);
+
+  if (!members || members.length === 0) return;
+
+  const notifications = members.map((m: any) => ({
+    user_id: String(m.user_id),
+    user_level: m.user_level,
+    event_name: eventName,
+    title,
+    body,
+    ticket_id: ticketId,
+    ticket_public_code: publicCode,
+    metadata: {},
+  }));
+
+  await db.from("support_notifications").insert(notifications);
+}
+
+// Helper: notify specific user
+async function notifyUser(db: any, userId: string, userLevel: number, eventName: string, title: string, body: string | null, ticketId: string, publicCode: string) {
+  await db.from("support_notifications").insert({
+    user_id: String(userId),
+    user_level: userLevel,
+    event_name: eventName,
+    title,
+    body,
+    ticket_id: ticketId,
+    ticket_public_code: publicCode,
+    metadata: {},
+  });
+}
+
 // ── assign: user assumes ticket ─────────────────────────────────────────
 const handleAssign: ActionHandler = async (db, ticket, body, req) => {
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
@@ -77,7 +117,7 @@ const handleAssign: ActionHandler = async (db, ticket, body, req) => {
     ticket_id: ticket.id,
     from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
     to_user_id: body.actor_user_id, to_user_name: body.actor_name,
-    from_queue: ticket.current_queue, to_queue: ticket.current_queue,
+    from_queue: ticket.current_support_level, to_queue: ticket.current_support_level,
     reason: "Assumiu o ticket",
     assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
   });
@@ -135,26 +175,28 @@ const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
   const targetQueueId = await resolveQueueId(db, targetLevel);
   if (!targetQueueId) return jsonResponse({ success: false, message: `Fila ${targetLevel} não encontrada` }, 422);
 
-  // Escalation does NOT change status to "escalado_*"
-  // Status stays as em_atendimento, queue changes
+  // Escalation does NOT change status — queue changes only
+  const newStatus = ticket.status === "novo" || ticket.status === "reaberto" ? "em_atendimento" : ticket.status;
   const { data, error } = await updateTicket(db, ticket.id, {
-    support_level: targetLevel,
-    current_queue: targetLevel,
     current_queue_id: targetQueueId,
     current_support_level: targetLevel,
+    // Legacy compat writes
+    support_level: targetLevel,
+    current_queue: targetLevel,
+    // Clear assignee — new queue needs to pick up
     assigned_to_user_id: null,
     assigned_to_name: null,
     assigned_at: null,
+    status: newStatus,
   });
 
   if (error) return jsonResponse({ success: false, message: error.message }, 500);
 
-  // Record queue history
   await db.from("support_ticket_queue_history").insert({
     ticket_id: ticket.id,
     from_queue_id: ticket.current_queue_id,
     to_queue_id: targetQueueId,
-    from_support_level: ticket.current_support_level || ticket.support_level,
+    from_support_level: ticket.current_support_level,
     to_support_level: targetLevel,
     changed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
     changed_by_name: body.actor_name,
@@ -164,16 +206,24 @@ const handleEscalate: ActionHandler = async (db, ticket, body, req) => {
   await db.from("support_ticket_assignments").insert({
     ticket_id: ticket.id,
     from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
-    from_queue: ticket.current_queue, to_queue: targetLevel,
-    from_support_level: ticket.support_level, to_support_level: targetLevel,
+    from_queue: ticket.current_support_level, to_queue: targetLevel,
+    from_support_level: ticket.current_support_level, to_support_level: targetLevel,
     reason: body.reason || `Escalado para ${targetLevel}`,
     assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
   });
 
+  if (newStatus !== ticket.status) {
+    await recordStatusChange(db, ticket.id, ticket.status, newStatus, body.actor_user_id, body.actor_name, `Escalado para ${targetLevel}`);
+  }
+
   await recordEvent(db, "ticket.escalated", ticket.id, getActorType(body.actor_level), body.actor_user_id, {
-    from_level: ticket.support_level, to_level: targetLevel, reason: body.reason,
-    from_queue: ticket.current_queue, to_queue: targetLevel,
+    from_level: ticket.current_support_level, to_level: targetLevel, reason: body.reason,
   }, req);
+
+  // Notify target queue members
+  await notifyQueueMembers(db, targetQueueId, "ticket.escalated",
+    `Ticket ${ticket.public_code} escalado para ${targetLevel}`,
+    `${ticket.title}`, ticket.id, ticket.public_code);
 
   return jsonResponse({ success: true, data, message: `Ticket escalado para ${targetLevel}` });
 };
@@ -190,11 +240,13 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
     status: "resolvido_suporte",
     resolved_at: now,
     support_resolved_by: body.actor_user_id,
+    resolved_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
     resolution_summary: body.reason.trim(),
-    // Move to CS queue, clear assignee
-    current_queue: "CS",
+    // Move to CS queue
     current_queue_id: csQueueId,
     current_support_level: "CS",
+    current_queue: "CS",
+    support_level: "N1", // legacy enum doesn't have CS
     assigned_to_user_id: null,
     assigned_to_name: null,
     assigned_at: null,
@@ -207,12 +259,17 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
       ticket_id: ticket.id,
       from_queue_id: ticket.current_queue_id,
       to_queue_id: csQueueId,
-      from_support_level: ticket.current_support_level || ticket.support_level,
+      from_support_level: ticket.current_support_level,
       to_support_level: "CS",
       changed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
       changed_by_name: body.actor_name,
       reason: "Ticket resolvido — movido para CS",
     });
+
+    // Notify CS queue members
+    await notifyQueueMembers(db, csQueueId, "ticket.resolved",
+      `Ticket ${ticket.public_code} resolvido — aguardando fechamento`,
+      `${ticket.title}`, ticket.id, ticket.public_code);
   }
 
   await recordStatusChange(db, ticket.id, ticket.status, "resolvido_suporte", body.actor_user_id, body.actor_name, body.reason);
@@ -233,6 +290,7 @@ const handleClose: ActionHandler = async (db, ticket, body, req) => {
     status: "encerrado_cs",
     closed_at: now,
     cs_closed_by: body.actor_user_id,
+    closed_by_user_id: body.actor_user_id ? parseInt(body.actor_user_id) : null,
     close_reason: body.reason.trim(),
   });
 
@@ -252,14 +310,16 @@ const handleReopen: ActionHandler = async (db, ticket, body, req) => {
 
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "reaberto",
-    current_queue: "N1",
     current_queue_id: n1QueueId,
     current_support_level: "N1",
+    current_queue: "N1",
     support_level: "N1",
     resolved_at: null,
     closed_at: null,
     support_resolved_by: null,
     cs_closed_by: null,
+    resolved_by_user_id: null,
+    closed_by_user_id: null,
     resolution_summary: null,
     close_reason: null,
     assigned_to_user_id: null,
@@ -280,6 +340,11 @@ const handleReopen: ActionHandler = async (db, ticket, body, req) => {
       changed_by_name: body.actor_name,
       reason: body.reason || "Ticket reaberto",
     });
+
+    // Notify N1 queue members
+    await notifyQueueMembers(db, n1QueueId, "ticket.reopened",
+      `Ticket ${ticket.public_code} reaberto`,
+      `${ticket.title}`, ticket.id, ticket.public_code);
   }
 
   await recordStatusChange(db, ticket.id, ticket.status, "reaberto", body.actor_user_id, body.actor_name, body.reason);
@@ -317,20 +382,29 @@ const handleWaiting: ActionHandler = async (db, ticket, body, req) => {
   return jsonResponse({ success: true, data, message: `Status alterado para ${waitType}` });
 };
 
-// ── transfer ────────────────────────────────────────────────────────────
+// ── transfer: move to another user or queue ─────────────────────────────
 const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão para transferir" }, 403);
 
   const updates: any = {};
+  let targetQueueCode = ticket.current_support_level;
+
   if (body.to_queue) {
     const queueId = await resolveQueueId(db, body.to_queue);
     if (queueId) {
-      updates.current_queue = body.to_queue;
       updates.current_queue_id = queueId;
       updates.current_support_level = body.to_queue;
-      updates.support_level = body.to_queue;
+      // Legacy compat
+      if (["N1", "N2", "N3"].includes(body.to_queue)) {
+        updates.support_level = body.to_queue;
+        updates.current_queue = body.to_queue;
+      } else if (body.to_queue === "CS") {
+        updates.current_queue = "CS";
+      }
+      targetQueueCode = body.to_queue;
     }
   }
+
   if (body.to_user_id !== undefined) {
     updates.assigned_to_user_id = body.to_user_id || null;
     updates.assigned_to_name = body.to_user_name || null;
@@ -344,12 +418,12 @@ const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
     ticket_id: ticket.id,
     from_user_id: ticket.assigned_to_user_id, from_user_name: ticket.assigned_to_name,
     to_user_id: body.to_user_id || null, to_user_name: body.to_user_name || null,
-    from_queue: ticket.current_queue, to_queue: body.to_queue || ticket.current_queue,
+    from_queue: ticket.current_support_level, to_queue: targetQueueCode,
     reason: body.reason,
     assigned_by_user_id: body.actor_user_id, assigned_by_name: body.actor_name,
   });
 
-  if (body.to_queue && body.to_queue !== ticket.current_queue) {
+  if (body.to_queue && body.to_queue !== ticket.current_support_level) {
     const toQueueId = await resolveQueueId(db, body.to_queue);
     if (toQueueId) {
       await db.from("support_ticket_queue_history").insert({
@@ -365,8 +439,16 @@ const handleTransfer: ActionHandler = async (db, ticket, body, req) => {
     }
   }
 
+  // Notify destination user if transferring to specific user
+  if (body.to_user_id) {
+    await notifyUser(db, String(body.to_user_id), body.to_user_level || 900,
+      "ticket.assigned",
+      `Ticket ${ticket.public_code} atribuído a você`,
+      `${ticket.title}`, ticket.id, ticket.public_code);
+  }
+
   await recordEvent(db, "ticket.transferred", ticket.id, "manager", body.actor_user_id, {
-    from_queue: ticket.current_queue, to_queue: body.to_queue,
+    from_queue: ticket.current_support_level, to_queue: body.to_queue,
     to_user_name: body.to_user_name,
   }, req);
 
