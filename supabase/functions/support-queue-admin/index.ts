@@ -26,11 +26,13 @@ function toInt(val: unknown): number | null {
 }
 
 function resolveUserContext(body: Record<string, unknown>) {
-  const level = toInt(body.user_level ?? body.actor_level ?? (body.user as any)?.level);
-  const id = body.user_id ?? body.actor_user_id ?? (body.user as any)?.id ?? null;
+  // IMPORTANT: Use actor_* fields (the authenticated user performing the action)
+  // NOT user_* fields which may refer to the target member in add_member actions
+  const level = toInt(body.actor_level ?? (body.user as any)?.level);
+  const id = body.actor_user_id ?? (body.user as any)?.id ?? null;
   const uuid = body.user_uuid ?? (body.user as any)?.uuid ?? null;
-  const email = body.user_email ?? (body.user as any)?.email ?? null;
-  const name = body.user_name ?? body.actor_name ?? (body.user as any)?.name ?? null;
+  const email = body.actor_email ?? (body.user as any)?.email ?? null;
+  const name = body.actor_name ?? (body.user as any)?.name ?? null;
 
   return {
     id: id ? String(id) : null,
