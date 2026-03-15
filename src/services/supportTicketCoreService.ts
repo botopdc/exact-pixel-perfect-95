@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { supabase } from '@/integrations/supabase/client';
+import { authService } from '@/services/authService';
 
 const AUTH_TOKEN_KEY = 'open_access_token';
 const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
