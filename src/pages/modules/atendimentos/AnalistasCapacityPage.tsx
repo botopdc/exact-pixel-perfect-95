@@ -300,7 +300,7 @@ export default function AnalistasCapacityPage() {
                 <Card key={a.email} className="relative">
                   {a.isOnCall && (
                     <div className="absolute top-2 right-2">
-                      <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs">
+                      <Badge variant="outline" className="bg-accent/50 text-accent-foreground border-accent text-xs">
                         <Phone className="h-3 w-3 mr-1" />
                         Plantão {a.onCallTeam}
                       </Badge>
