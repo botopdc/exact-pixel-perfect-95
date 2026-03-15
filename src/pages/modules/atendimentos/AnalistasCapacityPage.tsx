@@ -161,7 +161,7 @@ function useOnCallShifts() {
         .order('starts_at', { ascending: false })
         .limit(20);
       if (error) throw error;
-      return (data || []) as OnCallShift[];
+      return (data || []) as unknown as OnCallShift[];
     },
     staleTime: 30_000,
   });
