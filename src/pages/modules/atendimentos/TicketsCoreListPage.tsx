@@ -112,6 +112,7 @@ export default function TicketsCoreListPage() {
             <TabsTrigger value="em_atendimento" className="text-xs">Em Atendimento</TabsTrigger>
             <TabsTrigger value="aguardando" className="text-xs">Aguardando</TabsTrigger>
             <TabsTrigger value="resolvido" className="text-xs">Resolvido</TabsTrigger>
+            <TabsTrigger value="nao_atribuidos" className="text-xs">Não Atribuídos</TabsTrigger>
             <TabsTrigger value="meus" className="text-xs">Meus Tickets</TabsTrigger>
             <TabsTrigger value="todos" className="text-xs">Todos</TabsTrigger>
           </TabsList>

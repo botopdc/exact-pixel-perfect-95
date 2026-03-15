@@ -76,7 +76,7 @@ export function TicketTable({ tickets, isLoading, showQueue = true, routePrefix 
               <TableCell><TicketSeverityBadge severity={t.severity} /></TableCell>
               <TableCell><TicketStatusBadge status={t.status} /></TableCell>
               {showQueue && (
-                <TableCell className="text-xs text-muted-foreground">{QUEUE_LABELS[t.current_queue] || t.current_queue}</TableCell>
+                <TableCell className="text-xs font-medium">{t.queue_code || QUEUE_LABELS[t.current_support_level] || t.current_support_level}</TableCell>
               )}
               <TableCell className="text-xs">{CATEGORY_LABELS[t.category] || t.category}</TableCell>
               <TableCell className="text-xs truncate max-w-[100px]">{t.assigned_to_name || '—'}</TableCell>
