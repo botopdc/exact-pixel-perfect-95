@@ -389,19 +389,21 @@ export default function AnalistasCapacityPage() {
                         <TableHead>Nível</TableHead>
                         <TableHead>Filas</TableHead>
                         <TableHead>Tickets</TableHead>
+                        <TableHead>Médias</TableHead>
+                        <TableHead>Plantão</TableHead>
                         <TableHead className="w-20">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {analysts.map(a => (
-                        <TableRow key={a.email}>
+                        <TableRow key={`${a.userId}-${a.email}`}>
                           <TableCell className="font-medium">{a.name}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{a.email}</TableCell>
                           <TableCell><Badge variant="outline">{a.level}</Badge></TableCell>
                           <TableCell>
                             <div className="flex gap-1 flex-wrap">
                               {a.queues.map(q => (
-                                <Badge key={q.memberId} variant={q.isActive ? 'default' : 'secondary'} className="text-xs">
+                                <Badge key={q.memberId} variant={q.isActive ? 'default' : 'secondary'} className="text-xs" title={q.queueName}>
                                   {q.queueCode}
                                 </Badge>
                               ))}
@@ -411,6 +413,20 @@ export default function AnalistasCapacityPage() {
                             <span className="text-sm">{a.activeTickets} ativos</span>
                             {a.breachedTickets > 0 && (
                               <span className="text-xs text-destructive ml-1">({a.breachedTickets} vencidos)</span>
+                            )}
+                            <div className="text-xs text-muted-foreground">{a.resolvedToday} resolvidos hoje</div>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div>1ª resp: <span className="font-medium">{formatDuration(a.avgFirstResponseMinutes)}</span></div>
+                            <div>Resolução: <span className="font-medium">{formatDuration(a.avgResolutionMinutes)}</span></div>
+                          </TableCell>
+                          <TableCell>
+                            {a.isOnCall ? (
+                              <Badge variant="outline" className="bg-accent/50 text-accent-foreground border-accent">
+                                {a.onCallTeam || 'Ativo'}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">Não</Badge>
                             )}
                           </TableCell>
                           <TableCell>
@@ -423,7 +439,6 @@ export default function AnalistasCapacityPage() {
                                   onClick={() => {
                                     if (confirm(`Remover ${a.name} da fila ${q.queueCode}?`)) {
                                       removeMember.mutate(q.memberId);
-                                      queryClient.invalidateQueries({ queryKey: ['analyst-capacity-full'] });
                                     }
                                   }}
                                 >
@@ -433,7 +448,7 @@ export default function AnalistasCapacityPage() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ))
                     </TableBody>
                   </Table>
                 )}
