@@ -375,29 +375,29 @@ export default function ContratoDetailPage() {
 
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
+          {(c.status === 'rascunho' || c.status === 'pendente_assinatura') && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleGenerateDocument}
+              disabled={generatingDoc}
+            >
+              {generatingDoc ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : hasAnyDocument ? (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              {hasAnyDocument ? 'Regerar documentos' : 'Gerar documentos'}
+            </Button>
+          )}
           {c.status === 'rascunho' && (
-            <>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleGenerateDocument}
-                disabled={generatingDoc}
-              >
-                {generatingDoc ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : hasAnyDocument ? (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                ) : (
-                  <FileDown className="h-4 w-4 mr-2" />
-                )}
-                {hasAnyDocument ? 'Regerar documentos' : 'Gerar documentos'}
-              </Button>
-              <Button variant="outline" size="sm"
-                onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
-                disabled={updateStatus.isPending}>
-                Enviar para assinatura
-              </Button>
-            </>
+            <Button variant="outline" size="sm"
+              onClick={() => updateStatus.mutate({ id: c.id, status: 'pendente_assinatura' })}
+              disabled={updateStatus.isPending}>
+              Enviar para assinatura
+            </Button>
           )}
           {c.status === 'pendente_assinatura' && (
             <>
@@ -460,25 +460,8 @@ export default function ContratoDetailPage() {
                   Anexo I — Resumo da Proposta (PDF)
                 </Button>
               )}
-              {cAny.proposal_pdf_source_path && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-start gap-2 text-muted-foreground"
-                  disabled={downloadingFile === cAny.proposal_pdf_source_path}
-                  onClick={() => handleDownloadFile(
-                    'contracts-generated',
-                    cAny.proposal_pdf_source_path,
-                    `anexo-i-fallback-${c.contract_number || c.id.substring(0, 8)}.pdf`
-                  )}
-                >
-                  {downloadingFile === cAny.proposal_pdf_source_path ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  Anexo I — Fallback (PDF proposta, páginas 8+)
-                </Button>
+              {!hasAnnex && !hasDocx && (
+                <p className="text-sm text-muted-foreground">Nenhum documento gerado ainda.</p>
               )}
               <p className="text-xs text-muted-foreground mt-1">
                 Estratégia: {cAny.generation_strategy || 'N/A'}
