@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.support-queue-admin]
 verify_jwt = false
+
+[functions.proposal-download]
+verify_jwt = false
