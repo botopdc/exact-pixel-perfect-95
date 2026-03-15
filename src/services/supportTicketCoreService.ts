@@ -1,5 +1,6 @@
 // ============================================================================
 // SUPPORT TICKET CORE SERVICE - Supabase Edge Functions
+// Source of truth: current_queue_id + current_support_level
 // ============================================================================
 
 import { supabase } from '@/integrations/supabase/client';
@@ -90,6 +91,9 @@ export interface CoreTicket {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  // Enriched by Edge Functions
+  queue_code?: string;
+  queue_name?: string;
 }
 
 export interface CoreTicketMessage {
@@ -150,6 +154,10 @@ export interface CoreTicketQueueHistory {
   to_queue_id: string;
   from_support_level: string | null;
   to_support_level: string;
+  from_queue_code?: string | null;
+  from_queue_name?: string | null;
+  to_queue_code?: string;
+  to_queue_name?: string;
   changed_by_name: string | null;
   reason: string | null;
   created_at: string;
@@ -161,12 +169,13 @@ export interface CoreTicketDetail extends CoreTicket {
   assignments: CoreTicketAssignment[];
   attachments: CoreTicketAttachment[];
   queue_history?: CoreTicketQueueHistory[];
-  sla_computed?: {
-    first_response_remaining_seconds: number | null;
-    resolution_remaining_seconds: number | null;
+  sla?: {
     is_first_response_breached: boolean;
     is_resolution_breached: boolean;
+    sla_first_response_remaining_seconds: number | null;
+    sla_resolution_remaining_seconds: number | null;
   };
+  permissions?: Record<string, boolean>;
 }
 
 // ── Queue types ─────────────────────────────────────────────────────────
@@ -217,6 +226,9 @@ export interface TicketListFilters {
   per_page?: number;
   order_by?: string;
   order_dir?: 'asc' | 'desc';
+  // Injected by hooks
+  user_level?: number;
+  user_id?: string;
 }
 
 // ── Create payload ──────────────────────────────────────────────────────
@@ -257,6 +269,7 @@ export interface TicketActionPayload {
   assigned_to_name?: string;
   to_user_id?: string;
   to_user_name?: string;
+  to_user_level?: number;
   to_queue?: string;
   target_level?: 'N2' | 'N3';
   reason?: string;
@@ -336,8 +349,12 @@ export const supportTicketCoreService = {
     return { tickets: resp.data || [], meta: resp.meta };
   },
 
-  async getTicket(ticketId: string): Promise<CoreTicketDetail> {
-    const resp = await invoke<CoreTicketDetail>('support-ticket-get', { ticket_id: ticketId });
+  async getTicket(ticketId: string, userLevel?: number, userId?: string): Promise<CoreTicketDetail> {
+    const resp = await invoke<CoreTicketDetail>('support-ticket-get', {
+      ticket_id: ticketId,
+      user_level: userLevel,
+      user_id: userId,
+    });
     return resp.data!;
   },
 

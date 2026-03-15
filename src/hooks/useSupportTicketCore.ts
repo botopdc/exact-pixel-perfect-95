@@ -25,7 +25,7 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
   const queryClient = useQueryClient();
   const session = authService.getSession();
 
-  const enrichedFilters: TicketListFilters & { user_level?: number; user_id?: string } = {
+  const enrichedFilters: TicketListFilters = {
     ...filters,
     user_level: session?.level,
     user_id: session?.userId,
@@ -58,7 +58,7 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
   const { data: ticket, isLoading, error, refetch } = useQuery({
     queryKey: ['support-ticket-core', ticketId],
-    queryFn: () => supportTicketCoreService.getTicket(ticketId!),
+    queryFn: () => supportTicketCoreService.getTicket(ticketId!, userLevel, userId),
     enabled: !!ticketId,
     staleTime: 0,
   });
@@ -168,6 +168,7 @@ export function useQueueMembers(queueId?: string) {
   return useQuery({
     queryKey: ['support-queue-members', queueId],
     queryFn: () => supportTicketCoreService.listQueueMembers(queueId),
+    enabled: !!queueId,
     staleTime: 30_000,
   });
 }
