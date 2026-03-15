@@ -1881,6 +1881,14 @@ O módulo de contratos permite criar e gerenciar contratos comerciais.
 
   // ======== CHANGELOG ========
   'core/open_changelog': OPEN_CHANGELOG_CONTENT,
+
+  // ======== SUPPORT MODULE DOCS ========
+  '_existing/OPEN_SUPPORT_ARCHITECTURE': OPEN_SUPPORT_ARCHITECTURE,
+  '_existing/OPEN_SUPPORT_DATA_MODEL': OPEN_SUPPORT_DATA_MODEL,
+  '_existing/OPEN_SUPPORT_RBAC': OPEN_SUPPORT_RBAC,
+  '_existing/OPEN_SUPPORT_API_REFERENCE': OPEN_SUPPORT_API_REFERENCE,
+  '_existing/OPEN_SUPPORT_RUNBOOK': OPEN_SUPPORT_RUNBOOK,
+  '_existing/OPEN_SUPPORT_KPIS': OPEN_SUPPORT_KPIS,
 };
 
 export function getDocContent(fileKey: string): string | null {
