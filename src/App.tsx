@@ -75,6 +75,8 @@ import DashboardIndicadores from '@/pages/modules/DashboardIndicadores';
 import ComercialModuleHome from '@/pages/modules/ComercialModuleHome';
 import ParceirosModuleHome from '@/pages/modules/ParceirosModuleHome';
 import AtendimentosModuleHome from '@/pages/modules/AtendimentosModuleHome';
+import AnalistasCapacityPage from '@/pages/modules/atendimentos/AnalistasCapacityPage';
+import KPIsConsolidadosPage from '@/pages/modules/atendimentos/KPIsConsolidadosPage';
 import ConteudoModuleHome from '@/pages/modules/ConteudoModuleHome';
 import GenteModuleHome from '@/pages/modules/GenteModuleHome';
 import AdminModuleHome from '@/pages/modules/AdminModuleHome';
