@@ -103,13 +103,15 @@ function useOnCallShifts() {
   return useQuery({
     queryKey: ['oncall-shifts-all'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('support_oncall_shifts' as any)
-        .select('*')
-        .order('starts_at', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return (data || []) as unknown as OnCallShift[];
+      const session = authService.getSession();
+      const res = await supportTicketCoreService.callQueueAdmin({
+        action: 'list_oncall_shifts',
+        actor_user_id: session?.userId,
+        actor_level: session?.level,
+        actor_email: session?.email,
+        actor_name: session?.name,
+      });
+      return (res.data || []) as OnCallShift[];
     },
     staleTime: 30_000,
   });
