@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { authService } from '@/services/authService';
+import { supabase } from '@/integrations/supabase/client';
 import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { getRedirectByLevel } from '@/lib/rbac';
+
+type AuthMode = 'supabase' | 'legacy';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -15,23 +19,31 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Get correct redirect path based on user level
-  const getRedirectPath = (level: number) => {
-    // Parceiro (200) goes to partner portal
-    if (level === 200) {
-      return '/parceiro/dashboard';
-    }
-    // ALL internal users (including level 700) go to unified modular dashboard
-    return '/modulos/dashboard';
-  };
+  // Check if already logged in (either Supabase or legacy)
+  useEffect(() => {
+    // Check Supabase session first
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('level')
+          .eq('id', session.user.id)
+          .maybeSingle();
 
-  // Redirect if already logged in
-  React.useEffect(() => {
-    if (authService.isAuthenticated()) {
-      const user = authService.getCurrentUser();
-      const redirectPath = user ? getRedirectPath(user.level) : '/modulos/dashboard';
-      navigate(redirectPath, { replace: true });
-    }
+        if (profile) {
+          navigate(getRedirectByLevel(profile.level), { replace: true });
+          return;
+        }
+      }
+
+      // Fallback: check legacy session
+      if (authService.isAuthenticated()) {
+        const user = authService.getCurrentUser();
+        if (user) {
+          navigate(getRedirectByLevel(user.level), { replace: true });
+        }
+      }
+    });
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,16 +51,74 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
+    const normalizedEmail = email.toLowerCase().trim();
+
     try {
-      const result = await authService.login(email, password);
-      
+      // 1) Try Supabase Auth first
+      const { data: supaData, error: supaError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (!supaError && supaData.user) {
+        // Load profile to get level
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('level, is_active')
+          .eq('id', supaData.user.id)
+          .maybeSingle();
+
+        if (profile && !profile.is_active) {
+          await supabase.auth.signOut();
+          setError('Conta desativada. Contacte o administrador.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (profile) {
+          // Partners must use partner portal
+          if (profile.level === 200) {
+            await supabase.auth.signOut();
+            setError('Área exclusiva para parceiros. Use o login do Portal do Parceiro.');
+            setIsLoading(false);
+            return;
+          }
+
+          if (import.meta.env.DEV) {
+            console.log('[Login] Supabase Auth success:', {
+              uid: supaData.user.id,
+              email: normalizedEmail,
+              level: profile.level,
+            });
+          }
+
+          navigate(getRedirectByLevel(profile.level), { replace: true });
+          setIsLoading(false);
+          return;
+        }
+
+        // Profile not found — user exists in auth but not in profiles
+        // This can happen for new signups without backfill
+        if (import.meta.env.DEV) {
+          console.warn('[Login] Supabase Auth OK but no profile. Falling back to legacy.');
+        }
+        await supabase.auth.signOut();
+      }
+
+      // 2) Fallback to legacy API auth
+      if (import.meta.env.DEV) {
+        console.log('[Login] Trying legacy auth for:', normalizedEmail);
+      }
+
+      const result = await authService.login(normalizedEmail, password);
+
       if (result.success && result.session) {
-        const redirectPath = getRedirectPath(result.session.level);
-        navigate(redirectPath, { replace: true });
+        navigate(getRedirectByLevel(result.session.level), { replace: true });
       } else {
-        setError(result.error || 'Erro ao fazer login');
+        setError(result.error || 'Email ou senha incorretos');
       }
     } catch (err) {
+      console.error('[Login] Unexpected error:', err);
       setError('Erro inesperado. Tente novamente.');
     } finally {
       setIsLoading(false);
@@ -93,9 +163,7 @@ export default function LoginPage() {
 
             {/* Email Field */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm text-foreground">
-                Email
-              </Label>
+              <Label htmlFor="email" className="text-sm text-foreground">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -110,9 +178,7 @@ export default function LoginPage() {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm text-foreground">
-                Senha
-              </Label>
+              <Label htmlFor="password" className="text-sm text-foreground">Senha</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -129,29 +195,26 @@ export default function LoginPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
+            {/* Forgot Password Link */}
+            <div className="text-right">
+              <Link
+                to="/reset-password"
+                className="text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                Esqueceu sua senha?
+              </Link>
+            </div>
+
             {/* Submit Button */}
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
+            <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Entrando...
-                </>
-              ) : (
-                'Entrar'
-              )}
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Entrando...</>
+              ) : 'Entrar'}
             </Button>
           </form>
         </div>
