@@ -153,7 +153,7 @@ export function ModuleSidebar() {
               {!collapsed && (
                 <div className="flex flex-col items-start text-left">
                   <span className="text-sm font-medium truncate max-w-[120px]">
-                    {user?.name || user?.email || 'Usuário'}
+                    {displayName}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {userLevel !== null ? getUserLevelName(userLevel) : 'Carregando...'}
