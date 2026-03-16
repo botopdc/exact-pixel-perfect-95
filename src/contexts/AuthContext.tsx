@@ -1,19 +1,19 @@
 // ============================================================================
 // AUTH CONTEXT — Supabase-first authentication
-// Uses Supabase Auth + public.profiles as source of truth
-// Maintains backward compatibility via legacy authService
+// Uses Supabase Auth + public.profiles + public.user_roles
 // ============================================================================
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
+import type { UserRole } from '@/lib/rbac';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 export interface UserProfile {
-  id: string;           // auth.users UUID
+  id: string;
   legacy_user_id: number | null;
   name: string;
   email: string;
@@ -27,21 +27,15 @@ export interface UserProfile {
 }
 
 interface AuthContextValue {
-  /** Supabase Auth user (null if not logged in) */
   user: User | null;
-  /** Supabase session */
   session: Session | null;
-  /** Profile from public.profiles */
   profile: UserProfile | null;
-  /** True while checking initial session */
+  /** Active user roles from public.user_roles */
+  roles: UserRole[];
   isLoading: boolean;
-  /** True if authenticated via Supabase Auth */
   isAuthenticated: boolean;
-  /** Sign in with email + password */
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  /** Sign out */
   signOut: () => Promise<void>;
-  /** Reload profile from database */
   refreshProfile: () => Promise<void>;
 }
 
@@ -55,27 +49,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [roles, setRoles] = useState<UserRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load profile from public.profiles
+  // Load profile + roles
   const loadProfile = useCallback(async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+      // Load profile and roles in parallel
+      const [profileRes, rolesRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle(),
+        supabase
+          .from('user_roles')
+          .select('id, role_id, is_active, roles!inner(code)')
+          .eq('user_id', userId)
+          .eq('is_active', true),
+      ]);
 
-      if (error) {
-        console.error('[AuthContext] Profile load error:', error.message);
+      if (profileRes.error) {
+        console.error('[AuthContext] Profile load error:', profileRes.error.message);
         return null;
       }
 
-      if (!data) {
+      if (!profileRes.data) {
         console.warn('[AuthContext] No profile found for user:', userId);
         return null;
       }
 
+      const data = profileRes.data;
       const p: UserProfile = {
         id: data.id,
         legacy_user_id: data.legacy_user_id,
@@ -90,16 +94,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatar_url: data.avatar_url,
       };
 
+      // Map roles
+      const userRoles: UserRole[] = (rolesRes.data || []).map((r: any) => ({
+        role_id: r.role_id,
+        role_code: (r.roles as any)?.code || '',
+        is_active: r.is_active,
+      }));
+
       if (import.meta.env.DEV) {
         console.log('[AuthContext] Profile loaded:', {
           id: p.id,
           email: p.email,
           level: p.level,
           legacy_user_id: p.legacy_user_id,
+          roles: userRoles.map(r => r.role_code),
         });
       }
 
       setProfile(p);
+      setRoles(userRoles);
       return p;
     } catch (err) {
       console.error('[AuthContext] Profile load exception:', err);
@@ -109,7 +122,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize auth state
   useEffect(() => {
-    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         if (import.meta.env.DEV) {
@@ -120,15 +132,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
-          // Use setTimeout to avoid potential deadlock with Supabase client
           setTimeout(() => loadProfile(currentSession.user.id), 0);
         } else {
           setProfile(null);
+          setRoles([]);
         }
       }
     );
 
-    // THEN check existing session
     supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
       setSession(existingSession);
       setUser(existingSession?.user ?? null);
@@ -143,7 +154,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [loadProfile]);
 
-  // Sign in
   const signIn = useCallback(async (email: string, password: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -162,7 +172,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Erro inesperado ao autenticar' };
       }
 
-      // Profile will be loaded by onAuthStateChange
       return { success: true };
     } catch (err) {
       console.error('[AuthContext] Sign in exception:', err);
@@ -170,15 +179,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Sign out
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     setProfile(null);
+    setRoles([]);
   }, []);
 
-  // Refresh profile
   const refreshProfile = useCallback(async () => {
     if (user) {
       await loadProfile(user.id);
@@ -189,6 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     profile,
+    roles,
     isLoading,
     isAuthenticated: !!session && !!user,
     signIn,

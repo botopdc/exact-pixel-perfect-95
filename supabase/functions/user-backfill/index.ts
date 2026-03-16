@@ -1,7 +1,7 @@
 // ============================================================================
 // USER BACKFILL EDGE FUNCTION
-// Imports legacy users from CORE API into Supabase Auth + public.profiles
-// Strategy: Opção A — no password migration, users must reset/set password
+// Imports legacy users into Supabase Auth + public.profiles + user_roles
+// Strategy: Option A — no password migration, users must reset/set password
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -29,7 +29,21 @@ interface BackfillResult {
   created: number;
   skipped: number;
   errors: { email: string; reason: string }[];
+  roles_assigned: { email: string; roles: string[] }[];
 }
+
+// Level → role code mapping
+const LEVEL_TO_ROLE: Record<number, string> = {
+  1000: "admin",
+  950: "gerente_suporte",
+  900: "suporte_n1",
+  775: "cs",
+  750: "gerente_comercial",
+  700: "comercial",
+  600: "rh",
+  200: "parceiro",
+  1: "cliente",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -37,7 +51,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Validate admin access
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
@@ -51,13 +64,13 @@ Deno.serve(async (req) => {
     const adminPin = Deno.env.get("ADMIN_PIN") || "5678";
 
     const body = await req.json();
-    const { pin, users, dry_run = false } = body as {
+    const { pin, users, dry_run = false, assign_roles = true } = body as {
       pin: string;
       users: LegacyUser[];
       dry_run?: boolean;
+      assign_roles?: boolean;
     };
 
-    // Validate admin PIN
     if (pin !== adminPin) {
       return new Response(
         JSON.stringify({ error: "Invalid admin PIN" }),
@@ -72,31 +85,50 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Filter only internal users (level >= 600)
     const internalUsers = users.filter((u) => u.level >= 600);
-    console.log(`[backfill] Total users received: ${users.length}, internal (>=600): ${internalUsers.length}`);
+    console.log(`[backfill] Total: ${users.length}, internal (>=600): ${internalUsers.length}`);
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    // Pre-load roles map
+    const { data: rolesData } = await supabaseAdmin
+      .from("roles")
+      .select("id, code")
+      .eq("is_active", true);
+
+    const rolesMap = new Map<string, string>();
+    for (const r of rolesData || []) {
+      rolesMap.set(r.code, r.id);
+    }
 
     const result: BackfillResult = {
       total: internalUsers.length,
       created: 0,
       skipped: 0,
       errors: [],
+      roles_assigned: [],
     };
 
     for (const legacyUser of internalUsers) {
       const email = legacyUser.email?.toLowerCase().trim();
-
-      // Validate email
       if (!email || !email.includes("@")) {
         result.errors.push({ email: email || "(empty)", reason: "Invalid email" });
         continue;
       }
 
-      // Check if profile already exists by email
+      // Determine roles to assign
+      const rolesToAssign: string[] = [];
+      if (assign_roles) {
+        rolesToAssign.push("internal_user");
+        const levelRole = LEVEL_TO_ROLE[legacyUser.level];
+        if (levelRole && levelRole !== "internal_user") {
+          rolesToAssign.push(levelRole);
+        }
+      }
+
+      // Check existing profile
       const { data: existingProfile } = await supabaseAdmin
         .from("profiles")
         .select("id, email, legacy_user_id")
@@ -104,25 +136,32 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (existingProfile) {
-        console.log(`[backfill] SKIP: ${email} already exists in profiles`);
+        console.log(`[backfill] SKIP: ${email} already exists`);
         result.skipped++;
+
+        // Even for existing profiles, assign roles if missing (dry_run aware)
+        if (assign_roles && !dry_run) {
+          await assignRoles(supabaseAdmin, existingProfile.id, rolesToAssign, rolesMap);
+          result.roles_assigned.push({ email, roles: rolesToAssign });
+        } else if (dry_run) {
+          result.roles_assigned.push({ email, roles: rolesToAssign });
+        }
         continue;
       }
 
       if (dry_run) {
-        console.log(`[backfill] DRY_RUN: would create ${email} (legacy_id=${legacyUser.id}, level=${legacyUser.level})`);
+        console.log(`[backfill] DRY_RUN: would create ${email} (legacy_id=${legacyUser.id}, level=${legacyUser.level}, roles=${rolesToAssign.join(",")})`);
         result.created++;
+        result.roles_assigned.push({ email, roles: rolesToAssign });
         continue;
       }
 
       try {
-        // Create user in auth.users with a random password (they must reset)
         const tempPassword = crypto.randomUUID() + "Aa1!";
-
         const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
           email,
           password: tempPassword,
-          email_confirm: true, // Mark email as confirmed since we know it from legacy
+          email_confirm: true,
           user_metadata: {
             name: legacyUser.name,
             level: legacyUser.level,
@@ -131,41 +170,36 @@ Deno.serve(async (req) => {
         });
 
         if (authError) {
-          // If user already exists in auth but not in profiles
           if (authError.message?.includes("already been registered")) {
-            // Try to find auth user by email and create profile
             const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
             const existingAuthUser = listData?.users?.find(
               (u) => u.email?.toLowerCase() === email
             );
-
             if (existingAuthUser) {
-              // Create profile for existing auth user
-              const { error: profileError } = await supabaseAdmin
-                .from("profiles")
-                .insert({
-                  id: existingAuthUser.id,
-                  legacy_user_id: legacyUser.id,
-                  name: legacyUser.name,
-                  email,
-                  level: legacyUser.level,
-                  entity_id: legacyUser.entity_id || null,
-                  company_id: legacyUser.company_id || null,
-                  is_active: true,
-                });
-
+              const { error: profileError } = await supabaseAdmin.from("profiles").insert({
+                id: existingAuthUser.id,
+                legacy_user_id: legacyUser.id,
+                name: legacyUser.name,
+                email,
+                level: legacyUser.level,
+                entity_id: legacyUser.entity_id || null,
+                company_id: legacyUser.company_id || null,
+                is_active: true,
+              });
               if (profileError) {
                 result.errors.push({ email, reason: `Profile insert failed: ${profileError.message}` });
               } else {
                 result.created++;
-                console.log(`[backfill] Created profile for existing auth user: ${email}`);
+                if (assign_roles) {
+                  await assignRoles(supabaseAdmin, existingAuthUser.id, rolesToAssign, rolesMap);
+                  result.roles_assigned.push({ email, roles: rolesToAssign });
+                }
               }
             } else {
-              result.errors.push({ email, reason: "Auth user exists but couldn't be found for profile creation" });
+              result.errors.push({ email, reason: "Auth user exists but not found for profile" });
             }
             continue;
           }
-
           result.errors.push({ email, reason: `Auth create failed: ${authError.message}` });
           continue;
         }
@@ -175,33 +209,36 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // The trigger should auto-create the profile, but let's update it with full data
-        const { error: upsertError } = await supabaseAdmin
-          .from("profiles")
-          .upsert({
-            id: authUser.user.id,
-            legacy_user_id: legacyUser.id,
-            name: legacyUser.name,
-            email,
-            level: legacyUser.level,
-            entity_id: legacyUser.entity_id || null,
-            company_id: legacyUser.company_id || null,
-            is_active: true,
-          }, { onConflict: "id" });
+        const { error: upsertError } = await supabaseAdmin.from("profiles").upsert({
+          id: authUser.user.id,
+          legacy_user_id: legacyUser.id,
+          name: legacyUser.name,
+          email,
+          level: legacyUser.level,
+          entity_id: legacyUser.entity_id || null,
+          company_id: legacyUser.company_id || null,
+          is_active: true,
+        }, { onConflict: "id" });
 
         if (upsertError) {
           result.errors.push({ email, reason: `Profile upsert failed: ${upsertError.message}` });
           continue;
         }
 
+        // Assign roles
+        if (assign_roles) {
+          await assignRoles(supabaseAdmin, authUser.user.id, rolesToAssign, rolesMap);
+          result.roles_assigned.push({ email, roles: rolesToAssign });
+        }
+
         result.created++;
-        console.log(`[backfill] Created: ${email} (legacy_id=${legacyUser.id}, level=${legacyUser.level})`);
+        console.log(`[backfill] Created: ${email} (legacy_id=${legacyUser.id}, level=${legacyUser.level}, roles=${rolesToAssign.join(",")})`);
       } catch (err) {
         result.errors.push({ email, reason: `Unexpected: ${(err as Error).message}` });
       }
     }
 
-    console.log(`[backfill] DONE — created: ${result.created}, skipped: ${result.skipped}, errors: ${result.errors.length}`);
+    console.log(`[backfill] DONE — created: ${result.created}, skipped: ${result.skipped}, errors: ${result.errors.length}, roles: ${result.roles_assigned.length}`);
 
     return new Response(
       JSON.stringify({ success: true, result, dry_run }),
@@ -215,3 +252,26 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+// Helper: assign roles to a user (idempotent)
+async function assignRoles(
+  client: any,
+  userId: string,
+  roleCodes: string[],
+  rolesMap: Map<string, string>
+) {
+  for (const code of roleCodes) {
+    const roleId = rolesMap.get(code);
+    if (!roleId) {
+      console.warn(`[backfill] Role '${code}' not found in roles table`);
+      continue;
+    }
+    const { error } = await client.from("user_roles").upsert(
+      { user_id: userId, role_id: roleId, is_active: true },
+      { onConflict: "user_id,role_id" }
+    );
+    if (error) {
+      console.warn(`[backfill] Role assign failed for ${userId}/${code}: ${error.message}`);
+    }
+  }
+}
