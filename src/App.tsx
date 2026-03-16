@@ -172,6 +172,7 @@ const App = () => (
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           
           {/* Public proposal routes (for clients) */}
           <Route path="/proposta/:id" element={<PropostaView />} />
