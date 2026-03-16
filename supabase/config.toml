@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.proposal-download]
 verify_jwt = false
+
+[functions.user-backfill]
+verify_jwt = false

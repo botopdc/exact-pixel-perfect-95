@@ -157,11 +157,14 @@ import CertidaoNewCustomerPage from '@/pages/modules/certidao/CertidaoNewCustome
 
 // Error Boundary
 import { TechOpsErrorBoundary } from '@/components/techops/TechOpsErrorBoundary';
+import { AuthProvider } from '@/contexts/AuthContext';
+import ResetPassword from '@/pages/ResetPassword';
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
+    <AuthProvider>
     <TooltipProvider>
       <Toaster />
       <Sonner />
