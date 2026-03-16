@@ -157,11 +157,14 @@ import CertidaoNewCustomerPage from '@/pages/modules/certidao/CertidaoNewCustome
 
 // Error Boundary
 import { TechOpsErrorBoundary } from '@/components/techops/TechOpsErrorBoundary';
+import { AuthProvider } from '@/contexts/AuthContext';
+import ResetPassword from '@/pages/ResetPassword';
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
+    <AuthProvider>
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -169,6 +172,7 @@ const App = () => (
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           
           {/* Public proposal routes (for clients) */}
           <Route path="/proposta/:id" element={<PropostaView />} />
@@ -415,6 +419,7 @@ const App = () => (
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
+    </AuthProvider>
   </QueryClientProvider>
 );
 
