@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/services/authService';
 import { ModuleSidebar } from '@/components/navigation/ModuleSidebar';
 import { SubNavigation } from '@/components/navigation/SubNavigation';
@@ -15,7 +16,6 @@ import { toast } from 'sonner';
 import { 
   MODULE_CONFIGS, 
   isModuleRouteAllowed,
-  USER_LEVELS,
 } from '@/config/modulesConfig';
 
 // ============================================================================
@@ -25,7 +25,6 @@ import {
 function ModuleLayoutHeader() {
   const location = useLocation();
   
-  // Find current module based on URL
   const getCurrentModule = () => {
     const path = location.pathname;
     for (const [id, config] of Object.entries(MODULE_CONFIGS)) {
@@ -57,12 +56,43 @@ function ModuleLayoutHeader() {
         <ThemeToggle />
       </div>
       
-      {/* Culture tagline - caption institucional */}
       <div className="pb-2.5 -mt-1">
         <CultureTagline />
       </div>
     </header>
   );
+}
+
+// ============================================================================
+// HELPERS: get user level from either Supabase profile or legacy session
+// ============================================================================
+
+function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } {
+  const { profile, isLoading: supaLoading, session } = useAuth();
+
+  // If Supabase session exists and profile is loaded, use it
+  if (session && profile) {
+    return { level: profile.level, isResolved: true };
+  }
+
+  // If Supabase is still loading, don't resolve yet
+  if (supaLoading) {
+    return { level: null, isResolved: false };
+  }
+
+  // If Supabase session exists but profile hasn't loaded yet, wait
+  if (session && !profile) {
+    return { level: null, isResolved: false };
+  }
+
+  // No Supabase session — try legacy fallback
+  const legacyUser = authService.getCurrentUser();
+  if (legacyUser) {
+    return { level: legacyUser.level, isResolved: true };
+  }
+
+  // Nothing found, auth fully resolved as unauthenticated
+  return { level: null, isResolved: true };
 }
 
 // ============================================================================
@@ -72,18 +102,16 @@ function ModuleLayoutHeader() {
 function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? null;
+  const { level } = useEffectiveUserLevel();
 
-  useEffect(() => {
-    // Verificar se a rota atual é permitida
-    if (!isModuleRouteAllowed(location.pathname, userLevel)) {
+  React.useEffect(() => {
+    if (!isModuleRouteAllowed(location.pathname, level)) {
       toast.error('Acesso não permitido', {
         description: 'Você não tem permissão para acessar esta página.',
       });
       navigate('/modulos/dashboard', { replace: true });
     }
-  }, [location.pathname, userLevel, navigate]);
+  }, [location.pathname, level, navigate]);
 
   return <>{children}</>;
 }
@@ -93,9 +121,9 @@ function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
 // ============================================================================
 
 export default function ModuleLayout() {
-  const location = useLocation();
   const navigate = useNavigate();
-  const [isChecking, setIsChecking] = useState(true);
+  const location = useLocation();
+  const { level, isResolved } = useEffectiveUserLevel();
 
   // Find current module for sub-navigation
   const getCurrentModuleConfig = () => {
@@ -110,31 +138,23 @@ export default function ModuleLayout() {
 
   const currentModuleConfig = getCurrentModuleConfig();
 
-  // Check auth on mount
-  useEffect(() => {
-    const checkAuth = () => {
-      if (!authService.isAuthenticated()) {
-        navigate('/login', { replace: true });
-        return;
-      }
-      
-      // All internal users (including 700) now use ModuleLayout
-      // No special redirect needed - they see area-based dashboard
-    };
-
-    checkAuth();
-    setIsChecking(false);
-
-    const interval = setInterval(checkAuth, 60000);
-    return () => clearInterval(interval);
-  }, [navigate]);
-
-  if (isChecking) {
+  // ── Auth check ──
+  // Wait for auth state to resolve before deciding
+  if (!isResolved) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Carregando...</div>
       </div>
     );
+  }
+
+  // Auth resolved but no user → redirect to login
+  if (isResolved && level === null) {
+    if (import.meta.env.DEV) {
+      console.log('[ModuleLayout] No auth found, redirecting to /login');
+    }
+    navigate('/login', { replace: true });
+    return null;
   }
 
   return (
@@ -144,7 +164,6 @@ export default function ModuleLayout() {
         <main className="flex-1 flex flex-col overflow-hidden">
           <ModuleLayoutHeader />
           
-          {/* Sub-navigation for current module */}
           {currentModuleConfig && currentModuleConfig.subNavigation.length > 0 && (
             <SubNavigation items={currentModuleConfig.subNavigation} />
           )}
