@@ -27,10 +27,10 @@ export async function runBackfill(opts: {
 
   // 1. Fetch users from legacy API
   console.log('[backfill] Fetching users from legacy API...');
-  const legacyUsers = await openApi.getUsers({ per_page: 500 });
+  const response = await openApi.getUsers({ __perPage: 500 });
 
   // Filter internal only
-  const internal = legacyUsers.filter((u) => u.level >= levelMin);
+  const internal = response.data.filter((u) => u.level >= levelMin);
   console.log(`[backfill] Found ${internal.length} internal users (level >= ${levelMin})`);
 
   // 2. Map to backfill payload
