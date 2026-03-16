@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { LogOut, User } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/services/authService';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -40,14 +41,17 @@ export function ModuleSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
 
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? null;
+  // Prefer Supabase profile, fallback to legacy
+  const { profile, signOut } = useAuth();
+  const legacyUser = authService.getCurrentUser();
+  const displayName = profile?.name || legacyUser?.name || legacyUser?.email || 'Usuário';
+  const userLevel = profile?.level ?? legacyUser?.level ?? null;
 
-  // Obter módulos filtrados por permissões
   const filteredModules = getFilteredModules(userLevel);
 
-  const handleLogout = () => {
-    authService.logout();
+  const handleLogout = async () => {
+    await signOut();
+    authService.logout(); // also clear legacy session
     navigate('/login');
   };
 
@@ -149,7 +153,7 @@ export function ModuleSidebar() {
               {!collapsed && (
                 <div className="flex flex-col items-start text-left">
                   <span className="text-sm font-medium truncate max-w-[120px]">
-                    {user?.name || user?.email || 'Usuário'}
+                    {displayName}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {userLevel !== null ? getUserLevelName(userLevel) : 'Carregando...'}

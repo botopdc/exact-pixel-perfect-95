@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/services/authService';
-import { supabase } from '@/integrations/supabase/client';
 import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,42 +9,39 @@ import { Label } from '@/components/ui/label';
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { getRedirectByLevel } from '@/lib/rbac';
 
-type AuthMode = 'supabase' | 'legacy';
-
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { isLoading: loadingAuth, session, profile, signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const hasRedirected = useRef(false);
 
-  // Check if already logged in (either Supabase or legacy)
-  useEffect(() => {
-    // Check Supabase session first
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('level')
-          .eq('id', session.user.id)
-          .maybeSingle();
+  // ── Auto-redirect if already authenticated ──
+  // Only redirect once, and only when auth is fully resolved
+  if (!loadingAuth && session && profile && !hasRedirected.current) {
+    hasRedirected.current = true;
+    if (import.meta.env.DEV) {
+      console.log('[Login] Already authenticated, redirecting:', {
+        email: profile.email,
+        level: profile.level,
+      });
+    }
+    const target = getRedirectByLevel(profile.level);
+    // Use setTimeout to avoid calling navigate during render
+    setTimeout(() => navigate(target, { replace: true }), 0);
+  }
 
-        if (profile) {
-          navigate(getRedirectByLevel(profile.level), { replace: true });
-          return;
-        }
-      }
-
-      // Fallback: check legacy session
-      if (authService.isAuthenticated()) {
-        const user = authService.getCurrentUser();
-        if (user) {
-          navigate(getRedirectByLevel(user.level), { replace: true });
-        }
-      }
-    });
-  }, [navigate]);
+  // ── Show loading while auth state is being determined ──
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Verificando sessão...</div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,72 +52,37 @@ export default function LoginPage() {
 
     try {
       // 1) Try Supabase Auth first
-      const { data: supaData, error: supaError } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      });
+      const result = await signIn(normalizedEmail, password);
 
-      if (!supaError && supaData.user) {
-        // Load profile to get level
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('level, is_active')
-          .eq('id', supaData.user.id)
-          .maybeSingle();
-
-        if (profile && !profile.is_active) {
-          await supabase.auth.signOut();
-          setError('Conta desativada. Contacte o administrador.');
-          setIsLoading(false);
-          return;
-        }
-
-        if (profile) {
-          // Partners must use partner portal
-          if (profile.level === 200) {
-            await supabase.auth.signOut();
-            setError('Área exclusiva para parceiros. Use o login do Portal do Parceiro.');
-            setIsLoading(false);
-            return;
-          }
-
-          if (import.meta.env.DEV) {
-            console.log('[Login] Supabase Auth success:', {
-              uid: supaData.user.id,
-              email: normalizedEmail,
-              level: profile.level,
-            });
-          }
-
-          navigate(getRedirectByLevel(profile.level), { replace: true });
-          setIsLoading(false);
-          return;
-        }
-
-        // Profile not found — user exists in auth but not in profiles
-        // This can happen for new signups without backfill
+      if (result.success) {
+        // onAuthStateChange will update session/profile in AuthContext.
+        // We need to wait for profile to load before redirecting.
+        // The auto-redirect block above will handle it once profile loads.
+        // But we can also poll for it here for a snappier experience.
         if (import.meta.env.DEV) {
-          console.warn('[Login] Supabase Auth OK but no profile. Falling back to legacy.');
+          console.log('[Login] Supabase Auth success, waiting for profile...');
         }
-        await supabase.auth.signOut();
+        // Give AuthContext time to load the profile, then redirect
+        // The onAuthStateChange + loadProfile will fire; we just wait
+        return; // isLoading stays true; auto-redirect handles navigation
       }
 
-      // 2) Fallback to legacy API auth
+      // Supabase auth failed — try legacy fallback
       if (import.meta.env.DEV) {
-        console.log('[Login] Trying legacy auth for:', normalizedEmail);
+        console.log('[Login] Supabase auth failed, trying legacy for:', normalizedEmail);
       }
 
-      const result = await authService.login(normalizedEmail, password);
+      const legacyResult = await authService.login(normalizedEmail, password);
 
-      if (result.success && result.session) {
-        navigate(getRedirectByLevel(result.session.level), { replace: true });
+      if (legacyResult.success && legacyResult.session) {
+        navigate(getRedirectByLevel(legacyResult.session.level), { replace: true });
       } else {
-        setError(result.error || 'Email ou senha incorretos');
+        setError(legacyResult.error || result.error || 'Email ou senha incorretos');
+        setIsLoading(false);
       }
     } catch (err) {
       console.error('[Login] Unexpected error:', err);
       setError('Erro inesperado. Tente novamente.');
-    } finally {
       setIsLoading(false);
     }
   };
