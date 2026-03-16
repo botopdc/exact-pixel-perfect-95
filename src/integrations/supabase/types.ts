@@ -1245,6 +1245,54 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          company_id: number | null
+          created_at: string
+          department: string | null
+          email: string
+          entity_id: number | null
+          id: string
+          is_active: boolean
+          legacy_user_id: number | null
+          level: number
+          name: string
+          role_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          company_id?: number | null
+          created_at?: string
+          department?: string | null
+          email: string
+          entity_id?: number | null
+          id: string
+          is_active?: boolean
+          legacy_user_id?: number | null
+          level?: number
+          name: string
+          role_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          company_id?: number | null
+          created_at?: string
+          department?: string | null
+          email?: string
+          entity_id?: number | null
+          id?: string
+          is_active?: boolean
+          legacy_user_id?: number | null
+          level?: number
+          name?: string
+          role_code?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       proposal_participants: {
         Row: {
           commission_pct: number | null
@@ -2688,6 +2736,8 @@ export type Database = {
     }
     Functions: {
       create_contract_from_proposal: { Args: { payload: Json }; Returns: Json }
+      is_internal_user: { Args: never; Returns: boolean }
+      is_profile_admin: { Args: never; Returns: boolean }
       is_support_admin_or_manager: { Args: never; Returns: boolean }
       is_support_internal: { Args: never; Returns: boolean }
       is_tech_admin: { Args: never; Returns: boolean }
