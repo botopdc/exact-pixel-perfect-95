@@ -3,7 +3,7 @@
 // Uses Supabase Auth + public.profiles + public.user_roles
 // ============================================================================
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 import type { UserRole } from '@/lib/rbac';
@@ -51,11 +51,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [roles, setRoles] = useState<UserRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const initialised = useRef(false);
 
   // Load profile + roles
-  const loadProfile = useCallback(async (userId: string) => {
+  const loadProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
-      // Load profile and roles in parallel
+      if (import.meta.env.DEV) {
+        console.log('[AuthContext] Loading profile for:', userId);
+      }
+
       const [profileRes, rolesRes] = await Promise.all([
         supabase
           .from('profiles')
@@ -94,7 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatar_url: data.avatar_url,
       };
 
-      // Map roles
       const userRoles: UserRole[] = (rolesRes.data || []).map((r: any) => ({
         role_id: r.role_id,
         role_code: (r.roles as any)?.code || '',
@@ -122,32 +125,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize auth state
   useEffect(() => {
+    // 1) Set up listener FIRST (per Supabase best practices)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         if (import.meta.env.DEV) {
-          console.log('[AuthContext] Auth event:', event, currentSession?.user?.email);
+          console.log('[AuthContext] Auth event:', event, {
+            email: currentSession?.user?.email ?? 'none',
+            initialised: initialised.current,
+          });
         }
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
-          setTimeout(() => loadProfile(currentSession.user.id), 0);
+          // Use setTimeout to avoid Supabase deadlock (their recommendation)
+          // but only for NON-initial events. Initial load is handled by getSession.
+          if (initialised.current) {
+            setTimeout(async () => {
+              await loadProfile(currentSession.user.id);
+            }, 0);
+          }
         } else {
           setProfile(null);
           setRoles([]);
+          // If already initialised, we can stop loading
+          if (initialised.current) {
+            setIsLoading(false);
+          }
         }
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+    // 2) Restore existing session
+    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
+      if (import.meta.env.DEV) {
+        console.log('[AuthContext] getSession result:', {
+          hasSession: !!existingSession,
+          email: existingSession?.user?.email ?? 'none',
+        });
+      }
+
       setSession(existingSession);
       setUser(existingSession?.user ?? null);
 
       if (existingSession?.user) {
-        loadProfile(existingSession.user.id).finally(() => setIsLoading(false));
-      } else {
-        setIsLoading(false);
+        await loadProfile(existingSession.user.id);
+      }
+
+      initialised.current = true;
+      setIsLoading(false);
+
+      if (import.meta.env.DEV) {
+        console.log('[AuthContext] Initialisation complete, isLoading=false');
       }
     });
 
@@ -172,14 +202,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Erro inesperado ao autenticar' };
       }
 
+      // Proactively load profile so it's available immediately
+      await loadProfile(data.user.id);
+
+      if (import.meta.env.DEV) {
+        console.log('[AuthContext] signIn success:', data.user.email);
+      }
+
       return { success: true };
     } catch (err) {
       console.error('[AuthContext] Sign in exception:', err);
       return { success: false, error: 'Erro ao conectar. Tente novamente.' };
     }
-  }, []);
+  }, [loadProfile]);
 
   const signOut = useCallback(async () => {
+    if (import.meta.env.DEV) {
+      console.log('[AuthContext] signOut called');
+    }
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

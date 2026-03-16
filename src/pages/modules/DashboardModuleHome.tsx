@@ -6,6 +6,7 @@
 import React from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import { ModuleHeader } from '@/components/navigation/ModuleCard';
+import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/services/authService';
 import { getUserArea, isClientUser, AREA_CONFIGS } from '@/lib/userArea';
 import { useDashboardKPIs } from '@/hooks/useDashboardKPIs';
@@ -30,10 +31,18 @@ function ClientDashboard() {
   );
 }
 
+// Resolve user level from Supabase profile or legacy session
+function useUserLevel(): number | null {
+  const { profile } = useAuth();
+  if (profile) return profile.level;
+  // Legacy fallback
+  const legacyUser = authService.getCurrentUser();
+  return legacyUser?.level ?? null;
+}
+
 // Corporate dashboard for non-client users
 export default function DashboardModuleHome() {
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? null;
+  const userLevel = useUserLevel();
   const area = getUserArea(userLevel);
   const areaConfig = AREA_CONFIGS[area];
   
