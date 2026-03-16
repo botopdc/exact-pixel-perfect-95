@@ -1,11 +1,11 @@
 // ============================================================================
-// RBAC HELPERS — Centralized permission checks based on profile.level
-// Source of truth: public.profiles.level
+// RBAC HELPERS — Hybrid permission checks: roles + profile.level fallback
+// Source of truth: public.user_roles → fallback: public.profiles.level
 // ============================================================================
 
 import type { UserProfile } from '@/contexts/AuthContext';
 
-// Re-export levels for convenience
+// Re-export levels for backward compat
 export const LEVELS = {
   CLIENTE: 1,
   PARCEIRO: 200,
@@ -22,57 +22,107 @@ export const LEVELS = {
 
 export type LevelKey = keyof typeof LEVELS;
 
+// Level → role code mapping (used for backfill and fallback)
+export const LEVEL_TO_ROLE: Record<number, string> = {
+  1000: 'admin',
+  950: 'gerente_suporte',
+  900: 'suporte_n1',
+  775: 'cs',
+  750: 'gerente_comercial',
+  700: 'comercial',
+  600: 'rh',
+  200: 'parceiro',
+  1: 'cliente',
+};
+
 // ============================================================================
-// ROLE CHECKS
+// ROLE-BASED CHECKS (new model)
 // ============================================================================
 
-/** User level >= 1000 */
-export function isAdmin(profile: UserProfile | null): boolean {
+export interface UserRole {
+  role_id: string;
+  role_code: string;
+  is_active: boolean;
+}
+
+/** Check if user has a specific role by code */
+export function hasRole(roles: UserRole[] | null | undefined, code: string): boolean {
+  if (!roles || roles.length === 0) return false;
+  return roles.some(r => r.role_code === code && r.is_active);
+}
+
+/** Check if user has any of the specified roles */
+export function hasAnyRole(roles: UserRole[] | null | undefined, codes: string[]): boolean {
+  if (!roles || roles.length === 0) return false;
+  return codes.some(code => hasRole(roles, code));
+}
+
+/** Check if user has all of the specified roles */
+export function hasAllRoles(roles: UserRole[] | null | undefined, codes: string[]): boolean {
+  if (!roles || roles.length === 0) return false;
+  return codes.every(code => hasRole(roles, code));
+}
+
+// ============================================================================
+// HYBRID CHECKS — Roles first, level fallback
+// ============================================================================
+
+/** User is admin: role 'admin' OR level >= 1000 */
+export function isAdmin(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasRole(roles, 'admin')) return true;
   return (profile?.level ?? 0) >= LEVELS.ADMIN;
 }
 
-/** User level >= 950 */
-export function isSupportManager(profile: UserProfile | null): boolean {
+/** User is support manager: role OR level >= 950 */
+export function isSupportManager(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasAnyRole(roles, ['gerente_suporte', 'admin'])) return true;
   return (profile?.level ?? 0) >= LEVELS.GERENTE_SUPORTE;
 }
 
-/** User level === 900 */
-export function isSupport(profile: UserProfile | null): boolean {
+/** User is support: role OR level === 900 */
+export function isSupport(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasAnyRole(roles, ['suporte_n1', 'suporte_n2', 'suporte_n3', 'gerente_suporte', 'admin'])) return true;
   return profile?.level === LEVELS.SUPORTE;
 }
 
-/** User level === 775 */
-export function isCS(profile: UserProfile | null): boolean {
+/** User is CS: role OR level === 775 */
+export function isCS(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasRole(roles, 'cs')) return true;
   return profile?.level === LEVELS.SUCESSO_CLIENTE;
 }
 
-/** User level === 700 */
-export function isComercial(profile: UserProfile | null): boolean {
+/** User is comercial: role OR level === 700 */
+export function isComercial(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasAnyRole(roles, ['comercial', 'gerente_comercial'])) return true;
   return profile?.level === LEVELS.COMERCIAL;
 }
 
-/** User level >= 750 (gerente comercial or above) */
-export function isGerenteComercial(profile: UserProfile | null): boolean {
+/** User is gerente comercial: role OR level >= 750 */
+export function isGerenteComercial(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasAnyRole(roles, ['gerente_comercial', 'admin'])) return true;
   return (profile?.level ?? 0) >= LEVELS.GERENTE_COMERCIAL;
 }
 
-/** User level >= 600 (any internal user) */
-export function isInternal(profile: UserProfile | null): boolean {
+/** User is internal: role OR level >= 600 */
+export function isInternal(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasRole(roles, 'internal_user')) return true;
   return (profile?.level ?? 0) >= LEVELS.RH;
 }
 
-/** User level === 200 */
-export function isPartner(profile: UserProfile | null): boolean {
+/** User is partner: role OR level === 200 */
+export function isPartner(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasRole(roles, 'parceiro')) return true;
   return profile?.level === LEVELS.PARCEIRO;
 }
 
-/** User level === 1 */
-export function isClient(profile: UserProfile | null): boolean {
+/** User is client: role OR level === 1 */
+export function isClient(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
+  if (hasRole(roles, 'cliente')) return true;
   return profile?.level === LEVELS.CLIENTE;
 }
 
 // ============================================================================
-// GENERIC CHECKS
+// GENERIC CHECKS (backward compat)
 // ============================================================================
 
 /** Check if user has at least the given level */
