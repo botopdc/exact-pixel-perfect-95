@@ -77,7 +77,10 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
   const enrichedFilters: TicketListFilters = {
     ...filters,
     user_level: ctx.level,
-    user_id: ctx.legacyUserId || ctx.userId,
+    // Primary: Supabase profile UUID for assigned_to_user_id matching
+    user_id: ctx.userId,
+    // Legacy fallback for assigned_to_name matching
+    user_legacy_id: ctx.legacyUserId,
     user_email: ctx.email,
   };
 
