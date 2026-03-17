@@ -1,10 +1,13 @@
 // ============================================================================
-// TICKET PERMISSIONS HELPER
-// Derives UI permissions from user level and ticket state
+// TICKET PERMISSIONS HELPER — Role-first with level fallback
+// Uses roles from useAuth() as primary, falls back to profile.level
 // Backend remains the authority — these are UI hints only
 // ============================================================================
 
 import type { CoreTicket, TicketStatus, TicketAction } from '@/services/supportTicketCoreService';
+import type { UserProfile } from '@/contexts/AuthContext';
+import type { UserRole } from '@/lib/rbac';
+import { hasRole, hasAnyRole, isAdmin, isSupport, isSupportManager, isCS, isInternal, isClient, isPartner } from '@/lib/rbac';
 
 export interface TicketPermissions {
   canView: boolean;
@@ -31,14 +34,14 @@ export interface TicketPermissions {
   isInternal: boolean;
 }
 
-// ── Level helpers (exported for guards) ─────────────────────────────────
+// ── Level helpers (exported for guards — backward compat) ───────────────
 
 export function isClientUser(level: number): boolean { return level === 1; }
 export function isPartnerUser(level: number): boolean { return level === 200; }
 export function isInternalUser(level: number): boolean { return level >= 600; }
 export function isSupportUser(level: number): boolean { return level >= 900; }
 export function isCSUser(level: number): boolean { return level >= 775 && level < 900; }
-export function isSupportManager(level: number): boolean { return level >= 950; }
+export function isSupportManagerUser(level: number): boolean { return level >= 950; }
 export function isAdminUser(level: number): boolean { return level >= 1000; }
 
 const ACTIVE_STATUSES: TicketStatus[] = [
@@ -51,18 +54,22 @@ const WAITING_STATUSES: TicketStatus[] = [
   'aguardando_cliente', 'aguardando_terceiro',
 ];
 
-export function getTicketPermissions(
-  userLevel: number,
+// ── Role-based permissions (NEW — primary) ──────────────────────────────
+
+export function getTicketPermissionsFromRoles(
+  profile: UserProfile | null,
+  roles: UserRole[] | null | undefined,
   ticket?: CoreTicket | null,
   userId?: string
 ): TicketPermissions {
-  const isClient = isClientUser(userLevel);
-  const isPartner = isPartnerUser(userLevel);
-  const isInternal = isInternalUser(userLevel);
-  const isCS = userLevel >= 775;
-  const isSupport = userLevel >= 900;
-  const isManager = userLevel >= 950;
-  const isAdmin = userLevel >= 1000;
+  const _isAdmin = isAdmin(profile, roles);
+  const _isSupportManager = isSupportManager(profile, roles);
+  const _isSupport = isSupport(profile, roles);
+  const _isCS = isCS(profile, roles);
+  const _isInternal = isInternal(profile, roles);
+  const _isClient = isClient(profile, roles);
+  const _isPartner = isPartner(profile, roles);
+  const _isNocManager = hasRole(roles, 'noc_manager');
 
   const status = ticket?.status;
   const isActive = status ? ACTIVE_STATUSES.includes(status) : false;
@@ -73,27 +80,75 @@ export function getTicketPermissions(
 
   return {
     canView: true,
-    canCreate: isClient || isInternal,
-    canAssign: (isSupport || isManager || isAdmin) && isActive,
-    canStart: (isSupport || isAdmin) && (status === 'novo' || status === 'triagem' || status === 'reaberto'),
-    canTransfer: (isSupport || isManager || isAdmin) && isActive,
-    canEscalate: (isSupport || isManager || isAdmin) && isActive,
-    canWaitCustomer: (isSupport || isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
-    canWaitThirdParty: (isSupport || isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
-    canResolve: (isSupport || isAdmin) && isActive,
-    canClose: (isCS || isManager || isAdmin) && (isResolved || isActive),
-    canReopen: (isCS || isManager || isAdmin) && (isResolved || isClosed),
-    canCancel: (isManager || isAdmin) && !isTerminal,
-    canAddPublicMessage: !isTerminal && (isClient || isInternal),
-    canAddInternalNote: isInternal && !isTerminal,
-    canViewInternalNotes: isInternal,
-    canViewQueue: isInternal,
-    canManageSLA: isAdmin || isManager,
-    canManageQueues: isSupport || isManager || isAdmin,
-    canUploadAttachment: !isTerminal && (isClient || isInternal),
+    canCreate: _isClient || _isInternal,
+    canAssign: (_isSupport || _isSupportManager || _isAdmin) && isActive,
+    canStart: (_isSupport || _isAdmin) && (status === 'novo' || status === 'triagem' || status === 'reaberto'),
+    canTransfer: (_isSupport || _isSupportManager || _isAdmin) && isActive,
+    canEscalate: (_isSupport || _isSupportManager || _isAdmin) && isActive,
+    canWaitCustomer: (_isSupport || _isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
+    canWaitThirdParty: (_isSupport || _isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
+    canResolve: (_isSupport || _isAdmin) && isActive,
+    canClose: (_isCS || _isSupportManager || _isAdmin) && (isResolved || isActive),
+    canReopen: (_isCS || _isSupportManager || _isAdmin) && (isResolved || isClosed),
+    canCancel: (_isSupportManager || _isAdmin) && !isTerminal,
+    canAddPublicMessage: !isTerminal && (_isClient || _isInternal),
+    canAddInternalNote: _isInternal && !isTerminal,
+    canViewInternalNotes: _isInternal,
+    canViewQueue: _isInternal,
+    canManageSLA: _isAdmin || _isSupportManager,
+    canManageQueues: _isSupport || _isSupportManager || _isAdmin,
+    canUploadAttachment: !isTerminal && (_isClient || _isInternal),
+    isClient: _isClient,
+    isPartner: _isPartner,
+    isInternal: _isInternal,
+  };
+}
+
+// ── Legacy level-based permissions (fallback) ───────────────────────────
+
+export function getTicketPermissions(
+  userLevel: number,
+  ticket?: CoreTicket | null,
+  userId?: string
+): TicketPermissions {
+  const isClient = isClientUser(userLevel);
+  const isPartner = isPartnerUser(userLevel);
+  const _isInternal = isInternalUser(userLevel);
+  const _isCS = userLevel >= 775;
+  const _isSupport = userLevel >= 900;
+  const isManager = userLevel >= 950;
+  const _isAdmin = userLevel >= 1000;
+
+  const status = ticket?.status;
+  const isActive = status ? ACTIVE_STATUSES.includes(status) : false;
+  const isResolved = status === 'resolvido_suporte';
+  const isClosed = status === 'encerrado_cs';
+  const isCancelled = status === 'cancelado';
+  const isTerminal = isClosed || isCancelled;
+
+  return {
+    canView: true,
+    canCreate: isClient || _isInternal,
+    canAssign: (_isSupport || isManager || _isAdmin) && isActive,
+    canStart: (_isSupport || _isAdmin) && (status === 'novo' || status === 'triagem' || status === 'reaberto'),
+    canTransfer: (_isSupport || isManager || _isAdmin) && isActive,
+    canEscalate: (_isSupport || isManager || _isAdmin) && isActive,
+    canWaitCustomer: (_isSupport || _isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
+    canWaitThirdParty: (_isSupport || _isAdmin) && isActive && !WAITING_STATUSES.includes(status!),
+    canResolve: (_isSupport || _isAdmin) && isActive,
+    canClose: (_isCS || isManager || _isAdmin) && (isResolved || isActive),
+    canReopen: (_isCS || isManager || _isAdmin) && (isResolved || isClosed),
+    canCancel: (isManager || _isAdmin) && !isTerminal,
+    canAddPublicMessage: !isTerminal && (isClient || _isInternal),
+    canAddInternalNote: _isInternal && !isTerminal,
+    canViewInternalNotes: _isInternal,
+    canViewQueue: _isInternal,
+    canManageSLA: _isAdmin || isManager,
+    canManageQueues: _isSupport || isManager || _isAdmin,
+    canUploadAttachment: !isTerminal && (isClient || _isInternal),
     isClient,
     isPartner,
-    isInternal,
+    isInternal: _isInternal,
   };
 }
 
@@ -154,7 +209,6 @@ export const CATEGORY_LABELS: Record<string, string> = {
   BANCO: 'Banco de Dados',
   CLOUD: 'Cloud',
   OUTROS: 'Outros',
-  // Legacy codes
   infraestrutura: 'Infraestrutura',
   virtualizacao: 'Virtualização',
   backup: 'Backup',
@@ -172,7 +226,6 @@ export const TICKET_TYPE_LABELS: Record<string, string> = {
   SOLICITACAO: 'Solicitação',
   DUVIDA: 'Dúvida',
   ALTERACAO: 'Alteração',
-  // Legacy codes
   incidente: 'Incidente',
   solicitacao: 'Solicitação',
   duvida: 'Dúvida',

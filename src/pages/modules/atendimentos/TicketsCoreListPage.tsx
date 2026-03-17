@@ -1,6 +1,7 @@
 // ============================================================================
 // TICKETS CORE — Main page (role-based) with queue tabs
 // Route: /modulos/atendimentos/suporte-tecnico
+// Auth: useAuth() primary, authService fallback
 // ============================================================================
 
 import { useState } from 'react';
@@ -14,8 +15,8 @@ import { TicketFilters } from '@/components/tickets-core/TicketFilters';
 import { TicketSummaryCards } from '@/components/tickets-core/TicketSummaryCards';
 import { TicketCreateModal } from '@/components/tickets-core/TicketCreateModal';
 import { useSupportTicketList } from '@/hooks/useSupportTicketCore';
-import { authService } from '@/services/authService';
-import { getTicketPermissions, TICKET_LIST_ROUTE, TICKET_DETAIL_ROUTE } from '@/lib/ticketPermissions';
+import { useAuth } from '@/contexts/AuthContext';
+import { getTicketPermissionsFromRoles, getTicketPermissions, TICKET_LIST_ROUTE, TICKET_DETAIL_ROUTE } from '@/lib/ticketPermissions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { TicketListFilters } from '@/services/supportTicketCoreService';
 
@@ -32,9 +33,14 @@ const TAB_FILTERS: Record<QueueTab, Partial<TicketListFilters>> = {
 };
 
 export default function TicketsCoreListPage() {
-  const session = authService.getSession();
-  const userLevel = session?.level ?? 0;
-  const permissions = getTicketPermissions(userLevel);
+  const { profile, roles, session } = useAuth();
+  const userLevel = profile?.level ?? 0;
+
+  // Role-based permissions (primary) with level fallback
+  const permissions = session && profile
+    ? getTicketPermissionsFromRoles(profile, roles)
+    : getTicketPermissions(userLevel);
+
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -49,16 +55,6 @@ export default function TicketsCoreListPage() {
   };
 
   const { tickets, isLoading, error, refetch } = useSupportTicketList(mergedFilters);
-
-  // Debug visibility
-  console.log('[TicketsCoreListPage] render', {
-    tab,
-    mergedFilters,
-    ticketCount: tickets.length,
-    isLoading,
-    hasError: !!error,
-    errorMsg: error?.message,
-  });
 
   const handleCreated = (ticketId: string) => {
     navigate(TICKET_DETAIL_ROUTE(ticketId));
