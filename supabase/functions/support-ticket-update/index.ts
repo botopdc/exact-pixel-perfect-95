@@ -386,12 +386,11 @@ const handleClose: ActionHandler = async (db, ticket, body, req) => {
   if (!body.reason?.trim()) return jsonResponse({ success: false, message: "close_reason (reason) obrigatório" }, 422);
 
   const now = new Date().toISOString();
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "encerrado_cs",
     closed_at: now,
-    // UUID column — null for integer user IDs
-    cs_closed_by: toUuidOrNull(body.actor_user_id),
-    // Integer column — safe
+    cs_closed_by: actorUuid,
     closed_by_user_id: toIntOrNull(body.actor_user_id),
     close_reason: body.reason.trim(),
   });
