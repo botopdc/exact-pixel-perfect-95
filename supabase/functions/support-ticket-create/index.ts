@@ -298,10 +298,10 @@ Deno.serve(async (req) => {
     // Try to auto-assign to the queue member with the least open tickets
     let autoAssigned = false;
     try {
-      // 1. Get active members that can receive auto-assign
+      // 1. Get active members that can receive auto-assign (include user_id_uuid)
       const { data: members } = await db
         .from("support_queue_members")
-        .select("user_id, user_name, user_email, user_level")
+        .select("user_id, user_id_uuid, user_name, user_email, user_level")
         .eq("queue_id", currentQueueId)
         .eq("is_active", true)
         .eq("can_receive_auto_assign", true);
