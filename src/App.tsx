@@ -371,6 +371,7 @@ const App = () => (
             <Route path="/modulos/admin/precos" element={<Precos />} />
             <Route path="/modulos/admin/parametros" element={<ParametrosPage />} />
             <Route path="/modulos/admin/logs" element={<LogsPage />} />
+            <Route path="/modulos/admin/backfill" element={<BackfillReconciliationPage />} />
           </Route>
           
           {/* Legacy route redirects - kept for backwards compatibility with bookmarks/external links */}
