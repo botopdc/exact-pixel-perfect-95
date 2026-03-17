@@ -1,6 +1,7 @@
 // ============================================================================
 // KPIs CONSOLIDADOS PAGE — Unified KPIs for support, CS and management
 // Rota: /modulos/atendimentos/kpis
+// Auth: useAuth() primary, authService fallback
 // ============================================================================
 
 import React, { useState } from 'react';
@@ -9,23 +10,26 @@ import { ModuleHeader } from '@/components/navigation/ModuleCard';
 import KPIsSuporte from '@/pages/KPIsSuporte';
 import KPIsCS from '@/pages/KPIsCS';
 import KPIsGestao from '@/pages/KPIsGestao';
-import { authService } from '@/services/authService';
-import { USER_LEVELS } from '@/config/modulesConfig';
+import { useAuth } from '@/contexts/AuthContext';
+import { isAdmin, isSupportManager, isCS } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 
 type TabId = 'suporte' | 'cs' | 'gestao';
 
 export default function KPIsConsolidadosPage() {
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? 0;
+  const { profile, roles } = useAuth();
 
-  const tabs: { id: TabId; label: string; minLevel: number }[] = [
-    { id: 'gestao', label: 'Gestão', minLevel: 950 },
-    { id: 'suporte', label: 'Suporte', minLevel: 950 },
-    { id: 'cs', label: 'Customer Success', minLevel: 775 },
+  const _isAdmin = isAdmin(profile, roles);
+  const _isSupportManager = isSupportManager(profile, roles);
+  const _isCS = isCS(profile, roles);
+
+  const tabs: { id: TabId; label: string; allowed: boolean }[] = [
+    { id: 'gestao', label: 'Gestão', allowed: _isSupportManager || _isAdmin },
+    { id: 'suporte', label: 'Suporte', allowed: _isSupportManager || _isAdmin },
+    { id: 'cs', label: 'Customer Success', allowed: _isCS || _isSupportManager || _isAdmin },
   ];
 
-  const allowedTabs = tabs.filter(t => userLevel >= t.minLevel || userLevel >= USER_LEVELS.ADMIN);
+  const allowedTabs = tabs.filter(t => t.allowed);
   const [activeTab, setActiveTab] = useState<TabId>(allowedTabs[0]?.id ?? 'gestao');
 
   return (

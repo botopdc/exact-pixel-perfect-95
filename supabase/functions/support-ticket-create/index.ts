@@ -244,16 +244,11 @@ Deno.serve(async (req) => {
         ticket_id: ticket.id,
         old_status: null,
         new_status: "novo",
-        // changed_by_user_id is UUID – only set if we have valid UUID
         changed_by_user_id: requesterUserIdUuid,
         changed_by_name: body.requester_name,
         reason: "Ticket criado",
       });
-      if (shError) {
-        console.error("support-ticket-create STATUS_HISTORY INSERT ERROR:", JSON.stringify(shError));
-      } else {
-        console.log("support-ticket-create status_history OK");
-      }
+      if (shError) console.error("support-ticket-create STATUS_HISTORY ERROR:", shError.message);
     } catch (shErr) {
       console.error("support-ticket-create STATUS_HISTORY EXCEPTION:", shErr);
     }
@@ -269,11 +264,7 @@ Deno.serve(async (req) => {
         changed_by_name: body.requester_name,
         reason: "Ticket criado - entrada na fila N1",
       });
-      if (qhError) {
-        console.error("support-ticket-create QUEUE_HISTORY INSERT ERROR:", JSON.stringify(qhError));
-      } else {
-        console.log("support-ticket-create queue_history OK");
-      }
+      if (qhError) console.error("support-ticket-create QUEUE_HISTORY ERROR:", qhError.message);
     } catch (qhErr) {
       console.error("support-ticket-create QUEUE_HISTORY EXCEPTION:", qhErr);
     }
@@ -288,8 +279,7 @@ Deno.serve(async (req) => {
         actor_id: body.requester_user_id || null,
         user_id: body.requester_user_id || null,
         metadata: {
-          severity,
-          priority,
+          severity, priority,
           category: body.category,
           ticket_type: body.ticket_type,
           sla_policy_id,
@@ -299,45 +289,150 @@ Deno.serve(async (req) => {
         ip_address: req.headers.get("x-forwarded-for") || null,
         user_agent: req.headers.get("user-agent") || null,
       });
-      if (evError) {
-        console.error("support-ticket-create EVENT INSERT ERROR:", JSON.stringify(evError));
-      } else {
-        console.log("support-ticket-create event OK");
-      }
+      if (evError) console.error("support-ticket-create EVENT ERROR:", evError.message);
     } catch (evErr) {
       console.error("support-ticket-create EVENT EXCEPTION:", evErr);
     }
 
+    // ── AUTO-ASSIGNMENT ENGINE ──────────────────────────────────────────
+    // Try to auto-assign to the queue member with the least open tickets
+    let autoAssigned = false;
+    try {
+      // 1. Get active members that can receive auto-assign
+      const { data: members } = await db
+        .from("support_queue_members")
+        .select("user_id, user_name, user_email, user_level")
+        .eq("queue_id", currentQueueId)
+        .eq("is_active", true)
+        .eq("can_receive_auto_assign", true);
+
+      console.log("support-ticket-create auto-assign candidates:", members?.length ?? 0);
+
+      if (members && members.length > 0) {
+        // 2. Check for on-call members (they get priority)
+        const now = new Date().toISOString();
+        const { data: oncallShifts } = await db
+          .from("support_oncall_shifts")
+          .select("user_email")
+          .eq("is_active", true)
+          .lte("starts_at", now)
+          .gte("ends_at", now);
+
+        const oncallEmails = new Set((oncallShifts || []).map((s: any) => s.user_email));
+        const oncallMembers = members.filter((m: any) => oncallEmails.has(m.user_email));
+
+        // 3. Choose pool: on-call members if any, otherwise all eligible
+        const pool = oncallMembers.length > 0 ? oncallMembers : members;
+
+        // 4. Count open tickets per member
+        const openStatuses = ["novo", "triagem", "em_atendimento", "aguardando_cliente", "aguardando_terceiro", "reaberto"];
+        const memberLoads: { member: any; count: number }[] = [];
+
+        for (const m of pool) {
+          // Use user_email to match assigned_to_name (since we can't reliably use UUID)
+          // Instead, count tickets where assigned_to_name matches
+          const { count } = await db
+            .from("support_tickets")
+            .select("*", { count: "exact", head: true })
+            .is("deleted_at", null)
+            .in("status", openStatuses)
+            .eq("assigned_to_name", m.user_name);
+
+          memberLoads.push({ member: m, count: count ?? 0 });
+        }
+
+        // 5. Sort by load (ascending) and pick the least loaded
+        memberLoads.sort((a, b) => a.count - b.count);
+        const chosen = memberLoads[0];
+
+        if (chosen) {
+          console.log("support-ticket-create auto-assigning to:", {
+            name: chosen.member.user_name,
+            email: chosen.member.user_email,
+            currentLoad: chosen.count,
+            isOncall: oncallEmails.has(chosen.member.user_email),
+          });
+
+          const assignNow = new Date().toISOString();
+          const { error: assignError } = await db
+            .from("support_tickets")
+            .update({
+              assigned_to_name: chosen.member.user_name,
+              assigned_at: assignNow,
+              status: "em_atendimento",
+              metadata: {
+                ...ticketMetadata,
+                auto_assigned: true,
+                auto_assigned_to_email: chosen.member.user_email,
+                auto_assigned_at: assignNow,
+              },
+            })
+            .eq("id", ticket.id);
+
+          if (!assignError) {
+            autoAssigned = true;
+            // Record assignment
+            await db.from("support_ticket_assignments").insert({
+              ticket_id: ticket.id,
+              to_user_name: chosen.member.user_name,
+              from_queue: "N1",
+              to_queue: "N1",
+              reason: "Auto-atribuição baseada em carga de trabalho",
+              assigned_by_name: "Sistema",
+            });
+            // Record status change
+            await db.from("support_ticket_status_history").insert({
+              ticket_id: ticket.id,
+              old_status: "novo",
+              new_status: "em_atendimento",
+              changed_by_name: "Sistema",
+              reason: `Auto-atribuído para ${chosen.member.user_name}`,
+            });
+            // Record event
+            await db.from("support_ticket_events").insert({
+              event_name: "ticket.auto_assigned",
+              entity_type: "support_ticket",
+              entity_id: ticket.id,
+              actor_type: "system",
+              metadata: {
+                to_user_name: chosen.member.user_name,
+                to_user_email: chosen.member.user_email,
+                load_at_assignment: chosen.count,
+                is_oncall: oncallEmails.has(chosen.member.user_email),
+              },
+            });
+            console.log("support-ticket-create auto-assignment DONE");
+          } else {
+            console.error("support-ticket-create auto-assign UPDATE ERROR:", assignError.message);
+          }
+        }
+      }
+    } catch (autoErr) {
+      console.error("support-ticket-create AUTO-ASSIGN EXCEPTION:", autoErr);
+      // Non-fatal — ticket is still created, just not auto-assigned
+    }
+
     // ── Notify N1 queue members ─────────────────────────────────────────
     try {
-      const { data: members, error: memError } = await db
+      const { data: notifMembers } = await db
         .from("support_queue_members")
         .select("user_id, user_level")
         .eq("queue_id", currentQueueId)
         .eq("is_active", true);
 
-      if (memError) {
-        console.error("support-ticket-create MEMBERS LOOKUP ERROR:", JSON.stringify(memError));
-      }
-      console.log("support-ticket-create N1 members found:", members?.length ?? 0);
-
-      if (members && members.length > 0) {
-        const notifications = members.map((m: any) => ({
+      if (notifMembers && notifMembers.length > 0) {
+        const notifications = notifMembers.map((m: any) => ({
           user_id: String(m.user_id),
           user_level: m.user_level,
           event_name: "ticket.created",
-          title: `Novo ticket ${ticket.public_code}`,
+          title: `Novo ticket ${ticket.public_code}${autoAssigned ? ' (auto-atribuído)' : ''}`,
           body: ticket.title,
           ticket_id: ticket.id,
           ticket_public_code: ticket.public_code,
           metadata: {},
         }));
         const { error: notifError } = await db.from("support_notifications").insert(notifications);
-        if (notifError) {
-          console.error("support-ticket-create NOTIFICATIONS INSERT ERROR:", JSON.stringify(notifError));
-        } else {
-          console.log("support-ticket-create notifications OK, count:", notifications.length);
-        }
+        if (notifError) console.error("support-ticket-create NOTIFICATIONS ERROR:", notifError.message);
       }
     } catch (notifErr) {
       console.error("support-ticket-create NOTIFICATIONS EXCEPTION:", notifErr);

@@ -1,5 +1,7 @@
 // ============================================================================
-// HOOKS: useSupportTicketCore — list, detail, actions, queues
+// HOOKS: useSupportTicketCore — Supabase-first with role-based permissions
+// Source of truth: useAuth() → profile + roles
+// Fallback: authService (legacy) only when no Supabase session
 // ============================================================================
 
 import { useState, useCallback } from 'react';
@@ -16,50 +18,94 @@ import {
   SupportQueueRecord,
   QueueMember,
 } from '@/services/supportTicketCoreService';
+import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/services/authService';
-import { getTicketPermissions } from '@/lib/ticketPermissions';
+import { getTicketPermissionsFromRoles, getTicketPermissions } from '@/lib/ticketPermissions';
+
+// ── Unified session context ─────────────────────────────────────────────
+
+function useSessionContext() {
+  const { profile, roles, session } = useAuth();
+
+  // If Supabase session exists, use it
+  if (session && profile) {
+    return {
+      userId: profile.id,
+      name: profile.name,
+      email: profile.email,
+      level: profile.level,
+      legacyUserId: profile.legacy_user_id ? String(profile.legacy_user_id) : undefined,
+      profile,
+      roles,
+      source: 'supabase' as const,
+    };
+  }
+
+  // Fallback to legacy
+  const legacySession = authService.getSession();
+  if (legacySession) {
+    return {
+      userId: legacySession.userId,
+      name: legacySession.name,
+      email: legacySession.email,
+      level: legacySession.level,
+      legacyUserId: legacySession.userId,
+      profile: null,
+      roles: null,
+      source: 'legacy' as const,
+    };
+  }
+
+  return {
+    userId: undefined as string | undefined,
+    name: undefined as string | undefined,
+    email: undefined as string | undefined,
+    level: 0,
+    legacyUserId: undefined as string | undefined,
+    profile: null,
+    roles: null,
+    source: 'none' as const,
+  };
+}
 
 // ── List hook ───────────────────────────────────────────────────────────
 
 export function useSupportTicketList(filters: TicketListFilters = {}) {
   const queryClient = useQueryClient();
-  const session = authService.getSession();
+  const ctx = useSessionContext();
 
   const enrichedFilters: TicketListFilters = {
     ...filters,
-    user_level: session?.level,
-    user_id: session?.userId,
-    user_email: session?.email,
+    user_level: ctx.level,
+    user_id: ctx.legacyUserId || ctx.userId,
+    user_email: ctx.email,
   };
 
-  console.log('[useSupportTicketList] context', {
-    userId: session?.userId,
-    level: session?.level,
-    email: session?.email,
-    filters,
-    enrichedFilters,
-    only_mine: filters.only_mine ?? false,
-  });
+  if (import.meta.env.DEV) {
+    console.log('[useSupportTicketList] context', {
+      source: ctx.source,
+      userId: ctx.userId,
+      level: ctx.level,
+      email: ctx.email,
+      filters,
+    });
+  }
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['support-tickets-core', filters],
     queryFn: async () => {
-      console.log('[useSupportTicketList] fetching with filters:', enrichedFilters);
       const result = await supportTicketCoreService.listTickets(enrichedFilters);
-      console.log('[useSupportTicketList] result:', {
-        ticketCount: result.tickets.length,
-        meta: result.meta,
-        firstTicket: result.tickets[0]?.public_code,
-      });
+      if (import.meta.env.DEV) {
+        console.log('[useSupportTicketList] result:', {
+          ticketCount: result.tickets.length,
+          meta: result.meta,
+        });
+      }
       return result;
     },
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
-
-  if (error) {
-    console.error('[useSupportTicketList] query error:', error);
-  }
 
   return {
     tickets: data?.tickets ?? [],
@@ -75,18 +121,19 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
 
 export function useSupportTicketDetail(ticketId: string | undefined) {
   const queryClient = useQueryClient();
-  const session = authService.getSession();
-  const userLevel = session?.level ?? 0;
-  const userId = session?.userId;
+  const ctx = useSessionContext();
 
   const { data: ticket, isLoading, error, refetch } = useQuery({
     queryKey: ['support-ticket-core', ticketId],
-    queryFn: () => supportTicketCoreService.getTicket(ticketId!, userLevel, userId),
+    queryFn: () => supportTicketCoreService.getTicket(ticketId!, ctx.level, ctx.legacyUserId || ctx.userId),
     enabled: !!ticketId,
     staleTime: 0,
   });
 
-  const permissions = getTicketPermissions(userLevel, ticket, userId);
+  // Role-based permissions (primary) with level fallback
+  const permissions = ctx.source === 'supabase'
+    ? getTicketPermissionsFromRoles(ctx.profile, ctx.roles, ticket, ctx.userId)
+    : getTicketPermissions(ctx.level, ticket, ctx.userId);
 
   const actionMutation = useMutation({
     mutationFn: (payload: TicketActionPayload) => supportTicketCoreService.updateTicket(payload),
@@ -112,30 +159,31 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
   });
 
   const performAction = useCallback((action: TicketActionPayload['action'], extra: Partial<TicketActionPayload> = {}) => {
-    if (!ticketId || !session) return;
+    if (!ticketId || !ctx.userId) return;
     return actionMutation.mutateAsync({
       ticket_id: ticketId,
       action,
-      actor_user_id: session.userId,
-      actor_name: session.name,
-      actor_level: session.level,
+      actor_user_id: ctx.legacyUserId || ctx.userId,
+      actor_name: ctx.name,
+      actor_level: ctx.level,
       ...extra,
     });
-  }, [ticketId, session, actionMutation]);
+  }, [ticketId, ctx, actionMutation]);
 
   const sendMessage = useCallback((body: string, isInternal: boolean) => {
-    if (!ticketId || !session) return;
+    if (!ticketId || !ctx.userId) return;
+    const authorType = ctx.level >= 900 ? 'support' : ctx.level >= 775 ? 'cs' : 'client';
     return messageMutation.mutateAsync({
       ticket_id: ticketId,
       body,
       is_internal_note: isInternal,
-      author_name: session.name,
-      author_email: session.email,
-      author_user_id: session.userId,
-      author_level: session.level,
-      author_type: session.level >= 900 ? 'support' : session.level >= 775 ? 'cs' : 'client',
+      author_name: ctx.name || 'Usuário',
+      author_email: ctx.email,
+      author_user_id: ctx.legacyUserId || ctx.userId,
+      author_level: ctx.level,
+      author_type: authorType as any,
     });
-  }, [ticketId, session, messageMutation]);
+  }, [ticketId, ctx, messageMutation]);
 
   return {
     ticket,
@@ -147,9 +195,9 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
     sendMessage,
     isActing: actionMutation.isPending,
     isSending: messageMutation.isPending,
-    userLevel,
-    userId,
-    session,
+    userLevel: ctx.level,
+    userId: ctx.userId,
+    session: ctx,
   };
 }
 
@@ -157,7 +205,7 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
 export function useCreateTicket() {
   const queryClient = useQueryClient();
-  const session = authService.getSession();
+  const ctx = useSessionContext();
 
   const mutation = useMutation({
     mutationFn: (payload: CreateTicketPayload) => supportTicketCoreService.createTicket(payload),
@@ -173,7 +221,7 @@ export function useCreateTicket() {
   return {
     createTicket: mutation.mutateAsync,
     isCreating: mutation.isPending,
-    session,
+    session: ctx,
   };
 }
 
