@@ -109,6 +109,7 @@ import AcademyHome from '@/pages/academy/AcademyHome';
 import PermissoesPage from '@/pages/modules/admin/PermissoesPage';
 import ParametrosPage from '@/pages/modules/admin/ParametrosPage';
 import LogsPage from '@/pages/modules/admin/LogsPage';
+import BackfillReconciliationPage from '@/pages/modules/admin/BackfillReconciliationPage';
 import PropostasTemplatesPage from '@/pages/modules/comercial/PropostasTemplatesPage';
 import PropostasAprovacoesPage from '@/pages/modules/comercial/PropostasAprovacoesPage';
 import ContratosListPage from '@/pages/modules/comercial/ContratosListPage';
@@ -370,6 +371,7 @@ const App = () => (
             <Route path="/modulos/admin/precos" element={<Precos />} />
             <Route path="/modulos/admin/parametros" element={<ParametrosPage />} />
             <Route path="/modulos/admin/logs" element={<LogsPage />} />
+            <Route path="/modulos/admin/backfill" element={<BackfillReconciliationPage />} />
           </Route>
           
           {/* Legacy route redirects - kept for backwards compatibility with bookmarks/external links */}
