@@ -91,6 +91,15 @@ function getActorType(level: number): string {
   return "client";
 }
 
+/** Resolve actor UUID: if already UUID return it, if integer look up profiles.legacy_user_id */
+async function resolveActorUuid(db: any, actorId: unknown): Promise<string | null> {
+  if (isValidUuid(actorId)) return String(actorId);
+  const intId = toIntOrNull(actorId);
+  if (intId === null) return null;
+  const { data } = await db.from("profiles").select("id").eq("legacy_user_id", intId).limit(1).single();
+  return data?.id || null;
+}
+
 // Helper: notify queue members about an event
 async function notifyQueueMembers(db: any, queueId: string, eventName: string, title: string, body: string | null, ticketId: string, publicCode: string) {
   const { data: members } = await db
