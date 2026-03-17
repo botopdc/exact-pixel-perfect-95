@@ -197,10 +197,21 @@ Deno.serve(async (req) => {
 
     if (body.only_mine) {
       if (isUuidUser) {
+        // UUID user: match directly on assigned_to_user_id
         query = query.eq("assigned_to_user_id", userId);
       } else if (isLegacyUser) {
-        // Legacy users: assigned_to_user_id is NULL, legacy ID stored in metadata
-        query = query.contains("metadata", { assigned_to_legacy_user_id: userIdInt });
+        // Legacy user: try resolving UUID from profiles, fallback to metadata
+        const { data: profileRow } = await db
+          .from("profiles")
+          .select("id")
+          .eq("legacy_user_id", userIdInt)
+          .limit(1)
+          .single();
+        if (profileRow?.id) {
+          query = query.eq("assigned_to_user_id", profileRow.id);
+        } else {
+          query = query.contains("metadata", { assigned_to_legacy_user_id: userIdInt });
+        }
       }
     }
 
