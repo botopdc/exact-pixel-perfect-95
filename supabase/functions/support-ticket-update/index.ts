@@ -227,14 +227,16 @@ const handleStart: ActionHandler = async (db, ticket, body, req) => {
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const now = new Date().toISOString();
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
   const updates: any = {
     status: "em_atendimento",
-    assigned_to_user_id: toUuidOrNull(body.actor_user_id),
+    assigned_to_user_id: actorUuid,
     assigned_to_name: body.actor_name || null,
     assigned_at: now,
     metadata: {
       ...(ticket.metadata || {}),
       assigned_to_legacy_user_id: toIntOrNull(body.actor_user_id),
+      assigned_to_uuid: actorUuid,
     },
   };
   if (!ticket.first_response_at) updates.first_response_at = now;
