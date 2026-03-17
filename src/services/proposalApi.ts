@@ -151,8 +151,6 @@ export interface ProposalSaveResult {
 export async function listProposals(params: ProposalListParams = {}): Promise<ProposalListResult> {
   const token = getCoreToken();
   
-  console.log('[proposalApi.listProposals] Calling with:', params);
-  
   if (!token) {
     console.warn('[proposalApi.listProposals] No CORE token found');
   }
