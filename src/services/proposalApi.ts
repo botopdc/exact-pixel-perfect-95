@@ -228,8 +228,6 @@ export async function saveProposal(payload: ProposalSavePayload): Promise<Propos
     };
   }
 
-  console.log('[proposalApi.saveProposal] Result:', data);
-
   return data as ProposalSaveResult;
 }
 

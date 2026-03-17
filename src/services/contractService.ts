@@ -6,9 +6,12 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Contract, ContractFilters, ContractStatus } from '@/types/contract';
 
 export async function listContracts(filters?: ContractFilters): Promise<Contract[]> {
+  // Select only fields needed for list view (avoid heavy payload columns)
+  const listFields = 'id, proposal_id, proposal_uuid, client_name, company, email, phone, status, total, subtotal, discount_amount, currency, datacenter, contract_duration, billing_cycle, contract_number, start_date, end_date, created_at, updated_at';
+  
   let query = supabase
     .from('contracts')
-    .select('*')
+    .select(listFields)
     .is('deleted_at', null)
     .order('updated_at', { ascending: false });
 
