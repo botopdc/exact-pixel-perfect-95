@@ -84,29 +84,14 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
     user_email: ctx.email,
   };
 
-  if (import.meta.env.DEV) {
-    console.log('[useSupportTicketList] context', {
-      source: ctx.source,
-      userId: ctx.userId,
-      level: ctx.level,
-      email: ctx.email,
-      filters,
-    });
-  }
+
+  const hasAuth = ctx.source !== 'none';
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['support-tickets-core', filters],
-    queryFn: async () => {
-      const result = await supportTicketCoreService.listTickets(enrichedFilters);
-      if (import.meta.env.DEV) {
-        console.log('[useSupportTicketList] result:', {
-          ticketCount: result.tickets.length,
-          meta: result.meta,
-        });
-      }
-      return result;
-    },
-    staleTime: 0,
+    queryFn: () => supportTicketCoreService.listTickets(enrichedFilters),
+    enabled: hasAuth,
+    staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
 

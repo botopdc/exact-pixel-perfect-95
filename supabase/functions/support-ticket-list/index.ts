@@ -1,7 +1,7 @@
 // ============================================================================
 // EDGE FUNCTION: support-ticket-list
 // Lists tickets with filters, pagination, and QUEUE-BASED visibility
-// Source of truth: current_queue_id (FK) + support_queue_members
+// OPTIMIZED: Parallel visibility resolution + reduced payload
 // ============================================================================
 
 import { getSupabaseAdmin, validateExternalToken } from "../_shared/supabaseAdmin.ts";
@@ -18,6 +18,19 @@ function jsonResponse(data: unknown, status = 200) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
+
+// Columns needed for list view (excludes description, metadata, resolution_summary etc.)
+const LIST_COLUMNS = [
+  "id", "ticket_number", "public_code", "requester_name", "requester_email",
+  "origin_channel", "ticket_type", "category", "subcategory", "severity", "priority",
+  "status", "support_level", "current_queue", "current_queue_id", "current_support_level",
+  "service_name", "asset_label", "title", "customer_visible",
+  "assigned_to_user_id", "assigned_to_name", "assigned_at", "assigned_team",
+  "first_response_due_at", "resolution_due_at", "first_response_at", "resolved_at", "closed_at",
+  "created_at", "updated_at"
+].join(",");
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -44,122 +57,86 @@ Deno.serve(async (req) => {
     const per_page = Math.min(100, Math.max(1, body.per_page || 25));
     const offset = (page - 1) * per_page;
 
-    // Build query
-    let query = db
-      .from("support_tickets")
-      .select("*", { count: "exact" })
-      .is("deleted_at", null);
-
-    // ── VISIBILITY ─────────────────────────────────────────────────────
     const userLevel = body.user_level || 1;
     const userId = body.user_id;
     const userLegacyId = body.user_legacy_id;
     const userEmail = body.user_email;
 
-    // UUID regex for detecting legacy integer IDs
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const isUuidUser = userId && UUID_RE.test(userId);
     const userIdInt = userLegacyId ? parseInt(userLegacyId) : (userId ? parseInt(userId) : NaN);
     const isLegacyUser = !isUuidUser && Number.isFinite(userIdInt);
 
-    console.log("[visibility] context", { userId, userLegacyId, userLevel, userEmail, isUuidUser, isLegacyUser });
+    // ── RESOLVE VISIBILITY + QUEUES IN PARALLEL ──────────────────────────
+    // Start queue lookup immediately (needed for enrichment regardless)
+    const queuesPromise = db.from("support_queues").select("id, code, name");
 
+    // Resolve queue memberships for internal non-admin users
+    let allQueueIds: string[] = [];
+    if (userLevel >= 600 && userLevel < 950) {
+      // Run membership + oncall lookups in parallel
+      const now = new Date().toISOString();
+      const membershipPromises: Promise<any>[] = [];
+
+      if (userEmail) {
+        membershipPromises.push(
+          db.from("support_queue_members").select("queue_id").eq("user_email", userEmail).eq("is_active", true)
+        );
+        membershipPromises.push(
+          db.from("support_oncall_shifts").select("team_code").eq("user_email", userEmail).eq("is_active", true).lte("starts_at", now).gte("ends_at", now)
+        );
+      } else {
+        membershipPromises.push(Promise.resolve({ data: [] }));
+        membershipPromises.push(Promise.resolve({ data: [] }));
+      }
+
+      if (isLegacyUser) {
+        membershipPromises.push(
+          db.from("support_queue_members").select("queue_id").eq("user_id", userIdInt).eq("is_active", true)
+        );
+      }
+
+      const results = await Promise.all(membershipPromises);
+      const memberQueueIds = (results[0]?.data || []).map((m: any) => m.queue_id);
+      const oncallShifts = results[1]?.data || [];
+      const legacyQueueIds = results[2]?.data?.map((m: any) => m.queue_id) || [];
+
+      // Resolve oncall team_codes to queue IDs
+      let oncallQueueIds: string[] = [];
+      if (oncallShifts.length > 0) {
+        const teamToQueue: Record<string, string> = { infra: "N1", cloud: "N2", cs: "CS" };
+        const oncallQueueCodes = oncallShifts.map((s: any) => teamToQueue[s.team_code]).filter(Boolean);
+        if (oncallQueueCodes.length > 0) {
+          const { data: queues } = await db.from("support_queues").select("id").in("code", oncallQueueCodes);
+          oncallQueueIds = (queues || []).map((q: any) => q.id);
+        }
+      }
+
+      allQueueIds = [...new Set([...memberQueueIds, ...legacyQueueIds, ...oncallQueueIds])];
+    }
+
+    // Build query with reduced columns
+    let query = db
+      .from("support_tickets")
+      .select(LIST_COLUMNS, { count: "exact" })
+      .is("deleted_at", null);
+
+    // ── VISIBILITY ─────────────────────────────────────────────────────
     if (userLevel < 600 && userId) {
-      // Client (level 1): only own tickets — match by email (reliable for both UUID and legacy)
       if (userEmail) {
         query = query.eq("requester_email", userEmail);
       } else if (isUuidUser) {
         query = query.eq("requester_user_id", userId);
       } else {
-        // Fallback: no tickets visible
         query = query.eq("id", "00000000-0000-0000-0000-000000000000");
       }
     } else if (userLevel >= 600 && userLevel < 950) {
-      // Internal user (not manager/admin): see tickets in their queues OR assigned to them OR opened by them
-
-      // ── 1) Queue memberships by email ──
-      let queueIds: string[] = [];
-      if (userEmail) {
-        const { data: memberships } = await db
-          .from("support_queue_members")
-          .select("queue_id")
-          .eq("user_email", userEmail)
-          .eq("is_active", true);
-        queueIds = (memberships || []).map((m: any) => m.queue_id);
-      }
-
-      // Fallback: try integer user_id if email lookup returned nothing
-      if (queueIds.length === 0 && isLegacyUser) {
-        const { data: memberships } = await db
-          .from("support_queue_members")
-          .select("queue_id")
-          .eq("user_id", userIdInt)
-          .eq("is_active", true);
-        queueIds = (memberships || []).map((m: any) => m.queue_id);
-      }
-
-      // ── 2) On-call shifts: add queue IDs from active shifts ──
-      const now = new Date().toISOString();
-      let oncallQueueIds: string[] = [];
-      if (userEmail) {
-        const { data: shifts } = await db
-          .from("support_oncall_shifts")
-          .select("team_code")
-          .eq("user_email", userEmail)
-          .eq("is_active", true)
-          .lte("starts_at", now)
-          .gte("ends_at", now);
-
-        if (shifts && shifts.length > 0) {
-          // Map team_code to queue code
-          const teamToQueue: Record<string, string> = { infra: "N1", cloud: "N2", cs: "CS" };
-          const oncallQueueCodes = shifts.map((s: any) => teamToQueue[s.team_code]).filter(Boolean);
-          if (oncallQueueCodes.length > 0) {
-            const { data: queues } = await db
-              .from("support_queues")
-              .select("id")
-              .in("code", oncallQueueCodes);
-            oncallQueueIds = (queues || []).map((q: any) => q.id);
-          }
-        }
-      }
-
-      // Merge queue IDs from memberships + oncall
-      const allQueueIds = [...new Set([...queueIds, ...oncallQueueIds])];
-
-      console.log("[visibility] memberships", { userId, userEmail, memberQueueIds: queueIds, oncallQueueIds, allQueueIds });
-
-      // ── 3) Build OR conditions ──
-      // CRITICAL: Do NOT use UUID columns (requester_user_id, assigned_to_user_id)
-      // with legacy integer IDs — PostgREST will throw "invalid UUID" and break the entire query.
       const orConditions: string[] = [];
-
-      // Requester match by email (reliable for both UUID and legacy users)
-      if (userEmail) {
-        orConditions.push(`requester_email.eq.${userEmail}`);
-      }
-
-      // Assigned match — UUID users can match directly, legacy users match by name
-      if (isUuidUser) {
-        orConditions.push(`assigned_to_user_id.eq.${userId}`);
-      }
-      // For legacy users, we can't filter by assigned_to_user_id (UUID column).
-      // We rely on queue membership visibility instead — if the ticket is in your queue, you see it.
-
-      // Queue membership + oncall
-      if (allQueueIds.length > 0) {
-        orConditions.push(`current_queue_id.in.(${allQueueIds.join(",")})`);
-      }
-
-      // Fallback: no conditions = see nothing
-      if (orConditions.length === 0) {
-        orConditions.push("id.eq.00000000-0000-0000-0000-000000000000");
-      }
-
-      console.log("[visibility] OR conditions", orConditions);
+      if (userEmail) orConditions.push(`requester_email.eq.${userEmail}`);
+      if (isUuidUser) orConditions.push(`assigned_to_user_id.eq.${userId}`);
+      if (allQueueIds.length > 0) orConditions.push(`current_queue_id.in.(${allQueueIds.join(",")})`);
+      if (orConditions.length === 0) orConditions.push("id.eq.00000000-0000-0000-0000-000000000000");
       query = query.or(orConditions.join(","));
     }
-    // Manager (950+) and Admin (1000): see all tickets — no filter applied
 
     // ── FILTERS ────────────────────────────────────────────────────────
     if (body.status) {
@@ -170,43 +147,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Filter by queue CODE — resolve to queue_id (new model)
     if (body.current_queue) {
-      const { data: queueRow } = await db
-        .from("support_queues")
-        .select("id")
-        .eq("code", body.current_queue)
-        .single();
-
-      if (queueRow) {
-        query = query.eq("current_queue_id", queueRow.id);
-      }
+      // Resolve queue code → id using already-started promise
+      const queuesResult = await queuesPromise;
+      const queueRow = (queuesResult.data || []).find((q: any) => q.code === body.current_queue);
+      if (queueRow) query = query.eq("current_queue_id", queueRow.id);
     }
 
-    if (body.current_queue_id) {
-      query = query.eq("current_queue_id", body.current_queue_id);
-    }
-
-    if (body.assigned_to_user_id) {
-      query = query.eq("assigned_to_user_id", body.assigned_to_user_id);
-    }
-
-    if (body.only_unassigned) {
-      query = query.is("assigned_to_user_id", null);
-    }
+    if (body.current_queue_id) query = query.eq("current_queue_id", body.current_queue_id);
+    if (body.assigned_to_user_id) query = query.eq("assigned_to_user_id", body.assigned_to_user_id);
+    if (body.only_unassigned) query = query.is("assigned_to_user_id", null);
 
     if (body.only_mine) {
       if (isUuidUser) {
-        // UUID user: match directly on assigned_to_user_id
         query = query.eq("assigned_to_user_id", userId);
       } else if (isLegacyUser) {
-        // Legacy user: try resolving UUID from profiles, fallback to metadata
         const { data: profileRow } = await db
-          .from("profiles")
-          .select("id")
-          .eq("legacy_user_id", userIdInt)
-          .limit(1)
-          .single();
+          .from("profiles").select("id").eq("legacy_user_id", userIdInt).limit(1).single();
         if (profileRow?.id) {
           query = query.eq("assigned_to_user_id", profileRow.id);
         } else {
@@ -216,75 +173,39 @@ Deno.serve(async (req) => {
     }
 
     if (body.severity) {
-      if (Array.isArray(body.severity)) {
-        query = query.in("severity", body.severity);
-      } else {
-        query = query.eq("severity", body.severity);
-      }
+      Array.isArray(body.severity) ? query = query.in("severity", body.severity) : query = query.eq("severity", body.severity);
     }
-
-    if (body.ticket_type) {
-      query = query.eq("ticket_type", body.ticket_type);
-    }
-
-    if (body.category) {
-      query = query.eq("category", body.category);
-    }
-
-    if (body.company_id) {
-      query = query.eq("company_id", body.company_id);
-    }
-
-    if (body.requester_name) {
-      query = query.ilike("requester_name", `%${body.requester_name}%`);
-    }
-
+    if (body.ticket_type) query = query.eq("ticket_type", body.ticket_type);
+    if (body.category) query = query.eq("category", body.category);
+    if (body.company_id) query = query.eq("company_id", body.company_id);
+    if (body.requester_name) query = query.ilike("requester_name", `%${body.requester_name}%`);
     if (body.search) {
-      query = query.or(
-        `title.ilike.%${body.search}%,public_code.ilike.%${body.search}%,requester_name.ilike.%${body.search}%`
-      );
+      query = query.or(`title.ilike.%${body.search}%,public_code.ilike.%${body.search}%,requester_name.ilike.%${body.search}%`);
     }
-
-    if (body.date_from) {
-      query = query.gte("created_at", body.date_from);
-    }
-
-    if (body.date_to) {
-      query = query.lte("created_at", body.date_to);
-    }
-
+    if (body.date_from) query = query.gte("created_at", body.date_from);
+    if (body.date_to) query = query.lte("created_at", body.date_to);
     if (body.only_sla_breached) {
-      const now = new Date().toISOString();
-      query = query.or(
-        `resolution_due_at.lt.${now},first_response_due_at.lt.${now}`
-      ).is("resolved_at", null);
+      const nowStr = new Date().toISOString();
+      query = query.or(`resolution_due_at.lt.${nowStr},first_response_due_at.lt.${nowStr}`).is("resolved_at", null);
     }
 
-    // Sorting
+    // Sorting + pagination
     const sort_by = body.sort_by || "created_at";
-    const sort_dir = body.sort_dir === "asc" ? true : false;
-    query = query.order(sort_by, { ascending: sort_dir });
+    const sort_dir = body.sort_dir === "asc";
+    query = query.order(sort_by, { ascending: sort_dir }).range(offset, offset + per_page - 1);
 
-    // Pagination
-    query = query.range(offset, offset + per_page - 1);
+    // Execute ticket query + await queues (already started)
+    const [ticketResult, queuesResult] = await Promise.all([query, queuesPromise]);
 
-    const { data: tickets, error, count } = await query;
-
+    const { data: tickets, error, count } = ticketResult;
     if (error) {
       console.error("List error:", error);
       return jsonResponse({ success: false, message: "Erro ao listar tickets", errors: [error.message] }, 500);
     }
 
-    // ── ENRICH with queue code/name ────────────────────────────────────
-    // Fetch all queues once for lookup
-    const { data: allQueues } = await db
-      .from("support_queues")
-      .select("id, code, name");
-
+    // Enrich with queue code/name
     const queueMap: Record<string, { code: string; name: string }> = {};
-    (allQueues || []).forEach((q: any) => {
-      queueMap[q.id] = { code: q.code, name: q.name };
-    });
+    (queuesResult.data || []).forEach((q: any) => { queueMap[q.id] = { code: q.code, name: q.name }; });
 
     const enrichedTickets = (tickets || []).map((t: any) => ({
       ...t,
