@@ -115,7 +115,7 @@ serve(async (req: Request) => {
       return json({ success: false, error: error.message, code: error.code }, 500);
     }
 
-    console.log("[proposal-list] Returned:", { count: data?.length, total: count });
+    // query completed
 
     return json({
       success: true,
