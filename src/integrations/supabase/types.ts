@@ -1594,6 +1594,7 @@ export type Database = {
           updated_at: string
           user_email: string | null
           user_id: number | null
+          user_id_uuid: string | null
           user_name: string
         }
         Insert: {
@@ -1609,6 +1610,7 @@ export type Database = {
           updated_at?: string
           user_email?: string | null
           user_id?: number | null
+          user_id_uuid?: string | null
           user_name: string
         }
         Update: {
@@ -1624,9 +1626,18 @@ export type Database = {
           updated_at?: string
           user_email?: string | null
           user_id?: number | null
+          user_id_uuid?: string | null
           user_name?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "support_oncall_shifts_user_id_uuid_fkey"
+            columns: ["user_id_uuid"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       support_queue_members: {
         Row: {
@@ -1639,6 +1650,7 @@ export type Database = {
           updated_at: string
           user_email: string
           user_id: number
+          user_id_uuid: string | null
           user_level: number
           user_name: string
         }
@@ -1652,6 +1664,7 @@ export type Database = {
           updated_at?: string
           user_email: string
           user_id: number
+          user_id_uuid?: string | null
           user_level: number
           user_name: string
         }
@@ -1665,6 +1678,7 @@ export type Database = {
           updated_at?: string
           user_email?: string
           user_id?: number
+          user_id_uuid?: string | null
           user_level?: number
           user_name?: string
         }
@@ -1674,6 +1688,13 @@ export type Database = {
             columns: ["queue_id"]
             isOneToOne: false
             referencedRelation: "support_queues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_queue_members_user_id_uuid_fkey"
+            columns: ["user_id_uuid"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
