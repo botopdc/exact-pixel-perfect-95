@@ -72,10 +72,11 @@ export default function ContratosListPage() {
   const { data: contracts, isLoading: isLoadingContracts } = useContracts(contractFilters);
   const deleteContract = useDeleteContract();
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    setContractFilters(prev => ({ ...prev, search: searchInput }));
-  };
+    // Search is now auto-debounced, form submit is instant
+    setDebouncedSearch(searchInput);
+  }, [searchInput]);
 
   const handleStatusFilter = (value: string) => {
     setContractFilters(prev => ({
