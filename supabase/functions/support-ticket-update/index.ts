@@ -334,12 +334,12 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
 
   const csQueueId = await resolveQueueId(db, "CS");
   const now = new Date().toISOString();
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
 
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "resolvido_suporte",
     resolved_at: now,
-    // UUID columns — null for integer user IDs
-    support_resolved_by: toUuidOrNull(body.actor_user_id),
+    support_resolved_by: actorUuid,
     // Integer column — safe to store
     resolved_by_user_id: toIntOrNull(body.actor_user_id),
     resolution_summary: body.reason.trim(),
