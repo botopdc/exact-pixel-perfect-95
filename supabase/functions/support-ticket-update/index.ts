@@ -104,14 +104,14 @@ async function resolveActorUuid(db: any, actorId: unknown): Promise<string | nul
 async function notifyQueueMembers(db: any, queueId: string, eventName: string, title: string, body: string | null, ticketId: string, publicCode: string) {
   const { data: members } = await db
     .from("support_queue_members")
-    .select("user_id, user_level")
+    .select("user_id, user_id_uuid, user_level")
     .eq("queue_id", queueId)
     .eq("is_active", true);
 
   if (!members || members.length === 0) return;
 
   const notifications = members.map((m: any) => ({
-    user_id: String(m.user_id),
+    user_id: m.user_id_uuid || String(m.user_id),
     user_level: m.user_level,
     event_name: eventName,
     title,
