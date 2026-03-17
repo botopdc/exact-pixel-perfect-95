@@ -252,6 +252,7 @@ export interface TicketListFilters {
   // Injected by hooks
   user_level?: number;
   user_id?: string;
+  user_legacy_id?: string;
   user_email?: string;
 }
 
