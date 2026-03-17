@@ -52,26 +52,10 @@ export function useSupabaseProposals(page: number = 1, filters: Omit<ProposalLis
     offset,
   };
 
-  console.log('[useSupabaseProposals] Fetching with filters:', fullFilters);
-
   return useQuery({
     queryKey: SUPABASE_PROPOSAL_KEYS.list(fullFilters),
-    queryFn: async () => {
-      console.log('[useSupabaseProposals] queryFn executing...');
-      try {
-        const result = await listProposals(fullFilters);
-        console.log('[useSupabaseProposals] queryFn result:', {
-          proposalsCount: result.proposals.length,
-          total: result.total,
-          page: result.page,
-        });
-        return result;
-      } catch (error) {
-        console.error('[useSupabaseProposals] queryFn ERROR:', error);
-        throw error;
-      }
-    },
-    staleTime: 30 * 1000, // 30 seconds
+    queryFn: () => listProposals(fullFilters),
+    staleTime: 30_000,
   });
 }
 
@@ -95,18 +79,9 @@ export function useSupabaseProposal(proposalId: string | undefined) {
 export function useSupabaseProposalWithItems(proposalId: string | undefined) {
   return useQuery({
     queryKey: [...SUPABASE_PROPOSAL_KEYS.detail(proposalId || ''), 'with-items'],
-    queryFn: async () => {
-      if (!proposalId) return null;
-      const result = await getProposalWithItems(proposalId);
-      console.log('[useSupabaseProposalWithItems] Loaded:', {
-        proposalId,
-        serversCount: result?.servers?.length || 0,
-        addonsCount: result?.addons?.length || 0,
-      });
-      return result;
-    },
+    queryFn: () => (proposalId ? getProposalWithItems(proposalId) : null),
     enabled: !!proposalId,
-    staleTime: 60 * 1000,
+    staleTime: 60_000,
   });
 }
 

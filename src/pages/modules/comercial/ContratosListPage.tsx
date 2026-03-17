@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileText, Search, Eye, Trash2, Loader2,
@@ -37,7 +37,21 @@ export default function ContratosListPage() {
   const [tab, setTab] = useState('eligible');
   const [contractFilters, setContractFilters] = useState<ContractFilters>({});
   const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Debounce search input (400ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Apply debounced search to filters
+  useEffect(() => {
+    setContractFilters(prev => ({ ...prev, search: debouncedSearch || undefined }));
+  }, [debouncedSearch]);
 
   // Fetch approved proposals for "eligible" tab
   const { data: proposalsData, isLoading: isLoadingProposals } = useProposalList(1, {
@@ -58,10 +72,11 @@ export default function ContratosListPage() {
   const { data: contracts, isLoading: isLoadingContracts } = useContracts(contractFilters);
   const deleteContract = useDeleteContract();
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    setContractFilters(prev => ({ ...prev, search: searchInput }));
-  };
+    // Search is now auto-debounced, form submit is instant
+    setDebouncedSearch(searchInput);
+  }, [searchInput]);
 
   const handleStatusFilter = (value: string) => {
     setContractFilters(prev => ({

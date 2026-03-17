@@ -232,7 +232,7 @@ const SupabaseProposalsList: React.FC = () => {
   // Show error toast if query failed
   useEffect(() => {
     if (queryError) {
-      console.error('[SupabaseProposalsList] Query error:', queryError);
+      // Error logged for debugging
       toast({
         title: 'Erro ao carregar propostas',
         description: queryError.message || 'Falha na comunicação com o servidor',
@@ -244,7 +244,7 @@ const SupabaseProposalsList: React.FC = () => {
   // Handle API-level errors
   useEffect(() => {
     if (data && !data.success && data.error) {
-      console.error('[SupabaseProposalsList] API error:', data.error);
+      // API error logged for debugging
       toast({
         title: 'Erro na API',
         description: data.error,

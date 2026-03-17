@@ -151,8 +151,6 @@ export interface ProposalSaveResult {
 export async function listProposals(params: ProposalListParams = {}): Promise<ProposalListResult> {
   const token = getCoreToken();
   
-  console.log('[proposalApi.listProposals] Calling with:', params);
-  
   if (!token) {
     console.warn('[proposalApi.listProposals] No CORE token found');
   }
@@ -174,11 +172,6 @@ export async function listProposals(params: ProposalListParams = {}): Promise<Pr
     };
   }
 
-  console.log('[proposalApi.listProposals] Result:', {
-    count: data?.proposals?.length,
-    total: data?.total,
-  });
-
   return data as ProposalListResult;
 }
 
@@ -188,8 +181,6 @@ export async function listProposals(params: ProposalListParams = {}): Promise<Pr
 export async function getProposal(proposalId: string): Promise<ProposalGetResult> {
   const token = getCoreToken();
   
-  console.log('[proposalApi.getProposal] Fetching:', proposalId);
-
   if (!token) {
     console.warn('[proposalApi.getProposal] No CORE token found');
   }
@@ -210,12 +201,6 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
     };
   }
 
-  console.log('[proposalApi.getProposal] Result:', {
-    proposalId: data?.proposal?.id,
-    serversCount: data?.servers?.length,
-    addonsCount: data?.addons?.length,
-  });
-
   return data as ProposalGetResult;
 }
 
@@ -225,13 +210,6 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
 export async function saveProposal(payload: ProposalSavePayload): Promise<ProposalSaveResult> {
   const token = getCoreToken();
   
-  console.log('[proposalApi.saveProposal] Saving:', {
-    id: payload.proposal.id,
-    company: payload.proposal.company,
-    serversCount: payload.servers.length,
-    addonsCount: payload.addons.length,
-  });
-
   if (!token) {
     console.warn('[proposalApi.saveProposal] No CORE token found');
   }
@@ -249,8 +227,6 @@ export async function saveProposal(payload: ProposalSavePayload): Promise<Propos
       error: error.message,
     };
   }
-
-  console.log('[proposalApi.saveProposal] Result:', data);
 
   return data as ProposalSaveResult;
 }
