@@ -50,7 +50,7 @@ serve(async (req: Request) => {
       offset?: number;
     };
 
-    console.log("[proposal-list] Request params:", { search, status, clientName, companyName, dateFrom, dateTo, sortField, sortDirection, limit, offset });
+    // params parsed
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
