@@ -172,11 +172,6 @@ export async function listProposals(params: ProposalListParams = {}): Promise<Pr
     };
   }
 
-  console.log('[proposalApi.listProposals] Result:', {
-    count: data?.proposals?.length,
-    total: data?.total,
-  });
-
   return data as ProposalListResult;
 }
 
