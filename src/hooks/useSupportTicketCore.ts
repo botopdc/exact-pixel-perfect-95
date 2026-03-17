@@ -84,15 +84,6 @@ export function useSupportTicketList(filters: TicketListFilters = {}) {
     user_email: ctx.email,
   };
 
-  if (import.meta.env.DEV) {
-    console.log('[useSupportTicketList] context', {
-      source: ctx.source,
-      userId: ctx.userId,
-      level: ctx.level,
-      email: ctx.email,
-      filters,
-    });
-  }
 
   const hasAuth = ctx.source !== 'none';
 
