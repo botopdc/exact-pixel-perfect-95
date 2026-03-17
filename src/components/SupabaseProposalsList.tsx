@@ -232,7 +232,7 @@ const SupabaseProposalsList: React.FC = () => {
   // Show error toast if query failed
   useEffect(() => {
     if (queryError) {
-      console.error('[SupabaseProposalsList] Query error:', queryError);
+      // Error logged for debugging
       toast({
         title: 'Erro ao carregar propostas',
         description: queryError.message || 'Falha na comunicação com o servidor',
