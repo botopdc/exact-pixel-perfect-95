@@ -401,6 +401,8 @@ Deno.serve(async (req) => {
               metadata: {
                 to_user_name: chosen.member.user_name,
                 to_user_email: chosen.member.user_email,
+                to_user_uuid: chosenUuid,
+                to_user_legacy_id: chosen.member.user_id,
                 load_at_assignment: chosen.count,
                 is_oncall: oncallEmails.has(chosen.member.user_email),
               },
