@@ -53,15 +53,16 @@ Deno.serve(async (req) => {
     // ── VISIBILITY ─────────────────────────────────────────────────────
     const userLevel = body.user_level || 1;
     const userId = body.user_id;
+    const userLegacyId = body.user_legacy_id;
     const userEmail = body.user_email;
 
     // UUID regex for detecting legacy integer IDs
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const isUuidUser = userId && UUID_RE.test(userId);
-    const userIdInt = userId ? parseInt(userId) : NaN;
+    const userIdInt = userLegacyId ? parseInt(userLegacyId) : (userId ? parseInt(userId) : NaN);
     const isLegacyUser = !isUuidUser && Number.isFinite(userIdInt);
 
-    console.log("[visibility] context", { userId, userLevel, userEmail, isUuidUser, isLegacyUser });
+    console.log("[visibility] context", { userId, userLegacyId, userLevel, userEmail, isUuidUser, isLegacyUser });
 
     if (userLevel < 600 && userId) {
       // Client (level 1): only own tickets — match by email (reliable for both UUID and legacy)
