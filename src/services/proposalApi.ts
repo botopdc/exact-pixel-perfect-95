@@ -181,8 +181,6 @@ export async function listProposals(params: ProposalListParams = {}): Promise<Pr
 export async function getProposal(proposalId: string): Promise<ProposalGetResult> {
   const token = getCoreToken();
   
-  console.log('[proposalApi.getProposal] Fetching:', proposalId);
-
   if (!token) {
     console.warn('[proposalApi.getProposal] No CORE token found');
   }
