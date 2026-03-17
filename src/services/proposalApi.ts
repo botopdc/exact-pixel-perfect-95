@@ -201,12 +201,6 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
     };
   }
 
-  console.log('[proposalApi.getProposal] Result:', {
-    proposalId: data?.proposal?.id,
-    serversCount: data?.servers?.length,
-    addonsCount: data?.addons?.length,
-  });
-
   return data as ProposalGetResult;
 }
 
