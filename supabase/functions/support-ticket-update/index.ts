@@ -177,15 +177,16 @@ const handleAssign: ActionHandler = async (db, ticket, body, req) => {
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const now = new Date().toISOString();
-  // assigned_to_user_id is UUID — cannot store integer; use null
-  // assigned_to_name stores the human-readable name
+  // Resolve actor UUID from profiles if integer ID provided
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
   const updates: any = {
-    assigned_to_user_id: toUuidOrNull(body.actor_user_id),
+    assigned_to_user_id: actorUuid,
     assigned_to_name: body.actor_name || null,
     assigned_at: now,
     metadata: {
       ...(ticket.metadata || {}),
       assigned_to_legacy_user_id: toIntOrNull(body.actor_user_id),
+      assigned_to_uuid: actorUuid,
     },
   };
   if (ticket.status === "novo" || ticket.status === "reaberto") {
