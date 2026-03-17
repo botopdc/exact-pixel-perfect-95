@@ -422,13 +422,13 @@ Deno.serve(async (req) => {
     try {
       const { data: notifMembers } = await db
         .from("support_queue_members")
-        .select("user_id, user_level")
+        .select("user_id, user_id_uuid, user_level")
         .eq("queue_id", currentQueueId)
         .eq("is_active", true);
 
       if (notifMembers && notifMembers.length > 0) {
         const notifications = notifMembers.map((m: any) => ({
-          user_id: String(m.user_id),
+          user_id: m.user_id_uuid || String(m.user_id),
           user_level: m.user_level,
           event_name: "ticket.created",
           title: `Novo ticket ${ticket.public_code}${autoAssigned ? ' (auto-atribuído)' : ''}`,
