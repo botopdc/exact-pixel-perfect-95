@@ -354,9 +354,11 @@ Deno.serve(async (req) => {
           });
 
           const assignNow = new Date().toISOString();
+          const chosenUuid = chosen.member.user_id_uuid || null;
           const { error: assignError } = await db
             .from("support_tickets")
             .update({
+              assigned_to_user_id: chosenUuid,
               assigned_to_name: chosen.member.user_name,
               assigned_at: assignNow,
               status: "em_atendimento",
@@ -364,6 +366,8 @@ Deno.serve(async (req) => {
                 ...ticketMetadata,
                 auto_assigned: true,
                 auto_assigned_to_email: chosen.member.user_email,
+                auto_assigned_to_uuid: chosenUuid,
+                auto_assigned_to_legacy_user_id: chosen.member.user_id,
                 auto_assigned_at: assignNow,
               },
             })
