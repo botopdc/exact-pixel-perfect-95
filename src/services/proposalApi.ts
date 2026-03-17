@@ -210,13 +210,6 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
 export async function saveProposal(payload: ProposalSavePayload): Promise<ProposalSaveResult> {
   const token = getCoreToken();
   
-  console.log('[proposalApi.saveProposal] Saving:', {
-    id: payload.proposal.id,
-    company: payload.proposal.company,
-    serversCount: payload.servers.length,
-    addonsCount: payload.addons.length,
-  });
-
   if (!token) {
     console.warn('[proposalApi.saveProposal] No CORE token found');
   }
