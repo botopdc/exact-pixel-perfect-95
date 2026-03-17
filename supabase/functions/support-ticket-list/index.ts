@@ -53,15 +53,16 @@ Deno.serve(async (req) => {
     // ── VISIBILITY ─────────────────────────────────────────────────────
     const userLevel = body.user_level || 1;
     const userId = body.user_id;
+    const userLegacyId = body.user_legacy_id;
     const userEmail = body.user_email;
 
     // UUID regex for detecting legacy integer IDs
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const isUuidUser = userId && UUID_RE.test(userId);
-    const userIdInt = userId ? parseInt(userId) : NaN;
+    const userIdInt = userLegacyId ? parseInt(userLegacyId) : (userId ? parseInt(userId) : NaN);
     const isLegacyUser = !isUuidUser && Number.isFinite(userIdInt);
 
-    console.log("[visibility] context", { userId, userLevel, userEmail, isUuidUser, isLegacyUser });
+    console.log("[visibility] context", { userId, userLegacyId, userLevel, userEmail, isUuidUser, isLegacyUser });
 
     if (userLevel < 600 && userId) {
       // Client (level 1): only own tickets — match by email (reliable for both UUID and legacy)
@@ -196,10 +197,21 @@ Deno.serve(async (req) => {
 
     if (body.only_mine) {
       if (isUuidUser) {
+        // UUID user: match directly on assigned_to_user_id
         query = query.eq("assigned_to_user_id", userId);
       } else if (isLegacyUser) {
-        // Legacy users: assigned_to_user_id is NULL, legacy ID stored in metadata
-        query = query.contains("metadata", { assigned_to_legacy_user_id: userIdInt });
+        // Legacy user: try resolving UUID from profiles, fallback to metadata
+        const { data: profileRow } = await db
+          .from("profiles")
+          .select("id")
+          .eq("legacy_user_id", userIdInt)
+          .limit(1)
+          .single();
+        if (profileRow?.id) {
+          query = query.eq("assigned_to_user_id", profileRow.id);
+        } else {
+          query = query.contains("metadata", { assigned_to_legacy_user_id: userIdInt });
+        }
       }
     }
 

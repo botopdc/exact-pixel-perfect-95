@@ -91,18 +91,27 @@ function getActorType(level: number): string {
   return "client";
 }
 
+/** Resolve actor UUID: if already UUID return it, if integer look up profiles.legacy_user_id */
+async function resolveActorUuid(db: any, actorId: unknown): Promise<string | null> {
+  if (isValidUuid(actorId)) return String(actorId);
+  const intId = toIntOrNull(actorId);
+  if (intId === null) return null;
+  const { data } = await db.from("profiles").select("id").eq("legacy_user_id", intId).limit(1).single();
+  return data?.id || null;
+}
+
 // Helper: notify queue members about an event
 async function notifyQueueMembers(db: any, queueId: string, eventName: string, title: string, body: string | null, ticketId: string, publicCode: string) {
   const { data: members } = await db
     .from("support_queue_members")
-    .select("user_id, user_level")
+    .select("user_id, user_id_uuid, user_level")
     .eq("queue_id", queueId)
     .eq("is_active", true);
 
   if (!members || members.length === 0) return;
 
   const notifications = members.map((m: any) => ({
-    user_id: String(m.user_id),
+    user_id: m.user_id_uuid || String(m.user_id),
     user_level: m.user_level,
     event_name: eventName,
     title,
@@ -168,15 +177,16 @@ const handleAssign: ActionHandler = async (db, ticket, body, req) => {
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const now = new Date().toISOString();
-  // assigned_to_user_id is UUID — cannot store integer; use null
-  // assigned_to_name stores the human-readable name
+  // Resolve actor UUID from profiles if integer ID provided
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
   const updates: any = {
-    assigned_to_user_id: toUuidOrNull(body.actor_user_id),
+    assigned_to_user_id: actorUuid,
     assigned_to_name: body.actor_name || null,
     assigned_at: now,
     metadata: {
       ...(ticket.metadata || {}),
       assigned_to_legacy_user_id: toIntOrNull(body.actor_user_id),
+      assigned_to_uuid: actorUuid,
     },
   };
   if (ticket.status === "novo" || ticket.status === "reaberto") {
@@ -217,14 +227,16 @@ const handleStart: ActionHandler = async (db, ticket, body, req) => {
   if ((body.actor_level || 0) < 900) return jsonResponse({ success: false, message: "Sem permissão" }, 403);
 
   const now = new Date().toISOString();
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
   const updates: any = {
     status: "em_atendimento",
-    assigned_to_user_id: toUuidOrNull(body.actor_user_id),
+    assigned_to_user_id: actorUuid,
     assigned_to_name: body.actor_name || null,
     assigned_at: now,
     metadata: {
       ...(ticket.metadata || {}),
       assigned_to_legacy_user_id: toIntOrNull(body.actor_user_id),
+      assigned_to_uuid: actorUuid,
     },
   };
   if (!ticket.first_response_at) updates.first_response_at = now;
@@ -322,12 +334,12 @@ const handleResolve: ActionHandler = async (db, ticket, body, req) => {
 
   const csQueueId = await resolveQueueId(db, "CS");
   const now = new Date().toISOString();
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
 
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "resolvido_suporte",
     resolved_at: now,
-    // UUID columns — null for integer user IDs
-    support_resolved_by: toUuidOrNull(body.actor_user_id),
+    support_resolved_by: actorUuid,
     // Integer column — safe to store
     resolved_by_user_id: toIntOrNull(body.actor_user_id),
     resolution_summary: body.reason.trim(),
@@ -374,12 +386,11 @@ const handleClose: ActionHandler = async (db, ticket, body, req) => {
   if (!body.reason?.trim()) return jsonResponse({ success: false, message: "close_reason (reason) obrigatório" }, 422);
 
   const now = new Date().toISOString();
+  const actorUuid = await resolveActorUuid(db, body.actor_user_id);
   const { data, error } = await updateTicket(db, ticket.id, {
     status: "encerrado_cs",
     closed_at: now,
-    // UUID column — null for integer user IDs
-    cs_closed_by: toUuidOrNull(body.actor_user_id),
-    // Integer column — safe
+    cs_closed_by: actorUuid,
     closed_by_user_id: toIntOrNull(body.actor_user_id),
     close_reason: body.reason.trim(),
   });

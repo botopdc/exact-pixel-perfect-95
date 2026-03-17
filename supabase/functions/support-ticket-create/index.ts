@@ -298,10 +298,10 @@ Deno.serve(async (req) => {
     // Try to auto-assign to the queue member with the least open tickets
     let autoAssigned = false;
     try {
-      // 1. Get active members that can receive auto-assign
+      // 1. Get active members that can receive auto-assign (include user_id_uuid)
       const { data: members } = await db
         .from("support_queue_members")
-        .select("user_id, user_name, user_email, user_level")
+        .select("user_id, user_id_uuid, user_name, user_email, user_level")
         .eq("queue_id", currentQueueId)
         .eq("is_active", true)
         .eq("can_receive_auto_assign", true);
@@ -354,9 +354,11 @@ Deno.serve(async (req) => {
           });
 
           const assignNow = new Date().toISOString();
+          const chosenUuid = chosen.member.user_id_uuid || null;
           const { error: assignError } = await db
             .from("support_tickets")
             .update({
+              assigned_to_user_id: chosenUuid,
               assigned_to_name: chosen.member.user_name,
               assigned_at: assignNow,
               status: "em_atendimento",
@@ -364,6 +366,8 @@ Deno.serve(async (req) => {
                 ...ticketMetadata,
                 auto_assigned: true,
                 auto_assigned_to_email: chosen.member.user_email,
+                auto_assigned_to_uuid: chosenUuid,
+                auto_assigned_to_legacy_user_id: chosen.member.user_id,
                 auto_assigned_at: assignNow,
               },
             })
@@ -397,6 +401,8 @@ Deno.serve(async (req) => {
               metadata: {
                 to_user_name: chosen.member.user_name,
                 to_user_email: chosen.member.user_email,
+                to_user_uuid: chosenUuid,
+                to_user_legacy_id: chosen.member.user_id,
                 load_at_assignment: chosen.count,
                 is_oncall: oncallEmails.has(chosen.member.user_email),
               },
@@ -416,13 +422,13 @@ Deno.serve(async (req) => {
     try {
       const { data: notifMembers } = await db
         .from("support_queue_members")
-        .select("user_id, user_level")
+        .select("user_id, user_id_uuid, user_level")
         .eq("queue_id", currentQueueId)
         .eq("is_active", true);
 
       if (notifMembers && notifMembers.length > 0) {
         const notifications = notifMembers.map((m: any) => ({
-          user_id: String(m.user_id),
+          user_id: m.user_id_uuid || String(m.user_id),
           user_level: m.user_level,
           event_name: "ticket.created",
           title: `Novo ticket ${ticket.public_code}${autoAssigned ? ' (auto-atribuído)' : ''}`,
