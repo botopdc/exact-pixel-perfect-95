@@ -62,3 +62,6 @@ export default function KPIsConsolidadosPage() {
       {activeTab === 'suporte' && <KPIsSuporte />}
       {activeTab === 'cs' && <KPIsCS />}
       {activeTab === 'gestao' && <KPIsGestao />}
+    </div>
+  );
+}
