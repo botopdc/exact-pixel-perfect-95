@@ -79,18 +79,9 @@ export function useSupabaseProposal(proposalId: string | undefined) {
 export function useSupabaseProposalWithItems(proposalId: string | undefined) {
   return useQuery({
     queryKey: [...SUPABASE_PROPOSAL_KEYS.detail(proposalId || ''), 'with-items'],
-    queryFn: async () => {
-      if (!proposalId) return null;
-      const result = await getProposalWithItems(proposalId);
-      console.log('[useSupabaseProposalWithItems] Loaded:', {
-        proposalId,
-        serversCount: result?.servers?.length || 0,
-        addonsCount: result?.addons?.length || 0,
-      });
-      return result;
-    },
+    queryFn: () => (proposalId ? getProposalWithItems(proposalId) : null),
     enabled: !!proposalId,
-    staleTime: 60 * 1000,
+    staleTime: 60_000,
   });
 }
 
