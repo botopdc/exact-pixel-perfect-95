@@ -92,16 +92,16 @@ function useEffectiveAuth(): { effectiveRoles: string[]; isResolved: boolean } {
 function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { level } = useEffectiveUserLevel();
+  const { effectiveRoles } = useEffectiveAuth();
 
   React.useEffect(() => {
-    if (!isModuleRouteAllowed(location.pathname, level)) {
+    if (effectiveRoles.length > 0 && !isModuleRouteAllowed(location.pathname, effectiveRoles)) {
       toast.error('Acesso não permitido', {
         description: 'Você não tem permissão para acessar esta página.',
       });
       navigate('/modulos/dashboard', { replace: true });
     }
-  }, [location.pathname, level, navigate]);
+  }, [location.pathname, effectiveRoles, navigate]);
 
   return <>{children}</>;
 }
