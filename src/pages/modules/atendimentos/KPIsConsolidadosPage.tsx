@@ -11,7 +11,7 @@ import KPIsSuporte from '@/pages/KPIsSuporte';
 import KPIsCS from '@/pages/KPIsCS';
 import KPIsGestao from '@/pages/KPIsGestao';
 import { useAuth } from '@/contexts/AuthContext';
-import { isAdmin, isSupportManager, isCS } from '@/lib/rbac';
+import { isAdmin, isSupportManager, isCS, getEffectiveRoles } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 
 type TabId = 'suporte' | 'cs' | 'gestao';
