@@ -16,8 +16,10 @@ export interface UserProfile {
   id: string;
   legacy_user_id: number | null;
   name: string;
+  full_name: string | null;
   email: string;
   level: number;
+  level_legacy: number | null;
   role_code: string | null;
   entity_id: number | null;
   company_id: number | null;
