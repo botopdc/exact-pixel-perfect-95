@@ -48,7 +48,7 @@ function mapRow(row: any): ProposalEvent {
 
 // Fetch events via Edge Function (bypasses RLS)
 async function fetchEvents(proposalId: string): Promise<ProposalEvent[]> {
-  const { data, error } = await supabase.functions.invoke('proposal-track', {
+  const { data, error } = await coreSupabase.functions.invoke('proposal-track', {
     body: { action: 'list', proposalId },
   });
 

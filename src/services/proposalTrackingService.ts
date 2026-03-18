@@ -35,7 +35,7 @@ export async function trackProposalEvent(params: TrackEventParams): Promise<Trac
   try {
     console.log('[trackProposalEvent] Tracking:', params);
 
-    const { data, error } = await supabase.functions.invoke('proposal-track', {
+    const { data, error } = await coreSupabase.functions.invoke('proposal-track', {
       body: params,
     });
 

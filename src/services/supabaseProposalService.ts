@@ -43,7 +43,7 @@ export async function listProposals(filters: ProposalListFilters = {}): Promise<
   });
 
   // Check auth state
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const { data: authData, error: authError } = await coreSupabase.auth.getUser();
   console.log('[supabaseProposalService] Auth state:', {
     hasUser: !!authData?.user,
     userId: authData?.user?.id?.substring(0, 8) || 'null',
@@ -116,7 +116,7 @@ export async function listProposals(filters: ProposalListFilters = {}): Promise<
 
 export async function getProposal(proposalId: string): Promise<CalculatorProposalWithRelations | null> {
   // Fetch proposal
-  const { data: proposal, error: proposalError } = await supabase
+  const { data: proposal, error: proposalError } = await coreSupabase
     .from('calculator_proposals')
     .select('*')
     .eq('id', proposalId)
@@ -132,7 +132,7 @@ export async function getProposal(proposalId: string): Promise<CalculatorProposa
   }
 
   // Fetch servers
-  const { data: servers, error: serversError } = await supabase
+  const { data: servers, error: serversError } = await coreSupabase
     .from('calculator_proposal_servers')
     .select('*')
     .eq('proposal_id', proposalId)
@@ -143,7 +143,7 @@ export async function getProposal(proposalId: string): Promise<CalculatorProposa
   }
 
   // Fetch addons
-  const { data: addons, error: addonsError } = await supabase
+  const { data: addons, error: addonsError } = await coreSupabase
     .from('calculator_proposal_addons')
     .select('*')
     .eq('proposal_id', proposalId)
@@ -154,7 +154,7 @@ export async function getProposal(proposalId: string): Promise<CalculatorProposa
   }
 
   // Fetch files
-  const { data: files, error: filesError } = await supabase
+  const { data: files, error: filesError } = await coreSupabase
     .from('calculator_proposal_files')
     .select('*')
     .eq('proposal_id', proposalId)
@@ -177,7 +177,7 @@ export async function getProposal(proposalId: string): Promise<CalculatorProposa
 // ============================================================================
 
 export async function getProposalByDisplayId(displayId: string): Promise<CalculatorProposalWithRelations | null> {
-  const { data: proposal, error } = await supabase
+  const { data: proposal, error } = await coreSupabase
     .from('calculator_proposals')
     .select('*')
     .eq('display_id', displayId)
@@ -249,7 +249,7 @@ export async function saveProposal(payload: SaveProposalPayload): Promise<string
 
   console.log('[supabaseProposalService] Calling RPC with payload:', rpcPayload);
 
-  const { data, error } = await supabase.rpc('save_calculator_proposal', {
+  const { data, error } = await coreSupabase.rpc('save_calculator_proposal', {
     payload: rpcPayload,
   });
 
@@ -271,7 +271,7 @@ export async function saveProposal(payload: SaveProposalPayload): Promise<string
 export async function deleteProposal(proposalId: string): Promise<void> {
   console.log('[supabaseProposalService] deleteProposal:', proposalId);
 
-  const { error } = await supabase
+  const { error } = await coreSupabase
     .from('calculator_proposals')
     .delete()
     .eq('id', proposalId);
@@ -291,7 +291,7 @@ export async function deleteProposal(proposalId: string): Promise<void> {
 export async function updateProposalStatus(proposalId: string, status: string): Promise<void> {
   console.log('[supabaseProposalService] updateProposalStatus:', { proposalId, status });
 
-  const { error } = await supabase
+  const { error } = await coreSupabase
     .from('calculator_proposals')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', proposalId);
@@ -309,7 +309,7 @@ export async function updateProposalStatus(proposalId: string, status: string): 
 export async function updatePdfPath(proposalId: string, pdfPath: string): Promise<void> {
   console.log('[supabaseProposalService] updatePdfPath:', { proposalId, pdfPath });
 
-  const { error } = await supabase
+  const { error } = await coreSupabase
     .from('calculator_proposals')
     .update({ pdf_path: pdfPath, updated_at: new Date().toISOString() })
     .eq('id', proposalId);
@@ -332,7 +332,7 @@ export async function addProposalFile(
 ): Promise<CalculatorProposalFileRow> {
   console.log('[supabaseProposalService] addProposalFile:', { proposalId, filePath });
 
-  const { data, error } = await supabase
+  const { data, error } = await coreSupabase
     .from('calculator_proposal_files')
     .insert({
       proposal_id: proposalId,
@@ -367,7 +367,7 @@ export async function uploadPdfToStorage(
   console.log('[supabaseProposalService] uploadPdfToStorage:', storagePath);
 
   // Upload to storage
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await coreSupabase.storage
     .from('proposal-files')
     .upload(storagePath, pdfBlob, {
       contentType: 'application/pdf',
@@ -380,7 +380,7 @@ export async function uploadPdfToStorage(
   }
 
   // Generate signed URL (7 days)
-  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+  const { data: signedUrlData, error: signedUrlError } = await coreSupabase.storage
     .from('proposal-files')
     .createSignedUrl(storagePath, 60 * 60 * 24 * 7); // 7 days
 
@@ -406,7 +406,7 @@ export async function uploadPdfToStorage(
 // ============================================================================
 
 export async function getPdfSignedUrl(storagePath: string, expiresInSeconds: number = 60 * 60 * 24): Promise<string> {
-  const { data, error } = await supabase.storage
+  const { data, error } = await coreSupabase.storage
     .from('proposal-files')
     .createSignedUrl(storagePath, expiresInSeconds);
 
@@ -426,7 +426,7 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
   console.log('[supabaseProposalService] getProposalWithItems:', proposalId);
 
   // Fetch proposal
-  const { data: proposal, error: proposalError } = await supabase
+  const { data: proposal, error: proposalError } = await coreSupabase
     .from('calculator_proposals')
     .select('*')
     .eq('id', proposalId)
@@ -445,7 +445,7 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
   }
 
   // Fetch servers
-  const { data: servers, error: serversError } = await supabase
+  const { data: servers, error: serversError } = await coreSupabase
     .from('calculator_proposal_servers')
     .select('*')
     .eq('proposal_id', proposalId)
@@ -459,7 +459,7 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
   }
 
   // Fetch addons
-  const { data: addons, error: addonsError } = await supabase
+  const { data: addons, error: addonsError } = await coreSupabase
     .from('calculator_proposal_addons')
     .select('*')
     .eq('proposal_id', proposalId)
@@ -473,7 +473,7 @@ export async function getProposalWithItems(proposalId: string): Promise<Calculat
   }
 
   // Fetch files (non-blocking for edit)
-  const { data: files, error: filesError } = await supabase
+  const { data: files, error: filesError } = await coreSupabase
     .from('calculator_proposal_files')
     .select('*')
     .eq('proposal_id', proposalId)

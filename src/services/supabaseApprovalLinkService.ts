@@ -41,7 +41,7 @@ export async function getOrCreateApprovalLink(proposalUuid: string): Promise<App
   console.log('[APPROVAL LINK SUPABASE] Starting for proposalId:', proposalUuid);
 
   // Fetch current proposal to check existing token
-  const { data: proposal, error: fetchError } = await supabase
+  const { data: proposal, error: fetchError } = await coreSupabase
     .from('calculator_proposals')
     .select('id, approval_token, approval_token_expires_at')
     .eq('id', proposalUuid)
@@ -91,7 +91,7 @@ export async function getOrCreateApprovalLink(proposalUuid: string): Promise<App
   });
 
   // Update proposal with new token
-  const { error: updateError } = await supabase
+  const { error: updateError } = await coreSupabase
     .from('calculator_proposals')
     .update({
       approval_token: newToken,
@@ -132,7 +132,7 @@ export async function validateApprovalToken(proposalUuid: string, token: string)
     return false;
   }
 
-  const { data: proposal, error } = await supabase
+  const { data: proposal, error } = await coreSupabase
     .from('calculator_proposals')
     .select('approval_token, approval_token_expires_at')
     .eq('id', proposalUuid)
