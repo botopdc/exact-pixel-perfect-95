@@ -163,13 +163,14 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
   const sendMessage = useCallback((body: string, isInternal: boolean) => {
     if (!ticketId || !ctx.userId) return;
     const authorType = ctx.level >= 900 ? 'support' : ctx.level >= 775 ? 'cs' : 'client';
+    // Phase 4: Send UUID as primary author identity
     return messageMutation.mutateAsync({
       ticket_id: ticketId,
       body,
       is_internal_note: isInternal,
       author_name: ctx.name || 'Usuário',
       author_email: ctx.email,
-      author_user_id: ctx.legacyUserId || ctx.userId,
+      author_user_id: ctx.userId,
       author_level: ctx.level,
       author_type: authorType as any,
     });
