@@ -22,7 +22,7 @@ import { getProposalPublic, CalculatorProposal } from '@/services/calculatorProp
 import { listAttachments, NormalizedAttachment } from '@/services/attachmentsService';
 import { openApi } from '@/lib/openApi';
 import { extractNumericId } from '@/lib/proposalIdUtils';
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 import { getProposalWithItems } from '@/services/supabaseProposalService';
 
 interface PdfGenerationResult {
@@ -592,7 +592,7 @@ export async function downloadProposalPdfFromSupabase(proposalUuid: string): Pro
 
   try {
     // 1. Check if there's a stored PDF in Supabase storage
-    const { data: proposal, error: proposalError } = await supabase
+    const { data: proposal, error: proposalError } = await coreSupabase
       .from('calculator_proposals')
       .select('pdf_path, company, name, email, phone, total, contract_duration, datacenter, observations, display_id')
       .eq('id', proposalUuid)
@@ -610,7 +610,7 @@ export async function downloadProposalPdfFromSupabase(proposalUuid: string): Pro
     // 2. Try to download from storage if pdf_path exists
     if (proposal.pdf_path) {
       try {
-        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        const { data: signedUrlData, error: signedUrlError } = await coreSupabase.storage
           .from('proposal-files')
           .createSignedUrl(proposal.pdf_path, 60 * 60); // 1 hour
 
@@ -722,7 +722,7 @@ export async function downloadProposalPdfFromSupabase(proposalUuid: string): Pro
       console.log('[proposal-pdf] saved_pdf_path=', uploaded.path);
 
       // Update pdf_path on the proposal
-      await supabase
+      await coreSupabase
         .from('calculator_proposals')
         .update({ pdf_path: uploaded.path, pdf_generated_at: new Date().toISOString() })
         .eq('id', proposalUuid);

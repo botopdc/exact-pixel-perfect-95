@@ -4,7 +4,7 @@
  * Uses Edge Function with Service Role to bypass RLS on proposal_views table.
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 export type TrackingSource = 
   | 'email_sent'
@@ -35,7 +35,7 @@ export async function trackProposalEvent(params: TrackEventParams): Promise<Trac
   try {
     console.log('[trackProposalEvent] Tracking:', params);
 
-    const { data, error } = await supabase.functions.invoke('proposal-track', {
+    const { data, error } = await coreSupabase.functions.invoke('proposal-track', {
       body: params,
     });
 

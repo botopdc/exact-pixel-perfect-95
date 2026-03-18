@@ -5,7 +5,7 @@
  * doesn't have a Supabase session (auth.uid() is null).
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 // Get CORE token from localStorage (set by CORE auth flow)
 function getCoreToken(): string | null {
@@ -155,7 +155,7 @@ export async function listProposals(params: ProposalListParams = {}): Promise<Pr
     console.warn('[proposalApi.listProposals] No CORE token found');
   }
 
-  const { data, error } = await supabase.functions.invoke('proposal-list', {
+  const { data, error } = await coreSupabase.functions.invoke('proposal-list', {
     body: params,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -185,7 +185,7 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
     console.warn('[proposalApi.getProposal] No CORE token found');
   }
 
-  const { data, error } = await supabase.functions.invoke('proposal-get', {
+  const { data, error } = await coreSupabase.functions.invoke('proposal-get', {
     body: { proposalId },
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -214,7 +214,7 @@ export async function saveProposal(payload: ProposalSavePayload): Promise<Propos
     console.warn('[proposalApi.saveProposal] No CORE token found');
   }
 
-  const { data, error } = await supabase.functions.invoke('proposal-save', {
+  const { data, error } = await coreSupabase.functions.invoke('proposal-save', {
     body: payload,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

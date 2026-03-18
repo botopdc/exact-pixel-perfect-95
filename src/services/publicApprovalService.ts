@@ -6,7 +6,7 @@
  * - proposal-public-link: generate/reuse persisted public token (requires CORE token)
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 // ============================================================================
 // CONSTANTS
@@ -175,7 +175,7 @@ async function parseInvokeError(error: any, fallbackMessage: string): Promise<Pa
 }
 
 async function callProposalPublic(body: Record<string, unknown>): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('proposal-public', { body });
+  const { data, error } = await coreSupabase.functions.invoke('proposal-public', { body });
 
   if (error) {
     const parsed = await parseInvokeError(error, 'Erro ao carregar proposta');
@@ -187,7 +187,7 @@ async function callProposalPublic(body: Record<string, unknown>): Promise<any> {
 }
 
 async function callPublicApproval(body: Record<string, unknown>): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('public-approval', { body });
+  const { data, error } = await coreSupabase.functions.invoke('public-approval', { body });
 
   if (error) {
     const parsed = await parseInvokeError(error, 'Erro ao chamar função de aprovação');
@@ -216,7 +216,7 @@ export async function generateOrGetPublicApprovalLink(proposalId: string): Promi
     throw new Error('Sessão expirada. Faça login novamente para gerar o link.');
   }
 
-  const { data, error } = await supabase.functions.invoke('proposal-public-link', {
+  const { data, error } = await coreSupabase.functions.invoke('proposal-public-link', {
     body: { proposalId: proposalId.trim(), expiresInDays: 30 },
     headers: {
       Authorization: `Bearer ${coreToken}`,
