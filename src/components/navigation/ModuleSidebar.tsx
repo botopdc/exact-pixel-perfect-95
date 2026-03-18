@@ -28,6 +28,7 @@ import {
   getUserLevelName,
   Module,
 } from '@/config/modulesConfig';
+import { getEffectiveRoles, getUserDisplayRole } from '@/lib/rbac';
 import {
   Tooltip,
   TooltipContent,
