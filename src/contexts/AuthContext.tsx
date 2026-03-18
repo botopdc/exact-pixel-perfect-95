@@ -98,9 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       const userRoles: UserRole[] = (rolesRes.data || []).map((r: any) => ({
-        role_id: r.role_id,
-        role_code: (r.roles as any)?.code || '',
-        is_active: r.is_active,
+        role_slug: r.role_slug || '',
       }));
 
       if (import.meta.env.DEV) {
