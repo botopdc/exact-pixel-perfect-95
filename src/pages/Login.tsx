@@ -10,7 +10,7 @@ import { getRedirectByRoles, getEffectiveRoles } from '@/lib/rbac';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { isLoading: loadingAuth, session, profile, signIn } = useAuth();
+  const { isLoading: loadingAuth, session, profile, roles, signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
