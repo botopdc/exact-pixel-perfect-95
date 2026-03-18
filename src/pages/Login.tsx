@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { authService } from '@/services/authService';
 import logoWhite from '@/assets/logo-white.png';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,17 +19,9 @@ export default function LoginPage() {
   const hasRedirected = useRef(false);
 
   // ── Auto-redirect if already authenticated ──
-  // Only redirect once, and only when auth is fully resolved
   if (!loadingAuth && session && profile && !hasRedirected.current) {
     hasRedirected.current = true;
-    if (import.meta.env.DEV) {
-      console.log('[Login] Already authenticated, redirecting:', {
-        email: profile.email,
-        level: profile.level,
-      });
-    }
     const target = getRedirectByLevel(profile.level);
-    // Use setTimeout to avoid calling navigate during render
     setTimeout(() => navigate(target, { replace: true }), 0);
   }
 
@@ -48,38 +39,16 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
-    const normalizedEmail = email.toLowerCase().trim();
-
     try {
-      // 1) Try Supabase Auth first
-      const result = await signIn(normalizedEmail, password);
+      const result = await signIn(email, password);
 
       if (result.success) {
-        // onAuthStateChange will update session/profile in AuthContext.
-        // We need to wait for profile to load before redirecting.
-        // The auto-redirect block above will handle it once profile loads.
-        // But we can also poll for it here for a snappier experience.
-        if (import.meta.env.DEV) {
-          console.log('[Login] Supabase Auth success, waiting for profile...');
-        }
-        // Give AuthContext time to load the profile, then redirect
-        // The onAuthStateChange + loadProfile will fire; we just wait
-        return; // isLoading stays true; auto-redirect handles navigation
+        // Profile will load via onAuthStateChange → auto-redirect handles navigation
+        return;
       }
 
-      // Supabase auth failed — try legacy fallback
-      if (import.meta.env.DEV) {
-        console.log('[Login] Supabase auth failed, trying legacy for:', normalizedEmail);
-      }
-
-      const legacyResult = await authService.login(normalizedEmail, password);
-
-      if (legacyResult.success && legacyResult.session) {
-        navigate(getRedirectByLevel(legacyResult.session.level), { replace: true });
-      } else {
-        setError(legacyResult.error || result.error || 'Email ou senha incorretos');
-        setIsLoading(false);
-      }
+      setError(result.error || 'Email ou senha incorretos');
+      setIsLoading(false);
     } catch (err) {
       console.error('[Login] Unexpected error:', err);
       setError('Erro inesperado. Tente novamente.');
@@ -115,7 +84,6 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Error Message */}
             {error && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -123,7 +91,6 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Email Field */}
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm text-foreground">Email</Label>
               <Input
@@ -138,7 +105,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Password Field */}
             <div className="space-y-2">
               <Label htmlFor="password" className="text-sm text-foreground">Senha</Label>
               <div className="relative">
@@ -162,7 +128,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Forgot Password Link */}
             <div className="text-right">
               <Link
                 to="/reset-password"
@@ -172,7 +137,6 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            {/* Submit Button */}
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Entrando...</>
@@ -181,7 +145,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-xs text-muted-foreground mt-6">
           © {new Date().getFullYear()} OPEN Datacenter. Todos os direitos reservados.
         </p>

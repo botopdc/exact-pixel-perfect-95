@@ -16,8 +16,10 @@ export interface UserProfile {
   id: string;
   legacy_user_id: number | null;
   name: string;
+  full_name: string | null;
   email: string;
   level: number;
+  level_legacy: number | null;
   role_code: string | null;
   entity_id: number | null;
   company_id: number | null;
@@ -87,8 +89,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: data.id,
         legacy_user_id: data.legacy_user_id,
         name: data.name,
+        full_name: (data as any).full_name ?? null,
         email: data.email,
         level: data.level,
+        level_legacy: (data as any).level_legacy ?? null,
         role_code: data.role_code,
         entity_id: data.entity_id,
         company_id: data.company_id,

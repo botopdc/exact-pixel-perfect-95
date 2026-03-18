@@ -17,7 +17,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { DOC_CATEGORIES, getDocsByCategory, type DocCategory } from '@/data/docs/registry';
-import { authService } from '@/services/authService';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard,
@@ -39,8 +39,8 @@ const ADMIN_LINKS = [
 
 export function DocsSidebar() {
   const location = useLocation();
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? 0;
+  const { profile } = useAuth();
+  const userLevel = profile?.level ?? 0;
   // Admin area visible for levels >= 750 (Gerente, Admin, etc.)
   const showAdmin = userLevel >= 750;
 
