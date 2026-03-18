@@ -18,17 +18,11 @@ const CORE_SUPABASE_URL = import.meta.env.VITE_CORE_SUPABASE_URL || 'https://zkj
 const CORE_SUPABASE_ANON_KEY = import.meta.env.VITE_CORE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpranJjZW5oZW1ubmxtaml5c2JjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NDEzMzcsImV4cCI6MjA4OTQxNzMzN30.vsjwi26RvTOuIaH9LDAQyhXD0PL7nWdCiVuKMlvtBG8';
 
 if (!CORE_SUPABASE_URL) {
-  throw new Error(
-    '[coreClient] VITE_CORE_SUPABASE_URL is not set. ' +
-    'Add it to your environment to enable the proposals/pricing domain on core-open.'
-  );
+  console.warn('[coreClient] VITE_CORE_SUPABASE_URL is not set and no fallback available.');
 }
 
 if (!CORE_SUPABASE_ANON_KEY) {
-  throw new Error(
-    '[coreClient] VITE_CORE_SUPABASE_ANON_KEY is not set. ' +
-    'Add it to your environment to enable the proposals/pricing domain on core-open.'
-  );
+  console.warn('[coreClient] VITE_CORE_SUPABASE_ANON_KEY is not set and no fallback available.');
 }
 
 /**
