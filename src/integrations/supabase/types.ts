@@ -1274,10 +1274,12 @@ export type Database = {
           department: string | null
           email: string
           entity_id: number | null
+          full_name: string | null
           id: string
           is_active: boolean
           legacy_user_id: number | null
           level: number
+          level_legacy: number | null
           name: string
           role_code: string | null
           updated_at: string
@@ -1289,10 +1291,12 @@ export type Database = {
           department?: string | null
           email: string
           entity_id?: number | null
+          full_name?: string | null
           id: string
           is_active?: boolean
           legacy_user_id?: number | null
           level?: number
+          level_legacy?: number | null
           name: string
           role_code?: string | null
           updated_at?: string
@@ -1304,10 +1308,12 @@ export type Database = {
           department?: string | null
           email?: string
           entity_id?: number | null
+          full_name?: string | null
           id?: string
           is_active?: boolean
           legacy_user_id?: number | null
           level?: number
+          level_legacy?: number | null
           name?: string
           role_code?: string | null
           updated_at?: string
@@ -1750,34 +1756,22 @@ export type Database = {
       }
       roles: {
         Row: {
-          code: string
           created_at: string
-          description: string | null
           id: string
-          is_active: boolean
-          module: string | null
           name: string
-          updated_at: string
+          slug: string
         }
         Insert: {
-          code: string
           created_at?: string
-          description?: string | null
           id?: string
-          is_active?: boolean
-          module?: string | null
           name: string
-          updated_at?: string
+          slug: string
         }
         Update: {
-          code?: string
           created_at?: string
-          description?: string | null
           id?: string
-          is_active?: boolean
-          module?: string | null
           name?: string
-          updated_at?: string
+          slug?: string
         }
         Relationships: []
       }
@@ -4138,43 +4132,30 @@ export type Database = {
       }
       user_roles: {
         Row: {
-          assigned_at: string
-          assigned_by: string | null
+          created_at: string
           id: string
-          is_active: boolean
-          role_id: string
+          role_slug: string
           user_id: string
         }
         Insert: {
-          assigned_at?: string
-          assigned_by?: string | null
+          created_at?: string
           id?: string
-          is_active?: boolean
-          role_id: string
+          role_slug: string
           user_id: string
         }
         Update: {
-          assigned_at?: string
-          assigned_by?: string | null
+          created_at?: string
           id?: string
-          is_active?: boolean
-          role_id?: string
+          role_slug?: string
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "user_roles_assigned_by_fkey"
-            columns: ["assigned_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "user_roles_role_id_fkey"
-            columns: ["role_id"]
+            foreignKeyName: "user_roles_role_slug_fkey"
+            columns: ["role_slug"]
             isOneToOne: false
             referencedRelation: "roles"
-            referencedColumns: ["id"]
+            referencedColumns: ["slug"]
           },
           {
             foreignKeyName: "user_roles_user_id_fkey"
@@ -4191,6 +4172,7 @@ export type Database = {
     }
     Functions: {
       create_contract_from_proposal: { Args: { payload: Json }; Returns: Json }
+      has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_internal_user: { Args: never; Returns: boolean }
       is_profile_admin: { Args: never; Returns: boolean }
       is_support_admin_or_manager: { Args: never; Returns: boolean }
