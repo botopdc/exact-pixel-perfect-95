@@ -31,13 +31,10 @@ function ClientDashboard() {
   );
 }
 
-// Resolve user level from Supabase profile or legacy session
+// Resolve user level from Supabase profile
 function useUserLevel(): number | null {
   const { profile } = useAuth();
-  if (profile) return profile.level;
-  // Legacy fallback
-  const legacyUser = authService.getCurrentUser();
-  return legacyUser?.level ?? null;
+  return profile?.level ?? null;
 }
 
 // Corporate dashboard for non-client users
