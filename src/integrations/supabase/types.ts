@@ -907,6 +907,27 @@ export type Database = {
           },
         ]
       }
+      connection_test: {
+        Row: {
+          created_at: string | null
+          id: string
+          message: string | null
+          source: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          message?: string | null
+          source: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          message?: string | null
+          source?: string
+        }
+        Relationships: []
+      }
       contract_templates: {
         Row: {
           bucket: string
