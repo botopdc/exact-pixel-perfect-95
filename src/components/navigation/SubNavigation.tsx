@@ -56,13 +56,11 @@ interface TabNavigationProps {
 
 export function TabNavigation({ tabs, className }: TabNavigationProps) {
   const location = useLocation();
-  const { profile } = useAuth();
-  const userLevel = profile?.level ?? null;
+  const { profile, roles } = useAuth();
+  const effectiveRoles = getEffectiveRoles(roles, profile);
 
   const filteredTabs = tabs.filter(tab => {
-    if (userLevel === null) return false;
-    if (userLevel >= 1000) return true;
-    return tab.allowedLevels.includes(userLevel);
+    return isSubNavAllowed(tab as any, effectiveRoles);
   });
 
   if (filteredTabs.length === 0) return null;

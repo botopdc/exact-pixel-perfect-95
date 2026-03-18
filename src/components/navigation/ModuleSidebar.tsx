@@ -139,7 +139,7 @@ export function ModuleSidebar() {
                 <div className="flex flex-col items-start text-left">
                   <span className="text-sm font-medium truncate max-w-[120px]">{displayName}</span>
                   <span className="text-xs text-muted-foreground">
-                    {userLevel !== null ? getUserLevelName(userLevel) : 'Carregando...'}
+                    {getUserDisplayRole(effectiveRoles, profile?.level)}
                   </span>
                 </div>
               )}

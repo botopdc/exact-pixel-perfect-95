@@ -113,7 +113,7 @@ function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
 export default function ModuleLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { level, isResolved } = useEffectiveUserLevel();
+  const { effectiveRoles, isResolved } = useEffectiveAuth();
 
   const getCurrentModuleConfig = () => {
     const path = location.pathname;
@@ -136,8 +136,8 @@ export default function ModuleLayout() {
     );
   }
 
-  // Auth resolved but no user → redirect to login
-  if (isResolved && level === null) {
+  // Auth resolved but no roles → redirect to login
+  if (isResolved && effectiveRoles.length === 0) {
     if (import.meta.env.DEV) {
       console.log('[ModuleLayout] No auth found, redirecting to /login');
     }
