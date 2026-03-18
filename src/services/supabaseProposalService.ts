@@ -7,7 +7,7 @@
  * IMPORTANT: This is the SOURCE OF TRUTH for proposals - not the external API.
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 import type {
   CalculatorProposalRow,
   CalculatorProposalServerRow,

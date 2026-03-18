@@ -6,7 +6,7 @@
  * - proposal-public-link: generate/reuse persisted public token (requires CORE token)
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 // ============================================================================
 // CONSTANTS

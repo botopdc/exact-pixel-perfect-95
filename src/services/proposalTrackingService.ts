@@ -4,7 +4,7 @@
  * Uses Edge Function with Service Role to bypass RLS on proposal_views table.
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 export type TrackingSource = 
   | 'email_sent'

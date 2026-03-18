@@ -7,7 +7,7 @@
  * Note: Uses raw queries because the Supabase types may not be updated yet
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 // ============================================================================
 // TYPES

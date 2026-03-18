@@ -5,7 +5,7 @@
  * doesn't have a Supabase session (auth.uid() is null).
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 
 // Get CORE token from localStorage (set by CORE auth flow)
 function getCoreToken(): string | null {

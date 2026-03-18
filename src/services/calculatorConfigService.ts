@@ -7,7 +7,7 @@
 // CONSTANTS
 // ============================================================================
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_URL = import.meta.env.VITE_CORE_SUPABASE_URL;
 
 if (!SUPABASE_URL) {
   throw new Error('VITE_SUPABASE_URL não está definida.');

@@ -10,7 +10,7 @@
  * - Reused if still valid
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 import { ROUTES } from '@/config/routes';
 
 export interface ApprovalLinkResult {

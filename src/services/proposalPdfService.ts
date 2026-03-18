@@ -22,7 +22,7 @@ import { getProposalPublic, CalculatorProposal } from '@/services/calculatorProp
 import { listAttachments, NormalizedAttachment } from '@/services/attachmentsService';
 import { openApi } from '@/lib/openApi';
 import { extractNumericId } from '@/lib/proposalIdUtils';
-import { supabase } from '@/integrations/supabase/client';
+import { coreSupabase } from '@/integrations/supabase/coreClient';
 import { getProposalWithItems } from '@/services/supabaseProposalService';
 
 interface PdfGenerationResult {
