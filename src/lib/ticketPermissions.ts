@@ -7,7 +7,17 @@
 import type { CoreTicket, TicketStatus, TicketAction } from '@/services/supportTicketCoreService';
 import type { UserProfile } from '@/contexts/AuthContext';
 import type { UserRole } from '@/lib/rbac';
-import { hasRole, hasAnyRole, isAdmin, isSupport, isSupportManager, isCS, isInternal, isClient, isPartner } from '@/lib/rbac';
+import {
+  getEffectiveRoles,
+  hasRole as _hasRole,
+  isAdmin as _isAdminR,
+  isSupport as _isSupportR,
+  isSupportManager as _isSupportManagerR,
+  isCS as _isCSR,
+  isInternal as _isInternalR,
+  isClient as _isClientR,
+  isPartner as _isPartnerR,
+} from '@/lib/rbac';
 
 export interface TicketPermissions {
   canView: boolean;
