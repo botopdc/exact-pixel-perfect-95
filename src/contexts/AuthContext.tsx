@@ -63,14 +63,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const [profileRes, rolesRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('*')
+          .select('id, legacy_user_id, name, full_name, email, level, level_legacy, role_code, entity_id, company_id, department, is_active, avatar_url')
           .eq('id', userId)
           .maybeSingle(),
-        supabase
+        (supabase as any)
           .from('user_roles')
-          .select('id, role_id, is_active, roles!inner(code)')
-          .eq('user_id', userId)
-          .eq('is_active', true),
+          .select('id, role_slug')
+          .eq('user_id', userId),
       ]);
 
       if (profileRes.error) {
