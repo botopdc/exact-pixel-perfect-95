@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { getRedirectByLevel } from '@/lib/rbac';
+import { getRedirectByRoles, getEffectiveRoles } from '@/lib/rbac';
 
 export default function LoginPage() {
   const navigate = useNavigate();
