@@ -67,26 +67,22 @@ function ModuleLayoutHeader() {
 // HELPERS: get user level from Supabase profile (no legacy fallback)
 // ============================================================================
 
-function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } {
-  const { profile, isLoading, session } = useAuth();
+function useEffectiveAuth(): { effectiveRoles: string[]; isResolved: boolean } {
+  const { profile, roles, isLoading, session } = useAuth();
 
-  // If Supabase session exists and profile is loaded, use it
   if (session && profile) {
-    return { level: profile.level, isResolved: true };
+    return { effectiveRoles: getEffectiveRoles(roles, profile), isResolved: true };
   }
 
-  // If Supabase is still loading, don't resolve yet
   if (isLoading) {
-    return { level: null, isResolved: false };
+    return { effectiveRoles: [], isResolved: false };
   }
 
-  // If Supabase session exists but profile hasn't loaded yet, wait
   if (session && !profile) {
-    return { level: null, isResolved: false };
+    return { effectiveRoles: [], isResolved: false };
   }
 
-  // No Supabase session — unauthenticated
-  return { level: null, isResolved: true };
+  return { effectiveRoles: [], isResolved: true };
 }
 
 // ============================================================================
