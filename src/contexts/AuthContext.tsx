@@ -63,14 +63,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const [profileRes, rolesRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('*')
+          .select('id, legacy_user_id, name, full_name, email, level, level_legacy, role_code, entity_id, company_id, department, is_active, avatar_url')
           .eq('id', userId)
           .maybeSingle(),
-        supabase
+        (supabase as any)
           .from('user_roles')
-          .select('id, role_id, is_active, roles!inner(code)')
-          .eq('user_id', userId)
-          .eq('is_active', true),
+          .select('id, role_slug')
+          .eq('user_id', userId),
       ]);
 
       if (profileRes.error) {
@@ -99,9 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       const userRoles: UserRole[] = (rolesRes.data || []).map((r: any) => ({
-        role_id: r.role_id,
-        role_code: (r.roles as any)?.code || '',
-        is_active: r.is_active,
+        role_slug: r.role_slug || '',
       }));
 
       if (import.meta.env.DEV) {
@@ -110,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: p.email,
           level: p.level,
           legacy_user_id: p.legacy_user_id,
-          roles: userRoles.map(r => r.role_code),
+          roles: userRoles.map(r => r.role_slug),
         });
       }
 

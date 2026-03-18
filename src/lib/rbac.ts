@@ -40,15 +40,13 @@ export const LEVEL_TO_ROLE: Record<number, string> = {
 // ============================================================================
 
 export interface UserRole {
-  role_id: string;
-  role_code: string;
-  is_active: boolean;
+  role_slug: string;
 }
 
-/** Check if user has a specific role by code */
+/** Check if user has a specific role by slug */
 export function hasRole(roles: UserRole[] | null | undefined, code: string): boolean {
   if (!roles || roles.length === 0) return false;
-  return roles.some(r => r.role_code === code && r.is_active);
+  return roles.some(r => r.role_slug === code);
 }
 
 /** Check if user has any of the specified roles */
