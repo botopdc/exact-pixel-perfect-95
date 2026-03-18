@@ -67,7 +67,7 @@ export function getArchitectCommissionRuleText(): string {
  * Get all participants for a proposal
  */
 export async function getProposalParticipants(proposalId: string): Promise<ProposalParticipant[]> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (coreSupabase as any)
     .from('proposal_participants')
     .select('*')
     .eq('proposal_id', proposalId);
@@ -87,7 +87,7 @@ export async function getParticipantByRole(
   proposalId: string,
   role: ParticipantRole
 ): Promise<ProposalParticipant | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (coreSupabase as any)
     .from('proposal_participants')
     .select('*')
     .eq('proposal_id', proposalId)
@@ -109,7 +109,7 @@ export async function getProposalsByParticipant(
   externalUserId: number,
   role?: ParticipantRole
 ): Promise<ProposalParticipant[]> {
-  let query = (supabase as any)
+  let query = (coreSupabase as any)
     .from('proposal_participants')
     .select('*')
     .eq('external_user_id', externalUserId);
@@ -140,7 +140,7 @@ export async function upsertParticipant(input: CreateParticipantInput): Promise<
     commission_pct: input.commission_pct,
   });
   
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (coreSupabase as any)
     .from('proposal_participants')
     .upsert(
       {
@@ -173,7 +173,7 @@ export async function removeParticipant(
   proposalId: string,
   role: ParticipantRole
 ): Promise<void> {
-  const { error } = await (supabase as any)
+  const { error } = await (coreSupabase as any)
     .from('proposal_participants')
     .delete()
     .eq('proposal_id', proposalId)
@@ -194,7 +194,7 @@ export async function setParticipantCommission(
   role: ParticipantRole,
   commissionPct: number
 ): Promise<void> {
-  const { error } = await (supabase as any)
+  const { error } = await (coreSupabase as any)
     .from('proposal_participants')
     .update({ commission_pct: commissionPct, updated_at: new Date().toISOString() })
     .eq('proposal_id', proposalId)
