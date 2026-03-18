@@ -21,7 +21,8 @@ export default function LoginPage() {
   // ── Auto-redirect if already authenticated ──
   if (!loadingAuth && session && profile && !hasRedirected.current) {
     hasRedirected.current = true;
-    const target = getRedirectByLevel(profile.level);
+    const effectiveRoles = getEffectiveRoles(roles, profile);
+    const target = getRedirectByRoles(effectiveRoles);
     setTimeout(() => navigate(target, { replace: true }), 0);
   }
 
