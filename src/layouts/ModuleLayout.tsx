@@ -16,6 +16,7 @@ import {
   MODULE_CONFIGS, 
   isModuleRouteAllowed,
 } from '@/config/modulesConfig';
+import { getEffectiveRoles } from '@/lib/rbac';
 
 // ============================================================================
 // MODULE HEADER COMPONENT
