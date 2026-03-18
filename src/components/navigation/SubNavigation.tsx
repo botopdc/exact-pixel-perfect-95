@@ -12,10 +12,10 @@ interface SubNavigationProps {
 
 export function SubNavigation({ items, className }: SubNavigationProps) {
   const location = useLocation();
-  const { profile } = useAuth();
-  const userLevel = profile?.level ?? null;
+  const { profile, roles } = useAuth();
+  const effectiveRoles = getEffectiveRoles(roles, profile);
 
-  const filteredItems = items.filter(item => isSubNavAllowed(item, userLevel));
+  const filteredItems = items.filter(item => isSubNavAllowed(item, effectiveRoles));
 
   if (filteredItems.length === 0) return null;
 
