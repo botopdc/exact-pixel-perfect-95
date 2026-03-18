@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { SubNavItem, SubNavTab, isSubNavAllowed } from '@/config/modulesConfig';
-import { authService } from '@/services/authService';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SubNavigationProps {
   items: SubNavItem[];
@@ -11,10 +11,9 @@ interface SubNavigationProps {
 
 export function SubNavigation({ items, className }: SubNavigationProps) {
   const location = useLocation();
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? null;
+  const { profile } = useAuth();
+  const userLevel = profile?.level ?? null;
 
-  // Filtrar items por permissão
   const filteredItems = items.filter(item => isSubNavAllowed(item, userLevel));
 
   if (filteredItems.length === 0) return null;
@@ -56,10 +55,9 @@ interface TabNavigationProps {
 
 export function TabNavigation({ tabs, className }: TabNavigationProps) {
   const location = useLocation();
-  const user = authService.getCurrentUser();
-  const userLevel = user?.level ?? null;
+  const { profile } = useAuth();
+  const userLevel = profile?.level ?? null;
 
-  // Filtrar tabs por permissão
   const filteredTabs = tabs.filter(tab => {
     if (userLevel === null) return false;
     if (userLevel >= 1000) return true;
