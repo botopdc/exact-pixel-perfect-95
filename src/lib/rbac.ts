@@ -1,9 +1,46 @@
 // ============================================================================
-// RBAC HELPERS — Hybrid permission checks: roles + profile.level fallback
-// Source of truth: public.user_roles → fallback: public.profiles.level
+// RBAC HELPERS — Roles-first with level_legacy fallback
+// Source of truth: public.user_roles → fallback: profile.level
 // ============================================================================
 
 import type { UserProfile } from '@/contexts/AuthContext';
+
+// ============================================================================
+// ROLE SLUGS — canonical list
+// ============================================================================
+
+export const ROLE_SLUGS = {
+  ADMIN: 'admin',
+  GERENTE_SUPORTE: 'gerente_suporte',
+  SUPORTE: 'suporte',
+  CS: 'cs',
+  GERENTE_COMERCIAL: 'gerente_comercial',
+  COMERCIAL: 'comercial',
+  ARQUITETO: 'arquiteto',
+  BDR: 'bdr',
+  RH: 'rh',
+  PARCEIRO: 'parceiro',
+  CLIENTE: 'cliente',
+  INTERNAL_USER: 'internal_user',
+} as const;
+
+// ============================================================================
+// LEVEL → ROLE MAPPING (fallback when user_roles is empty)
+// ============================================================================
+
+export const LEVEL_TO_ROLES: Record<number, string[]> = {
+  1000: [ROLE_SLUGS.ADMIN, ROLE_SLUGS.INTERNAL_USER],
+  950:  [ROLE_SLUGS.GERENTE_SUPORTE, ROLE_SLUGS.INTERNAL_USER],
+  900:  [ROLE_SLUGS.SUPORTE, ROLE_SLUGS.INTERNAL_USER],
+  775:  [ROLE_SLUGS.CS, ROLE_SLUGS.INTERNAL_USER],
+  750:  [ROLE_SLUGS.GERENTE_COMERCIAL, ROLE_SLUGS.INTERNAL_USER],
+  700:  [ROLE_SLUGS.COMERCIAL, ROLE_SLUGS.INTERNAL_USER],
+  690:  [ROLE_SLUGS.ARQUITETO, ROLE_SLUGS.INTERNAL_USER],
+  680:  [ROLE_SLUGS.BDR, ROLE_SLUGS.INTERNAL_USER],
+  600:  [ROLE_SLUGS.RH, ROLE_SLUGS.INTERNAL_USER],
+  200:  [ROLE_SLUGS.PARCEIRO],
+  1:    [ROLE_SLUGS.CLIENTE],
+};
 
 // Re-export levels for backward compat
 export const LEVELS = {
@@ -22,119 +59,164 @@ export const LEVELS = {
 
 export type LevelKey = keyof typeof LEVELS;
 
-// Level → role code mapping (used for backfill and fallback)
-export const LEVEL_TO_ROLE: Record<number, string> = {
-  1000: 'admin',
-  950: 'gerente_suporte',
-  900: 'suporte_n1',
-  775: 'cs',
-  750: 'gerente_comercial',
-  700: 'comercial',
-  600: 'rh',
-  200: 'parceiro',
-  1: 'cliente',
-};
-
 // ============================================================================
-// ROLE-BASED CHECKS (new model)
+// USER ROLE INTERFACE
 // ============================================================================
 
 export interface UserRole {
   role_slug: string;
 }
 
-/** Check if user has a specific role by slug */
-export function hasRole(roles: UserRole[] | null | undefined, code: string): boolean {
-  if (!roles || roles.length === 0) return false;
-  return roles.some(r => r.role_slug === code);
-}
+// ============================================================================
+// EFFECTIVE ROLES — Merges DB roles with level-derived fallback
+// ============================================================================
 
-/** Check if user has any of the specified roles */
-export function hasAnyRole(roles: UserRole[] | null | undefined, codes: string[]): boolean {
-  if (!roles || roles.length === 0) return false;
-  return codes.some(code => hasRole(roles, code));
-}
+/**
+ * Returns the effective role slugs for a user.
+ * If DB roles exist, use them. Otherwise derive from profile.level.
+ */
+export function getEffectiveRoles(
+  dbRoles: UserRole[] | null | undefined,
+  profile: UserProfile | null | undefined,
+): string[] {
+  // If user has DB roles, use them as source of truth
+  if (dbRoles && dbRoles.length > 0) {
+    return dbRoles.map(r => r.role_slug);
+  }
 
-/** Check if user has all of the specified roles */
-export function hasAllRoles(roles: UserRole[] | null | undefined, codes: string[]): boolean {
-  if (!roles || roles.length === 0) return false;
-  return codes.every(code => hasRole(roles, code));
+  // Fallback: derive roles from level
+  const level = profile?.level ?? profile?.level_legacy ?? 0;
+  return LEVEL_TO_ROLES[level] || [];
 }
 
 // ============================================================================
-// HYBRID CHECKS — Roles first, level fallback
+// ROLE-BASED CHECKS (primary)
 // ============================================================================
 
-/** User is admin: role 'admin' OR level >= 1000 */
-export function isAdmin(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasRole(roles, 'admin')) return true;
-  return (profile?.level ?? 0) >= LEVELS.ADMIN;
+/** Check if effective roles include a specific role */
+export function hasRole(roles: string[], code: string): boolean {
+  return roles.includes(code);
 }
 
-/** User is support manager: role OR level >= 950 */
-export function isSupportManager(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasAnyRole(roles, ['gerente_suporte', 'admin'])) return true;
-  return (profile?.level ?? 0) >= LEVELS.GERENTE_SUPORTE;
+/** Check if effective roles include any of the given roles */
+export function hasAnyRole(roles: string[], codes: string[]): boolean {
+  return codes.some(code => roles.includes(code));
 }
 
-/** User is support: role OR level === 900 */
-export function isSupport(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasAnyRole(roles, ['suporte_n1', 'suporte_n2', 'suporte_n3', 'gerente_suporte', 'admin'])) return true;
-  return profile?.level === LEVELS.SUPORTE;
+/** Check if effective roles include all of the given roles */
+export function hasAllRoles(roles: string[], codes: string[]): boolean {
+  return codes.every(code => roles.includes(code));
 }
 
-/** User is CS: role OR level === 775 */
-export function isCS(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasRole(roles, 'cs')) return true;
-  return profile?.level === LEVELS.SUCESSO_CLIENTE;
+// ============================================================================
+// SEMANTIC CHECKS — Roles-first, level fallback
+// ============================================================================
+
+export function isAdmin(roles: string[]): boolean {
+  return hasRole(roles, ROLE_SLUGS.ADMIN);
 }
 
-/** User is comercial: role OR level === 700 */
-export function isComercial(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasAnyRole(roles, ['comercial', 'gerente_comercial'])) return true;
-  return profile?.level === LEVELS.COMERCIAL;
+export function isSupportManager(roles: string[]): boolean {
+  return hasAnyRole(roles, [ROLE_SLUGS.GERENTE_SUPORTE, ROLE_SLUGS.ADMIN]);
 }
 
-/** User is gerente comercial: role OR level >= 750 */
-export function isGerenteComercial(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasAnyRole(roles, ['gerente_comercial', 'admin'])) return true;
-  return (profile?.level ?? 0) >= LEVELS.GERENTE_COMERCIAL;
+export function isSupport(roles: string[]): boolean {
+  return hasAnyRole(roles, [ROLE_SLUGS.SUPORTE, ROLE_SLUGS.GERENTE_SUPORTE, ROLE_SLUGS.ADMIN]);
 }
 
-/** User is internal: role OR level >= 600 */
-export function isInternal(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasRole(roles, 'internal_user')) return true;
-  return (profile?.level ?? 0) >= LEVELS.RH;
+export function isCS(roles: string[]): boolean {
+  return hasAnyRole(roles, [ROLE_SLUGS.CS, ROLE_SLUGS.ADMIN]);
 }
 
-/** User is partner: role OR level === 200 */
-export function isPartner(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasRole(roles, 'parceiro')) return true;
-  return profile?.level === LEVELS.PARCEIRO;
+export function isComercial(roles: string[]): boolean {
+  return hasAnyRole(roles, [ROLE_SLUGS.COMERCIAL, ROLE_SLUGS.GERENTE_COMERCIAL, ROLE_SLUGS.ADMIN]);
 }
 
-/** User is client: role OR level === 1 */
-export function isClient(profile: UserProfile | null, roles?: UserRole[] | null): boolean {
-  if (hasRole(roles, 'cliente')) return true;
-  return profile?.level === LEVELS.CLIENTE;
+export function isGerenteComercial(roles: string[]): boolean {
+  return hasAnyRole(roles, [ROLE_SLUGS.GERENTE_COMERCIAL, ROLE_SLUGS.ADMIN]);
+}
+
+export function isInternal(roles: string[]): boolean {
+  return hasAnyRole(roles, [ROLE_SLUGS.INTERNAL_USER, ROLE_SLUGS.ADMIN]);
+}
+
+export function isPartner(roles: string[]): boolean {
+  return hasRole(roles, ROLE_SLUGS.PARCEIRO);
+}
+
+export function isClient(roles: string[]): boolean {
+  return hasRole(roles, ROLE_SLUGS.CLIENTE);
+}
+
+// ============================================================================
+// MODULE ACCESS — Roles-based with level fallback for transition
+// ============================================================================
+
+/** 
+ * Role → level mapping for backward compat with allowedLevels arrays.
+ * Used by canAccessByLevel when roles are not yet in module configs.
+ */
+const ROLE_TO_LEVEL: Record<string, number> = {
+  [ROLE_SLUGS.ADMIN]: 1000,
+  [ROLE_SLUGS.GERENTE_SUPORTE]: 950,
+  [ROLE_SLUGS.SUPORTE]: 900,
+  [ROLE_SLUGS.CS]: 775,
+  [ROLE_SLUGS.GERENTE_COMERCIAL]: 750,
+  [ROLE_SLUGS.COMERCIAL]: 700,
+  [ROLE_SLUGS.ARQUITETO]: 690,
+  [ROLE_SLUGS.BDR]: 680,
+  [ROLE_SLUGS.RH]: 600,
+  [ROLE_SLUGS.PARCEIRO]: 200,
+  [ROLE_SLUGS.CLIENTE]: 1,
+};
+
+/**
+ * Check access using effective roles against an allowedLevels array.
+ * Maps each role to its equivalent level and checks inclusion.
+ * Admin role always passes.
+ */
+export function canAccessByAllowedLevels(
+  effectiveRoles: string[],
+  allowedLevels: number[],
+): boolean {
+  if (effectiveRoles.length === 0) return false;
+  if (hasRole(effectiveRoles, ROLE_SLUGS.ADMIN)) return true;
+
+  return effectiveRoles.some(role => {
+    const equivalentLevel = ROLE_TO_LEVEL[role];
+    return equivalentLevel !== undefined && allowedLevels.includes(equivalentLevel);
+  });
 }
 
 // ============================================================================
 // GENERIC CHECKS (backward compat)
 // ============================================================================
 
-/** Check if user has at least the given level */
+/** Check if user has at least the given level (legacy) */
 export function hasMinimumLevel(profile: UserProfile | null, requiredLevel: number): boolean {
   return (profile?.level ?? 0) >= requiredLevel;
 }
 
-/** Check if user can access a module based on allowed levels array */
-export function canAccessModule(profile: UserProfile | null, allowedLevels: number[]): boolean {
-  if (!profile) return false;
-  return allowedLevels.includes(profile.level);
+/** Get human-readable role name */
+export function getRoleName(roleSlug: string): string {
+  const map: Record<string, string> = {
+    admin: 'Administrador',
+    gerente_suporte: 'Gerente de Suporte',
+    suporte: 'Suporte',
+    cs: 'Customer Success',
+    gerente_comercial: 'Gerente Comercial',
+    comercial: 'Executivo Comercial',
+    arquiteto: 'Arquiteto de Soluções',
+    bdr: 'BDR',
+    rh: 'RH',
+    parceiro: 'Parceiro',
+    cliente: 'Cliente',
+    internal_user: 'Usuário Interno',
+  };
+  return map[roleSlug] || roleSlug;
 }
 
-/** Get human-readable level name */
+/** Get human-readable level name (legacy compat) */
 export function getLevelName(level: number): string {
   const map: Record<number, string> = {
     1: 'Cliente',
@@ -152,9 +234,22 @@ export function getLevelName(level: number): string {
   return map[level] || `Nível ${level}`;
 }
 
-/** Get the redirect path based on level */
-export function getRedirectByLevel(level: number): string {
-  if (level === LEVELS.PARCEIRO) return '/parceiro/dashboard';
-  if (level === LEVELS.CLIENTE) return '/portal/tickets';
+/** Get display name: prefer primary role, fallback to level */
+export function getUserDisplayRole(effectiveRoles: string[], level?: number | null): string {
+  // Filter out internal_user for display
+  const displayRoles = effectiveRoles.filter(r => r !== ROLE_SLUGS.INTERNAL_USER);
+  if (displayRoles.length > 0) {
+    return getRoleName(displayRoles[0]);
+  }
+  if (level != null) {
+    return getLevelName(level);
+  }
+  return 'Usuário';
+}
+
+/** Get the redirect path based on roles */
+export function getRedirectByRoles(effectiveRoles: string[]): string {
+  if (hasRole(effectiveRoles, ROLE_SLUGS.PARCEIRO)) return '/parceiro/dashboard';
+  if (hasRole(effectiveRoles, ROLE_SLUGS.CLIENTE)) return '/portal/tickets';
   return '/modulos/dashboard';
 }
