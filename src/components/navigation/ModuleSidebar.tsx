@@ -42,11 +42,11 @@ export function ModuleSidebar() {
   const collapsed = state === 'collapsed';
 
   // Supabase-only identity
-  const { profile, signOut } = useAuth();
+  const { profile, roles, signOut } = useAuth();
   const displayName = profile?.name || profile?.email || 'Usuário';
-  const userLevel = profile?.level ?? null;
+  const effectiveRoles = getEffectiveRoles(roles, profile);
 
-  const filteredModules = getFilteredModules(userLevel);
+  const filteredModules = getFilteredModules(effectiveRoles);
 
   const handleLogout = async () => {
     await signOut();
