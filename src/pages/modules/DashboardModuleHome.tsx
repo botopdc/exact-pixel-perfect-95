@@ -7,7 +7,7 @@ import React from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import { ModuleHeader } from '@/components/navigation/ModuleCard';
 import { useAuth } from '@/contexts/AuthContext';
-import { authService } from '@/services/authService';
+
 import { getUserArea, isClientUser, AREA_CONFIGS } from '@/lib/userArea';
 import { useDashboardKPIs } from '@/hooks/useDashboardKPIs';
 import { GlobalKPICards } from '@/components/dashboard/GlobalKPICards';
