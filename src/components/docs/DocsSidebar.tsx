@@ -17,7 +17,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { DOC_CATEGORIES, getDocsByCategory, type DocCategory } from '@/data/docs/registry';
-import { authService } from '@/services/authService';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard,
