@@ -149,10 +149,11 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
   const performAction = useCallback((action: TicketActionPayload['action'], extra: Partial<TicketActionPayload> = {}) => {
     if (!ticketId || !ctx.userId) return;
+    // Phase 4: Send UUID as primary actor identity
     return actionMutation.mutateAsync({
       ticket_id: ticketId,
       action,
-      actor_user_id: ctx.legacyUserId || ctx.userId,
+      actor_user_id: ctx.userId,
       actor_name: ctx.name,
       actor_level: ctx.level,
       ...extra,
