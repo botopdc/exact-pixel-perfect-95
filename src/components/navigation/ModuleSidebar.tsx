@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LogOut, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { authService } from '@/services/authService';
 import { useNavigate } from 'react-router-dom';
 import { 
   getFilteredModules, 
@@ -41,26 +40,22 @@ export function ModuleSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
 
-  // Prefer Supabase profile, fallback to legacy
+  // Supabase-only identity
   const { profile, signOut } = useAuth();
-  const legacyUser = authService.getCurrentUser();
-  const displayName = profile?.name || legacyUser?.name || legacyUser?.email || 'Usuário';
-  const userLevel = profile?.level ?? legacyUser?.level ?? null;
+  const displayName = profile?.name || profile?.email || 'Usuário';
+  const userLevel = profile?.level ?? null;
 
   const filteredModules = getFilteredModules(userLevel);
 
   const handleLogout = async () => {
     await signOut();
-    authService.logout(); // also clear legacy session
     navigate('/login');
   };
 
-  // Verifica se o módulo está ativo
   const isModuleActive = (module: Module) => {
     return location.pathname === module.url || location.pathname.startsWith(module.url + '/');
   };
 
-  // Renderiza um módulo
   const renderModule = (module: Module) => {
     const isActive = isModuleActive(module);
     const Icon = module.icon;
@@ -70,10 +65,7 @@ export function ModuleSidebar() {
         <SidebarMenuItem key={module.id}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <SidebarMenuButton
-                disabled
-                className="opacity-40 cursor-not-allowed"
-              >
+              <SidebarMenuButton disabled className="opacity-40 cursor-not-allowed">
                 <div className="flex items-center gap-3 px-3 py-2.5">
                   <Icon className="h-5 w-5" />
                   {!collapsed && <span className="text-sm">{module.title}</span>}
@@ -92,10 +84,7 @@ export function ModuleSidebar() {
       <SidebarMenuItem key={module.id}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <SidebarMenuButton
-              asChild
-              isActive={isActive}
-            >
+            <SidebarMenuButton asChild isActive={isActive}>
               <Link
                 to={module.url}
                 className={cn(
@@ -120,7 +109,6 @@ export function ModuleSidebar() {
 
   return (
     <Sidebar className="border-r border-sidebar-border">
-      {/* Logo Header */}
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <Link to="/modulos/dashboard" className="flex items-center gap-3">
           <img src={logoWhite} alt="OPEN Datacenter" className="h-8 w-auto" />
@@ -139,22 +127,16 @@ export function ModuleSidebar() {
         </SidebarMenu>
       </SidebarContent>
 
-      {/* Footer with User */}
       <SidebarFooter className="border-t border-sidebar-border p-4">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 px-3 py-2 h-auto"
-            >
+            <Button variant="ghost" className="w-full justify-start gap-3 px-3 py-2 h-auto">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20">
                 <User className="h-4 w-4 text-primary" />
               </div>
               {!collapsed && (
                 <div className="flex flex-col items-start text-left">
-                  <span className="text-sm font-medium truncate max-w-[120px]">
-                    {displayName}
-                  </span>
+                  <span className="text-sm font-medium truncate max-w-[120px]">{displayName}</span>
                   <span className="text-xs text-muted-foreground">
                     {userLevel !== null ? getUserLevelName(userLevel) : 'Carregando...'}
                   </span>

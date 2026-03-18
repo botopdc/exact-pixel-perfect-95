@@ -2,7 +2,6 @@ import React from 'react';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { authService } from '@/services/authService';
 import { ModuleSidebar } from '@/components/navigation/ModuleSidebar';
 import { SubNavigation } from '@/components/navigation/SubNavigation';
 import { CultureTagline } from '@/components/navigation/CultureTagline';
@@ -64,11 +63,11 @@ function ModuleLayoutHeader() {
 }
 
 // ============================================================================
-// HELPERS: get user level from either Supabase profile or legacy session
+// HELPERS: get user level from Supabase profile (no legacy fallback)
 // ============================================================================
 
 function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } {
-  const { profile, isLoading: supaLoading, session } = useAuth();
+  const { profile, isLoading, session } = useAuth();
 
   // If Supabase session exists and profile is loaded, use it
   if (session && profile) {
@@ -76,7 +75,7 @@ function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } 
   }
 
   // If Supabase is still loading, don't resolve yet
-  if (supaLoading) {
+  if (isLoading) {
     return { level: null, isResolved: false };
   }
 
@@ -85,13 +84,7 @@ function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } 
     return { level: null, isResolved: false };
   }
 
-  // No Supabase session — try legacy fallback
-  const legacyUser = authService.getCurrentUser();
-  if (legacyUser) {
-    return { level: legacyUser.level, isResolved: true };
-  }
-
-  // Nothing found, auth fully resolved as unauthenticated
+  // No Supabase session — unauthenticated
   return { level: null, isResolved: true };
 }
 
@@ -125,7 +118,6 @@ export default function ModuleLayout() {
   const location = useLocation();
   const { level, isResolved } = useEffectiveUserLevel();
 
-  // Find current module for sub-navigation
   const getCurrentModuleConfig = () => {
     const path = location.pathname;
     for (const [id, config] of Object.entries(MODULE_CONFIGS)) {
@@ -138,7 +130,6 @@ export default function ModuleLayout() {
 
   const currentModuleConfig = getCurrentModuleConfig();
 
-  // ── Auth check ──
   // Wait for auth state to resolve before deciding
   if (!isResolved) {
     return (
