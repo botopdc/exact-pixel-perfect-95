@@ -1353,6 +1353,329 @@ export type Database = {
         }
         Relationships: []
       }
+      rbac_apps: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      rbac_permissions: {
+        Row: {
+          action_code: string
+          active: boolean
+          app_id: string
+          created_at: string
+          description: string | null
+          id: string
+          module_code: string
+          permission_key: string
+        }
+        Insert: {
+          action_code: string
+          active?: boolean
+          app_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          module_code: string
+          permission_key: string
+        }
+        Update: {
+          action_code?: string
+          active?: boolean
+          app_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          module_code?: string
+          permission_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_permissions_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rbac_role_permissions: {
+        Row: {
+          created_at: string
+          id: string
+          permission_id: string
+          role_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          permission_id: string
+          role_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          permission_id?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_role_permissions_permission_id_fkey"
+            columns: ["permission_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_permissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rbac_role_permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rbac_roles: {
+        Row: {
+          active: boolean
+          app_id: string
+          code: string
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          app_id: string
+          code: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          app_id?: string
+          code?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_roles_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rbac_team_members: {
+        Row: {
+          active: boolean
+          id: string
+          joined_at: string
+          left_at: string | null
+          team_id: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          id?: string
+          joined_at?: string
+          left_at?: string | null
+          team_id: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          id?: string
+          joined_at?: string
+          left_at?: string | null
+          team_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_team_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rbac_teams: {
+        Row: {
+          active: boolean
+          app_id: string
+          code: string
+          created_at: string
+          id: string
+          manager_user_id: string | null
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          app_id: string
+          code: string
+          created_at?: string
+          id?: string
+          manager_user_id?: string | null
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          app_id?: string
+          code?: string
+          created_at?: string
+          id?: string
+          manager_user_id?: string | null
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_teams_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rbac_user_roles: {
+        Row: {
+          active: boolean
+          app_id: string
+          assigned_by_user_id: string | null
+          created_at: string
+          ends_at: string | null
+          id: string
+          role_id: string
+          starts_at: string | null
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          app_id: string
+          assigned_by_user_id?: string | null
+          created_at?: string
+          ends_at?: string | null
+          id?: string
+          role_id: string
+          starts_at?: string | null
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          app_id?: string
+          assigned_by_user_id?: string | null
+          created_at?: string
+          ends_at?: string | null
+          id?: string
+          role_id?: string
+          starts_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_user_roles_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_apps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rbac_user_roles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rbac_user_scopes: {
+        Row: {
+          active: boolean
+          app_id: string
+          assigned_by_user_id: string | null
+          created_at: string
+          id: string
+          portfolio_code: string | null
+          region_code: string | null
+          scope_type: string
+          team_id: string | null
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          app_id: string
+          assigned_by_user_id?: string | null
+          created_at?: string
+          id?: string
+          portfolio_code?: string | null
+          region_code?: string | null
+          scope_type: string
+          team_id?: string | null
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          app_id?: string
+          assigned_by_user_id?: string | null
+          created_at?: string
+          id?: string
+          portfolio_code?: string | null
+          region_code?: string | null
+          scope_type?: string
+          team_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rbac_user_scopes_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_apps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rbac_user_scopes_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       role_audit_logs: {
         Row: {
           action: string
@@ -1434,6 +1757,963 @@ export type Database = {
           module?: string | null
           name?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      sales_accounts: {
+        Row: {
+          account_status: string
+          address_line: string | null
+          archived_at: string | null
+          assigned_team_id: string | null
+          city: string | null
+          cnpj: string | null
+          company_size: string | null
+          country: string | null
+          created_at: string
+          created_by_user_id: string
+          description: string | null
+          estimated_potential_mrr: number | null
+          external_company_id: string | null
+          id: string
+          legal_name: string
+          owner_team_id: string | null
+          owner_user_id: string
+          segment_id: string | null
+          state: string | null
+          trade_name: string | null
+          updated_at: string
+          website: string | null
+          zip_code: string | null
+        }
+        Insert: {
+          account_status?: string
+          address_line?: string | null
+          archived_at?: string | null
+          assigned_team_id?: string | null
+          city?: string | null
+          cnpj?: string | null
+          company_size?: string | null
+          country?: string | null
+          created_at?: string
+          created_by_user_id: string
+          description?: string | null
+          estimated_potential_mrr?: number | null
+          external_company_id?: string | null
+          id?: string
+          legal_name: string
+          owner_team_id?: string | null
+          owner_user_id: string
+          segment_id?: string | null
+          state?: string | null
+          trade_name?: string | null
+          updated_at?: string
+          website?: string | null
+          zip_code?: string | null
+        }
+        Update: {
+          account_status?: string
+          address_line?: string | null
+          archived_at?: string | null
+          assigned_team_id?: string | null
+          city?: string | null
+          cnpj?: string | null
+          company_size?: string | null
+          country?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          description?: string | null
+          estimated_potential_mrr?: number | null
+          external_company_id?: string | null
+          id?: string
+          legal_name?: string
+          owner_team_id?: string | null
+          owner_user_id?: string
+          segment_id?: string | null
+          state?: string | null
+          trade_name?: string | null
+          updated_at?: string
+          website?: string | null
+          zip_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_sales_accounts_segment_id"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "sales_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_accounts_assigned_team_id_fkey"
+            columns: ["assigned_team_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_accounts_owner_team_id_fkey"
+            columns: ["owner_team_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_activities: {
+        Row: {
+          account_id: string
+          activity_type: string
+          archived_at: string | null
+          assigned_user_id: string
+          completed_at: string | null
+          contact_id: string | null
+          created_at: string
+          created_by_user_id: string
+          description: string | null
+          due_at: string
+          id: string
+          next_action: string | null
+          opportunity_id: string
+          outcome: string | null
+          priority: string
+          related_meeting_url: string | null
+          status: string
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          activity_type: string
+          archived_at?: string | null
+          assigned_user_id: string
+          completed_at?: string | null
+          contact_id?: string | null
+          created_at?: string
+          created_by_user_id: string
+          description?: string | null
+          due_at: string
+          id?: string
+          next_action?: string | null
+          opportunity_id: string
+          outcome?: string | null
+          priority?: string
+          related_meeting_url?: string | null
+          status?: string
+          subject: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          activity_type?: string
+          archived_at?: string | null
+          assigned_user_id?: string
+          completed_at?: string | null
+          contact_id?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          description?: string | null
+          due_at?: string
+          id?: string
+          next_action?: string | null
+          opportunity_id?: string
+          outcome?: string | null
+          priority?: string
+          related_meeting_url?: string | null
+          status?: string
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_activities_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sales_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_activities_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "sales_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_activities_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "sales_opportunities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_audit_log: {
+        Row: {
+          action: string
+          entity_id: string
+          entity_type: string
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          performed_at: string
+          performed_by_user_id: string
+        }
+        Insert: {
+          action: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          performed_at?: string
+          performed_by_user_id: string
+        }
+        Update: {
+          action?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          performed_at?: string
+          performed_by_user_id?: string
+        }
+        Relationships: []
+      }
+      sales_contacts: {
+        Row: {
+          account_id: string
+          archived_at: string | null
+          created_at: string
+          created_by_user_id: string
+          department: string | null
+          email: string | null
+          id: string
+          influence_level: string | null
+          is_primary: boolean
+          job_title: string | null
+          linkedin_url: string | null
+          name: string
+          owner_user_id: string | null
+          phone: string | null
+          relationship_status: string
+          updated_at: string
+          whatsapp: string | null
+        }
+        Insert: {
+          account_id: string
+          archived_at?: string | null
+          created_at?: string
+          created_by_user_id: string
+          department?: string | null
+          email?: string | null
+          id?: string
+          influence_level?: string | null
+          is_primary?: boolean
+          job_title?: string | null
+          linkedin_url?: string | null
+          name: string
+          owner_user_id?: string | null
+          phone?: string | null
+          relationship_status?: string
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Update: {
+          account_id?: string
+          archived_at?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          department?: string | null
+          email?: string | null
+          id?: string
+          influence_level?: string | null
+          is_primary?: boolean
+          job_title?: string | null
+          linkedin_url?: string | null
+          name?: string
+          owner_user_id?: string | null
+          phone?: string | null
+          relationship_status?: string
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_contacts_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sales_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_entity_tags: {
+        Row: {
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_entity_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "sales_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_lead_sources: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      sales_leads: {
+        Row: {
+          account_id: string | null
+          archived_at: string | null
+          company_name: string
+          contact_id: string | null
+          contact_name: string | null
+          converted_at: string | null
+          converted_to_opportunity_id: string | null
+          created_at: string
+          created_by_user_id: string
+          email: string | null
+          id: string
+          lead_source_id: string | null
+          lost_reason: string | null
+          owner_team_id: string | null
+          owner_user_id: string
+          phone: string | null
+          qualification_notes: string | null
+          sdr_user_id: string | null
+          segment_id: string | null
+          status: string
+          temperature: string | null
+          updated_at: string
+          whatsapp: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          archived_at?: string | null
+          company_name: string
+          contact_id?: string | null
+          contact_name?: string | null
+          converted_at?: string | null
+          converted_to_opportunity_id?: string | null
+          created_at?: string
+          created_by_user_id: string
+          email?: string | null
+          id?: string
+          lead_source_id?: string | null
+          lost_reason?: string | null
+          owner_team_id?: string | null
+          owner_user_id: string
+          phone?: string | null
+          qualification_notes?: string | null
+          sdr_user_id?: string | null
+          segment_id?: string | null
+          status?: string
+          temperature?: string | null
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          archived_at?: string | null
+          company_name?: string
+          contact_id?: string | null
+          contact_name?: string | null
+          converted_at?: string | null
+          converted_to_opportunity_id?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          email?: string | null
+          id?: string
+          lead_source_id?: string | null
+          lost_reason?: string | null
+          owner_team_id?: string | null
+          owner_user_id?: string
+          phone?: string | null
+          qualification_notes?: string | null
+          sdr_user_id?: string | null
+          segment_id?: string | null
+          status?: string
+          temperature?: string | null
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_sales_leads_converted_to_opportunity_id"
+            columns: ["converted_to_opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "sales_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_sales_leads_lead_source_id"
+            columns: ["lead_source_id"]
+            isOneToOne: false
+            referencedRelation: "sales_lead_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_sales_leads_segment_id"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "sales_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_leads_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sales_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_leads_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "sales_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_leads_owner_team_id_fkey"
+            columns: ["owner_team_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_loss_reasons: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      sales_notes: {
+        Row: {
+          created_at: string
+          created_by_user_id: string
+          entity_id: string
+          entity_type: string
+          id: string
+          note_text: string
+          updated_at: string
+          visibility: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_user_id: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          note_text: string
+          updated_at?: string
+          visibility?: string
+        }
+        Update: {
+          created_at?: string
+          created_by_user_id?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          note_text?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Relationships: []
+      }
+      sales_opportunities: {
+        Row: {
+          account_id: string
+          archived_at: string | null
+          closed_lost_at: string | null
+          closed_won_at: string | null
+          competitor_name: string | null
+          created_at: string
+          created_by_user_id: string
+          estimated_mrr: number | null
+          estimated_setup: number | null
+          estimated_tcv: number | null
+          expected_close_date: string | null
+          has_open_activity: boolean
+          id: string
+          last_activity_at: string | null
+          lead_id: string | null
+          lead_source_id: string | null
+          loss_notes: string | null
+          loss_reason_id: string | null
+          next_activity_at: string | null
+          on_hold_at: string | null
+          owner_team_id: string | null
+          owner_user_id: string
+          pipeline_status: string
+          pre_sales_user_id: string | null
+          primary_contact_id: string | null
+          probability: number | null
+          sdr_user_id: string | null
+          segment_id: string | null
+          solution_type: string | null
+          stage_id: string
+          strategic_notes: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          archived_at?: string | null
+          closed_lost_at?: string | null
+          closed_won_at?: string | null
+          competitor_name?: string | null
+          created_at?: string
+          created_by_user_id: string
+          estimated_mrr?: number | null
+          estimated_setup?: number | null
+          estimated_tcv?: number | null
+          expected_close_date?: string | null
+          has_open_activity?: boolean
+          id?: string
+          last_activity_at?: string | null
+          lead_id?: string | null
+          lead_source_id?: string | null
+          loss_notes?: string | null
+          loss_reason_id?: string | null
+          next_activity_at?: string | null
+          on_hold_at?: string | null
+          owner_team_id?: string | null
+          owner_user_id: string
+          pipeline_status?: string
+          pre_sales_user_id?: string | null
+          primary_contact_id?: string | null
+          probability?: number | null
+          sdr_user_id?: string | null
+          segment_id?: string | null
+          solution_type?: string | null
+          stage_id: string
+          strategic_notes?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          archived_at?: string | null
+          closed_lost_at?: string | null
+          closed_won_at?: string | null
+          competitor_name?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          estimated_mrr?: number | null
+          estimated_setup?: number | null
+          estimated_tcv?: number | null
+          expected_close_date?: string | null
+          has_open_activity?: boolean
+          id?: string
+          last_activity_at?: string | null
+          lead_id?: string | null
+          lead_source_id?: string | null
+          loss_notes?: string | null
+          loss_reason_id?: string | null
+          next_activity_at?: string | null
+          on_hold_at?: string | null
+          owner_team_id?: string | null
+          owner_user_id?: string
+          pipeline_status?: string
+          pre_sales_user_id?: string | null
+          primary_contact_id?: string | null
+          probability?: number | null
+          sdr_user_id?: string | null
+          segment_id?: string | null
+          solution_type?: string | null
+          stage_id?: string
+          strategic_notes?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_opportunities_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sales_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "sales_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_lead_source_id_fkey"
+            columns: ["lead_source_id"]
+            isOneToOne: false
+            referencedRelation: "sales_lead_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_loss_reason_id_fkey"
+            columns: ["loss_reason_id"]
+            isOneToOne: false
+            referencedRelation: "sales_loss_reasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_owner_team_id_fkey"
+            columns: ["owner_team_id"]
+            isOneToOne: false
+            referencedRelation: "rbac_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_primary_contact_id_fkey"
+            columns: ["primary_contact_id"]
+            isOneToOne: false
+            referencedRelation: "sales_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "sales_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunities_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "sales_pipeline_stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_opportunity_products: {
+        Row: {
+          contract_term_months: number | null
+          created_at: string
+          id: string
+          opportunity_id: string
+          product_name: string
+          product_reference_id: string | null
+          product_type: string
+          quantity: number
+          setup_value: number | null
+          unit_monthly_value: number | null
+          updated_at: string
+        }
+        Insert: {
+          contract_term_months?: number | null
+          created_at?: string
+          id?: string
+          opportunity_id: string
+          product_name: string
+          product_reference_id?: string | null
+          product_type: string
+          quantity?: number
+          setup_value?: number | null
+          unit_monthly_value?: number | null
+          updated_at?: string
+        }
+        Update: {
+          contract_term_months?: number | null
+          created_at?: string
+          id?: string
+          opportunity_id?: string
+          product_name?: string
+          product_reference_id?: string | null
+          product_type?: string
+          quantity?: number
+          setup_value?: number | null
+          unit_monthly_value?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_opportunity_products_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "sales_opportunities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_opportunity_stage_history: {
+        Row: {
+          change_reason: string | null
+          changed_at: string
+          changed_by_user_id: string
+          from_stage_id: string | null
+          id: string
+          opportunity_id: string
+          to_stage_id: string
+        }
+        Insert: {
+          change_reason?: string | null
+          changed_at?: string
+          changed_by_user_id: string
+          from_stage_id?: string | null
+          id?: string
+          opportunity_id: string
+          to_stage_id: string
+        }
+        Update: {
+          change_reason?: string | null
+          changed_at?: string
+          changed_by_user_id?: string
+          from_stage_id?: string | null
+          id?: string
+          opportunity_id?: string
+          to_stage_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_opportunity_stage_history_from_stage_id_fkey"
+            columns: ["from_stage_id"]
+            isOneToOne: false
+            referencedRelation: "sales_pipeline_stages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunity_stage_history_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "sales_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_opportunity_stage_history_to_stage_id_fkey"
+            columns: ["to_stage_id"]
+            isOneToOne: false
+            referencedRelation: "sales_pipeline_stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_pipeline_stages: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          default_probability: number | null
+          id: string
+          is_lost_stage: boolean
+          is_on_hold_stage: boolean
+          is_open_stage: boolean
+          is_won_stage: boolean
+          name: string
+          position: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          default_probability?: number | null
+          id?: string
+          is_lost_stage?: boolean
+          is_on_hold_stage?: boolean
+          is_open_stage?: boolean
+          is_won_stage?: boolean
+          name: string
+          position: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          default_probability?: number | null
+          id?: string
+          is_lost_stage?: boolean
+          is_on_hold_stage?: boolean
+          is_open_stage?: boolean
+          is_won_stage?: boolean
+          name?: string
+          position?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sales_proposals_links: {
+        Row: {
+          approved_at: string | null
+          contract_term_months: number | null
+          created_at: string
+          created_by_user_id: string
+          expires_at: string | null
+          external_proposal_id: string
+          id: string
+          monthly_value: number | null
+          opportunity_id: string
+          proposal_number: string | null
+          public_link_token: string | null
+          rejected_at: string | null
+          sent_at: string | null
+          setup_value: number | null
+          status: string
+          tcv: number | null
+          updated_at: string
+          version_number: number
+        }
+        Insert: {
+          approved_at?: string | null
+          contract_term_months?: number | null
+          created_at?: string
+          created_by_user_id: string
+          expires_at?: string | null
+          external_proposal_id: string
+          id?: string
+          monthly_value?: number | null
+          opportunity_id: string
+          proposal_number?: string | null
+          public_link_token?: string | null
+          rejected_at?: string | null
+          sent_at?: string | null
+          setup_value?: number | null
+          status?: string
+          tcv?: number | null
+          updated_at?: string
+          version_number?: number
+        }
+        Update: {
+          approved_at?: string | null
+          contract_term_months?: number | null
+          created_at?: string
+          created_by_user_id?: string
+          expires_at?: string | null
+          external_proposal_id?: string
+          id?: string
+          monthly_value?: number | null
+          opportunity_id?: string
+          proposal_number?: string | null
+          public_link_token?: string | null
+          rejected_at?: string | null
+          sent_at?: string | null
+          setup_value?: number | null
+          status?: string
+          tcv?: number | null
+          updated_at?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_proposals_links_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "sales_opportunities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_segments: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      sales_tags: {
+        Row: {
+          active: boolean
+          color: string | null
+          created_at: string
+          id: string
+          name: string
+          scope: string
+        }
+        Insert: {
+          active?: boolean
+          color?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          scope?: string
+        }
+        Update: {
+          active?: boolean
+          color?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          scope?: string
         }
         Relationships: []
       }
@@ -2896,6 +4176,48 @@ export type Database = {
       is_support_internal: { Args: never; Returns: boolean }
       is_tech_admin: { Args: never; Returns: boolean }
       is_tech_team_member: { Args: never; Returns: boolean }
+      rbac_can_access_owner_or_team: {
+        Args: {
+          p_app_code: string
+          p_owner_team_id: string
+          p_owner_user_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      rbac_get_app_id: { Args: { p_app_code: string }; Returns: string }
+      rbac_get_effective_read_scope: {
+        Args: { p_module_code: string; p_user_id: string }
+        Returns: string
+      }
+      rbac_get_scope_type: {
+        Args: { p_app_code: string; p_user_id: string }
+        Returns: string
+      }
+      rbac_get_team_id: {
+        Args: { p_app_code: string; p_user_id: string }
+        Returns: string
+      }
+      rbac_get_user_role_code: {
+        Args: { p_app_code: string; p_user_id: string }
+        Returns: string
+      }
+      rbac_has_any_read_permission: {
+        Args: { p_module_code: string; p_user_id: string }
+        Returns: boolean
+      }
+      rbac_has_permission: {
+        Args: { p_permission_key: string; p_user_id: string }
+        Returns: boolean
+      }
+      rbac_has_role: {
+        Args: { p_app_code: string; p_role_code: string; p_user_id: string }
+        Returns: boolean
+      }
+      rbac_is_team_member: {
+        Args: { p_team_id: string; p_user_id: string }
+        Returns: boolean
+      }
       save_calculator_proposal: { Args: { payload: Json }; Returns: string }
     }
     Enums: {
