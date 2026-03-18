@@ -113,7 +113,8 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
   const { data: ticket, isLoading, error, refetch } = useQuery({
     queryKey: ['support-ticket-core', ticketId],
-    queryFn: () => supportTicketCoreService.getTicket(ticketId!, ctx.level, ctx.legacyUserId || ctx.userId),
+    // Phase 4: Pass UUID as primary, Edge Function resolves legacy fallback
+    queryFn: () => supportTicketCoreService.getTicket(ticketId!, ctx.level, ctx.userId),
     enabled: !!ticketId,
     staleTime: 0,
   });
