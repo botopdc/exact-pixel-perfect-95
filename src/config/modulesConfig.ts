@@ -499,67 +499,67 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
 };
 
 // ============================================================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS — Roles-first with level fallback
 // ============================================================================
 
+import { canAccessByAllowedLevels } from '@/lib/rbac';
+
 /**
- * Verifica se um módulo está disponível para o userLevel
+ * Verifica se um módulo está disponível para os effective roles.
+ * Falls back to level if needed (via canAccessByAllowedLevels).
  */
-export function isModuleAllowed(module: Module, userLevel: number | null): boolean {
-  if (userLevel === null) return false;
-  if (userLevel >= USER_LEVELS.ADMIN) return true;
-  return module.allowedLevels.includes(userLevel);
+export function isModuleAllowed(module: Module, effectiveRoles: string[]): boolean {
+  if (effectiveRoles.length === 0) return false;
+  return canAccessByAllowedLevels(effectiveRoles, module.allowedLevels);
 }
 
 /**
  * Verifica se um item de sub-navegação está disponível
  */
-export function isSubNavAllowed(item: SubNavItem, userLevel: number | null): boolean {
-  if (userLevel === null) return false;
-  if (userLevel >= USER_LEVELS.ADMIN) return true;
-  return item.allowedLevels.includes(userLevel);
+export function isSubNavAllowed(item: SubNavItem, effectiveRoles: string[]): boolean {
+  if (effectiveRoles.length === 0) return false;
+  return canAccessByAllowedLevels(effectiveRoles, item.allowedLevels);
 }
 
 /**
- * Filtra módulos do sidebar baseado no userLevel
+ * Filtra módulos do sidebar baseado nos effective roles
  */
-export function getFilteredModules(userLevel: number | null): Module[] {
-  return SIDEBAR_MODULES.filter(module => isModuleAllowed(module, userLevel));
+export function getFilteredModules(effectiveRoles: string[]): Module[] {
+  return SIDEBAR_MODULES.filter(module => isModuleAllowed(module, effectiveRoles));
 }
 
 /**
- * Filtra sub-navegação baseado no userLevel
+ * Filtra sub-navegação baseado nos effective roles
  */
-export function getFilteredSubNav(moduleId: string, userLevel: number | null): SubNavItem[] {
+export function getFilteredSubNav(moduleId: string, effectiveRoles: string[]): SubNavItem[] {
   const config = MODULE_CONFIGS[moduleId];
   if (!config) return [];
-  return config.subNavigation.filter(item => isSubNavAllowed(item, userLevel));
+  return config.subNavigation.filter(item => isSubNavAllowed(item, effectiveRoles));
 }
 
 /**
- * Verifica se uma rota é permitida para o userLevel
+ * Verifica se uma rota é permitida para os effective roles
  */
-export function isModuleRouteAllowed(pathname: string, userLevel: number | null): boolean {
-  if (userLevel === null) return false;
-  if (userLevel >= USER_LEVELS.ADMIN) return true;
+export function isModuleRouteAllowed(pathname: string, effectiveRoles: string[]): boolean {
+  if (effectiveRoles.length === 0) return false;
 
   // Check module access
   for (const module of SIDEBAR_MODULES) {
     if (pathname === module.url || pathname.startsWith(module.url + '/')) {
-      if (!isModuleAllowed(module, userLevel)) return false;
+      if (!isModuleAllowed(module, effectiveRoles)) return false;
       
       // Check sub-navigation access
       const config = MODULE_CONFIGS[module.id];
       if (config) {
         for (const subNav of config.subNavigation) {
           if (pathname === subNav.url || pathname.startsWith(subNav.url + '/')) {
-            if (!isSubNavAllowed(subNav, userLevel)) return false;
+            if (!isSubNavAllowed(subNav, effectiveRoles)) return false;
             
             // Check tabs access
             if (subNav.tabs) {
               for (const tab of subNav.tabs) {
                 if (pathname === tab.url) {
-                  return tab.allowedLevels.includes(userLevel);
+                  return canAccessByAllowedLevels(effectiveRoles, tab.allowedLevels);
                 }
               }
             }
@@ -575,7 +575,7 @@ export function isModuleRouteAllowed(pathname: string, userLevel: number | null)
 }
 
 /**
- * Retorna o nome do nível do usuário para exibição
+ * Retorna o nome do nível do usuário para exibição (legacy compat)
  */
 export function getUserLevelName(level: number): string {
   const levelNames: Record<number, string> = {

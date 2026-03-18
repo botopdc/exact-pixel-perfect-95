@@ -28,6 +28,7 @@ import {
   getUserLevelName,
   Module,
 } from '@/config/modulesConfig';
+import { getEffectiveRoles, getUserDisplayRole } from '@/lib/rbac';
 import {
   Tooltip,
   TooltipContent,
@@ -41,11 +42,11 @@ export function ModuleSidebar() {
   const collapsed = state === 'collapsed';
 
   // Supabase-only identity
-  const { profile, signOut } = useAuth();
+  const { profile, roles, signOut } = useAuth();
   const displayName = profile?.name || profile?.email || 'Usuário';
-  const userLevel = profile?.level ?? null;
+  const effectiveRoles = getEffectiveRoles(roles, profile);
 
-  const filteredModules = getFilteredModules(userLevel);
+  const filteredModules = getFilteredModules(effectiveRoles);
 
   const handleLogout = async () => {
     await signOut();
@@ -138,7 +139,7 @@ export function ModuleSidebar() {
                 <div className="flex flex-col items-start text-left">
                   <span className="text-sm font-medium truncate max-w-[120px]">{displayName}</span>
                   <span className="text-xs text-muted-foreground">
-                    {userLevel !== null ? getUserLevelName(userLevel) : 'Carregando...'}
+                    {getUserDisplayRole(effectiveRoles, profile?.level)}
                   </span>
                 </div>
               )}

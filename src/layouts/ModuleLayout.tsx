@@ -16,6 +16,7 @@ import {
   MODULE_CONFIGS, 
   isModuleRouteAllowed,
 } from '@/config/modulesConfig';
+import { getEffectiveRoles } from '@/lib/rbac';
 
 // ============================================================================
 // MODULE HEADER COMPONENT
@@ -66,26 +67,22 @@ function ModuleLayoutHeader() {
 // HELPERS: get user level from Supabase profile (no legacy fallback)
 // ============================================================================
 
-function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } {
-  const { profile, isLoading, session } = useAuth();
+function useEffectiveAuth(): { effectiveRoles: string[]; isResolved: boolean } {
+  const { profile, roles, isLoading, session } = useAuth();
 
-  // If Supabase session exists and profile is loaded, use it
   if (session && profile) {
-    return { level: profile.level, isResolved: true };
+    return { effectiveRoles: getEffectiveRoles(roles, profile), isResolved: true };
   }
 
-  // If Supabase is still loading, don't resolve yet
   if (isLoading) {
-    return { level: null, isResolved: false };
+    return { effectiveRoles: [], isResolved: false };
   }
 
-  // If Supabase session exists but profile hasn't loaded yet, wait
   if (session && !profile) {
-    return { level: null, isResolved: false };
+    return { effectiveRoles: [], isResolved: false };
   }
 
-  // No Supabase session — unauthenticated
-  return { level: null, isResolved: true };
+  return { effectiveRoles: [], isResolved: true };
 }
 
 // ============================================================================
@@ -95,16 +92,16 @@ function useEffectiveUserLevel(): { level: number | null; isResolved: boolean } 
 function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { level } = useEffectiveUserLevel();
+  const { effectiveRoles } = useEffectiveAuth();
 
   React.useEffect(() => {
-    if (!isModuleRouteAllowed(location.pathname, level)) {
+    if (effectiveRoles.length > 0 && !isModuleRouteAllowed(location.pathname, effectiveRoles)) {
       toast.error('Acesso não permitido', {
         description: 'Você não tem permissão para acessar esta página.',
       });
       navigate('/modulos/dashboard', { replace: true });
     }
-  }, [location.pathname, level, navigate]);
+  }, [location.pathname, effectiveRoles, navigate]);
 
   return <>{children}</>;
 }
@@ -116,7 +113,7 @@ function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
 export default function ModuleLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { level, isResolved } = useEffectiveUserLevel();
+  const { effectiveRoles, isResolved } = useEffectiveAuth();
 
   const getCurrentModuleConfig = () => {
     const path = location.pathname;
@@ -139,8 +136,8 @@ export default function ModuleLayout() {
     );
   }
 
-  // Auth resolved but no user → redirect to login
-  if (isResolved && level === null) {
+  // Auth resolved but no roles → redirect to login
+  if (isResolved && effectiveRoles.length === 0) {
     if (import.meta.env.DEV) {
       console.log('[ModuleLayout] No auth found, redirecting to /login');
     }

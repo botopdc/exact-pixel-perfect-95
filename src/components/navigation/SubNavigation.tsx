@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { SubNavItem, SubNavTab, isSubNavAllowed } from '@/config/modulesConfig';
+import { getEffectiveRoles } from '@/lib/rbac';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface SubNavigationProps {
@@ -11,10 +12,10 @@ interface SubNavigationProps {
 
 export function SubNavigation({ items, className }: SubNavigationProps) {
   const location = useLocation();
-  const { profile } = useAuth();
-  const userLevel = profile?.level ?? null;
+  const { profile, roles } = useAuth();
+  const effectiveRoles = getEffectiveRoles(roles, profile);
 
-  const filteredItems = items.filter(item => isSubNavAllowed(item, userLevel));
+  const filteredItems = items.filter(item => isSubNavAllowed(item, effectiveRoles));
 
   if (filteredItems.length === 0) return null;
 
@@ -55,13 +56,11 @@ interface TabNavigationProps {
 
 export function TabNavigation({ tabs, className }: TabNavigationProps) {
   const location = useLocation();
-  const { profile } = useAuth();
-  const userLevel = profile?.level ?? null;
+  const { profile, roles } = useAuth();
+  const effectiveRoles = getEffectiveRoles(roles, profile);
 
   const filteredTabs = tabs.filter(tab => {
-    if (userLevel === null) return false;
-    if (userLevel >= 1000) return true;
-    return tab.allowedLevels.includes(userLevel);
+    return isSubNavAllowed(tab as any, effectiveRoles);
   });
 
   if (filteredTabs.length === 0) return null;

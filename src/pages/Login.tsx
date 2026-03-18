@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { getRedirectByLevel } from '@/lib/rbac';
+import { getRedirectByRoles, getEffectiveRoles } from '@/lib/rbac';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { isLoading: loadingAuth, session, profile, signIn } = useAuth();
+  const { isLoading: loadingAuth, session, profile, roles, signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,7 +21,8 @@ export default function LoginPage() {
   // ── Auto-redirect if already authenticated ──
   if (!loadingAuth && session && profile && !hasRedirected.current) {
     hasRedirected.current = true;
-    const target = getRedirectByLevel(profile.level);
+    const effectiveRoles = getEffectiveRoles(roles, profile);
+    const target = getRedirectByRoles(effectiveRoles);
     setTimeout(() => navigate(target, { replace: true }), 0);
   }
 

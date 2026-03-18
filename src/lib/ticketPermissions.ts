@@ -7,7 +7,17 @@
 import type { CoreTicket, TicketStatus, TicketAction } from '@/services/supportTicketCoreService';
 import type { UserProfile } from '@/contexts/AuthContext';
 import type { UserRole } from '@/lib/rbac';
-import { hasRole, hasAnyRole, isAdmin, isSupport, isSupportManager, isCS, isInternal, isClient, isPartner } from '@/lib/rbac';
+import {
+  getEffectiveRoles,
+  hasRole as _hasRole,
+  isAdmin as _isAdminR,
+  isSupport as _isSupportR,
+  isSupportManager as _isSupportManagerR,
+  isCS as _isCSR,
+  isInternal as _isInternalR,
+  isClient as _isClientR,
+  isPartner as _isPartnerR,
+} from '@/lib/rbac';
 
 export interface TicketPermissions {
   canView: boolean;
@@ -62,14 +72,15 @@ export function getTicketPermissionsFromRoles(
   ticket?: CoreTicket | null,
   userId?: string
 ): TicketPermissions {
-  const _isAdmin = isAdmin(profile, roles);
-  const _isSupportManager = isSupportManager(profile, roles);
-  const _isSupport = isSupport(profile, roles);
-  const _isCS = isCS(profile, roles);
-  const _isInternal = isInternal(profile, roles);
-  const _isClient = isClient(profile, roles);
-  const _isPartner = isPartner(profile, roles);
-  const _isNocManager = hasRole(roles, 'noc_manager');
+  const eff = getEffectiveRoles(roles, profile);
+  const _isAdmin = _isAdminR(eff);
+  const _isSupportManager = _isSupportManagerR(eff);
+  const _isSupport = _isSupportR(eff);
+  const _isCS = _isCSR(eff);
+  const _isInternal = _isInternalR(eff);
+  const _isClient = _isClientR(eff);
+  const _isPartner = _isPartnerR(eff);
+  const _isNocManager = _hasRole(eff, 'noc_manager');
 
   const status = ticket?.status;
   const isActive = status ? ACTIVE_STATUSES.includes(status) : false;

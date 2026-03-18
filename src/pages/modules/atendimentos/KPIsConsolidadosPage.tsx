@@ -11,17 +11,18 @@ import KPIsSuporte from '@/pages/KPIsSuporte';
 import KPIsCS from '@/pages/KPIsCS';
 import KPIsGestao from '@/pages/KPIsGestao';
 import { useAuth } from '@/contexts/AuthContext';
-import { isAdmin, isSupportManager, isCS } from '@/lib/rbac';
+import { isAdmin, isSupportManager, isCS, getEffectiveRoles } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 
 type TabId = 'suporte' | 'cs' | 'gestao';
 
 export default function KPIsConsolidadosPage() {
   const { profile, roles } = useAuth();
+  const eff = getEffectiveRoles(roles, profile);
 
-  const _isAdmin = isAdmin(profile, roles);
-  const _isSupportManager = isSupportManager(profile, roles);
-  const _isCS = isCS(profile, roles);
+  const _isAdmin = isAdmin(eff);
+  const _isSupportManager = isSupportManager(eff);
+  const _isCS = isCS(eff);
 
   const tabs: { id: TabId; label: string; allowed: boolean }[] = [
     { id: 'gestao', label: 'Gestão', allowed: _isSupportManager || _isAdmin },
