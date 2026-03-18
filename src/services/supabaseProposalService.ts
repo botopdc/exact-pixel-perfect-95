@@ -51,7 +51,7 @@ export async function listProposals(filters: ProposalListFilters = {}): Promise<
   });
 
   // Build query - select minimal columns, order by updated_at desc
-  let query = supabase
+  let query = coreSupabase
     .from('calculator_proposals')
     .select('id, display_id, name, company, email, phone, status, total, datacenter, channel_type, created_at, updated_at', { count: 'exact' })
     .order('updated_at', { ascending: false });
