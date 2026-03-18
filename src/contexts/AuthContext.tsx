@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: p.email,
           level: p.level,
           legacy_user_id: p.legacy_user_id,
-          roles: userRoles.map(r => r.role_code),
+          roles: userRoles.map(r => r.role_slug),
         });
       }
 
