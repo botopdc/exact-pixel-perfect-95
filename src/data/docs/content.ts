@@ -46,7 +46,7 @@ const CONTENT: Record<string, string> = {
 | **Backend** | Supabase (Lovable Cloud) |
 | **Edge Functions** | Deno (Supabase Edge Functions) |
 | **Banco de Dados** | PostgreSQL (via Supabase) |
-| **Autenticação** | API REST externa + Supabase Auth (Academy) |
+| **Autenticação** | **Supabase Auth** (nativo) — JWT + sessão persistente |
 | **Deploy** | Lovable (Preview + Publish) |
 
 ## Decisões Arquiteturais
@@ -56,6 +56,23 @@ O sistema OPEN é frontend-first: toda a lógica de apresentação, validação 
 - Fonte de verdade para dados persistentes
 - Executor de lógica que precisa de \`SERVICE_ROLE_KEY\`
 - Gateway para APIs externas (via Edge Functions)
+- **Provedor de identidade** (Supabase Auth)
+
+### Identidade Unificada (pós-cutover)
+- **Supabase Auth** é a fonte de verdade para autenticação
+- **UUID** é a identidade primária em todo o sistema
+- \`profiles\` armazena dados do usuário vinculados a \`auth.users\`
+- \`user_roles\` define papéis via slugs (\`admin\`, \`suporte\`, \`cs\`, etc.)
+- \`legacy_user_id\` mantido apenas como ponte de compatibilidade
+- \`getEffectiveRoles()\` resolve roles do banco ou fallback via level
+
+### RBAC — Roles-First
+O controle de acesso utiliza o modelo **Roles-First**:
+- Papéis (\`user_roles\`) são a fonte primária de permissões
+- \`profile.level\` é fallback temporário via mapeamento \`LEVEL_TO_ROLES\`
+- Admin (\`role_slug = 'admin'\`) tem acesso total
+- Módulos e rotas verificam \`effectiveRoles\` via \`useSession()\`
+- Helper SQL: \`public.has_role(uuid, role_slug)\` (SECURITY DEFINER)
 
 ### Módulos
 A aplicação é organizada em módulos acessíveis via \`/modulos/*\`:
@@ -66,13 +83,7 @@ A aplicação é organizada em módulos acessíveis via \`/modulos/*\`:
 - **Conteúdo** — Artigos e base de conhecimento
 - **Gente & Gestão** — RH, vagas, Academy
 - **Docs** — Documentação técnica (este módulo)
-- **Admin** — Configurações do sistema
-
-### RBAC (Role-Based Access Control)
-O controle de acesso é baseado no campo \`user.level\`:
-- Cada módulo e sub-rota define \`allowedLevels\`
-- Admin (1000) tem acesso total
-- A verificação acontece tanto no sidebar quanto no route guard
+- **Admin** — Configurações do sistema, backfill de usuários
 
 ## Estrutura de Pastas
 
@@ -80,14 +91,22 @@ O controle de acesso é baseado no campo \`user.level\`:
 src/
 ├── components/     # Componentes reutilizáveis
 ├── config/         # Configurações (rotas, módulos, menu)
+├── contexts/       # AuthContext (Supabase Auth session)
 ├── data/           # Dados estáticos (docs registry)
-├── hooks/          # Custom hooks
+├── hooks/          # Custom hooks (useSession, useAuth)
 ├── layouts/        # Layouts (Module, Partner, Executive)
-├── lib/            # Utilitários
+├── lib/            # Utilitários (rbac, authToken)
 ├── pages/          # Páginas por módulo
 ├── services/       # Camada de serviços (API, Supabase)
 └── types/          # Tipos TypeScript
 \`\`\`
+
+## Base para SALES OPEN
+
+O CORE compartilha identidade, banco e Edge Functions com o projeto SALES OPEN:
+- Mesma base \`auth.users\` + \`profiles\` + \`user_roles\`
+- Propostas e contratos no mesmo banco
+- RLS e segurança unificados
 `,
 
   'core/open_database_schema': `# Schema do Banco de Dados
