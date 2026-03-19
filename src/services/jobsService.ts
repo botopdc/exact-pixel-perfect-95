@@ -16,10 +16,10 @@ if (!API_BASE_URL) {
   throw new Error('VITE_API_BASE_URL não está definida.');
 }
 
-const AUTH_TOKEN_KEY = 'open_access_token';
+import { getAuthTokenSync } from '@/lib/authToken';
 
 const getToken = (): string | null => {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  return getAuthTokenSync();
 };
 
 // Axios instance for authenticated requests

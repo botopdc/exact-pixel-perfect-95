@@ -64,10 +64,11 @@ export interface UpdateConfigPayload {
 // ============================================================================
 
 /**
- * Get auth token from localStorage
+ * Get auth token — Supabase JWT first, legacy fallback
  */
 function getAuthToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  const { getAuthTokenSync } = require('@/lib/authToken');
+  return getAuthTokenSync();
 }
 
 /**

@@ -11,8 +11,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+// Token resolution: uses getAuthTokenSync from authToken.ts
 
 // Types matching the actual API structure
 export interface AnnualGoalExecutive {
