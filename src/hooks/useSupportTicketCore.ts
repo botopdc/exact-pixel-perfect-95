@@ -113,7 +113,8 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
   const { data: ticket, isLoading, error, refetch } = useQuery({
     queryKey: ['support-ticket-core', ticketId],
-    queryFn: () => supportTicketCoreService.getTicket(ticketId!, ctx.level, ctx.legacyUserId || ctx.userId),
+    // Phase 4: Pass UUID as primary, Edge Function resolves legacy fallback
+    queryFn: () => supportTicketCoreService.getTicket(ticketId!, ctx.level, ctx.userId),
     enabled: !!ticketId,
     staleTime: 0,
   });
@@ -148,10 +149,11 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
 
   const performAction = useCallback((action: TicketActionPayload['action'], extra: Partial<TicketActionPayload> = {}) => {
     if (!ticketId || !ctx.userId) return;
+    // Phase 4: Send UUID as primary actor identity
     return actionMutation.mutateAsync({
       ticket_id: ticketId,
       action,
-      actor_user_id: ctx.legacyUserId || ctx.userId,
+      actor_user_id: ctx.userId,
       actor_name: ctx.name,
       actor_level: ctx.level,
       ...extra,
@@ -161,13 +163,14 @@ export function useSupportTicketDetail(ticketId: string | undefined) {
   const sendMessage = useCallback((body: string, isInternal: boolean) => {
     if (!ticketId || !ctx.userId) return;
     const authorType = ctx.level >= 900 ? 'support' : ctx.level >= 775 ? 'cs' : 'client';
+    // Phase 4: Send UUID as primary author identity
     return messageMutation.mutateAsync({
       ticket_id: ticketId,
       body,
       is_internal_note: isInternal,
       author_name: ctx.name || 'Usuário',
       author_email: ctx.email,
-      author_user_id: ctx.legacyUserId || ctx.userId,
+      author_user_id: ctx.userId,
       author_level: ctx.level,
       author_type: authorType as any,
     });

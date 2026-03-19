@@ -364,6 +364,7 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<Edg
 }
 
 // ── Queue user context (standalone to avoid `this` issues in object literal) ──
+// Phase 4: Prefer Supabase UUID from auth session, fallback to legacy only when needed
 
 function getQueueUserContext(): {
   actor_user_id?: string;
@@ -371,30 +372,35 @@ function getQueueUserContext(): {
   actor_email?: string;
   actor_name?: string;
 } {
+  // 1. Try Supabase session first (stored by AuthContext)
+  try {
+    const raw = localStorage.getItem('sb-macmkfoknhofnwhizsqc-auth-token');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const sbUser = parsed?.user;
+      if (sbUser?.id) {
+        // UUID from Supabase Auth — this is the primary identity
+        return {
+          actor_user_id: sbUser.id,
+          actor_level: Number(sbUser.user_metadata?.level) || 0,
+          actor_email: sbUser.email,
+          actor_name: sbUser.user_metadata?.name || sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0],
+        };
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 2. Fallback: legacy authService session
   const session = authService.getSession();
   if (session) {
-    const numericId = session.apiUser?.id
-      ? String(session.apiUser.id)
-      : (/^\d+$/.test(session.userId) ? session.userId : undefined);
     return {
-      actor_user_id: numericId,
+      actor_user_id: session.userId, // may be integer string — Edge Function handles both
       actor_level: session.level ?? 0,
       actor_email: session.email,
       actor_name: session.name,
     };
   }
-  try {
-    const raw = localStorage.getItem('open_user');
-    if (raw) {
-      const u = JSON.parse(raw);
-      return {
-        actor_user_id: u?.id ? String(u.id) : undefined,
-        actor_level: Number(u?.level) || 0,
-        actor_email: u?.email,
-        actor_name: u?.name,
-      };
-    }
-  } catch { /* ignore */ }
+
   return { actor_level: 0 };
 }
 
