@@ -67,7 +67,6 @@ export interface UpdateConfigPayload {
  * Get auth token — Supabase JWT first, legacy fallback
  */
 function getAuthToken(): string | null {
-  const { getAuthTokenSync } = require('@/lib/authToken');
   return getAuthTokenSync();
 }
 
