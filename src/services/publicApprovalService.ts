@@ -32,14 +32,9 @@ function getPublicBaseUrl(): string {
 
 function getCoreToken(): string | null {
   if (typeof window === 'undefined') return null;
-
-  return (
-    localStorage.getItem('open_access_token') ||
-    localStorage.getItem('open_api_token') ||
-    localStorage.getItem('open_token') ||
-    localStorage.getItem('auth_token') ||
-    localStorage.getItem('token')
-  );
+  // Phase 5: Use unified token resolution
+  const { getAuthTokenSync } = await import('@/lib/authToken');
+  return getAuthTokenSync();
 }
 
 // ============================================================================
