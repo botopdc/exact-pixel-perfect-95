@@ -46,7 +46,7 @@ const CONTENT: Record<string, string> = {
 | **Backend** | Supabase (Lovable Cloud) |
 | **Edge Functions** | Deno (Supabase Edge Functions) |
 | **Banco de Dados** | PostgreSQL (via Supabase) |
-| **Autenticação** | API REST externa + Supabase Auth (Academy) |
+| **Autenticação** | **Supabase Auth** (nativo) — JWT + sessão persistente |
 | **Deploy** | Lovable (Preview + Publish) |
 
 ## Decisões Arquiteturais
@@ -56,6 +56,23 @@ O sistema OPEN é frontend-first: toda a lógica de apresentação, validação 
 - Fonte de verdade para dados persistentes
 - Executor de lógica que precisa de \`SERVICE_ROLE_KEY\`
 - Gateway para APIs externas (via Edge Functions)
+- **Provedor de identidade** (Supabase Auth)
+
+### Identidade Unificada (pós-cutover)
+- **Supabase Auth** é a fonte de verdade para autenticação
+- **UUID** é a identidade primária em todo o sistema
+- \`profiles\` armazena dados do usuário vinculados a \`auth.users\`
+- \`user_roles\` define papéis via slugs (\`admin\`, \`suporte\`, \`cs\`, etc.)
+- \`legacy_user_id\` mantido apenas como ponte de compatibilidade
+- \`getEffectiveRoles()\` resolve roles do banco ou fallback via level
+
+### RBAC — Roles-First
+O controle de acesso utiliza o modelo **Roles-First**:
+- Papéis (\`user_roles\`) são a fonte primária de permissões
+- \`profile.level\` é fallback temporário via mapeamento \`LEVEL_TO_ROLES\`
+- Admin (\`role_slug = 'admin'\`) tem acesso total
+- Módulos e rotas verificam \`effectiveRoles\` via \`useSession()\`
+- Helper SQL: \`public.has_role(uuid, role_slug)\` (SECURITY DEFINER)
 
 ### Módulos
 A aplicação é organizada em módulos acessíveis via \`/modulos/*\`:
@@ -66,13 +83,7 @@ A aplicação é organizada em módulos acessíveis via \`/modulos/*\`:
 - **Conteúdo** — Artigos e base de conhecimento
 - **Gente & Gestão** — RH, vagas, Academy
 - **Docs** — Documentação técnica (este módulo)
-- **Admin** — Configurações do sistema
-
-### RBAC (Role-Based Access Control)
-O controle de acesso é baseado no campo \`user.level\`:
-- Cada módulo e sub-rota define \`allowedLevels\`
-- Admin (1000) tem acesso total
-- A verificação acontece tanto no sidebar quanto no route guard
+- **Admin** — Configurações do sistema, backfill de usuários
 
 ## Estrutura de Pastas
 
@@ -80,14 +91,22 @@ O controle de acesso é baseado no campo \`user.level\`:
 src/
 ├── components/     # Componentes reutilizáveis
 ├── config/         # Configurações (rotas, módulos, menu)
+├── contexts/       # AuthContext (Supabase Auth session)
 ├── data/           # Dados estáticos (docs registry)
-├── hooks/          # Custom hooks
+├── hooks/          # Custom hooks (useSession, useAuth)
 ├── layouts/        # Layouts (Module, Partner, Executive)
-├── lib/            # Utilitários
+├── lib/            # Utilitários (rbac, authToken)
 ├── pages/          # Páginas por módulo
 ├── services/       # Camada de serviços (API, Supabase)
 └── types/          # Tipos TypeScript
 \`\`\`
+
+## Base para SALES OPEN
+
+O CORE compartilha identidade, banco e Edge Functions com o projeto SALES OPEN:
+- Mesma base \`auth.users\` + \`profiles\` + \`user_roles\`
+- Propostas e contratos no mesmo banco
+- RLS e segurança unificados
 `,
 
   'core/open_database_schema': `# Schema do Banco de Dados
@@ -143,25 +162,34 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
 
   'core/open_business_rules': `# Regras de Negócio
 
-## Níveis de Acesso (User Levels)
+## Modelo de Identidade (pós-cutover)
 
-| Level | Cargo | Tipo |
-|-------|-------|------|
-| 1 | Cliente | Externo |
-| 200 | Parceiro | Externo |
-| 600 | RH | Interno |
-| 680 | BDR | Interno |
-| 690 | Arquiteto de Soluções | Interno |
-| 700 | Comercial (Executivo) | Interno |
-| 750 | Gerente Comercial | Interno |
-| 775 | Sucesso do Cliente | Interno |
-| 900 | Suporte | Interno |
-| 950 | Gerente de Suporte | Interno |
-| 1000 | Admin | Interno |
+| Componente | Fonte de Verdade |
+|------------|------------------|
+| Autenticação | Supabase Auth (\`auth.users\`) |
+| Perfil | \`public.profiles\` (vinculado via UUID) |
+| Papéis | \`public.user_roles\` (role_slug) |
+| Fallback | \`profiles.level\` → mapeamento automático para roles |
+
+## Papéis e Níveis de Acesso
+
+| Role Slug | Level | Cargo | Tipo |
+|-----------|-------|-------|------|
+| \`cliente\` | 1 | Cliente | Externo |
+| \`parceiro\` | 200 | Parceiro | Externo |
+| \`rh\` | 600 | RH | Interno |
+| \`bdr\` | 680 | BDR | Interno |
+| \`arquiteto\` | 690 | Arquiteto de Soluções | Interno |
+| \`comercial\` | 700 | Comercial (Executivo) | Interno |
+| \`gerente_comercial\` | 750 | Gerente Comercial | Interno |
+| \`cs\` | 775 | Sucesso do Cliente | Interno |
+| \`suporte\` | 900 | Suporte | Interno |
+| \`gerente_suporte\` | 950 | Gerente de Suporte | Interno |
+| \`admin\` | 1000 | Admin | Interno |
 
 ## Regras de Propostas
 
-1. **Criação**: Apenas levels 700, 750 e 1000 podem criar propostas
+1. **Criação**: Roles \`comercial\`, \`gerente_comercial\` e \`admin\` podem criar propostas
 2. **Visualização**: Executivos veem apenas suas próprias; Gerentes e Admin veem todas
 3. **Aprovação**: Via link público com token único
 4. **Canal**: Se \`channel_type = PARCEIRO\`, \`reseller_name\` é obrigatório
@@ -177,6 +205,8 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
 - SLAs: PADRAO, PREMIUM, CRITICO
 - Severidades: S1 (crítica) a S4 (informativa)
 - Incidentes podem ser escalados de N1 → N2 → N3
+- **Suporte resolve, CS encerra** — separação obrigatória
+- UUID é usado em todas as referências de usuário no ciclo do ticket
 `,
 
   'core/open_module_map': [
@@ -190,16 +220,16 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
     '',
     '## 2. Navegação Principal',
     '',
-    '| Módulo | Rota | Ícone | Acesso mínimo |',
+    '| Módulo | Rota | Ícone | Acesso (role) |',
     '|--------|------|-------|---------------|',
-    '| Dashboard | `/modulos/dashboard` | LayoutDashboard | 700 |',
-    '| Comercial | `/modulos/comercial` | TrendingUp | 700 |',
-    '| Parceiros | `/modulos/parceiros` | Handshake | 750 |',
-    '| Atendimentos | `/modulos/atendimentos` | HeadphonesIcon | 775 |',
-    '| Docs | `/modulos/docs` | BookOpen | 700 |',
-    '| Conteúdo & Documentação | `/modulos/conteudo` | FileText | 700 |',
-    '| Gente & Gestão | `/modulos/gente` | Users | 600 |',
-    '| Admin | `/modulos/admin` | Settings | 1000 |',
+    '| Dashboard | `/modulos/dashboard` | LayoutDashboard | `comercial`+ |',
+    '| Comercial | `/modulos/comercial` | TrendingUp | `comercial`+ |',
+    '| Parceiros | `/modulos/parceiros` | Handshake | `gerente_comercial`+ |',
+    '| Atendimentos | `/modulos/atendimentos` | HeadphonesIcon | `cs`+ |',
+    '| Docs | `/modulos/docs` | BookOpen | `comercial`+ |',
+    '| Conteúdo & Documentação | `/modulos/conteudo` | FileText | `comercial`+ |',
+    '| Gente & Gestão | `/modulos/gente` | Users | `rh`+ |',
+    '| Admin | `/modulos/admin` | Settings | `admin` |',
     '',
     '---',
     '',
@@ -300,7 +330,7 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
     '',
     '## 9. Admin',
     '',
-    'Configurações globais do sistema. Acesso restrito ao nível 1000.',
+    'Configurações globais do sistema. Acesso restrito à role `admin`.',
     '',
     '| Seção | Rota |',
     '|-------|------|',
@@ -309,6 +339,7 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
     '| Preços | `/modulos/admin/precos` |',
     '| Parâmetros | `/modulos/admin/parametros` |',
     '| Logs | `/modulos/admin/logs` |',
+    '| Backfill/Reconciliação | `/modulos/admin/backfill` |',
     '',
     '---',
     '',
@@ -324,20 +355,42 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
     '',
     '---',
     '',
-    '## 11. Dependências entre Módulos',
+    '## 11. Identidade Unificada',
+    '',
+    'O CORE utiliza Supabase Auth como provedor de identidade único:',
+    '',
+    '| Componente | Tabela | Descrição |',
+    '|------------|--------|-----------|',
+    '| Autenticação | `auth.users` | JWT + sessão persistente |',
+    '| Perfil | `profiles` | Dados do usuário (vinculado via UUID) |',
+    '| Papéis | `user_roles` | Roles via slugs |',
+    '| Ponte legada | `profiles.legacy_user_id` | ID inteiro do sistema antigo |',
+    '',
+    '---',
+    '',
+    '## 12. Dependências entre Módulos',
     '',
     '| Módulo | Depende de |',
     '|--------|-----------|',
     '| Comercial | Partners, Contracts, Proposals, Calculator Configs |',
     '| Parceiros | Partners API, Proposals |',
-    '| Atendimentos | Tech Clients, Tech Assets, Incidents |',
+    '| Atendimentos | Tech Clients, Tech Assets, Incidents, profiles + user_roles |',
     '| Docs | Registry local (futuro: Supabase) |',
-    '| Admin | Users API, Calculator Configs |',
+    '| Admin | profiles, user_roles, Calculator Configs, user-backfill |',
     '| Dashboard | Propostas, Contratos, KPIs (cross-module) |',
     '',
     '---',
     '',
-    '## 12. Regra de Documentação',
+    '## 13. Base para SALES OPEN',
+    '',
+    'O CORE serve como infraestrutura compartilhada para o projeto SALES OPEN:',
+    '- Mesma base `auth.users` + `profiles` + `user_roles`',
+    '- Propostas e contratos no mesmo banco',
+    '- Edge Functions e RLS compartilhados',
+    '',
+    '---',
+    '',
+    '## 14. Regra de Documentação',
     '',
     'Todo módulo da OPEN deve possuir uma página correspondente dentro de `/docs/modules/`.',
     '',
