@@ -102,6 +102,20 @@ export default function AnalistasSuportePage() {
   const [sortField, setSortField] = useState<SortField>('open_assigned');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
+  // Fetch analysts data
+  const {
+    data: analysts = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['support-analysts', period],
+    queryFn: () => fetchAnalysts(period),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    enabled: canAccessSupportModule(userLevel),
+  });
+
   // Handle sort
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -116,7 +130,6 @@ export default function AnalistasSuportePage() {
   const filteredAnalysts = useMemo(() => {
     let result = [...analysts];
     
-    // Filter by search
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(a => 
@@ -125,7 +138,6 @@ export default function AnalistasSuportePage() {
       );
     }
     
-    // Sort
     result.sort((a, b) => {
       const aVal = a[sortField] ?? 0;
       const bVal = b[sortField] ?? 0;
