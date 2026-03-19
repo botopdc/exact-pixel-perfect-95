@@ -116,9 +116,6 @@ export default function AnalistasSuportePage() {
       </div>
     );
   }
-  const [period, setPeriod] = useState<'7d' | '30d'>('7d');
-  const [sortField, setSortField] = useState<SortField>('open_assigned');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   // Fetch analysts data
   const {
