@@ -72,7 +72,7 @@ function formatMinutes(minutes: number): string {
 
 // Fetch analysts from API
 async function fetchAnalysts(period: '7d' | '30d'): Promise<AnalystStats[]> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  const token = getAuthTokenSync();
   
   const dateFrom = format(subDays(new Date(), period === '7d' ? 7 : 30), 'yyyy-MM-dd');
   const dateTo = format(new Date(), 'yyyy-MM-dd');
