@@ -32,7 +32,6 @@ function getPublicBaseUrl(): string {
 
 function getCoreToken(): string | null {
   if (typeof window === 'undefined') return null;
-  const { getAuthTokenSync } = require('@/lib/authToken');
   return getAuthTokenSync();
 }
 
