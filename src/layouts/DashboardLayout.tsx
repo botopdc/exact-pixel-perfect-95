@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { useNavigate, Outlet } from 'react-router-dom';
+import React from 'react';
+import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getEffectiveRoles, isInternal } from '@/lib/rbac';
 
@@ -8,23 +8,7 @@ import { getEffectiveRoles, isInternal } from '@/lib/rbac';
 // ============================================================================
 
 export default function DashboardLayout() {
-  const navigate = useNavigate();
   const { isLoading, isAuthenticated, profile, roles } = useAuth();
-
-  useEffect(() => {
-    if (isLoading) return;
-
-    if (!isAuthenticated) {
-      navigate('/login', { replace: true });
-      return;
-    }
-
-    const eff = getEffectiveRoles(roles, profile);
-    if (isInternal(eff)) {
-      navigate('/modulos/dashboard', { replace: true });
-      return;
-    }
-  }, [isLoading, isAuthenticated, profile, roles, navigate]);
 
   if (isLoading) {
     return (
@@ -32,6 +16,15 @@ export default function DashboardLayout() {
         <div className="animate-pulse text-muted-foreground">Carregando...</div>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const eff = getEffectiveRoles(roles, profile);
+  if (isInternal(eff)) {
+    return <Navigate to="/modulos/dashboard" replace />;
   }
 
   return <Outlet />;
