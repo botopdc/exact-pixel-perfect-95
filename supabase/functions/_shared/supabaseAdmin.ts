@@ -34,47 +34,64 @@ export function getSupabaseAdmin(): SupabaseClient {
 }
 
 /**
- * Validate external auth token
+ * Validate auth token — Supabase JWT first, external fallback.
  * 
- * If EXTERNAL_AUTH_URL env is set, calls ${EXTERNAL_AUTH_URL}/validate
- * Otherwise, accepts token with minimum length (MVP stub)
- * 
- * TODO: Replace MVP stub with real validation when EXTERNAL_AUTH_URL is configured
+ * Priority:
+ * 1. Verify as Supabase JWT using SUPABASE_URL + SUPABASE_ANON_KEY
+ * 2. If EXTERNAL_AUTH_URL is set, call external validation endpoint
+ * 3. Reject otherwise (no more length-based stubs)
  */
-export async function validateExternalToken(token: string): Promise<{ valid: boolean; error?: string }> {
-  const externalAuthUrl = Deno.env.get("EXTERNAL_AUTH_URL");
+export async function validateExternalToken(token: string): Promise<{ valid: boolean; error?: string; userId?: string }> {
+  if (!token || token.length < 10) {
+    return { valid: false, error: "Token missing or too short" };
+  }
 
-  if (externalAuthUrl) {
-    // Real validation via external API
-    try {
-      const response = await fetch(`${externalAuthUrl}/validate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
+  // 1. Try Supabase JWT verification
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (supabaseUrl && anonKey) {
+      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.49.1");
+      const sb = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${token}` } },
       });
-
-      if (!response.ok) {
-        return { valid: false, error: "External auth validation failed" };
+      const { data, error } = await sb.auth.getUser(token);
+      if (!error && data?.user?.id) {
+        return { valid: true, userId: data.user.id };
       }
+      // Not a valid Supabase JWT — fall through to external validation
+    }
+  } catch {
+    // Not a Supabase JWT — continue
+  }
 
-      return { valid: true };
+  // 2. External auth validation (legacy Laravel tokens)
+  const externalAuthUrl = Deno.env.get("EXTERNAL_AUTH_URL");
+  if (externalAuthUrl) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(`${externalAuthUrl.replace(/\/$/, "")}/validate`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        return { valid: true };
+      }
+      return { valid: false, error: "External auth validation failed" };
     } catch (err) {
-      console.error("External auth validation error:", err);
+      const error = err as Error;
+      console.warn("[validateExternalToken] External validation error:", error.message);
       return { valid: false, error: "External auth service unavailable" };
     }
   }
 
-  // MVP stub: accept token if it has minimum length
-  // TODO: Implement real token validation when EXTERNAL_AUTH_URL is configured
-  const MIN_TOKEN_LENGTH = 10;
-  if (token.length >= MIN_TOKEN_LENGTH) {
-    console.warn("[MVP] Token accepted via length check only. Configure EXTERNAL_AUTH_URL for real validation.");
-    return { valid: true };
-  }
-
-  return { valid: false, error: "Token too short" };
+  // 3. No validation method available — reject
+  console.warn("[validateExternalToken] No validation method available. Set EXTERNAL_AUTH_URL or use Supabase JWT.");
+  return { valid: false, error: "No auth validation method configured" };
 }
 
 /**

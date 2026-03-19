@@ -1,6 +1,9 @@
 // ============================================================================
-// AUTH SERVICE - API Implementation
-// Integração com API OPDC para autenticação
+// AUTH SERVICE - LEGACY COMPATIBILITY BRIDGE (TRANSITIONAL)
+// ⚠️  THIS FILE IS DEPRECATED — Use useSession() or useAuth() instead.
+// Kept only for: partnerAuthService integration, OpenCalculator partner routes,
+// academyAuthService, and services that call the Laravel API directly.
+// No new code should import from this file.
 // ============================================================================
 
 import { openApi, ApiUser, USER_LEVELS } from '@/lib/openApi';

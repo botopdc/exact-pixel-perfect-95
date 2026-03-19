@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useExternalArticle, useExternalCreateArticle, useExternalUpdateArticle } from '@/hooks/useExternalArticles';
 import { ARTICLE_CATEGORIES, ARTICLE_TEMPLATE, ArticleCategory } from '@/types/article';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { AccessDenied } from '@/components/articles/AccessDenied';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,7 +45,7 @@ export default function ArtigoForm({ isEdit = false }: { isEdit?: boolean }) {
   const navigate = useNavigate();
   
   // Check authentication and access
-  const session = authService.getSession();
+  const session = useSession();
   
   // Parse ID as number for external API
   const articleId = isEdit && id ? parseInt(id, 10) : undefined;
@@ -116,8 +116,7 @@ export default function ArtigoForm({ isEdit = false }: { isEdit?: boolean }) {
   };
 
   const onSubmit = (data: ArticleFormData, status: 'draft' | 'published') => {
-    const user = authService.getCurrentUser();
-    const author = user?.email || 'Anônimo';
+    const author = session?.email || 'Anônimo';
 
     const articleData = {
       title: data.title,

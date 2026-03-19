@@ -3,15 +3,14 @@
 // Uses Supabase Edge Function with SERVICE_ROLE_KEY (server-side only)
 // ============================================================================
 
+import { getAuthTokenSync } from '@/lib/authToken';
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 if (!SUPABASE_URL) {
   throw new Error('VITE_SUPABASE_URL não está definida.');
 }
-
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 
 // ============================================================================
 // TYPES
@@ -65,10 +64,10 @@ export interface UpdateConfigPayload {
 // ============================================================================
 
 /**
- * Get auth token from localStorage
+ * Get auth token — Supabase JWT first, legacy fallback
  */
 function getAuthToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  return getAuthTokenSync();
 }
 
 /**

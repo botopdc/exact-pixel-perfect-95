@@ -186,32 +186,10 @@ function assertPin(req: Request) {
 }
 
 async function validateExternalToken(token: string): Promise<boolean> {
-  const externalAuthUrl = Deno.env.get("EXTERNAL_AUTH_URL");
-  if (externalAuthUrl) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout
-    
-    try {
-      const resp = await fetch(`${externalAuthUrl.replace(/\/$/, "")}/validate`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      return resp.ok;
-    } catch (err) {
-      clearTimeout(timeout);
-      const error = err as Error;
-      if (error.name === "AbortError") {
-        console.warn("[pricing-admin] validateExternalToken timeout after 3s");
-      } else {
-        console.warn("[pricing-admin] validateExternalToken network error:", error.message);
-      }
-      return false; // Return false instead of throwing to avoid hanging
-    }
-  }
-  // MVP fallback: accept token if length >= 20
-  return token.length >= 20;
+  // Use shared validation from supabaseAdmin (Supabase JWT first, external fallback)
+  const { validateExternalToken: sharedValidate } = await import("../_shared/supabaseAdmin.ts");
+  const result = await sharedValidate(token);
+  return result.valid;
 }
 
 function getQueryParam(url: string, key: string) {

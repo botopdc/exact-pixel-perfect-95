@@ -53,13 +53,12 @@ import {
   canOverridePriority,
 } from '@/types/supportTicket';
 import { cn } from '@/lib/utils';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 
 export default function SupportTicketDetailPage() {
   const { ticketNumber } = useParams<{ ticketNumber: string }>();
   const navigate = useNavigate();
-  const session = authService.getSession();
-  const userLevel = session?.level ?? 0;
+  const { level: userLevel } = useSession();
 
   const {
     ticket,

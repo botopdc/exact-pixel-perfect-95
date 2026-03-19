@@ -65,7 +65,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useSaveProposal, SavedProposal, apiToLocal } from '@/hooks/useProposals';
 import { useSavePartnerProposal } from '@/hooks/usePartnerProposals';
 import { useSaveProposalToSupabase, saveProposalToSupabase } from '@/hooks/useSaveProposalToSupabase';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { partnerAuthService } from '@/services/partnersService';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +100,7 @@ const OpenCalculator: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
+  const internalSessionData = useSession();
   
   // URL-based edit mode detection (edit=1&id=...)
   const urlEditParam = searchParams.get('edit');
@@ -131,17 +132,16 @@ const OpenCalculator: React.FC = () => {
       }
     }
 
-    // Internal routes: prefer internal auth
-    const internalSession = authService.getSession();
-    if (internalSession) {
-      const partnerType = internalSession.apiUser?.partner?.type || null;
-      const rules = getPricingRules(internalSession.level);
+    // Internal routes: prefer Supabase session
+    if (internalSessionData.isAuthenticated && internalSessionData.level > 0) {
+      const partnerType = null; // Partner type no longer available from legacy session
+      const rules = getPricingRules(internalSessionData.level);
       return {
-        userLevel: internalSession.level,
+        userLevel: internalSessionData.level,
         partnerType,
         pricingRules: rules,
         partnerDiscount: rules.canApplyPartnerDiscounts ? getPartnerTypeDiscount(partnerType) : 0,
-        profileLabel: getPricingProfileLabel(internalSession.level, partnerType || undefined),
+        profileLabel: getPricingProfileLabel(internalSessionData.level, partnerType || undefined),
       };
     }
 
@@ -251,16 +251,15 @@ const OpenCalculator: React.FC = () => {
   
   // Owner tracking for proposal persistence
   const getOwnerInfo = useCallback(() => {
-    const internalSession = authService.getSession();
     const partnerSess = partnerAuthService.getSession();
     
-    if (internalSession) {
+    if (internalSessionData.isAuthenticated) {
       return {
-        ownerUserId: internalSession.apiUser?.id?.toString() || internalSession.userId,
-        ownerEmail: internalSession.apiUser?.email || internalSession.email,
-        ownerName: internalSession.apiUser?.name || internalSession.name,
-        ownerLevel: internalSession.level,
-        ownerRole: internalSession.level >= 1000 ? 'ADMIN' : internalSession.level >= 750 ? 'GERENTE' : 'EXECUTIVO',
+        ownerUserId: internalSessionData.userId,
+        ownerEmail: internalSessionData.email,
+        ownerName: internalSessionData.name,
+        ownerLevel: internalSessionData.level,
+        ownerRole: internalSessionData.level >= 1000 ? 'ADMIN' : internalSessionData.level >= 750 ? 'GERENTE' : 'EXECUTIVO',
       };
     }
     
@@ -1187,7 +1186,6 @@ const OpenCalculator: React.FC = () => {
 
     // DEBUG: Log save operation mode + ownership context
     const numericApiId = editingProposalId ? parseInt(editingProposalId, 10) : null;
-    const internalSession = authService.getSession();
     const partnerSess = partnerAuthService.getSession();
     console.log('[OpenCalculator] handleSave:', {
       mode: isEditMode ? 'EDIT' : 'CREATE',
@@ -1197,7 +1195,7 @@ const OpenCalculator: React.FC = () => {
       displayProposalId: proposal.id,
       total: result?.grandTotal,
       inferred_user_level: userContext.userLevel,
-      internal_session_level: internalSession?.level ?? null,
+      internal_session_level: internalSessionData.level,
       partner_session_partnerId: partnerSess?.partnerId ?? null,
       intended_channel_type: isPartnerContext ? 'PARCEIRO' : 'CLIENTE',
     });

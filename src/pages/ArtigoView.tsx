@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 
 const categoryIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   'Infraestrutura': Server,
@@ -63,7 +63,7 @@ export default function ArtigoView() {
   const navigate = useNavigate();
   
   // Check authentication and access
-  const session = authService.getSession();
+  const session = useSession();
   
   // Parse ID as number for external API
   const articleId = id ? parseInt(id, 10) : undefined;

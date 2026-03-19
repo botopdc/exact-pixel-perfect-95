@@ -39,13 +39,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { canAccessSupportModule, canManageSLAs } from '@/types/supportTicket';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
+import { getAuthTokenSync } from '@/lib/authToken';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 
 // Interface for analyst data from API
 interface AnalystStats {
@@ -73,7 +72,7 @@ function formatMinutes(minutes: number): string {
 
 // Fetch analysts from API
 async function fetchAnalysts(period: '7d' | '30d'): Promise<AnalystStats[]> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  const token = getAuthTokenSync();
   
   const dateFrom = format(subDays(new Date(), period === '7d' ? 7 : 30), 'yyyy-MM-dd');
   const dateTo = format(new Date(), 'yyyy-MM-dd');
@@ -97,24 +96,7 @@ type SortField = 'user_name' | 'open_assigned' | 'avg_first_response_minutes' | 
 type SortDirection = 'asc' | 'desc';
 
 export default function AnalistasSuportePage() {
-  const session = authService.getSession();
-  const userLevel = session?.level ?? 0;
-
-  // Check access - need at least support level
-  if (!canAccessSupportModule(userLevel)) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Card className="p-8 text-center">
-          <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Acesso Negado</h2>
-          <p className="text-muted-foreground">
-            Você não tem permissão para acessar este módulo.
-          </p>
-        </Card>
-      </div>
-    );
-  }
-
+  const { level: userLevel } = useSession();
   const [searchQuery, setSearchQuery] = useState('');
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
   const [sortField, setSortField] = useState<SortField>('open_assigned');
@@ -131,6 +113,7 @@ export default function AnalistasSuportePage() {
     queryFn: () => fetchAnalysts(period),
     staleTime: 0,
     refetchOnWindowFocus: true,
+    enabled: canAccessSupportModule(userLevel),
   });
 
   // Handle sort
@@ -147,7 +130,6 @@ export default function AnalistasSuportePage() {
   const filteredAnalysts = useMemo(() => {
     let result = [...analysts];
     
-    // Filter by search
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(a => 
@@ -156,7 +138,6 @@ export default function AnalistasSuportePage() {
       );
     }
     
-    // Sort
     result.sort((a, b) => {
       const aVal = a[sortField] ?? 0;
       const bVal = b[sortField] ?? 0;
@@ -187,6 +168,21 @@ export default function AnalistasSuportePage() {
       : 0;
     return { online, totalOpen, avgFirstResponse, avgSLA };
   }, [analysts]);
+
+  // Check access - need at least support level
+  if (!canAccessSupportModule(userLevel)) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Card className="p-8 text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Acesso Negado</h2>
+          <p className="text-muted-foreground">
+            Você não tem permissão para acessar este módulo.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   const SortableHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
     <TableHead 

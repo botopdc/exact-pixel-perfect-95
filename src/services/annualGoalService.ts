@@ -9,10 +9,9 @@
  */
 
 import axios from 'axios';
+import { getAuthTokenSync } from '@/lib/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 
 // Types matching the actual API structure
 export interface AnnualGoalExecutive {
@@ -160,7 +159,7 @@ interface PaginatedResponse<T> {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  return getAuthTokenSync();
 }
 
 function getHeaders() {
