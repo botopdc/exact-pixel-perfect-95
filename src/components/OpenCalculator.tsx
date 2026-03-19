@@ -251,16 +251,15 @@ const OpenCalculator: React.FC = () => {
   
   // Owner tracking for proposal persistence
   const getOwnerInfo = useCallback(() => {
-    const internalSession = authService.getSession();
     const partnerSess = partnerAuthService.getSession();
     
-    if (internalSession) {
+    if (internalSessionData.isAuthenticated) {
       return {
-        ownerUserId: internalSession.apiUser?.id?.toString() || internalSession.userId,
-        ownerEmail: internalSession.apiUser?.email || internalSession.email,
-        ownerName: internalSession.apiUser?.name || internalSession.name,
-        ownerLevel: internalSession.level,
-        ownerRole: internalSession.level >= 1000 ? 'ADMIN' : internalSession.level >= 750 ? 'GERENTE' : 'EXECUTIVO',
+        ownerUserId: internalSessionData.userId,
+        ownerEmail: internalSessionData.email,
+        ownerName: internalSessionData.name,
+        ownerLevel: internalSessionData.level,
+        ownerRole: internalSessionData.level >= 1000 ? 'ADMIN' : internalSessionData.level >= 750 ? 'GERENTE' : 'EXECUTIVO',
       };
     }
     
