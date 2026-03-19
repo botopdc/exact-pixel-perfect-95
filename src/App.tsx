@@ -425,6 +425,7 @@ const App = () => (
     </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </TechOpsErrorBoundary>
 );
 
 export default App;

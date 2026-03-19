@@ -141,8 +141,7 @@ export default function ModuleLayout() {
     if (import.meta.env.DEV) {
       console.log('[ModuleLayout] No auth found, redirecting to /login');
     }
-    navigate('/login', { replace: true });
-    return null;
+    return <Navigate to="/login" replace />;
   }
 
   return (
