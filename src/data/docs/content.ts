@@ -162,25 +162,34 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
 
   'core/open_business_rules': `# Regras de Negócio
 
-## Níveis de Acesso (User Levels)
+## Modelo de Identidade (pós-cutover)
 
-| Level | Cargo | Tipo |
-|-------|-------|------|
-| 1 | Cliente | Externo |
-| 200 | Parceiro | Externo |
-| 600 | RH | Interno |
-| 680 | BDR | Interno |
-| 690 | Arquiteto de Soluções | Interno |
-| 700 | Comercial (Executivo) | Interno |
-| 750 | Gerente Comercial | Interno |
-| 775 | Sucesso do Cliente | Interno |
-| 900 | Suporte | Interno |
-| 950 | Gerente de Suporte | Interno |
-| 1000 | Admin | Interno |
+| Componente | Fonte de Verdade |
+|------------|------------------|
+| Autenticação | Supabase Auth (\`auth.users\`) |
+| Perfil | \`public.profiles\` (vinculado via UUID) |
+| Papéis | \`public.user_roles\` (role_slug) |
+| Fallback | \`profiles.level\` → mapeamento automático para roles |
+
+## Papéis e Níveis de Acesso
+
+| Role Slug | Level | Cargo | Tipo |
+|-----------|-------|-------|------|
+| \`cliente\` | 1 | Cliente | Externo |
+| \`parceiro\` | 200 | Parceiro | Externo |
+| \`rh\` | 600 | RH | Interno |
+| \`bdr\` | 680 | BDR | Interno |
+| \`arquiteto\` | 690 | Arquiteto de Soluções | Interno |
+| \`comercial\` | 700 | Comercial (Executivo) | Interno |
+| \`gerente_comercial\` | 750 | Gerente Comercial | Interno |
+| \`cs\` | 775 | Sucesso do Cliente | Interno |
+| \`suporte\` | 900 | Suporte | Interno |
+| \`gerente_suporte\` | 950 | Gerente de Suporte | Interno |
+| \`admin\` | 1000 | Admin | Interno |
 
 ## Regras de Propostas
 
-1. **Criação**: Apenas levels 700, 750 e 1000 podem criar propostas
+1. **Criação**: Roles \`comercial\`, \`gerente_comercial\` e \`admin\` podem criar propostas
 2. **Visualização**: Executivos veem apenas suas próprias; Gerentes e Admin veem todas
 3. **Aprovação**: Via link público com token único
 4. **Canal**: Se \`channel_type = PARCEIRO\`, \`reseller_name\` é obrigatório
@@ -196,6 +205,8 @@ Todas as tabelas utilizam Row Level Security (RLS). Os padrões principais:
 - SLAs: PADRAO, PREMIUM, CRITICO
 - Severidades: S1 (crítica) a S4 (informativa)
 - Incidentes podem ser escalados de N1 → N2 → N3
+- **Suporte resolve, CS encerra** — separação obrigatória
+- UUID é usado em todas as referências de usuário no ciclo do ticket
 `,
 
   'core/open_module_map': [
