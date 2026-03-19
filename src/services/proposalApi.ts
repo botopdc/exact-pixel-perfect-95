@@ -1,19 +1,15 @@
 /**
  * proposalApi - Service to interact with proposals via Edge Functions
  * 
- * Uses Edge Functions with Service Role to bypass RLS since CORE auth
- * doesn't have a Supabase session (auth.uid() is null).
+ * Phase 5: Uses Supabase JWT as primary auth token, legacy fallback.
  */
 
 import { coreSupabase } from '@/integrations/supabase/coreClient';
+import { getAuthTokenSync } from '@/lib/authToken';
 
-// Get CORE token from localStorage (set by CORE auth flow)
+// Get best available token (Supabase JWT first, legacy fallback)
 function getCoreToken(): string | null {
-  // Try common storage keys for CORE auth
-  const token = localStorage.getItem('open_token') 
-    || localStorage.getItem('auth_token')
-    || localStorage.getItem('token');
-  return token;
+  return getAuthTokenSync();
 }
 
 // ============================================================================

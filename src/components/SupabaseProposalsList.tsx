@@ -51,6 +51,7 @@ import {
 import type { ProposalRow } from '@/services/proposalApi';
 import ProposalAccessModal from '@/components/ProposalAccessModal';
 import { useConvertedProposalIds } from '@/hooks/useContracts';
+import { getAuthTokenSync } from '@/lib/authToken';
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -263,14 +264,8 @@ const SupabaseProposalsList: React.FC = () => {
     total: data?.total || 0,
   };
   
-  // Check if CORE token exists
-  const hasCoreToken = !!(
-    localStorage.getItem('open_access_token') ||
-    localStorage.getItem('open_api_token') ||
-    localStorage.getItem('open_token') || 
-    localStorage.getItem('auth_token') || 
-    localStorage.getItem('token')
-  );
+  // Check if auth token exists (Supabase JWT or legacy)
+  const hasCoreToken = !!getAuthTokenSync();
   
   const deleteProposalMutation = useDeleteProposal();
   const { getApprovalLink, isLoading: isLoadingApprovalLink } = useApprovalLink();

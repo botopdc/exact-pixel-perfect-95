@@ -1,7 +1,10 @@
 // ============================================================================
 // CALCULATOR CONFIG SERVICE - CRUD operations for pricing configuration
-// USES: Supabase Edge Function /pricing-admin (Passo 4 refatorado)
+// USES: Supabase Edge Function /pricing-admin
+// Phase 5: Supabase JWT first, legacy token fallback
 // ============================================================================
+
+import { getAuthTokenSync } from '@/lib/authToken';
 
 // ============================================================================
 // CONSTANTS
@@ -13,8 +16,6 @@ if (!SUPABASE_URL) {
   throw new Error('VITE_CORE_SUPABASE_URL não está definida.');
 }
 
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 const ADMIN_PIN_KEY = 'open_admin_pin';
 const LEGACY_ADMIN_PIN_KEY = 'OPEN_ADMIN_PIN';
 
@@ -148,10 +149,10 @@ function getEdgeFunctionUrl(): string {
 }
 
 /**
- * Get auth token from localStorage
+ * Get auth token — Supabase JWT first, legacy fallback
  */
 function getAuthToken(): string {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  const token = getAuthTokenSync();
   if (!token) {
     throw new Error('Usuário não autenticado. Faça login novamente.');
   }

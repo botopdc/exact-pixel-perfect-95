@@ -7,6 +7,7 @@
  */
 
 import { coreSupabase } from '@/integrations/supabase/coreClient';
+import { getAuthTokenSync } from '@/lib/authToken';
 
 // ============================================================================
 // CONSTANTS
@@ -32,14 +33,7 @@ function getPublicBaseUrl(): string {
 
 function getCoreToken(): string | null {
   if (typeof window === 'undefined') return null;
-
-  return (
-    localStorage.getItem('open_access_token') ||
-    localStorage.getItem('open_api_token') ||
-    localStorage.getItem('open_token') ||
-    localStorage.getItem('auth_token') ||
-    localStorage.getItem('token')
-  );
+  return getAuthTokenSync();
 }
 
 // ============================================================================
