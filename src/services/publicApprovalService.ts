@@ -32,8 +32,7 @@ function getPublicBaseUrl(): string {
 
 function getCoreToken(): string | null {
   if (typeof window === 'undefined') return null;
-  // Phase 5: Use unified token resolution
-  const { getAuthTokenSync } = await import('@/lib/authToken');
+  const { getAuthTokenSync } = require('@/lib/authToken');
   return getAuthTokenSync();
 }
 
