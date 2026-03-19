@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useExternalArticle, useExternalCreateArticle, useExternalUpdateArticle } from '@/hooks/useExternalArticles';
 import { ARTICLE_CATEGORIES, ARTICLE_TEMPLATE, ArticleCategory } from '@/types/article';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { AccessDenied } from '@/components/articles/AccessDenied';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
