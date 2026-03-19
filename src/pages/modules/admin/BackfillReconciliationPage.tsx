@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { 
   Shield, Play, CheckCircle, AlertTriangle, XCircle, Users, 
-  RefreshCw, Loader2, Download, UserCheck, UserX, AlertOctagon 
+  RefreshCw, Loader2, Download, UserCheck, AlertOctagon, Mail, Upload, Send
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,65 +10,36 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { getLevelName } from '@/lib/rbac';
+import {
+  type LegacyUserPayload,
+  type BackfillResult,
+  type ReconcileCheckResult,
+  type UserReport,
+  fetchLegacyUsers,
+  runDryRun,
+  runReconcileCheck,
+  runReconcileFix,
+  runRealBackfill,
+  sendInvite,
+} from '@/services/backfillService';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-interface UserReport {
-  email: string;
-  legacy_id: number;
-  level: number;
-  status: string;
-  reason?: string;
-  roles_to_assign: string[];
-  existing_profile_id?: string;
-  conflict_details?: string;
-}
-
-interface DryRunResult {
-  total_analysed: number;
-  eligible: number;
-  already_exist: number;
-  invalid_emails: number;
-  duplicates: number;
-  legacy_id_conflicts: number;
-  created: number;
-  errors: { email: string; reason: string }[];
-  roles_assigned: { email: string; roles: string[] }[];
-  user_reports: UserReport[];
-}
-
-interface ReconcileCheckResult {
-  email: string;
-  legacy_id: number;
-  has_auth_user: boolean;
-  has_profile: boolean;
-  has_internal_role: boolean;
-  profile_level: number | null;
-  legacy_user_id_in_profile: number | null;
-  level_match: boolean;
-  legacy_id_match: boolean;
-  issues: string[];
-}
-
 type Category = 'consistent' | 'incomplete' | 'invalid_email' | 'legacy_conflict' | 'eligible' | 'error';
-
-// ============================================================================
-// HELPERS
-// ============================================================================
 
 function categorize(report: UserReport): Category {
   if (report.status === 'invalid_email') return 'invalid_email';
-  if (report.status === 'duplicate_legacy_id') return 'legacy_conflict';
+  if (report.status === 'duplicate_legacy_id' || report.status === 'duplicate_email') return 'legacy_conflict';
   if (report.status === 'error' && report.reason?.includes('legacy_user_id')) return 'legacy_conflict';
   if (report.status === 'error') return 'error';
   if (report.status === 'would_create') return 'eligible';
-  if (report.status === 'skipped_exists') return 'consistent'; // will refine after reconcile check
+  if (report.status === 'skipped_exists') return 'consistent';
   return 'error';
 }
 
@@ -76,7 +47,7 @@ const CATEGORY_META: Record<Category, { label: string; color: string; icon: Reac
   consistent: { label: 'Consistente', color: 'bg-green-500/10 text-green-700 border-green-500/30', icon: CheckCircle },
   incomplete: { label: 'Incompleto', color: 'bg-yellow-500/10 text-yellow-700 border-yellow-500/30', icon: AlertTriangle },
   invalid_email: { label: 'Email Inválido', color: 'bg-red-500/10 text-red-700 border-red-500/30', icon: XCircle },
-  legacy_conflict: { label: 'Conflito Legacy ID', color: 'bg-orange-500/10 text-orange-700 border-orange-500/30', icon: AlertOctagon },
+  legacy_conflict: { label: 'Conflito', color: 'bg-orange-500/10 text-orange-700 border-orange-500/30', icon: AlertOctagon },
   eligible: { label: 'Elegível', color: 'bg-blue-500/10 text-blue-700 border-blue-500/30', icon: UserCheck },
   error: { label: 'Erro', color: 'bg-red-500/10 text-red-700 border-red-500/30', icon: XCircle },
 };
@@ -88,15 +59,19 @@ const CATEGORY_META: Record<Category, { label: string; color: string; icon: Reac
 export default function BackfillReconciliationPage() {
   const [pin, setPin] = useState(() => localStorage.getItem('open_admin_pin') || '');
   const [loading, setLoading] = useState(false);
-  const [dryResult, setDryResult] = useState<DryRunResult | null>(null);
+  const [fetchingLegacy, setFetchingLegacy] = useState(false);
+  const [legacyUsers, setLegacyUsers] = useState<LegacyUserPayload[]>([]);
+  const [dryResult, setDryResult] = useState<BackfillResult | null>(null);
   const [reconcileResults, setReconcileResults] = useState<ReconcileCheckResult[]>([]);
   const [reconciling, setReconciling] = useState(false);
   const [pilotBatch, setPilotBatch] = useState<UserReport[]>([]);
   const [confirmDialog, setConfirmDialog] = useState<{ action: string; email: string; detail: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [sendInvites, setSendInvites] = useState(false);
+  const [invitingEmail, setInvitingEmail] = useState<string | null>(null);
 
-  // The default internal users payload
-  const getDefaultPayload = useCallback(() => [
+  // Default pilot payload (fallback)
+  const getDefaultPayload = useCallback((): LegacyUserPayload[] => [
     { id: 1, name: 'Admin OPEN', email: 'admin@opendatacenter.com.br', level: 1000 },
     { id: 7777, name: 'Leandro Vasconcelos', email: 'leandro@opendatacenter.com.br', level: 1000 },
     { id: 2, name: 'Carlos Suporte', email: 'carlos@opendatacenter.com.br', level: 900 },
@@ -105,17 +80,32 @@ export default function BackfillReconciliationPage() {
     { id: 6, name: 'Maria RH', email: 'maria@opendatacenter.com.br', level: 600 },
   ], []);
 
+  const activePayload = legacyUsers.length > 0 ? legacyUsers : getDefaultPayload();
+
+  // ---- FETCH FROM LEGACY API ----
+  const handleFetchLegacy = async () => {
+    setFetchingLegacy(true);
+    try {
+      const users = await fetchLegacyUsers({ levelMin: 600 });
+      setLegacyUsers(users);
+      setDryResult(null);
+      setReconcileResults([]);
+      setPilotBatch([]);
+      toast.success(`${users.length} usuários importados da API legada`);
+    } catch (err: any) {
+      toast.error(`Falha ao importar: ${err.message}`);
+    } finally {
+      setFetchingLegacy(false);
+    }
+  };
+
   // ---- DRY RUN ----
-  const runDryRun = async () => {
+  const handleDryRun = async () => {
     if (!pin) { toast.error('PIN obrigatório'); return; }
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('user-backfill', {
-        body: { pin, dry_run: true, assign_roles: true, users: getDefaultPayload() },
-      });
-      if (error) throw new Error(error.message);
-      if (!data?.success) throw new Error(data?.error || 'Falha desconhecida');
-      setDryResult(data.result);
+      const result = await runDryRun({ pin, users: activePayload });
+      setDryResult(result);
       toast.success('Dry run concluído');
     } catch (err: any) {
       toast.error(err.message);
@@ -125,15 +115,12 @@ export default function BackfillReconciliationPage() {
   };
 
   // ---- RECONCILE CHECK ----
-  const runReconcileCheck = async () => {
+  const handleReconcileCheck = async () => {
     if (!dryResult) return;
     setReconciling(true);
     try {
-      const { data, error } = await supabase.functions.invoke('user-backfill', {
-        body: { pin, action: 'reconcile_check', users: getDefaultPayload() },
-      });
-      if (error) throw new Error(error.message);
-      setReconcileResults(data.results || []);
+      const results = await runReconcileCheck({ pin, users: activePayload });
+      setReconcileResults(results);
       toast.success('Verificação de reconciliação concluída');
     } catch (err: any) {
       toast.error(err.message);
@@ -142,25 +129,35 @@ export default function BackfillReconciliationPage() {
     }
   };
 
-  // ---- RECONCILE ACTION (assign missing role / fix legacy_id) ----
+  // ---- RECONCILE ACTION ----
   const executeReconcileAction = async (action: string, email: string) => {
     setActionLoading(true);
     try {
-      const user = getDefaultPayload().find(u => u.email === email);
+      const user = activePayload.find(u => u.email === email);
       if (!user) throw new Error('Usuário não encontrado no payload');
-      const { data, error } = await supabase.functions.invoke('user-backfill', {
-        body: { pin, action: 'reconcile_fix', fix_type: action, user },
-      });
-      if (error) throw new Error(error.message);
-      if (!data?.success) throw new Error(data?.error || 'Falha');
-      toast.success(data.message || `Ação "${action}" concluída para ${email}`);
+      const result = await runReconcileFix({ pin, fixType: action, user });
+      if (!result?.success) throw new Error(result?.error || 'Falha');
+      toast.success(result.message || `Ação "${action}" concluída para ${email}`);
       setConfirmDialog(null);
-      // Refresh reconcile check
-      await runReconcileCheck();
+      await handleReconcileCheck();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // ---- SEND INDIVIDUAL INVITE ----
+  const handleSendInvite = async (email: string) => {
+    setInvitingEmail(email);
+    try {
+      const result = await sendInvite({ pin, email });
+      if (!result?.success) throw new Error(result?.error || 'Falha');
+      toast.success(result.message || `Convite enviado para ${email}`);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setInvitingEmail(null);
     }
   };
 
@@ -174,25 +171,21 @@ export default function BackfillReconciliationPage() {
     toast.success(`Lote piloto com ${clean.length} usuários preparado`);
   };
 
-  // ---- EXECUTE REAL BACKFILL (pilot only) ----
+  // ---- EXECUTE REAL BACKFILL ----
   const executeRealBackfill = async () => {
     if (pilotBatch.length === 0) { toast.error('Lote piloto vazio'); return; }
-    // Extra validation
     const invalid = pilotBatch.filter(u => !u.email || !u.email.includes('@'));
     if (invalid.length > 0) { toast.error(`${invalid.length} emails inválidos no lote`); return; }
 
     setActionLoading(true);
     try {
       const payload = pilotBatch.map(u => {
-        const full = getDefaultPayload().find(p => p.email === u.email);
+        const full = activePayload.find(p => p.email === u.email);
         return full || { id: u.legacy_id, name: '', email: u.email, level: u.level };
       });
-      const { data, error } = await supabase.functions.invoke('user-backfill', {
-        body: { pin, dry_run: false, assign_roles: true, users: payload },
-      });
-      if (error) throw new Error(error.message);
-      toast.success(`Backfill real concluído: ${data.result?.created || 0} criados`);
-      setDryResult(data.result);
+      const result = await runRealBackfill({ pin, users: payload, sendInvites });
+      toast.success(`Backfill concluído: ${result.created} criados, ${result.invited || 0} convidados`);
+      setDryResult(result);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -206,11 +199,6 @@ export default function BackfillReconciliationPage() {
     category: categorize(r),
   })) || [];
 
-  const categoryCounts: Record<Category, number> = {
-    consistent: 0, incomplete: 0, invalid_email: 0, legacy_conflict: 0, eligible: 0, error: 0,
-  };
-  categorizedReports.forEach(r => { categoryCounts[r.category]++; });
-
   // Enrich with reconcile results
   const enrichedReports = categorizedReports.map(r => {
     const rec = reconcileResults.find(rc => rc.email === r.email);
@@ -220,13 +208,11 @@ export default function BackfillReconciliationPage() {
     return { ...r, reconcile: rec || null };
   });
 
-  // Recount after enrichment
   const finalCounts: Record<Category, number> = {
     consistent: 0, incomplete: 0, invalid_email: 0, legacy_conflict: 0, eligible: 0, error: 0,
   };
   enrichedReports.forEach(r => { finalCounts[r.category]++; });
 
-  // Pilot readiness
   const pilotReady = dryResult && 
     finalCounts.invalid_email === 0 && 
     finalCounts.legacy_conflict === 0 &&
@@ -239,14 +225,14 @@ export default function BackfillReconciliationPage() {
       <div className="flex items-center gap-3">
         <Shield className="h-6 w-6 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Backfill — Reconciliação Fase 1</h1>
-          <p className="text-sm text-muted-foreground">Saneamento e validação antes do backfill real</p>
+          <h1 className="text-2xl font-bold text-foreground">Importação de Usuários — Fase 6</h1>
+          <p className="text-sm text-muted-foreground">Importação do legado, reconciliação, backfill e onboarding</p>
         </div>
       </div>
 
-      {/* PIN + Actions */}
+      {/* Source + PIN */}
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="w-48">
               <label className="text-sm font-medium text-foreground mb-1 block">Admin PIN</label>
@@ -257,14 +243,37 @@ export default function BackfillReconciliationPage() {
                 placeholder="PIN administrativo"
               />
             </div>
-            <Button onClick={runDryRun} disabled={loading || !pin} variant="outline">
+            <Button onClick={handleFetchLegacy} disabled={fetchingLegacy} variant="outline">
+              {fetchingLegacy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+              Importar da API Legada
+            </Button>
+            <Button onClick={handleDryRun} disabled={loading || !pin} variant="outline">
               {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
               Executar Dry Run
             </Button>
             {dryResult && (
-              <Button onClick={runReconcileCheck} disabled={reconciling} variant="outline">
+              <Button onClick={handleReconcileCheck} disabled={reconciling} variant="outline">
                 {reconciling ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                 Verificar Reconciliação
+              </Button>
+            )}
+          </div>
+
+          {/* Source indicator */}
+          <div className="flex items-center gap-2">
+            <Badge variant={legacyUsers.length > 0 ? 'default' : 'secondary'}>
+              {legacyUsers.length > 0
+                ? `${legacyUsers.length} usuários da API legada`
+                : `${getDefaultPayload().length} usuários (piloto padrão)`}
+            </Badge>
+            {legacyUsers.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs h-6"
+                onClick={() => { setLegacyUsers([]); setDryResult(null); setReconcileResults([]); setPilotBatch([]); }}
+              >
+                Resetar para piloto padrão
               </Button>
             )}
           </div>
@@ -275,7 +284,9 @@ export default function BackfillReconciliationPage() {
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Aguardando</AlertTitle>
-          <AlertDescription>Execute o Dry Run para visualizar o relatório de saneamento.</AlertDescription>
+          <AlertDescription>
+            Importe os usuários da API legada ou use o payload piloto padrão, depois execute o Dry Run.
+          </AlertDescription>
         </Alert>
       )}
 
@@ -372,57 +383,70 @@ export default function BackfillReconciliationPage() {
                                   )}
                                   {r.reconcile && r.reconcile.issues.length > 0 && (
                                     <ul className="list-disc ml-3 text-yellow-600">
-                                      {r.reconcile.issues.map((iss, j) => <li key={j}>{iss}</li>)}
+                                      {r.reconcile.issues.map((iss: string, j: number) => <li key={j}>{iss}</li>)}
                                     </ul>
                                   )}
                                 </TableCell>
                                 <TableCell>
-                                  {r.reconcile && r.reconcile.issues.length > 0 && (
-                                    <div className="flex flex-col gap-1">
-                                      {!r.reconcile.has_internal_role && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="text-xs h-7"
-                                          onClick={() => setConfirmDialog({
-                                            action: 'assign_base_role',
-                                            email: r.email,
-                                            detail: 'Atribuir role "internal_user"'
-                                          })}
-                                        >
-                                          <UserCheck className="h-3 w-3 mr-1" /> Atribuir Role
-                                        </Button>
-                                      )}
-                                      {!r.reconcile.legacy_id_match && r.reconcile.has_profile && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="text-xs h-7"
-                                          onClick={() => setConfirmDialog({
-                                            action: 'fix_legacy_id',
-                                            email: r.email,
-                                            detail: `Vincular legacy_user_id=${r.legacy_id} ao profile existente`
-                                          })}
-                                        >
-                                          Fix Legacy ID
-                                        </Button>
-                                      )}
-                                      {!r.reconcile.level_match && r.reconcile.has_profile && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="text-xs h-7"
-                                          onClick={() => setConfirmDialog({
-                                            action: 'fix_level',
-                                            email: r.email,
-                                            detail: `Corrigir level de ${r.reconcile?.profile_level} para ${r.level}`
-                                          })}
-                                        >
-                                          Fix Level
-                                        </Button>
-                                      )}
-                                    </div>
-                                  )}
+                                  <div className="flex flex-col gap-1">
+                                    {r.reconcile && r.reconcile.issues.length > 0 && (
+                                      <>
+                                        {!r.reconcile.has_internal_role && (
+                                          <Button
+                                            size="sm" variant="outline" className="text-xs h-7"
+                                            onClick={() => setConfirmDialog({ action: 'assign_base_role', email: r.email, detail: 'Atribuir roles com base no level' })}
+                                          >
+                                            <UserCheck className="h-3 w-3 mr-1" /> Atribuir Roles
+                                          </Button>
+                                        )}
+                                        {!r.reconcile.legacy_id_match && r.reconcile.has_profile && (
+                                          <Button
+                                            size="sm" variant="outline" className="text-xs h-7"
+                                            onClick={() => setConfirmDialog({ action: 'fix_legacy_id', email: r.email, detail: `Vincular legacy_user_id=${r.legacy_id}` })}
+                                          >
+                                            Fix Legacy ID
+                                          </Button>
+                                        )}
+                                        {!r.reconcile.level_match && r.reconcile.has_profile && (
+                                          <Button
+                                            size="sm" variant="outline" className="text-xs h-7"
+                                            onClick={() => setConfirmDialog({ action: 'fix_level', email: r.email, detail: `Corrigir level para ${r.level}` })}
+                                          >
+                                            Fix Level
+                                          </Button>
+                                        )}
+                                        {!r.reconcile.has_full_name && r.reconcile.has_profile && (
+                                          <Button
+                                            size="sm" variant="outline" className="text-xs h-7"
+                                            onClick={() => setConfirmDialog({ action: 'fix_full_name', email: r.email, detail: `Definir full_name` })}
+                                          >
+                                            Fix Nome
+                                          </Button>
+                                        )}
+                                        {!r.reconcile.has_level_legacy && r.reconcile.has_profile && (
+                                          <Button
+                                            size="sm" variant="outline" className="text-xs h-7"
+                                            onClick={() => setConfirmDialog({ action: 'fix_level_legacy', email: r.email, detail: `Definir level_legacy=${r.level}` })}
+                                          >
+                                            Fix Level Legacy
+                                          </Button>
+                                        )}
+                                      </>
+                                    )}
+                                    {/* Invite button for consistent/created profiles */}
+                                    {(r.category === 'consistent' || r.status === 'created') && r.existing_profile_id && (
+                                      <Button
+                                        size="sm" variant="outline" className="text-xs h-7"
+                                        disabled={invitingEmail === r.email}
+                                        onClick={() => handleSendInvite(r.email)}
+                                      >
+                                        {invitingEmail === r.email
+                                          ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                          : <Mail className="h-3 w-3 mr-1" />}
+                                        Enviar Convite
+                                      </Button>
+                                    )}
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             );
@@ -440,10 +464,10 @@ export default function BackfillReconciliationPage() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Download className="h-5 w-5" />
-                Lote Piloto
+                Lote Piloto & Execução
               </CardTitle>
               <CardDescription>
-                Preparar lote limpo apenas com usuários sem conflitos, com email válido e perfil consistente.
+                Monte o lote limpo e execute o backfill real com opção de enviar convites de ativação.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -456,6 +480,18 @@ export default function BackfillReconciliationPage() {
                 )}
               </div>
 
+              {/* Send invites toggle */}
+              <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/30">
+                <Switch checked={sendInvites} onCheckedChange={setSendInvites} />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Enviar convites de ativação</p>
+                  <p className="text-xs text-muted-foreground">
+                    Envia email com link de redefinição de senha para cada usuário criado (apenas is_active=true).
+                  </p>
+                </div>
+                <Send className="h-4 w-4 text-muted-foreground ml-auto" />
+              </div>
+
               {!pilotReady && dryResult && (
                 <Alert variant="destructive">
                   <AlertOctagon className="h-4 w-4" />
@@ -463,7 +499,7 @@ export default function BackfillReconciliationPage() {
                   <AlertDescription>
                     Existem inconsistências pendentes. Resolva todos os problemas antes de executar o backfill real.
                     {finalCounts.invalid_email > 0 && <div>• {finalCounts.invalid_email} email(s) inválido(s)</div>}
-                    {finalCounts.legacy_conflict > 0 && <div>• {finalCounts.legacy_conflict} conflito(s) de legacy_id</div>}
+                    {finalCounts.legacy_conflict > 0 && <div>• {finalCounts.legacy_conflict} conflito(s)</div>}
                     {finalCounts.error > 0 && <div>• {finalCounts.error} erro(s)</div>}
                     {finalCounts.incomplete > 0 && <div>• {finalCounts.incomplete} perfil(is) incompleto(s)</div>}
                   </AlertDescription>
@@ -475,7 +511,7 @@ export default function BackfillReconciliationPage() {
                   <CheckCircle className="h-4 w-4" />
                   <AlertTitle>Lote piloto pronto</AlertTitle>
                   <AlertDescription>
-                    Todos os critérios atendidos. {pilotBatch.length} usuários prontos para backfill real.
+                    {pilotBatch.length} usuários prontos. {sendInvites ? 'Convites serão enviados após criação.' : 'Convites desativados.'}
                   </AlertDescription>
                 </Alert>
               )}
@@ -496,7 +532,7 @@ export default function BackfillReconciliationPage() {
                     className="bg-green-600 hover:bg-green-700"
                   >
                     {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
-                    Executar Backfill Real (Piloto)
+                    Executar Backfill Real {sendInvites ? '+ Convites' : ''}
                   </Button>
                 </>
               )}

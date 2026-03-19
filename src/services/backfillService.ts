@@ -1,60 +1,168 @@
 // ============================================================================
-// BACKFILL SERVICE — Admin tool to import legacy users into Supabase Auth
-// Called from Admin panel or CLI
+// BACKFILL SERVICE — Phase 6: Dynamic import from legacy API + onboarding
 // ============================================================================
 
 import { supabase } from '@/integrations/supabase/client';
-import { openApi } from '@/lib/openApi';
+import { openApi, type ApiUser } from '@/lib/openApi';
 
-export interface BackfillReport {
-  total: number;
-  created: number;
-  skipped: number;
-  errors: { email: string; reason: string }[];
-  dry_run: boolean;
+export interface LegacyUserPayload {
+  id: number;
+  name: string;
+  email: string;
+  level: number;
+  entity_id?: number | null;
+  company_id?: number | null;
+  is_active?: boolean;
 }
 
-/**
- * Fetch internal users from legacy API and send to backfill edge function.
- * Requires ADMIN_PIN and a valid legacy auth token.
- */
-export async function runBackfill(opts: {
-  pin: string;
-  dryRun?: boolean;
+export interface UserReport {
+  email: string;
+  legacy_id: number;
+  level: number;
+  status: string;
+  reason?: string;
+  roles_to_assign: string[];
+  existing_profile_id?: string;
+  conflict_details?: string;
+}
+
+export interface BackfillResult {
+  total_analysed: number;
+  eligible: number;
+  already_exist: number;
+  invalid_emails: number;
+  duplicates: number;
+  legacy_id_conflicts: number;
+  created: number;
+  invited: number;
+  errors: { email: string; reason: string }[];
+  roles_assigned: { email: string; roles: string[] }[];
+  user_reports: UserReport[];
+}
+
+export interface ReconcileCheckResult {
+  email: string;
+  legacy_id: number;
+  has_auth_user: boolean;
+  has_profile: boolean;
+  has_internal_role: boolean;
+  profile_level: number | null;
+  legacy_user_id_in_profile: number | null;
+  level_match: boolean;
+  legacy_id_match: boolean;
+  has_level_legacy: boolean;
+  has_full_name: boolean;
+  issues: string[];
+}
+
+// ============================================================================
+// FETCH LEGACY USERS — from legacy API
+// ============================================================================
+
+export async function fetchLegacyUsers(opts?: {
   levelMin?: number;
-}): Promise<BackfillReport> {
-  const { pin, dryRun = true, levelMin = 600 } = opts;
+  perPage?: number;
+}): Promise<LegacyUserPayload[]> {
+  const { levelMin = 600, perPage = 500 } = opts || {};
 
-  // 1. Fetch users from legacy API
   console.log('[backfill] Fetching users from legacy API...');
-  const response = await openApi.getUsers({ __perPage: 500 });
+  const response = await openApi.getUsers({ __perPage: perPage });
 
-  // Filter internal only
-  const internal = response.data.filter((u) => u.level >= levelMin);
+  const internal = response.data.filter((u: ApiUser) => u.level >= levelMin);
   console.log(`[backfill] Found ${internal.length} internal users (level >= ${levelMin})`);
 
-  // 2. Map to backfill payload
-  const usersPayload = internal.map((u) => ({
+  return internal.map((u: ApiUser) => ({
     id: u.id,
     name: u.name,
     email: u.email,
     level: u.level,
     entity_id: u.entity_id || null,
-    company_id: null, // Legacy API doesn't expose company_id directly
+    company_id: null,
+    is_active: u.deleted_at == null,
   }));
+}
 
-  // 3. Call edge function
+// ============================================================================
+// DRY RUN
+// ============================================================================
+
+export async function runDryRun(opts: {
+  pin: string;
+  users: LegacyUserPayload[];
+}): Promise<BackfillResult> {
+  const { data, error } = await supabase.functions.invoke('user-backfill', {
+    body: { pin: opts.pin, dry_run: true, assign_roles: true, users: opts.users },
+  });
+  if (error) throw new Error(error.message);
+  if (!data?.success) throw new Error(data?.error || 'Dry run falhou');
+  return data.result as BackfillResult;
+}
+
+// ============================================================================
+// RECONCILE CHECK
+// ============================================================================
+
+export async function runReconcileCheck(opts: {
+  pin: string;
+  users: LegacyUserPayload[];
+}): Promise<ReconcileCheckResult[]> {
+  const { data, error } = await supabase.functions.invoke('user-backfill', {
+    body: { pin: opts.pin, action: 'reconcile_check', users: opts.users },
+  });
+  if (error) throw new Error(error.message);
+  return data?.results || [];
+}
+
+// ============================================================================
+// RECONCILE FIX
+// ============================================================================
+
+export async function runReconcileFix(opts: {
+  pin: string;
+  fixType: string;
+  user: LegacyUserPayload;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke('user-backfill', {
+    body: { pin: opts.pin, action: 'reconcile_fix', fix_type: opts.fixType, user: opts.user },
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// ============================================================================
+// REAL BACKFILL
+// ============================================================================
+
+export async function runRealBackfill(opts: {
+  pin: string;
+  users: LegacyUserPayload[];
+  sendInvites?: boolean;
+}): Promise<BackfillResult> {
   const { data, error } = await supabase.functions.invoke('user-backfill', {
     body: {
-      pin,
-      users: usersPayload,
-      dry_run: dryRun,
+      pin: opts.pin,
+      dry_run: false,
+      assign_roles: true,
+      send_invites: opts.sendInvites ?? false,
+      users: opts.users,
     },
   });
+  if (error) throw new Error(error.message);
+  if (!data?.success) throw new Error(data?.error || 'Backfill falhou');
+  return data.result as BackfillResult;
+}
 
-  if (error) {
-    throw new Error(`Backfill failed: ${error.message}`);
-  }
+// ============================================================================
+// SEND INVITE (individual)
+// ============================================================================
 
-  return data.result as BackfillReport;
+export async function sendInvite(opts: {
+  pin: string;
+  email: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke('user-backfill', {
+    body: { pin: opts.pin, action: 'send_invite', email: opts.email },
+  });
+  if (error) throw new Error(error.message);
+  return data;
 }
