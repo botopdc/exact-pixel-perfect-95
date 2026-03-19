@@ -10,10 +10,17 @@ import { getAuthTokenSync } from '@/lib/authToken';
 // CONSTANTS
 // ============================================================================
 
-const SUPABASE_URL = import.meta.env.VITE_CORE_SUPABASE_URL;
+const SUPABASE_URL = import.meta.env.VITE_CORE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_URL_SOURCE = import.meta.env.VITE_CORE_SUPABASE_URL
+  ? 'VITE_CORE_SUPABASE_URL'
+  : import.meta.env.VITE_SUPABASE_URL
+    ? 'VITE_SUPABASE_URL'
+    : null;
 
 if (!SUPABASE_URL) {
-  throw new Error('VITE_CORE_SUPABASE_URL não está definida.');
+  console.error('[calculatorConfigService] Configuração Supabase ausente/inválida: VITE_CORE_SUPABASE_URL e VITE_SUPABASE_URL não estão definidas.');
+} else if (import.meta.env.DEV) {
+  console.log('[calculatorConfigService] Using Supabase URL from', SUPABASE_URL_SOURCE);
 }
 
 const ADMIN_PIN_KEY = 'open_admin_pin';
@@ -145,6 +152,10 @@ export interface CalculatorConfigCreateRequest {
  * Get Edge Function URL
  */
 function getEdgeFunctionUrl(): string {
+  if (!SUPABASE_URL) {
+    throw new Error('Configuração Supabase ausente/inválida');
+  }
+
   return `${SUPABASE_URL}/functions/v1/pricing-admin`;
 }
 

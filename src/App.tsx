@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -163,8 +164,21 @@ import ResetPassword from '@/pages/ResetPassword';
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <TechOpsErrorBoundary fallbackTitle="Erro ao carregar a aplicação">
+function RouterMountLogger() {
+  console.log('[Router] render');
+
+  useEffect(() => {
+    console.log('[Router] mounted');
+  }, []);
+
+  return null;
+}
+
+function App() {
+  console.log('[App] render');
+
+  return (
+    <TechOpsErrorBoundary fallbackTitle="Erro ao carregar a aplicação">
 
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -172,6 +186,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <RouterMountLogger />
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
@@ -426,6 +441,7 @@ const App = () => (
     </AuthProvider>
   </QueryClientProvider>
   </TechOpsErrorBoundary>
-);
+  );
+}
 
 export default App;
