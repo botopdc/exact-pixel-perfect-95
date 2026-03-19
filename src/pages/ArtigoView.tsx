@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 
 const categoryIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   'Infraestrutura': Server,
