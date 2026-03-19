@@ -1,21 +1,19 @@
 // ============================================================================
 // SUPPORT TICKET CORE SERVICE - Supabase Edge Functions
 // Source of truth: current_queue_id + current_support_level
+// Phase 5: Supabase JWT first, legacy token fallback
 // ============================================================================
 
 import { supabase } from '@/integrations/supabase/client';
 import { authService } from '@/services/authService';
-
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+import { getAuthTokenSync, buildAuthHeaders } from '@/lib/authToken';
 
 function getToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  return getAuthTokenSync();
 }
 
 function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return buildAuthHeaders();
 }
 
 // ── Response types ──────────────────────────────────────────────────────

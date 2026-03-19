@@ -149,10 +149,10 @@ function getEdgeFunctionUrl(): string {
 }
 
 /**
- * Get auth token from localStorage
+ * Get auth token — Supabase JWT first, legacy fallback
  */
 function getAuthToken(): string {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  const token = getAuthTokenSync();
   if (!token) {
     throw new Error('Usuário não autenticado. Faça login novamente.');
   }
