@@ -132,17 +132,16 @@ const OpenCalculator: React.FC = () => {
       }
     }
 
-    // Internal routes: prefer internal auth
-    const internalSession = authService.getSession();
-    if (internalSession) {
-      const partnerType = internalSession.apiUser?.partner?.type || null;
-      const rules = getPricingRules(internalSession.level);
+    // Internal routes: prefer Supabase session
+    if (internalSessionData.isAuthenticated && internalSessionData.level > 0) {
+      const partnerType = null; // Partner type no longer available from legacy session
+      const rules = getPricingRules(internalSessionData.level);
       return {
-        userLevel: internalSession.level,
+        userLevel: internalSessionData.level,
         partnerType,
         pricingRules: rules,
         partnerDiscount: rules.canApplyPartnerDiscounts ? getPartnerTypeDiscount(partnerType) : 0,
-        profileLabel: getPricingProfileLabel(internalSession.level, partnerType || undefined),
+        profileLabel: getPricingProfileLabel(internalSessionData.level, partnerType || undefined),
       };
     }
 
