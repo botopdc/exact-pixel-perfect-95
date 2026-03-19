@@ -9,9 +9,9 @@
  */
 
 import axios from 'axios';
+import { getAuthTokenSync } from '@/lib/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://apiv2.opendata.center/api';
-// Token resolution: uses getAuthTokenSync from authToken.ts
 
 // Types matching the actual API structure
 export interface AnnualGoalExecutive {
