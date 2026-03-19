@@ -3,14 +3,14 @@
 // Uses Supabase Edge Function with SERVICE_ROLE_KEY (server-side only)
 // ============================================================================
 
+import { getAuthTokenSync } from '@/lib/authToken';
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 if (!SUPABASE_URL) {
   throw new Error('VITE_SUPABASE_URL não está definida.');
 }
-
-// Token resolution delegated to getAuthTokenSync()
 
 // ============================================================================
 // TYPES
