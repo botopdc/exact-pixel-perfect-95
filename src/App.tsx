@@ -164,8 +164,21 @@ import ResetPassword from '@/pages/ResetPassword';
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <TechOpsErrorBoundary fallbackTitle="Erro ao carregar a aplicação">
+function RouterMountLogger() {
+  console.log('[Router] render');
+
+  useEffect(() => {
+    console.log('[Router] mounted');
+  }, []);
+
+  return null;
+}
+
+function App() {
+  console.log('[App] render');
+
+  return (
+    <TechOpsErrorBoundary fallbackTitle="Erro ao carregar a aplicação">
 
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
