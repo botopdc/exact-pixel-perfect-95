@@ -102,6 +102,20 @@ export default function AnalistasSuportePage() {
   const [sortField, setSortField] = useState<SortField>('open_assigned');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
+  // Fetch analysts data
+  const {
+    data: analysts = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['support-analysts', period],
+    queryFn: () => fetchAnalysts(period),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    enabled: canAccessSupportModule(userLevel),
+  });
+
   // Check access - need at least support level
   if (!canAccessSupportModule(userLevel)) {
     return (
@@ -116,19 +130,6 @@ export default function AnalistasSuportePage() {
       </div>
     );
   }
-
-  // Fetch analysts data
-  const {
-    data: analysts = [],
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ['support-analysts', period],
-    queryFn: () => fetchAnalysts(period),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-  });
 
   // Handle sort
   const handleSort = (field: SortField) => {
