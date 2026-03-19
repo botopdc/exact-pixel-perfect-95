@@ -335,8 +335,9 @@ const fetchConfig = async (forceRefresh = false): Promise<CalculatorConfig> => {
     return inFlightPromise;
   }
   
-  // GUARD: Check token availability
-  const token = localStorage.getItem('open_access_token') || localStorage.getItem('token');
+  // GUARD: Check token availability (Supabase JWT first, legacy fallback)
+  const { getAuthTokenSync } = await import('@/lib/authToken');
+  const token = getAuthTokenSync();
   if (!token) {
     const error = new Error('Sessão expirada. Faça login novamente.');
     console.error('[useConfig] Token ausente - sessão expirada');

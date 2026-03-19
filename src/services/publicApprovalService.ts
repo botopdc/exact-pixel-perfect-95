@@ -7,6 +7,7 @@
  */
 
 import { coreSupabase } from '@/integrations/supabase/coreClient';
+import { getAuthTokenSync } from '@/lib/authToken';
 
 // ============================================================================
 // CONSTANTS
