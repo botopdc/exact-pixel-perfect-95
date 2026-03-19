@@ -97,6 +97,10 @@ type SortDirection = 'asc' | 'desc';
 
 export default function AnalistasSuportePage() {
   const { level: userLevel } = useSession();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [period, setPeriod] = useState<'7d' | '30d'>('7d');
+  const [sortField, setSortField] = useState<SortField>('open_assigned');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   // Check access - need at least support level
   if (!canAccessSupportModule(userLevel)) {
@@ -112,8 +116,6 @@ export default function AnalistasSuportePage() {
       </div>
     );
   }
-
-  const [searchQuery, setSearchQuery] = useState('');
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
   const [sortField, setSortField] = useState<SortField>('open_assigned');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
