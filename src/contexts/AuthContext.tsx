@@ -126,6 +126,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize auth state
   useEffect(() => {
+    // Safety timeout: if auth never resolves in 8s, stop loading anyway
+    const safetyTimer = setTimeout(() => {
+      if (!initialised.current) {
+        console.warn('[AuthContext] Safety timeout: forcing isLoading=false after 8s');
+        initialised.current = true;
+        setIsLoading(false);
+      }
+    }, 8000);
+
     // 1) Set up listener FIRST (per Supabase best practices)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
@@ -180,9 +189,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (import.meta.env.DEV) {
         console.log('[AuthContext] Initialisation complete, isLoading=false');
       }
+    }).catch((err) => {
+      console.error('[AuthContext] getSession failed:', err);
+      initialised.current = true;
+      setIsLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(safetyTimer);
+      subscription.unsubscribe();
+    };
   }, [loadProfile]);
 
   const signIn = useCallback(async (email: string, password: string) => {

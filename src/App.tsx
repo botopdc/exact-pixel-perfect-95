@@ -164,6 +164,8 @@ import ResetPassword from '@/pages/ResetPassword';
 const queryClient = new QueryClient();
 
 const App = () => (
+  <TechOpsErrorBoundary fallbackTitle="Erro ao carregar a aplicação">
+
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
     <TooltipProvider>
@@ -423,6 +425,7 @@ const App = () => (
     </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </TechOpsErrorBoundary>
 );
 
 export default App;

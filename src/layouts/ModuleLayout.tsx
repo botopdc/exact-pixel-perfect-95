@@ -1,6 +1,6 @@
 import React from 'react';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
-import { useLocation, useNavigate, Outlet } from 'react-router-dom';
+import { useLocation, useNavigate, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModuleSidebar } from '@/components/navigation/ModuleSidebar';
 import { SubNavigation } from '@/components/navigation/SubNavigation';
@@ -70,18 +70,18 @@ function ModuleLayoutHeader() {
 function useEffectiveAuth(): { effectiveRoles: string[]; isResolved: boolean } {
   const { profile, roles, isLoading, session } = useAuth();
 
-  if (session && profile) {
-    return { effectiveRoles: getEffectiveRoles(roles, profile), isResolved: true };
-  }
-
+  // Still loading auth state — wait
   if (isLoading) {
     return { effectiveRoles: [], isResolved: false };
   }
 
-  if (session && !profile) {
-    return { effectiveRoles: [], isResolved: false };
+  // Auth resolved: session + profile available
+  if (session && profile) {
+    return { effectiveRoles: getEffectiveRoles(roles, profile), isResolved: true };
   }
 
+  // Auth resolved: no session OR session but profile failed to load
+  // In both cases, treat as resolved so we don't hang forever
   return { effectiveRoles: [], isResolved: true };
 }
 
@@ -141,8 +141,7 @@ export default function ModuleLayout() {
     if (import.meta.env.DEV) {
       console.log('[ModuleLayout] No auth found, redirecting to /login');
     }
-    navigate('/login', { replace: true });
-    return null;
+    return <Navigate to="/login" replace />;
   }
 
   return (
