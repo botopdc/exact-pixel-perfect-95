@@ -1,37 +1,58 @@
 # OPEN — RBAC do Suporte Técnico
 
-Versão: v1  
+Versão: v2 (Roles-First + Supabase Auth)  
 Sistema: core.opendata.center  
-Última atualização: 2026-03-15
+Última atualização: 2026-03-19
 
 ---
 
 ## 1. Visão Geral
 
-O controle de acesso do módulo de suporte técnico segue o modelo RBAC hierárquico da plataforma OPEN, baseado no campo `users.level`.
+O controle de acesso do módulo de suporte técnico segue o modelo **Roles-First** da plataforma OPEN. A identidade é gerenciada pelo **Supabase Auth** e as permissões são resolvidas primariamente pelos papéis (`user_roles`) com fallback para `profile.level` durante a transição.
+
+### 1.1 Modelo de Identidade
+
+| Componente | Fonte de Verdade |
+|------------|------------------|
+| Autenticação | Supabase Auth (`auth.users`) |
+| Perfil | `public.profiles` (vinculado a `auth.users.id`) |
+| Papéis | `public.user_roles` (slugs: `admin`, `suporte`, `cs`, etc.) |
+| Fallback | `profiles.level` → mapeamento para roles via `getEffectiveRoles()` |
+
+### 1.2 Resolução de Permissões
+
+```
+1. Carregar user_roles do banco → se existirem, usar como fonte de verdade
+2. Se user_roles estiver vazio → derivar roles de profiles.level via LEVEL_TO_ROLES
+3. Resultado: array de role slugs (effectiveRoles)
+4. Verificações: hasRole(), hasAnyRole(), isAdmin(), isSupport(), etc.
+```
 
 ---
 
-## 2. Níveis de Acesso
+## 2. Papéis e Níveis de Acesso
 
-| Level | Papel | Tipo | Descrição |
-|-------|-------|------|-----------|
-| 1 | Cliente | Externo | Abre e acompanha chamados próprios |
-| 200 | Parceiro | Externo | Sem acesso ao módulo de suporte |
-| 600 | RH | Interno | Pode abrir chamados internos |
-| 700 | Comercial | Interno | Pode abrir chamados internos |
-| 750 | Gerente Comercial | Interno | Pode abrir chamados internos |
-| 775 | Customer Success | Interno | Validação, encerramento, reabertura |
-| 900 | Suporte | Interno | Operação completa N1/N2/N3 |
-| 950 | Gerente de Suporte | Interno | Gestão global, filas, membros |
-| 1000 | Admin | Interno | Acesso total |
+| Role Slug | Level (legado) | Papel | Tipo |
+|-----------|----------------|-------|------|
+| `cliente` | 1 | Cliente | Externo |
+| `parceiro` | 200 | Parceiro | Externo |
+| `rh` | 600 | RH | Interno |
+| `bdr` | 680 | BDR | Interno |
+| `arquiteto` | 690 | Arquiteto de Soluções | Interno |
+| `comercial` | 700 | Comercial | Interno |
+| `gerente_comercial` | 750 | Gerente Comercial | Interno |
+| `cs` | 775 | Customer Success | Interno |
+| `suporte` | 900 | Suporte | Interno |
+| `gerente_suporte` | 950 | Gerente de Suporte | Interno |
+| `admin` | 1000 | Admin | Interno |
+| `internal_user` | — | Usuário Interno (composto) | — |
 
 ---
 
 ## 3. Matriz de Permissões
 
-| Permissão | Cliente (1) | RH (600) | CS (775) | Suporte (900) | Gerente (950) | Admin (1000) |
-|-----------|-------------|----------|----------|---------------|---------------|--------------|
+| Permissão | cliente | rh | cs | suporte | gerente_suporte | admin |
+|-----------|---------|----|----|---------|-----------------|-------|
 | Abrir chamado | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Ver próprios tickets | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Ver tickets da equipe | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
@@ -45,41 +66,37 @@ O controle de acesso do módulo de suporte técnico segue o modelo RBAC hierárq
 | Reabrir ticket | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
 | Cancelar ticket | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Notas internas | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Ver notas internas | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Gerenciar filas | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Gerenciar membros | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Gerenciar SLA | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Gerenciar plantão | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Gerenciar catálogos | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
 
 ## 4. Visibilidade de Tickets
 
-### 4.1 Cliente (Level 1)
+### 4.1 Cliente (`cliente`)
 
 - Acesso: `/portal/tickets`
-- Vê apenas seus próprios tickets (`requester_user_id`)
+- Vê apenas seus próprios tickets (`requester_user_id = auth.uid()`)
 - Não vê notas internas
 - Não vê campos internos (fila, analista, SLA)
 
-### 4.2 Usuários Internos (Level 600-899)
+### 4.2 Usuários Internos (`rh`, `bdr`, `comercial`, etc.)
 
-- Pode abrir chamados
+- Pode abrir chamados internos
 - Visibilidade limitada a tickets onde é solicitante
 
-### 4.3 Suporte (Level 900)
+### 4.3 Suporte (`suporte`)
 
 - Vê tickets nas filas em que é membro (`support_queue_members`)
-- Vê tickets atribuídos a si
+- Vê tickets atribuídos a si (`assigned_to_user_id = auth.uid()`)
 - Vê tickets que abriu
 
-### 4.4 Gerente de Suporte (Level 950)
+### 4.4 Gerente de Suporte (`gerente_suporte`)
 
 - Visão global de todos os tickets
 - Gestão de filas e membros
 
-### 4.5 Admin (Level 1000)
+### 4.5 Admin (`admin`)
 
 - Visão global total
 - Acesso a todas as configurações
@@ -88,47 +105,66 @@ O controle de acesso do módulo de suporte técnico segue o modelo RBAC hierárq
 
 ## 5. Implementação no Backend
 
-### 5.1 Edge Functions
+### 5.1 Edge Functions — Roles-First
 
-Cada Edge Function valida `user_level` antes de processar:
+As Edge Functions agora priorizam `effectiveRoles` derivadas do perfil Supabase:
 
-```
-// Pseudocódigo
-const userLevel = body.user_level || 1;
+```typescript
+// Exemplo em support-ticket-update
+const userId = body.user_id;           // UUID do Supabase Auth
+const userRoles = body.user_roles;     // ['suporte', 'internal_user']
 
-if (action === 'close' && userLevel < 775) {
+// Verificação por role (primário)
+if (action === 'close' && !hasAnyRole(userRoles, ['cs', 'gerente_suporte', 'admin'])) {
   return error(403, 'Apenas CS ou superior pode encerrar tickets');
 }
 
-if (action === 'cancel' && userLevel < 950) {
-  return error(403, 'Apenas Gerente ou Admin pode cancelar tickets');
+// Fallback por level (compatibilidade)
+if (!userRoles?.length) {
+  const userLevel = body.user_level || 1;
+  if (action === 'close' && userLevel < 775) {
+    return error(403, 'Nível insuficiente');
+  }
 }
 ```
 
 ### 5.2 Visibilidade (support-ticket-list)
 
-```
-if (userLevel < 600) {
+```typescript
+if (hasRole(userRoles, 'cliente')) {
   // Cliente: apenas próprios tickets
   query = query.eq('requester_user_id', userId);
-} else if (userLevel >= 600 && userLevel < 950) {
-  // Interno: tickets nas suas filas OU atribuídos OU abertos por si
-  query = query.or([
-    `requester_user_id.eq.${userId}`,
-    `assigned_to_user_id.eq.${userId}`,
-    `current_queue_id.in.(${queueIds})`
-  ]);
-} else {
+} else if (hasAnyRole(userRoles, ['gerente_suporte', 'admin'])) {
   // Gerente/Admin: todos os tickets
+} else if (hasRole(userRoles, 'suporte')) {
+  // Suporte: tickets nas filas + atribuídos + próprios
+  query = query.or([...]);
+} else {
+  // Interno: apenas próprios
+  query = query.eq('requester_user_id', userId);
 }
 ```
 
 ### 5.3 RLS (Row Level Security)
 
-| Função | Nível mínimo |
-|--------|-------------|
-| `is_support_internal()` | 600+ |
-| `is_support_admin_or_manager()` | 950+ |
+| Função | Descrição |
+|--------|-----------|
+| `is_support_internal()` | Verifica `tech_users` por email do JWT |
+| `is_support_admin_or_manager()` | Verifica role ADMIN em `tech_users` |
+| `has_role(_user_id, _role)` | Verifica `user_roles` (SECURITY DEFINER) |
+| `is_internal_user()` | `profiles.level >= 600` |
+| `is_profile_admin()` | `profiles.level >= 1000` |
+
+### 5.4 Helpers Frontend (src/lib/rbac.ts)
+
+| Função | Descrição |
+|--------|-----------|
+| `getEffectiveRoles(dbRoles, profile)` | Retorna roles efetivas (DB ou fallback level) |
+| `hasRole(roles, slug)` | Verifica role específica |
+| `isAdmin(roles)` | Verifica se é admin |
+| `isSupport(roles)` | Verifica suporte/gerente_suporte/admin |
+| `isCS(roles)` | Verifica cs/admin |
+| `canAccessByAllowedLevels(roles, levels)` | Compat com allowedLevels dos módulos |
 
 ---
 
@@ -145,7 +181,7 @@ O payload usa prefixo `actor_` para dados de auditoria:
 
 ```json
 {
-  "actor_user_id": "5",
+  "actor_user_id": "uuid-do-supabase-auth",
   "actor_user_name": "Admin João",
   "actor_user_level": 1000,
   "user_id": 42,
@@ -154,6 +190,8 @@ O payload usa prefixo `actor_` para dados de auditoria:
   "user_level": 900
 }
 ```
+
+> **Nota:** `actor_user_id` é UUID do Supabase Auth. `user_id` do membro ainda usa integer legado temporariamente.
 
 ---
 
@@ -164,3 +202,5 @@ O payload usa prefixo `actor_` para dados de auditoria:
 3. **Parceiro (200) não tem acesso** — ao módulo de suporte
 4. **Cliente acessa apenas o portal** — `/portal/tickets`, não `/modulos/atendimentos`
 5. **Visibilidade baseada em filas** — lookup por `user_email` na `support_queue_members`
+6. **UUID é a identidade primária** — `auth.uid()` é usado em todas as operações autenticadas
+7. **Roles-First** — verificar papel antes de level; level é fallback temporário

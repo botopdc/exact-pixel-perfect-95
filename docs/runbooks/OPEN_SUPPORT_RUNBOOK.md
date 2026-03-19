@@ -1,14 +1,14 @@
 # OPEN — Runbook do Suporte Técnico
 
-Versão: v1  
+Versão: v2 (Supabase Auth)  
 Sistema: core.opendata.center  
-Última atualização: 2026-03-15
+Última atualização: 2026-03-19
 
 ---
 
 ## 1. Objetivo
 
-Procedimentos operacionais para a equipe de suporte técnico da OPEN Datacenter. Este runbook cobre operações N1, N2, N3 e procedimentos para incidentes críticos.
+Procedimentos operacionais para a equipe de suporte técnico da OPEN Datacenter. Este runbook cobre operações N1, N2, N3, procedimentos para incidentes críticos, e operações de identidade/autenticação pós-cutover.
 
 ---
 
@@ -115,7 +115,7 @@ Procedimentos operacionais para a equipe de suporte técnico da OPEN Datacenter.
 ### 5.2 Ações Imediatas
 
 1. **Notificar plantonista** — verificar `support_oncall`
-2. **Comunicar gerente de suporte** — nível 950+
+2. **Comunicar gerente de suporte** — role `gerente_suporte`
 3. **Atribuir analista imediatamente** — não deixar na fila
 4. **Iniciar bridge call** (se necessário) — reunir equipe
 5. **Atualizar status a cada 30min** — mensagem pública
@@ -185,7 +185,7 @@ O SLA é calculado automaticamente na criação do ticket pela Edge Function `su
 
 ### 8.1 Configuração
 
-Tabela `support_oncall` — gerenciada por Gerente de Suporte (950+).
+Tabela `support_oncall` — gerenciada por `gerente_suporte` ou `admin`.
 
 | Campo | Descrição |
 |-------|-----------|
@@ -203,26 +203,77 @@ Tabela `support_oncall` — gerenciada por Gerente de Suporte (950+).
 
 ---
 
-## 9. Troubleshooting Comum
+## 9. Autenticação e Identidade (pós-cutover)
 
-### 9.1 Ticket não aparece na listagem
+### 9.1 Fluxo de Login
+
+```
+Usuário → /login → Supabase Auth (email + senha)
+  → Sessão JWT criada
+  → AuthContext carrega profile + user_roles
+  → effectiveRoles calculadas (roles DB ou fallback level)
+  → Redirect baseado em roles
+```
+
+### 9.2 Seed de Admin Inicial
+
+1. Criar usuário via Supabase Auth (dashboard ou `auth.admin.createUser`)
+2. Trigger `handle_new_user` cria profile automaticamente
+3. Inserir role: `INSERT INTO user_roles (user_id, role_slug) VALUES (uuid, 'admin')`
+4. Validar: `SELECT has_role(uuid, 'admin')` deve retornar `true`
+
+### 9.3 Onboarding de Usuários Legados
+
+1. Acessar `/modulos/admin/backfill` (role `admin`)
+2. Executar `dry_run` para reconciliar emails
+3. Validar lote (Consistente / Incompleto / Elegível / Problemas)
+4. Executar backfill para criar auth.users + profiles
+5. Enviar convites de ativação (reset de senha via Resend)
+6. Usuário acessa link → define nova senha → acesso ativo
+
+### 9.4 Troubleshooting de Sessão
+
+| Problema | Causa provável | Solução |
+|----------|----------------|---------|
+| Login falha silenciosamente | Email não confirmado | Verificar `auth.users.email_confirmed_at` |
+| Profile não carrega | Trigger `handle_new_user` falhou | Verificar logs, inserir profile manualmente |
+| Roles vazias | `user_roles` não populada | Inserir roles ou verificar `getEffectiveRoles` usa fallback level |
+| Acesso negado a módulo | Role ausente ou level insuficiente | Verificar `user_roles` e `profiles.level` |
+| Token expirado | Sessão JWT vencida | `autoRefreshToken: true` no client resolve automaticamente |
+| "Meus tickets" vazio | `user_id` não é UUID correto | Verificar `useSession().userId` retorna UUID do Supabase |
+
+### 9.5 Importação Futura de Usuários
+
+Estratégia documentada em `docs/FASE6_IMPORTACAO_USUARIOS.md`:
+
+- Email é chave de reconciliação
+- `legacy_user_id` preservado em `profiles`
+- Roles atribuídas automaticamente via mapeamento `level → role_slug`
+- Conflitos (email duplicado, ID nulo) vão para fila de exceção
+- Ativação via reset de senha (Resend)
+
+---
+
+## 10. Troubleshooting Operacional
+
+### 10.1 Ticket não aparece na listagem
 
 - Verificar se o usuário é membro da fila do ticket (`support_queue_members`)
 - Verificar `user_email` na tabela de membros
-- Gerentes (950+) e Admins (1000) veem todos
+- Gerentes (`gerente_suporte`) e Admins (`admin`) veem todos
 
-### 9.2 SLA não calculado
+### 10.2 SLA não calculado
 
 - Verificar se existe política SLA ativa para a combinação severidade/tipo
 - Verificar logs da Edge Function `support-ticket-create`
 
-### 9.3 Notificação não recebida
+### 10.3 Notificação não recebida
 
 - Verificar se o usuário é membro ativo da fila
 - Verificar polling do frontend (30-60s)
 - Verificar tabela `support_notifications`
 
-### 9.4 Erro ao atribuir ticket
+### 10.4 Erro ao atribuir ticket
 
-- Verificar permissão do usuário (nível 900+)
+- Verificar role do usuário (`suporte` ou superior)
 - Verificar se o ticket não está em status terminal (`encerrado_cs`, `cancelado`)
