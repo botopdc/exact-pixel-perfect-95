@@ -116,8 +116,7 @@ export default function ArtigoForm({ isEdit = false }: { isEdit?: boolean }) {
   };
 
   const onSubmit = (data: ArticleFormData, status: 'draft' | 'published') => {
-    const user = authService.getCurrentUser();
-    const author = user?.email || 'Anônimo';
+    const author = session?.email || 'Anônimo';
 
     const articleData = {
       title: data.title,

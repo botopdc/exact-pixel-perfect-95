@@ -65,7 +65,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useSaveProposal, SavedProposal, apiToLocal } from '@/hooks/useProposals';
 import { useSavePartnerProposal } from '@/hooks/usePartnerProposals';
 import { useSaveProposalToSupabase, saveProposalToSupabase } from '@/hooks/useSaveProposalToSupabase';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { partnerAuthService } from '@/services/partnersService';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';

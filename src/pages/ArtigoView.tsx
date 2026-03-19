@@ -63,7 +63,7 @@ export default function ArtigoView() {
   const navigate = useNavigate();
   
   // Check authentication and access
-  const session = authService.getSession();
+  const session = useSession();
   
   // Parse ID as number for external API
   const articleId = id ? parseInt(id, 10) : undefined;
