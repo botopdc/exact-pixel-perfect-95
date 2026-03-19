@@ -96,8 +96,7 @@ type SortField = 'user_name' | 'open_assigned' | 'avg_first_response_minutes' | 
 type SortDirection = 'asc' | 'desc';
 
 export default function AnalistasSuportePage() {
-  const session = authService.getSession();
-  const userLevel = session?.level ?? 0;
+  const { level: userLevel } = useSession();
 
   // Check access - need at least support level
   if (!canAccessSupportModule(userLevel)) {
