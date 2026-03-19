@@ -100,6 +100,7 @@ const OpenCalculator: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { config, isLoading: configLoading, refetch: refetchConfig } = useConfigWithFallback();
+  const internalSessionData = useSession();
   
   // URL-based edit mode detection (edit=1&id=...)
   const urlEditParam = searchParams.get('edit');
