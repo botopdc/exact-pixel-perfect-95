@@ -10,8 +10,7 @@ if (!SUPABASE_URL) {
   throw new Error('VITE_SUPABASE_URL não está definida.');
 }
 
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
+// Token resolution delegated to getAuthTokenSync()
 
 // ============================================================================
 // TYPES
