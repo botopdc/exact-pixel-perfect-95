@@ -39,13 +39,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { canAccessSupportModule, canManageSLAs } from '@/types/supportTicket';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
+import { getAuthTokenSync } from '@/lib/authToken';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-const AUTH_TOKEN_KEY = 'open_access_token';
-const LEGACY_AUTH_TOKEN_KEY = 'open_api_token';
 
 // Interface for analyst data from API
 interface AnalystStats {

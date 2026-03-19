@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { isInternalUser } from '@/lib/ticketPermissions';
 import {
   fetchNotifications,
@@ -15,9 +15,8 @@ import {
 
 export function useNotifications() {
   const queryClient = useQueryClient();
-  const session = authService.getSession();
-  const userId = session?.userId;
-  const enabled = !!userId && isInternalUser(session?.level ?? 0);
+  const { userId, level } = useSession();
+  const enabled = !!userId && isInternalUser(level);
 
   const { data: notifications = [] } = useQuery({
     queryKey: ['support-notifications', userId],

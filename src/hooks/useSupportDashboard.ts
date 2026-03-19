@@ -53,7 +53,7 @@ export interface DashboardStats {
 }
 
 async function fetchDashboardStats(): Promise<DashboardStats> {
-  const token = getToken();
+  const token = getAuthTokenSync();
   const { data, error } = await supabase.functions.invoke('support-dashboard-stats', {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: {},
