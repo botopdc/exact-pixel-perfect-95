@@ -102,35 +102,6 @@ export default function AnalistasSuportePage() {
   const [sortField, setSortField] = useState<SortField>('open_assigned');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
-  // Fetch analysts data
-  const {
-    data: analysts = [],
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ['support-analysts', period],
-    queryFn: () => fetchAnalysts(period),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    enabled: canAccessSupportModule(userLevel),
-  });
-
-  // Check access - need at least support level
-  if (!canAccessSupportModule(userLevel)) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Card className="p-8 text-center">
-          <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Acesso Negado</h2>
-          <p className="text-muted-foreground">
-            Você não tem permissão para acessar este módulo.
-          </p>
-        </Card>
-      </div>
-    );
-  }
-
   // Handle sort
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -185,6 +156,21 @@ export default function AnalistasSuportePage() {
       : 0;
     return { online, totalOpen, avgFirstResponse, avgSLA };
   }, [analysts]);
+
+  // Check access - need at least support level
+  if (!canAccessSupportModule(userLevel)) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Card className="p-8 text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Acesso Negado</h2>
+          <p className="text-muted-foreground">
+            Você não tem permissão para acessar este módulo.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   const SortableHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
     <TableHead 
