@@ -159,7 +159,7 @@ interface PaginatedResponse<T> {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  return getAuthTokenSync();
 }
 
 function getHeaders() {
