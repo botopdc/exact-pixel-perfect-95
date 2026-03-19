@@ -1,6 +1,6 @@
 import React from 'react';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
-import { useLocation, useNavigate, Outlet } from 'react-router-dom';
+import { useLocation, useNavigate, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModuleSidebar } from '@/components/navigation/ModuleSidebar';
 import { SubNavigation } from '@/components/navigation/SubNavigation';
