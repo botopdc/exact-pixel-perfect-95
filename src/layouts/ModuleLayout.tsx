@@ -70,18 +70,18 @@ function ModuleLayoutHeader() {
 function useEffectiveAuth(): { effectiveRoles: string[]; isResolved: boolean } {
   const { profile, roles, isLoading, session } = useAuth();
 
-  if (session && profile) {
-    return { effectiveRoles: getEffectiveRoles(roles, profile), isResolved: true };
-  }
-
+  // Still loading auth state — wait
   if (isLoading) {
     return { effectiveRoles: [], isResolved: false };
   }
 
-  if (session && !profile) {
-    return { effectiveRoles: [], isResolved: false };
+  // Auth resolved: session + profile available
+  if (session && profile) {
+    return { effectiveRoles: getEffectiveRoles(roles, profile), isResolved: true };
   }
 
+  // Auth resolved: no session OR session but profile failed to load
+  // In both cases, treat as resolved so we don't hang forever
   return { effectiveRoles: [], isResolved: true };
 }
 
