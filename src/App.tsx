@@ -186,6 +186,7 @@ function App() {
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <RouterMountLogger />
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
