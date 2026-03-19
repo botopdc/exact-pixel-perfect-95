@@ -1186,7 +1186,6 @@ const OpenCalculator: React.FC = () => {
 
     // DEBUG: Log save operation mode + ownership context
     const numericApiId = editingProposalId ? parseInt(editingProposalId, 10) : null;
-    const internalSession = authService.getSession();
     const partnerSess = partnerAuthService.getSession();
     console.log('[OpenCalculator] handleSave:', {
       mode: isEditMode ? 'EDIT' : 'CREATE',
@@ -1196,7 +1195,7 @@ const OpenCalculator: React.FC = () => {
       displayProposalId: proposal.id,
       total: result?.grandTotal,
       inferred_user_level: userContext.userLevel,
-      internal_session_level: internalSession?.level ?? null,
+      internal_session_level: internalSessionData.level,
       partner_session_partnerId: partnerSess?.partnerId ?? null,
       intended_channel_type: isPartnerContext ? 'PARCEIRO' : 'CLIENTE',
     });
