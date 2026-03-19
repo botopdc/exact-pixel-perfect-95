@@ -152,6 +152,10 @@ export interface CalculatorConfigCreateRequest {
  * Get Edge Function URL
  */
 function getEdgeFunctionUrl(): string {
+  if (!SUPABASE_URL) {
+    throw new Error('Configuração Supabase ausente/inválida');
+  }
+
   return `${SUPABASE_URL}/functions/v1/pricing-admin`;
 }
 

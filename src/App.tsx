@@ -441,6 +441,7 @@ function App() {
     </AuthProvider>
   </QueryClientProvider>
   </TechOpsErrorBoundary>
-);
+  );
+}
 
 export default App;

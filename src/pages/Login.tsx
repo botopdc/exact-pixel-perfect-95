@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import logoWhite from '@/assets/logo-white.png';
@@ -18,13 +18,26 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const hasRedirected = useRef(false);
 
-  // ── Auto-redirect if already authenticated ──
-  if (!loadingAuth && session && profile && !hasRedirected.current) {
-    hasRedirected.current = true;
-    const effectiveRoles = getEffectiveRoles(roles, profile);
-    const target = getRedirectByRoles(effectiveRoles);
-    setTimeout(() => navigate(target, { replace: true }), 0);
-  }
+  console.log('[LoginPage] render', {
+    loadingAuth,
+    hasSession: !!session,
+    hasProfile: !!profile,
+    rolesCount: roles.length,
+  });
+
+  useEffect(() => {
+    console.log('[LoginPage] mounted');
+  }, []);
+
+  useEffect(() => {
+    if (!loadingAuth && session && profile && !hasRedirected.current) {
+      hasRedirected.current = true;
+      const effectiveRoles = getEffectiveRoles(roles, profile);
+      const target = getRedirectByRoles(effectiveRoles);
+      console.log('[LoginPage] redirecting authenticated user', { target, roles: effectiveRoles });
+      navigate(target, { replace: true });
+    }
+  }, [loadingAuth, session, profile, roles, navigate]);
 
   // ── Show loading while auth state is being determined ──
   if (loadingAuth) {
