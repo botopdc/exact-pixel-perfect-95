@@ -241,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthContext] signOut called');
     }
     await supabase.auth.signOut();
+    setCachedAccessToken(null);
     setUser(null);
     setSession(null);
     setProfile(null);
