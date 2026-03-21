@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { setCachedAccessToken } from '@/lib/authToken';
 import type { User, Session } from '@supabase/supabase-js';
 import type { UserRole } from '@/lib/rbac';
 
@@ -147,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+        setCachedAccessToken(currentSession?.access_token ?? null);
 
         if (currentSession?.user) {
           // Use setTimeout to avoid Supabase deadlock (their recommendation)
@@ -178,6 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSession(existingSession);
       setUser(existingSession?.user ?? null);
+      setCachedAccessToken(existingSession?.access_token ?? null);
 
       if (existingSession?.user) {
         await loadProfile(existingSession.user.id);
@@ -238,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthContext] signOut called');
     }
     await supabase.auth.signOut();
+    setCachedAccessToken(null);
     setUser(null);
     setSession(null);
     setProfile(null);
