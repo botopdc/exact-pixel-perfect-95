@@ -264,8 +264,8 @@ const SupabaseProposalsList: React.FC = () => {
     total: data?.total || 0,
   };
   
-  // Check if auth token exists (Supabase JWT or legacy)
-  const hasCoreToken = !!getAuthTokenSync();
+  // Auth is checked via useSession hook above
+  const hasCoreToken = isAuthenticated;
   
   const deleteProposalMutation = useDeleteProposal();
   const { getApprovalLink, isLoading: isLoadingApprovalLink } = useApprovalLink();
