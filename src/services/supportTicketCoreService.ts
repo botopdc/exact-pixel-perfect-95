@@ -370,20 +370,24 @@ function getQueueUserContext(): {
   actor_email?: string;
   actor_name?: string;
 } {
-  // 1. Try Supabase session first (stored by AuthContext)
+  // 1. Try Supabase session first — scan for any sb-*-auth-token key dynamically
   try {
-    const raw = localStorage.getItem('sb-macmkfoknhofnwhizsqc-auth-token');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const sbUser = parsed?.user;
-      if (sbUser?.id) {
-        // UUID from Supabase Auth — this is the primary identity
-        return {
-          actor_user_id: sbUser.id,
-          actor_level: Number(sbUser.user_metadata?.level) || 0,
-          actor_email: sbUser.email,
-          actor_name: sbUser.user_metadata?.name || sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0],
-        };
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token') && !key.includes('core-open')) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const sbUser = parsed?.user;
+          if (sbUser?.id) {
+            return {
+              actor_user_id: sbUser.id,
+              actor_level: Number(sbUser.user_metadata?.level) || 0,
+              actor_email: sbUser.email,
+              actor_name: sbUser.user_metadata?.name || sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0],
+            };
+          }
+        }
       }
     }
   } catch { /* ignore */ }

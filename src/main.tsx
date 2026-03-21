@@ -35,6 +35,22 @@ const root = createRoot(rootElement);
 async function bootstrap() {
   console.log('[bootstrap] main.tsx start');
 
+  // Clean up stale auth tokens from old/migrated Supabase projects
+  try {
+    const currentProjectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        // Keep: current project token and core-open isolated token
+        if (key === `sb-${currentProjectRef}-auth-token` || key === 'sb-core-open-auth-token') continue;
+        console.log('[bootstrap] Removing stale Supabase token:', key);
+        localStorage.removeItem(key);
+      }
+    }
+  } catch (e) {
+    console.warn('[bootstrap] Failed to clean stale tokens', e);
+  }
+
   try {
     const savedTheme = localStorage.getItem('open-datacenter-theme') || 'dark';
     document.documentElement.classList.add(savedTheme);
