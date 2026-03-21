@@ -38,6 +38,10 @@ export const coreSupabase = createClient(CORE_SUPABASE_URL, CORE_SUPABASE_ANON_K
   auth: {
     persistSession: false,
     autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+  global: {
+    headers: { 'X-Client-Info': 'core-open-client' },
   },
 });
 

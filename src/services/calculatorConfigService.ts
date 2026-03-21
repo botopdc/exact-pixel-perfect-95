@@ -327,13 +327,12 @@ export async function getCalculatorConfigsRaw(
     headers,
   });
   
-  const rows = await handleResponse<CalculatorConfigRow[]>(response);
+  const result = await handleResponse<any>(response);
   
-  // GUARD: Validate response is array
-  if (!Array.isArray(rows)) {
-    console.error('[calculatorConfigService] Response is not an array:', typeof rows);
-    throw new Error('Resposta inválida do servidor (esperava array)');
-  }
+  // Normalize: accept direct array OR { data: array } for backwards compatibility
+  const rows: CalculatorConfigRow[] = Array.isArray(result)
+    ? result
+    : (Array.isArray(result?.data) ? result.data : []);
   
   if (import.meta.env.DEV) {
     console.debug('[calculatorConfigService] Loaded', rows.length, 'rows from Edge Function');
