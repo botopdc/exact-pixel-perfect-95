@@ -335,22 +335,8 @@ const fetchConfig = async (forceRefresh = false): Promise<CalculatorConfig> => {
     return inFlightPromise;
   }
   
-  // GUARD: Check token availability (Supabase JWT first, legacy fallback)
-  const { getAuthTokenSync } = await import('@/lib/authToken');
-  const token = getAuthTokenSync();
-  if (!token) {
-    const error = new Error('Sessão expirada. Faça login novamente.');
-    console.error('[useConfig] Token ausente - sessão expirada');
-    throw error;
-  }
-  
-  // GUARD: Check PIN availability
-  const pin = localStorage.getItem('open_admin_pin') || localStorage.getItem('OPEN_ADMIN_PIN');
-  if (!pin) {
-    const error = new Error('PIN admin ausente. Ative o Modo Admin antes de acessar preços.');
-    console.error('[useConfig] PIN ausente (open_admin_pin)');
-    throw error;
-  }
+  // GET does not require auth token or PIN — pricing-admin accepts GET without them
+  // PIN is only required for POST/PUT/DELETE operations
   
   if (import.meta.env.DEV) {
     console.debug('[useConfig] Fetching config from Supabase Edge Function...');

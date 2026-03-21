@@ -266,6 +266,31 @@ async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === "OPTIONS") return json({ ok: true }, 200);
 
+    // GET is public — no auth or PIN required for reads
+    if (req.method === "GET") {
+      const supabase = getSupabaseAdmin();
+      const id = getQueryParam(req.url, "id");
+
+      if (id) {
+        const { data, error } = await supabase
+          .from("calculator_configs")
+          .select("*")
+          .eq("id", Number(id))
+          .maybeSingle();
+        if (error) return json({ error: error.message }, 500);
+        return json(data ?? null, 200);
+      }
+      const { data, error } = await supabase
+        .from("calculator_configs")
+        .select("*")
+        .is("deleted_at", null)
+        .order("category", { ascending: true })
+        .order("section", { ascending: true });
+      if (error) return json({ error: error.message }, 500);
+      return json(data ?? [], 200);
+    }
+
+    // All write operations require auth + PIN
     const token = getBearerToken(req);
     if (!token) return json({ error: "Missing Authorization Bearer token" }, 401);
 

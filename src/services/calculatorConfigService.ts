@@ -309,25 +309,22 @@ export async function getCalculatorConfigsRaw(
   token?: string,
   pin?: string
 ): Promise<CalculatorConfigRow[]> {
-  // GUARD: Validate token
-  const authToken = token || getAuthToken();
-  if (!authToken) {
-    throw new Error('Sessão expirada. Faça login novamente.');
-  }
-  
-  // GUARD: Validate PIN
-  const adminPin = pin || getAdminPin();
-  if (!adminPin) {
-    throw new Error('PIN admin ausente. Ative o Modo Admin antes de acessar preços.');
-  }
+  // GET does not require auth or PIN — Edge Function accepts GET without them
+  // Token and PIN are optional for reads, required only for writes
+  const authToken = token || getAuthTokenSync() || '';
+  const adminPin = pin || localStorage.getItem(ADMIN_PIN_KEY) || localStorage.getItem(LEGACY_ADMIN_PIN_KEY) || '';
   
   if (import.meta.env.DEV) {
     console.debug('[calculatorConfigService] GET /pricing-admin - token:', !!authToken, 'pin:', !!adminPin);
   }
   
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  if (adminPin) headers['X-Admin-PIN'] = adminPin;
+  
   const response = await fetch(getEdgeFunctionUrl(), {
     method: 'GET',
-    headers: buildHeaders(authToken, adminPin),
+    headers,
   });
   
   const rows = await handleResponse<CalculatorConfigRow[]>(response);
