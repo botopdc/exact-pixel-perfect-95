@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { setCachedAccessToken } from '@/lib/authToken';
 import type { User, Session } from '@supabase/supabase-js';
 import type { UserRole } from '@/lib/rbac';
 
