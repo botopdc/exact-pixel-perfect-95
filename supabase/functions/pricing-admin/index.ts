@@ -266,25 +266,11 @@ async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === "OPTIONS") return json({ ok: true }, 200);
 
-    const token = getBearerToken(req);
-    if (!token) return json({ error: "Missing Authorization Bearer token" }, 401);
-
-    const ok = await validateExternalToken(token);
-    if (!ok) return json({ error: "Invalid token" }, 401);
-
-    assertPin(req);
-
-    // Check for seed operation
-    const seed = getQueryParam(req.url, "seed");
-    if (seed === "true" && req.method === "POST") {
-      return handleSeed(req);
-    }
-
-    const supabase = getSupabaseAdmin();
-    const id = getQueryParam(req.url, "id");
-
-    // GET
+    // GET is public — no auth or PIN required for reads
     if (req.method === "GET") {
+      const supabase = getSupabaseAdmin();
+      const id = getQueryParam(req.url, "id");
+
       if (id) {
         const { data, error } = await supabase
           .from("calculator_configs")
@@ -303,6 +289,24 @@ async function handler(req: Request): Promise<Response> {
       if (error) return json({ error: error.message }, 500);
       return json(data ?? [], 200);
     }
+
+    // All write operations require auth + PIN
+    const token = getBearerToken(req);
+    if (!token) return json({ error: "Missing Authorization Bearer token" }, 401);
+
+    const ok = await validateExternalToken(token);
+    if (!ok) return json({ error: "Invalid token" }, 401);
+
+    assertPin(req);
+
+    // Check for seed operation
+    const seed = getQueryParam(req.url, "seed");
+    if (seed === "true" && req.method === "POST") {
+      return handleSeed(req);
+    }
+
+    const supabase = getSupabaseAdmin();
+    const id = getQueryParam(req.url, "id");
 
     // POST (upsert by category, section)
     if (req.method === "POST") {
