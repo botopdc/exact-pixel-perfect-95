@@ -51,7 +51,7 @@ import {
 import type { ProposalRow } from '@/services/proposalApi';
 import ProposalAccessModal from '@/components/ProposalAccessModal';
 import { useConvertedProposalIds } from '@/hooks/useContracts';
-import { getAuthTokenSync } from '@/lib/authToken';
+
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
