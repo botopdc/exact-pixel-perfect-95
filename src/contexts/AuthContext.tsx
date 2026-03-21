@@ -180,6 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSession(existingSession);
       setUser(existingSession?.user ?? null);
+      setCachedAccessToken(existingSession?.access_token ?? null);
 
       if (existingSession?.user) {
         await loadProfile(existingSession.user.id);
