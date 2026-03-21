@@ -38,7 +38,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
@@ -51,7 +51,7 @@ import {
 import type { ProposalRow } from '@/services/proposalApi';
 import ProposalAccessModal from '@/components/ProposalAccessModal';
 import { useConvertedProposalIds } from '@/hooks/useContracts';
-import { getAuthTokenSync } from '@/lib/authToken';
+
 
 // Status badge helper
 function getStatusBadge(status: string | undefined) {
@@ -137,12 +137,12 @@ const SupabaseProposalsList: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // Auth check
-  const session = authService.getSession();
-  const userLevel = session?.level || 0;
-  const isAdmin = userLevel === 1000;
+  // Auth check — Supabase-first via useSession
+  const { level, isAuthenticated } = useSession();
+  const userLevel = level || 0;
+  const isAdmin = userLevel >= 1000;
   const isArchitect = userLevel === 690;
-  const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel === 1000;
+  const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel >= 1000;
   const canCopyLink = !isArchitect;
   
   // Pagination state
@@ -264,8 +264,8 @@ const SupabaseProposalsList: React.FC = () => {
     total: data?.total || 0,
   };
   
-  // Check if auth token exists (Supabase JWT or legacy)
-  const hasCoreToken = !!getAuthTokenSync();
+  // Auth is checked via useSession hook above
+  const hasCoreToken = isAuthenticated;
   
   const deleteProposalMutation = useDeleteProposal();
   const { getApprovalLink, isLoading: isLoadingApprovalLink } = useApprovalLink();

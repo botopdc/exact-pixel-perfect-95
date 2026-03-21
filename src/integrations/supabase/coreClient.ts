@@ -39,6 +39,8 @@ export const coreSupabase = createClient(CORE_SUPABASE_URL, CORE_SUPABASE_ANON_K
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,
+    storageKey: 'sb-core-open-auth-token',
+    flowType: 'implicit',
   },
   global: {
     headers: { 'X-Client-Info': 'core-open-client' },
