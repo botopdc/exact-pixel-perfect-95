@@ -38,7 +38,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { ROUTES, getProposalEditRoute } from '@/config/routes';
 import { formatCurrency } from '@/lib/calculatorConfig';
 import { useApprovalLink } from '@/hooks/useApprovalLink';
