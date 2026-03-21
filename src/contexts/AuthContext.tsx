@@ -148,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+        setCachedAccessToken(currentSession?.access_token ?? null);
 
         if (currentSession?.user) {
           // Use setTimeout to avoid Supabase deadlock (their recommendation)
