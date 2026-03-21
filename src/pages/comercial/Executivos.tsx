@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { openApi, ApiUser } from '@/lib/openApi';
-import { authService } from '@/services/authService';
+import { useSession } from '@/hooks/useSession';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -34,9 +34,8 @@ export default function Executivos() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check if user is admin
-  const session = authService.getSession();
-  const isAdmin = session?.level === 1000;
+  // Auth check — Supabase-first via useSession
+  const { isAdmin, level } = useSession();
 
   // Load executivos from API
   const loadExecutivos = async () => {

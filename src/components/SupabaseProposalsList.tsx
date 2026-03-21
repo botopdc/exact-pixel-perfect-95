@@ -137,12 +137,11 @@ const SupabaseProposalsList: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // Auth check — Supabase-first via useSession
-  const { level, isAuthenticated } = useSession();
+  // Auth check — Supabase-first via useSession (roles-first with level fallback)
+  const { level, isAuthenticated, isAdmin, hasAnyRole, effectiveRoles } = useSession();
   const userLevel = level || 0;
-  const isAdmin = userLevel >= 1000;
-  const isArchitect = userLevel === 690;
-  const canCreateProposal = userLevel === 700 || userLevel === 750 || userLevel >= 1000;
+  const isArchitect = hasAnyRole(['arquiteto']);
+  const canCreateProposal = isAdmin || hasAnyRole(['comercial', 'gerente_comercial']);
   const canCopyLink = !isArchitect;
   
   // Pagination state
