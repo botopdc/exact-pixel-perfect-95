@@ -308,27 +308,6 @@ async function handler(req: Request): Promise<Response> {
     const supabase = getSupabaseAdmin();
     const id = getQueryParam(req.url, "id");
 
-    // GET
-    if (req.method === "GET") {
-      if (id) {
-        const { data, error } = await supabase
-          .from("calculator_configs")
-          .select("*")
-          .eq("id", Number(id))
-          .maybeSingle();
-        if (error) return json({ error: error.message }, 500);
-        return json(data ?? null, 200);
-      }
-      const { data, error } = await supabase
-        .from("calculator_configs")
-        .select("*")
-        .is("deleted_at", null)
-        .order("category", { ascending: true })
-        .order("section", { ascending: true });
-      if (error) return json({ error: error.message }, 500);
-      return json(data ?? [], 200);
-    }
-
     // POST (upsert by category, section)
     if (req.method === "POST") {
       const body = await req.json().catch(() => null);
