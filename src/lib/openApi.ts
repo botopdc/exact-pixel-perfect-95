@@ -260,18 +260,39 @@ class OpenApiClient {
         const status = error.response?.status;
 
         if (status === 401 || status === 403) {
-          this.clearToken();
-          localStorage.removeItem(INTERNAL_SESSION_KEY);
-          localStorage.removeItem(PARTNER_SESSION_KEY);
+          // If user has a valid Supabase session, do NOT redirect.
+          // The 401 is from the Laravel API which doesn't recognize Supabase JWTs.
+          const hasSupabaseSession = (() => {
+            try {
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                  const raw = localStorage.getItem(key);
+                  if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed?.access_token) return true;
+                  }
+                }
+              }
+            } catch { /* ignore */ }
+            return false;
+          })();
 
-          const pathname = window.location.pathname;
-          const isPartner = pathname.startsWith('/parceiro');
-          const loginPath = isPartner ? '/parceiro/login' : '/login';
+          if (hasSupabaseSession) {
+            console.warn('[API] 401 from Laravel API ignored — Supabase session active');
+          } else {
+            this.clearToken();
+            localStorage.removeItem(INTERNAL_SESSION_KEY);
+            localStorage.removeItem(PARTNER_SESSION_KEY);
 
-          // Avoid redirect loops
-          if (!pathname.startsWith(loginPath)) {
-            toast.error('Sessão expirada. Faça login novamente.');
-            window.location.replace(loginPath);
+            const pathname = window.location.pathname;
+            const isPartner = pathname.startsWith('/parceiro');
+            const loginPath = isPartner ? '/parceiro/login' : '/login';
+
+            if (!pathname.startsWith(loginPath)) {
+              toast.error('Sessão expirada. Faça login novamente.');
+              window.location.replace(loginPath);
+            }
           }
         }
 
