@@ -1,3 +1,8 @@
+// Limpar token do projeto Lovable Cloud antigo antes de qualquer import Supabase
+if (typeof localStorage !== 'undefined') {
+  localStorage.removeItem('sb-macmkfoknhofnwhizsqc-auth-token');
+}
+
 import { createRoot } from 'react-dom/client';
 import './index.css';
 
