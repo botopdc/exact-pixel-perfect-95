@@ -172,7 +172,13 @@ export async function listProposals(params: ProposalListParams = {}): Promise<Pr
 }
 
 /**
- * Get a single proposal with servers and addons
+ * Get a single proposal with servers and addons.
+ *
+ * The Edge Function `proposal-get` returns:
+ *   { success: true, data: { ...proposalFields, servers: [...], addons: [...] } }
+ *
+ * We normalise this into the expected ProposalGetResult shape:
+ *   { success, proposal, servers, addons }
  */
 export async function getProposal(proposalId: string): Promise<ProposalGetResult> {
   const token = getCoreToken();
@@ -181,9 +187,9 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
     console.warn('[proposalApi.getProposal] No CORE token found');
   }
 
-  // Edge Function expects 'id' — also send 'proposalId' for backwards compat
   const { data, error } = await coreSupabase.functions.invoke('proposal-get', {
-    body: { id: proposalId, proposalId },
+    // Send both field names for compatibility with different Edge Function versions
+    body: { proposalId, id: proposalId },
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
@@ -198,7 +204,30 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
     };
   }
 
-  return data as ProposalGetResult;
+  // Shape A: { success, data: { ...proposal, servers, addons } }  ← actual Edge Function response
+  if (data?.success && data?.data) {
+    const { servers, addons, ...proposalFields } = data.data;
+    return {
+      success: true,
+      proposal: proposalFields as ProposalFull,
+      servers: (servers || []) as ProposalServer[],
+      addons: (addons || []) as ProposalAddon[],
+    };
+  }
+
+  // Shape B: { success, proposal, servers, addons }  ← legacy / fallback
+  if (data?.success && data?.proposal) {
+    return data as ProposalGetResult;
+  }
+
+  // Error returned by Edge Function
+  return {
+    success: false,
+    proposal: {} as ProposalFull,
+    servers: [],
+    addons: [],
+    error: data?.error || 'Proposta não encontrada',
+  };
 }
 
 /**
