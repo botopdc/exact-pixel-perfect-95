@@ -181,8 +181,9 @@ export async function getProposal(proposalId: string): Promise<ProposalGetResult
     console.warn('[proposalApi.getProposal] No CORE token found');
   }
 
+  // Edge Function expects 'id' — also send 'proposalId' for backwards compat
   const { data, error } = await coreSupabase.functions.invoke('proposal-get', {
-    body: { proposalId },
+    body: { id: proposalId, proposalId },
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
