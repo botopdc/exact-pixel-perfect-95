@@ -211,7 +211,7 @@ export async function generateOrGetPublicApprovalLink(proposalId: string): Promi
   }
 
   const { data, error } = await coreSupabase.functions.invoke('proposal-public-link', {
-    body: { proposalId: proposalId.trim(), expiresInDays: 30 },
+    body: { proposal_id: proposalId.trim(), proposalId: proposalId.trim(), expiresInDays: 30 },
     headers: {
       Authorization: `Bearer ${coreToken}`,
     },
