@@ -250,7 +250,7 @@ const handler = async (req: Request): Promise<Response> => {
       },
       body: JSON.stringify({
         from: `${senderName} <${senderEmail}>`,
-        to: [clientEmail],
+        to: clientEmail,
         subject: emailSubject,
         html: emailHtml,
       }),
