@@ -49,15 +49,6 @@ export const ROUTES = {
       suporte: '/modulos/atendimentos/suporte',
       analistas: '/modulos/atendimentos/analistas',
     },
-    // ✅ ADMIN MODULE — Supabase-native (sem dependência da API Laravel)
-    admin: {
-      home: '/modulos/admin',
-      usuarios: '/modulos/admin/usuarios',
-      permissoes: '/modulos/admin/permissoes',
-      backfill: '/modulos/admin/backfill',
-      logs: '/modulos/admin/logs',
-      parametros: '/modulos/admin/parametros',
-    },
   },
   
   // LEGACY ROUTES - Keep for redirects only, do not use for navigation
