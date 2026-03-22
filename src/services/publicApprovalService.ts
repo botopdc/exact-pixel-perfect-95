@@ -222,11 +222,12 @@ export async function generateOrGetPublicApprovalLink(proposalId: string): Promi
     throw new Error(parsed.message);
   }
 
-  if (!data?.success || !data?.token) {
+  const token = data?.token || data?.data?.public_approval_token;
+  if (!data?.success || !token) {
     throw new Error(data?.error || 'Erro ao gerar link de aprovação');
   }
 
-  return buildPublicUrl(data.token);
+  return buildPublicUrl(token);
 }
 
 // ============================================================================
