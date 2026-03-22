@@ -1,938 +1,509 @@
 // ============================================================================
-// GESTÃO DE USUÁRIOS - CRUD completo conforme API
-// Acesso: Admin (1000)
+// GESTÃO DE USUÁRIOS — Supabase-native (sem openApi/Laravel)
+// Substitui a versão antiga que chamava GET /api/user (401 Unauthorized)
+// Fonte de dados: public.profiles + public.user_roles (Supabase Auth)
 // ============================================================================
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { authService } from '@/services/authService';
-import { useNavigate } from 'react-router-dom';
-import { useToast } from '@/hooks/use-toast';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  useUsers,
-  useUser,
-  useCreateUser,
-  useUpdateUser,
-  useDeleteUser,
-  getUserLevelLabel,
-  USER_LEVEL_OPTIONS,
-  UserStoreRequest,
-  UserUpdateRequest,
-} from '@/hooks/useUsers';
-import { CommissionOverrideEditor } from '@/components/admin/CommissionOverrideEditor';
+  Users, Search, RefreshCw, ChevronLeft, ChevronRight,
+  ChevronsLeft, ChevronsRight, Shield, UserCheck, UserX,
+  MoreHorizontal, Mail, Key, Loader2, Filter, X,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from '@/components/ui/form';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
-import {
-  Users,
-  Search,
-  Plus,
-  Edit,
-  Trash2,
-  RefreshCw,
-  User,
-  Mail,
-  Phone,
-  Calendar,
-  Shield,
-  Loader2,
-  Eye,
-  CheckCircle,
-  XCircle,
-  ChevronLeft,
-  ChevronRight,
-  Percent,
-} from 'lucide-react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { getLevelName, getEffectiveRoles, getUserDisplayRole, isAdmin as checkIsAdmin } from '@/lib/rbac';
+import { toast } from 'sonner';
 
 // ============================================================================
-// VALIDATION SCHEMAS
+// TYPES
 // ============================================================================
 
-const createUserSchema = z.object({
-  entity_id: z.number({ required_error: 'Entity ID é obrigatório' }).int().positive(),
-  name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres').max(255),
-  email: z.string().email('Email inválido').max(255),
-  password: z.string().min(8, 'Senha deve ter pelo menos 8 caracteres').max(150),
-  password_confirmation: z.string(),
-  phones: z.array(z.string()).optional(),
-  birthday: z.string().nullable().optional(),
-  tags: z.array(z.string()).optional(),
-}).refine((data) => data.password === data.password_confirmation, {
-  message: 'As senhas não conferem',
-  path: ['password_confirmation'],
-});
+interface UserProfile {
+  id: string;
+  name: string;
+  full_name: string | null;
+  email: string;
+  level: number;
+  legacy_user_id: number | null;
+  is_active: boolean;
+  department: string | null;
+  created_at?: string;
+  // resolved from user_roles join
+  roles: string[];
+}
 
-const updateUserSchema = z.object({
-  entity_id: z.number().int().positive().optional(),
-  name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres').max(255).optional(),
-  email: z.string().email('Email inválido').max(255).optional(),
-  password: z.string().min(8, 'Senha deve ter pelo menos 8 caracteres').max(150).optional().or(z.literal('')),
-  password_confirmation: z.string().optional().or(z.literal('')),
-  phones: z.array(z.string()).optional(),
-  birthday: z.string().nullable().optional(),
-  tags: z.array(z.string()).optional(),
-}).refine((data) => {
-  if (data.password && data.password.length > 0) {
-    return data.password === data.password_confirmation;
-  }
-  return true;
-}, {
-  message: 'As senhas não conferem',
-  path: ['password_confirmation'],
-});
+const PER_PAGE_OPTIONS = [15, 25, 50];
 
-type CreateUserFormData = z.infer<typeof createUserSchema>;
-type UpdateUserFormData = z.infer<typeof updateUserSchema>;
+const LEVEL_FILTER_OPTIONS = [
+  { value: 'all', label: 'Todos os níveis' },
+  { value: '1000', label: 'Administrador (1000)' },
+  { value: '950', label: 'Gerente de Suporte (950)' },
+  { value: '900', label: 'Suporte (900)' },
+  { value: '775', label: 'Customer Success (775)' },
+  { value: '750', label: 'Gerente Comercial (750)' },
+  { value: '700', label: 'Comercial (700)' },
+  { value: '690', label: 'Arquiteto (690)' },
+  { value: '680', label: 'BDR (680)' },
+  { value: '600', label: 'RH (600)' },
+  { value: '200', label: 'Parceiro (200)' },
+  { value: '1', label: 'Cliente (1)' },
+];
 
 // ============================================================================
-// HELPERS - Normalização de dados da API
+// HELPERS
 // ============================================================================
 
-/**
- * Normaliza o campo phones para sempre ser um array de strings.
- * Suporta formatos: array, string, null/undefined, objeto com valores.
- * Também verifica campo alternativo "phone" (legado).
- */
-function normalizePhones(user: any): string[] {
-  // Tenta phones primeiro
-  const phones = user?.phones;
-  const phone = user?.phone;
+function StatusBadge({ active }: { active: boolean }) {
+  return active
+    ? <Badge className="bg-green-500/15 text-green-600 border-green-500/30 text-xs">Ativo</Badge>
+    : <Badge variant="destructive" className="text-xs">Inativo</Badge>;
+}
 
-  // Se phones é array válido
-  if (Array.isArray(phones)) {
-    return phones.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
-  }
-
-  // Se phones é string
-  if (typeof phones === 'string' && phones.trim()) {
-    return [phones.trim()];
-  }
-
-  // Se phones é objeto, tenta extrair valores
-  if (phones && typeof phones === 'object' && !Array.isArray(phones)) {
-    const vals = Object.values(phones).filter((v: any) => typeof v === 'string' && v.trim());
-    if (vals.length > 0) return vals.map((v: any) => v.trim());
-  }
-
-  // Fallback para campo "phone" (legado)
-  if (Array.isArray(phone)) {
-    return phone.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim());
-  }
-
-  if (typeof phone === 'string' && phone.trim()) {
-    return [phone.trim()];
-  }
-
-  // Retorna array vazio se nada válido
-  return [];
+function LevelBadge({ level }: { level: number }) {
+  const colorMap: Record<number, string> = {
+    1000: 'bg-purple-500/15 text-purple-600 border-purple-500/30',
+    950:  'bg-indigo-500/15 text-indigo-600 border-indigo-500/30',
+    900:  'bg-blue-500/15 text-blue-600 border-blue-500/30',
+    775:  'bg-cyan-500/15 text-cyan-600 border-cyan-500/30',
+    750:  'bg-teal-500/15 text-teal-600 border-teal-500/30',
+    700:  'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
+    690:  'bg-lime-500/15 text-lime-700 border-lime-500/30',
+    680:  'bg-yellow-500/15 text-yellow-700 border-yellow-500/30',
+    600:  'bg-orange-500/15 text-orange-600 border-orange-500/30',
+    200:  'bg-gray-500/15 text-gray-600 border-gray-500/30',
+    1:    'bg-slate-500/15 text-slate-600 border-slate-500/30',
+  };
+  const cls = colorMap[level] || 'bg-muted text-muted-foreground';
+  return (
+    <Badge className={`text-xs font-mono ${cls}`}>
+      {level} — {getLevelName(level)}
+    </Badge>
+  );
 }
 
 // ============================================================================
-// COMPONENT
+// MAIN COMPONENT
 // ============================================================================
 
 export default function GestaoUsuarios() {
-  const { toast } = useToast();
-  const navigate = useNavigate();
+  const { profile: authProfile, roles: authRoles } = useAuth();
+  const effectiveRoles = getEffectiveRoles(authRoles, authProfile);
+  const isAdmin = checkIsAdmin(effectiveRoles);
 
-  // Auth check
-  const session = authService.getSession();
-  const userLevel = session?.level ?? 0;
-  const canManage = userLevel >= 1000; // Apenas Admin
+  // Data
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  // State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [levelFilter, setLevelFilter] = useState<string>('all');
+  // Pagination
   const [page, setPage] = useState(1);
-  const [perPage] = useState(15);
+  const [perPage, setPerPage] = useState(15);
 
-  // Dialogs
-  const [showCreateSheet, setShowCreateSheet] = useState(false);
-  const [showEditSheet, setShowEditSheet] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showViewDialog, setShowViewDialog] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  // Filters
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [levelFilter, setLevelFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | active | inactive
 
-  // Query params
-  const queryParams = useMemo(() => {
-    const params: Record<string, any> = {
-      __page: page,
-      __perPage: perPage,
-    };
-    if (searchTerm) params.__q = searchTerm;
-    if (levelFilter && levelFilter !== 'all') params.level = parseInt(levelFilter);
-    return params;
-  }, [searchTerm, levelFilter, page, perPage]);
+  // Confirm dialogs
+  const [toggleActiveUser, setToggleActiveUser] = useState<UserProfile | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // Queries
-  const { data: usersData, isLoading, refetch } = useUsers(queryParams);
-  const { data: selectedUser, isLoading: isLoadingUser } = useUser(selectedUserId);
-
-  // Mutations
-  const createMutation = useCreateUser();
-  const updateMutation = useUpdateUser();
-  const deleteMutation = useDeleteUser();
-
-  // Forms
-  const createForm = useForm<CreateUserFormData>({
-    resolver: zodResolver(createUserSchema),
-    defaultValues: {
-      entity_id: 1,
-      name: '',
-      email: '',
-      password: '',
-      password_confirmation: '',
-      phones: [],
-      birthday: null,
-      tags: [],
-    },
-  });
-
-  const editForm = useForm<UpdateUserFormData>({
-    resolver: zodResolver(updateUserSchema),
-    defaultValues: {
-      name: '',
-      email: '',
-      phones: [],
-      birthday: null,
-      tags: [],
-    },
-  });
-
-  // Redirect if not authorized
+  // Debounce search
   useEffect(() => {
-    if (!canManage) {
-      toast({
-        title: 'Acesso negado',
-        description: 'Você não tem permissão para acessar esta página.',
-        variant: 'destructive',
-      });
-      navigate('/modulos/dashboard');
-    }
-  }, [canManage, navigate, toast]);
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  // Load user data into edit form when selected
-  useEffect(() => {
-    if (selectedUser && showEditSheet) {
-      editForm.reset({
-        entity_id: selectedUser.entity_id,
-        name: selectedUser.name,
-        email: selectedUser.email,
-        phones: normalizePhones(selectedUser),
-        birthday: selectedUser.birthday || null,
-        tags: [],
-        password: '',
-        password_confirmation: '',
-      });
-    }
-  }, [selectedUser, showEditSheet, editForm]);
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [levelFilter, statusFilter]);
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setPage(1); // Reset to first page on search
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+  // ============================================================================
+  // DATA FETCHING — 100% Supabase (sem openApi/Laravel)
+  // ============================================================================
 
-  // Handlers
-  const handleCreate = async (data: CreateUserFormData) => {
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
     try {
-      await createMutation.mutateAsync({
-        entity_id: data.entity_id,
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        password_confirmation: data.password_confirmation,
-        phones: data.phones,
-        birthday: data.birthday,
-        tags: data.tags,
+      // 1) Build base query
+      let query = supabase
+        .from('profiles')
+        .select('id, name, full_name, email, level, legacy_user_id, is_active, department, created_at', { count: 'exact' });
+
+      // 2) Apply filters
+      if (debouncedSearch.trim()) {
+        const s = `%${debouncedSearch.trim()}%`;
+        query = query.or(`name.ilike.${s},email.ilike.${s}`);
+      }
+      if (levelFilter !== 'all') {
+        query = query.eq('level', Number(levelFilter));
+      }
+      if (statusFilter === 'active') {
+        query = query.eq('is_active', true);
+      } else if (statusFilter === 'inactive') {
+        query = query.eq('is_active', false);
+      }
+
+      // 3) Pagination & order
+      const from = (page - 1) * perPage;
+      const to = from + perPage - 1;
+      query = query.order('name').range(from, to);
+
+      const { data: profilesData, error: profilesError, count } = await query;
+
+      if (profilesError) {
+        console.error('[UsuariosPage] profiles error:', profilesError.message);
+        toast.error('Erro ao carregar usuários');
+        setUsers([]);
+        setTotal(0);
+        return;
+      }
+
+      if (!profilesData || profilesData.length === 0) {
+        setUsers([]);
+        setTotal(count ?? 0);
+        return;
+      }
+
+      // 4) Fetch roles for this page's users
+      const userIds = profilesData.map((p: any) => p.id);
+      const { data: rolesData } = await (supabase as any)
+        .from('user_roles')
+        .select('user_id, role_slug')
+        .in('user_id', userIds);
+
+      // 5) Build a map: user_id → role slugs
+      const rolesMap: Record<string, string[]> = {};
+      (rolesData || []).forEach((r: any) => {
+        if (!rolesMap[r.user_id]) rolesMap[r.user_id] = [];
+        rolesMap[r.user_id].push(r.role_slug);
       });
-      toast({ title: 'Usuário criado com sucesso!' });
-      setShowCreateSheet(false);
-      createForm.reset();
-    } catch (error: any) {
-      const message = error?.response?.data?.message || 'Erro ao criar usuário';
-      const errors = error?.response?.data?.errors;
-      toast({
-        title: 'Erro ao criar usuário',
-        description: errors ? Object.values(errors).flat().join(', ') : message,
-        variant: 'destructive',
-      });
+
+      // 6) Combine
+      const combined: UserProfile[] = profilesData.map((p: any) => ({
+        id: p.id,
+        name: p.name || p.full_name || '—',
+        full_name: p.full_name,
+        email: p.email,
+        level: p.level ?? 1,
+        legacy_user_id: p.legacy_user_id,
+        is_active: p.is_active ?? true,
+        department: p.department,
+        created_at: p.created_at,
+        roles: rolesMap[p.id] || [],
+      }));
+
+      setUsers(combined);
+      setTotal(count ?? 0);
+    } catch (err) {
+      console.error('[UsuariosPage] unexpected error:', err);
+      toast.error('Erro inesperado ao carregar usuários');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [page, perPage, debouncedSearch, levelFilter, statusFilter]);
 
-  const handleUpdate = async (data: UpdateUserFormData) => {
-    if (!selectedUserId) return;
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
-    // Remove empty password fields
-    const payload: UserUpdateRequest = { ...data };
-    if (!payload.password) {
-      delete payload.password;
-      delete payload.password_confirmation;
+  // ============================================================================
+  // ACTIONS
+  // ============================================================================
+
+  async function handleToggleActive() {
+    if (!toggleActiveUser) return;
+    setActionLoading(true);
+    const newStatus = !toggleActiveUser.is_active;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_active: newStatus })
+      .eq('id', toggleActiveUser.id);
+
+    if (error) {
+      toast.error('Erro ao alterar status: ' + error.message);
+    } else {
+      toast.success(`Usuário ${newStatus ? 'ativado' : 'desativado'} com sucesso`);
+      fetchUsers();
     }
+    setActionLoading(false);
+    setToggleActiveUser(null);
+  }
 
-    try {
-      await updateMutation.mutateAsync({ id: selectedUserId, data: payload });
-      toast({ title: 'Usuário atualizado com sucesso!' });
-      setShowEditSheet(false);
-      setSelectedUserId(null);
-    } catch (error: any) {
-      const message = error?.response?.data?.message || 'Erro ao atualizar usuário';
-      const errors = error?.response?.data?.errors;
-      toast({
-        title: 'Erro ao atualizar usuário',
-        description: errors ? Object.values(errors).flat().join(', ') : message,
-        variant: 'destructive',
-      });
-    }
-  };
+  // ============================================================================
+  // PAGINATION
+  // ============================================================================
 
-  const handleDelete = async () => {
-    if (!selectedUserId) return;
+  const lastPage = Math.max(1, Math.ceil(total / perPage));
 
-    try {
-      await deleteMutation.mutateAsync(selectedUserId);
-      toast({ title: 'Usuário excluído com sucesso!' });
-      setShowDeleteDialog(false);
-      setSelectedUserId(null);
-    } catch (error: any) {
-      toast({
-        title: 'Erro ao excluir usuário',
-        description: error?.response?.data?.message || 'Tente novamente.',
-        variant: 'destructive',
-      });
-    }
-  };
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
-  const openEdit = (userId: number) => {
-    setSelectedUserId(userId);
-    setShowEditSheet(true);
-  };
+  const hasActiveFilters = debouncedSearch || levelFilter !== 'all' || statusFilter !== 'all';
 
-  const openView = (userId: number) => {
-    setSelectedUserId(userId);
-    setShowViewDialog(true);
-  };
-
-  const openDelete = (userId: number) => {
-    setSelectedUserId(userId);
-    setShowDeleteDialog(true);
-  };
-
-  // Stats
-  const stats = useMemo(() => ({
-    total: usersData?.total || 0,
-    currentPage: usersData?.current_page || 1,
-    lastPage: usersData?.last_page || 1,
-  }), [usersData]);
-
-  if (!canManage) {
-    return null;
+  function clearFilters() {
+    setSearch('');
+    setLevelFilter('all');
+    setStatusFilter('all');
+    setPage(1);
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Users className="h-6 w-6 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Users className="h-6 w-6 text-primary" />
-              Gestão de Usuários
-            </h1>
-            <p className="text-muted-foreground">
-              Administre todos os usuários do sistema
+            <h1 className="text-2xl font-bold text-foreground">Gestão de Usuários</h1>
+            <p className="text-sm text-muted-foreground">
+              {total > 0 ? `${total} usuário${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}` : 'Carregando...'}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Atualizar
-            </Button>
-            <Button onClick={() => setShowCreateSheet(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Usuário
-            </Button>
-          </div>
         </div>
-
-        {/* Stats */}
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
-                <Users className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-                <p className="text-xs text-muted-foreground">Total de Usuários</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Filters */}
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por nome ou email (__q)..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-input border-border"
-                />
-              </div>
-              <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); setPage(1); }}>
-                <SelectTrigger className="w-full md:w-48 bg-input border-border">
-                  <SelectValue placeholder="Filtrar por nível" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os níveis</SelectItem>
-                  {USER_LEVEL_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value.toString()}>
-                      {opt.label} ({opt.value})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Users Table */}
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Shield className="h-5 w-5 text-primary" />
-              Usuários ({usersData?.data?.length || 0} de {stats.total})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : !usersData?.data?.length ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Nenhum usuário encontrado</p>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Nível</TableHead>
-                        <TableHead>Entity ID</TableHead>
-                        <TableHead>Criado em</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {usersData.data.map((user) => (
-                        <TableRow key={user.id}>
-                          <TableCell className="font-mono text-xs">{user.id}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="font-medium">{user.name}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                              <Mail className="h-3 w-3" />
-                              {user.email}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="font-mono">
-                              {user.level} - {getUserLevelLabel(user.level)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">{user.entity_id}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              {format(new Date(user.created_at), 'dd/MM/yyyy', { locale: ptBR })}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openView(user.id)}
-                                title="Visualizar"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEdit(user.id)}
-                                title="Editar"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openDelete(user.id)}
-                                title="Excluir"
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {/* Pagination */}
-                <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                  <p className="text-sm text-muted-foreground">
-                    Página {stats.currentPage} de {stats.lastPage}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                    >
-                      <ChevronLeft className="h-4 w-4 mr-1" />
-                      Anterior
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPage((p) => Math.min(stats.lastPage, p + 1))}
-                      disabled={page >= stats.lastPage}
-                    >
-                      Próxima
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Create User Sheet */}
-        <Sheet open={showCreateSheet} onOpenChange={setShowCreateSheet}>
-          <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Novo Usuário</SheetTitle>
-              <SheetDescription>
-                Preencha os campos conforme UserStoreRequest da API
-              </SheetDescription>
-            </SheetHeader>
-
-            <form onSubmit={createForm.handleSubmit(handleCreate)} className="space-y-4 mt-6">
-              <div className="space-y-2">
-                <Label htmlFor="create-entity_id">Entity ID *</Label>
-                <Input
-                  id="create-entity_id"
-                  type="number"
-                  {...createForm.register('entity_id', { valueAsNumber: true })}
-                  placeholder="1"
-                />
-                {createForm.formState.errors.entity_id && (
-                  <p className="text-sm text-destructive">{createForm.formState.errors.entity_id.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="create-name">Nome *</Label>
-                <Input
-                  id="create-name"
-                  {...createForm.register('name')}
-                  placeholder="John Doe"
-                  maxLength={255}
-                />
-                {createForm.formState.errors.name && (
-                  <p className="text-sm text-destructive">{createForm.formState.errors.name.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="create-email">Email *</Label>
-                <Input
-                  id="create-email"
-                  type="email"
-                  {...createForm.register('email')}
-                  placeholder="john@example.com"
-                  maxLength={255}
-                />
-                {createForm.formState.errors.email && (
-                  <p className="text-sm text-destructive">{createForm.formState.errors.email.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="create-password">Senha *</Label>
-                <Input
-                  id="create-password"
-                  type="password"
-                  {...createForm.register('password')}
-                  placeholder="Mínimo 8 caracteres"
-                  maxLength={150}
-                />
-                {createForm.formState.errors.password && (
-                  <p className="text-sm text-destructive">{createForm.formState.errors.password.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="create-password_confirmation">Confirmar Senha *</Label>
-                <Input
-                  id="create-password_confirmation"
-                  type="password"
-                  {...createForm.register('password_confirmation')}
-                  placeholder="Repita a senha"
-                />
-                {createForm.formState.errors.password_confirmation && (
-                  <p className="text-sm text-destructive">{createForm.formState.errors.password_confirmation.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="create-birthday">Data de Nascimento</Label>
-                <Input
-                  id="create-birthday"
-                  type="date"
-                  {...createForm.register('birthday')}
-                />
-                <p className="text-xs text-muted-foreground">Formato: YYYY-MM-DD (opcional)</p>
-              </div>
-
-              <SheetFooter className="mt-6">
-                <Button type="button" variant="outline" onClick={() => setShowCreateSheet(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Criar Usuário
-                </Button>
-              </SheetFooter>
-            </form>
-          </SheetContent>
-        </Sheet>
-
-        {/* Edit User Sheet */}
-        <Sheet open={showEditSheet} onOpenChange={(open) => {
-          setShowEditSheet(open);
-          if (!open) setSelectedUserId(null);
-        }}>
-          <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Editar Usuário</SheetTitle>
-              <SheetDescription>
-                Atualizar dados conforme UserUpdateRequest da API
-              </SheetDescription>
-            </SheetHeader>
-
-            {isLoadingUser ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <form onSubmit={editForm.handleSubmit(handleUpdate)} className="space-y-4 mt-6">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-entity_id">Entity ID</Label>
-                  <Input
-                    id="edit-entity_id"
-                    type="number"
-                    {...editForm.register('entity_id', { valueAsNumber: true })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">Nome</Label>
-                  <Input
-                    id="edit-name"
-                    {...editForm.register('name')}
-                    maxLength={255}
-                  />
-                  {editForm.formState.errors.name && (
-                    <p className="text-sm text-destructive">{editForm.formState.errors.name.message}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email">Email</Label>
-                  <Input
-                    id="edit-email"
-                    type="email"
-                    {...editForm.register('email')}
-                    maxLength={255}
-                  />
-                  {editForm.formState.errors.email && (
-                    <p className="text-sm text-destructive">{editForm.formState.errors.email.message}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-password">Nova Senha (opcional)</Label>
-                  <Input
-                    id="edit-password"
-                    type="password"
-                    {...editForm.register('password')}
-                    placeholder="Deixe vazio para manter a atual"
-                    maxLength={150}
-                  />
-                  {editForm.formState.errors.password && (
-                    <p className="text-sm text-destructive">{editForm.formState.errors.password.message}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-password_confirmation">Confirmar Nova Senha</Label>
-                  <Input
-                    id="edit-password_confirmation"
-                    type="password"
-                    {...editForm.register('password_confirmation')}
-                    placeholder="Confirme a nova senha"
-                  />
-                  {editForm.formState.errors.password_confirmation && (
-                    <p className="text-sm text-destructive">{editForm.formState.errors.password_confirmation.message}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-birthday">Data de Nascimento</Label>
-                  <Input
-                    id="edit-birthday"
-                    type="date"
-                    {...editForm.register('birthday')}
-                  />
-                </div>
-
-                {/* Commission Override Section - Only for eligible users */}
-                {selectedUser && [700, 750, 775].includes(selectedUser.level) && (
-                  <>
-                    <Separator className="my-6" />
-                    <CommissionOverrideEditor
-                      externalUserId={selectedUser.id}
-                      userLevel={selectedUser.level}
-                      userName={selectedUser.name}
-                      adminEmail={session?.email || ''}
-                      adminName={session?.name || 'Admin'}
-                    />
-                  </>
-                )}
-
-                <SheetFooter className="mt-6">
-                  <Button type="button" variant="outline" onClick={() => setShowEditSheet(false)}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={updateMutation.isPending}>
-                    {updateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Salvar Alterações
-                  </Button>
-                </SheetFooter>
-              </form>
-            )}
-          </SheetContent>
-        </Sheet>
-
-        {/* View User Dialog */}
-        <Dialog open={showViewDialog} onOpenChange={(open) => {
-          setShowViewDialog(open);
-          if (!open) setSelectedUserId(null);
-        }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Detalhes do Usuário</DialogTitle>
-              <DialogDescription>Visualização completa dos dados</DialogDescription>
-            </DialogHeader>
-
-            {isLoadingUser ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : selectedUser ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground text-xs">ID</Label>
-                    <p className="font-mono">{selectedUser.id}</p>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground text-xs">UUID</Label>
-                    <p className="font-mono text-xs truncate">{selectedUser.uuid}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-muted-foreground text-xs">Nome</Label>
-                  <p className="font-medium">{selectedUser.name}</p>
-                </div>
-
-                <div>
-                  <Label className="text-muted-foreground text-xs">Email</Label>
-                  <p>{selectedUser.email}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Nível</Label>
-                    <Badge variant="outline">
-                      {selectedUser.level} - {getUserLevelLabel(selectedUser.level)}
-                    </Badge>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Entity ID</Label>
-                    <p className="font-mono">{selectedUser.entity_id}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-muted-foreground text-xs">Telefones</Label>
-                  {normalizePhones(selectedUser).length > 0 ? (
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {normalizePhones(selectedUser).map((phone, i) => (
-                        <Badge key={i} variant="secondary">{phone}</Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">Sem telefone cadastrado</p>
-                  )}
-                </div>
-
-                {selectedUser.birthday && (
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Data de Nascimento</Label>
-                    <p>{format(new Date(selectedUser.birthday), 'dd/MM/yyyy', { locale: ptBR })}</p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Criado em</Label>
-                    <p className="text-sm">{format(new Date(selectedUser.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</p>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Atualizado em</Label>
-                    <p className="text-sm">{format(new Date(selectedUser.updated_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowViewDialog(false)}>
-                Fechar
-              </Button>
-              <Button onClick={() => {
-                setShowViewDialog(false);
-                if (selectedUserId) openEdit(selectedUserId);
-              }}>
-                <Edit className="h-4 w-4 mr-2" />
-                Editar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Delete Confirmation Dialog */}
-        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-              <AlertDialogDescription>
-                Esta ação não pode ser desfeita. O usuário será removido permanentemente do sistema.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setSelectedUserId(null)}>
-                Cancelar
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDelete}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={deleteMutation.isPending}
-              >
-                {deleteMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Excluir
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <Button variant="outline" size="sm" onClick={fetchUsers} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          Atualizar
+        </Button>
       </div>
+
+      {/* Filters */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex flex-wrap gap-3">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome ou email..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+
+            {/* Level filter */}
+            <Select value={levelFilter} onValueChange={setLevelFilter}>
+              <SelectTrigger className="w-56">
+                <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LEVEL_FILTER_OPTIONS.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Status filter */}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="active">Ativos</SelectItem>
+                <SelectItem value="inactive">Inativos</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Per page */}
+            <Select value={String(perPage)} onValueChange={v => { setPerPage(Number(v)); setPage(1); }}>
+              <SelectTrigger className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PER_PAGE_OPTIONS.map(n => (
+                  <SelectItem key={n} value={String(n)}>{n} / pág.</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Clear filters */}
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
+                <X className="h-4 w-4 mr-1" /> Limpar
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Table */}
+      <Card>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center h-48">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : users.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-2">
+              <Users className="h-10 w-10 opacity-30" />
+              <p className="text-sm">Nenhum usuário encontrado</p>
+              {hasActiveFilters && (
+                <Button variant="link" size="sm" onClick={clearFilters}>Limpar filtros</Button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Nível</TableHead>
+                    <TableHead>Roles</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map(user => (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium text-sm">{user.name}</p>
+                          {user.legacy_user_id && (
+                            <p className="text-xs text-muted-foreground font-mono">#{user.legacy_user_id}</p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
+                      <TableCell>
+                        <LevelBadge level={user.level} />
+                      </TableCell>
+                      <TableCell>
+                        {user.roles.filter(r => r !== 'internal_user').length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {user.roles
+                              .filter(r => r !== 'internal_user')
+                              .slice(0, 2)
+                              .map(r => (
+                                <Badge key={r} variant="secondary" className="text-xs font-mono">
+                                  {r}
+                                </Badge>
+                              ))}
+                            {user.roles.filter(r => r !== 'internal_user').length > 2 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{user.roles.filter(r => r !== 'internal_user').length - 2}
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">via level</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge active={user.is_active} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {isAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => window.location.href = `/modulos/admin/permissoes`}
+                              >
+                                <Shield className="h-4 w-4 mr-2" />
+                                Gerenciar Permissões
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setToggleActiveUser(user)}
+                                className={user.is_active ? 'text-destructive focus:text-destructive' : 'text-green-600 focus:text-green-600'}
+                              >
+                                {user.is_active
+                                  ? <><UserX className="h-4 w-4 mr-2" /> Desativar usuário</>
+                                  : <><UserCheck className="h-4 w-4 mr-2" /> Ativar usuário</>
+                                }
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+
+        {/* Pagination footer */}
+        {!loading && total > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t">
+            <p className="text-sm text-muted-foreground">
+              Mostrando {Math.min((page - 1) * perPage + 1, total)}–{Math.min(page * perPage, total)} de {total}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(1)} disabled={page === 1}>
+                <ChevronsLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(p => p - 1)} disabled={page === 1}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm px-3">{page} / {lastPage}</span>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(p => p + 1)} disabled={page >= lastPage}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(lastPage)} disabled={page >= lastPage}>
+                <ChevronsRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Confirm toggle active dialog */}
+      <AlertDialog open={!!toggleActiveUser} onOpenChange={open => !open && setToggleActiveUser(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {toggleActiveUser?.is_active ? 'Desativar usuário?' : 'Ativar usuário?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {toggleActiveUser?.is_active
+                ? `${toggleActiveUser?.name} perderá acesso ao sistema.`
+                : `${toggleActiveUser?.name} voltará a ter acesso ao sistema.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleToggleActive}
+              disabled={actionLoading}
+              className={toggleActiveUser?.is_active ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
+            >
+              {actionLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {toggleActiveUser?.is_active ? 'Desativar' : 'Ativar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
