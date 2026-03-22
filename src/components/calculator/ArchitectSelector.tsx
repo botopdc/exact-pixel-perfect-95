@@ -1,8 +1,9 @@
 /**
- * Architect Selector Component
- * 
- * Dropdown for selecting a Solutions Architect (level 690) for a proposal.
- * Used in the OpenCalculator component for proposal creation/editing.
+ * Architect Selector Component — Supabase-native
+ *
+ * Busca arquitetos (level 690) direto de public.profiles no Supabase.
+ * Substitui a versão anterior que usava useUsers({ level: 690 })
+ * → GET /api/user?level=690 (Laravel → 401 Unauthorized).
  */
 
 import { useState, useEffect } from 'react';
@@ -12,15 +13,21 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Users, Info } from 'lucide-react';
-import { useUsers } from '@/hooks/useUsers';
-import { ApiUser } from '@/lib/openApi';
+import { supabase } from '@/integrations/supabase/client';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+interface Architect {
+  id: number;       // legacy_user_id — mantido para compatibilidade com proposal_participants
+  uuid: string;     // profiles.id (UUID Supabase)
+  name: string;
+  email: string;
+}
+
 interface ArchitectSelectorProps {
-  value: number | null;
+  value: number | null;       // legacy_user_id (compatibilidade com o restante do sistema)
   onChange: (architectId: number | null) => void;
   disabled?: boolean;
 }
@@ -30,12 +37,57 @@ interface ArchitectSelectorProps {
 // ============================================================================
 
 export function ArchitectSelector({ value, onChange, disabled = false }: ArchitectSelectorProps) {
-  // Fetch users with level 690 (Arquiteto de Soluções)
-  const { data: usersResponse, isLoading, error } = useUsers({ level: 690 });
-  
-  const architects = (usersResponse?.data || []) as ApiUser[];
-  
-  // Handle selection change
+  const [architects, setArchitects] = useState<Architect[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchArchitects() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        // Busca perfis com level 690 (Arquiteto de Soluções) direto do Supabase
+        const { data, error: fetchError } = await supabase
+          .from('profiles')
+          .select('id, legacy_user_id, name, email')
+          .eq('level', 690)
+          .eq('is_active', true)
+          .order('name');
+
+        if (cancelled) return;
+
+        if (fetchError) {
+          console.error('[ArchitectSelector] Supabase error:', fetchError.message);
+          setError(fetchError.message);
+          return;
+        }
+
+        const mapped: Architect[] = (data || [])
+          .filter((p: any) => p.legacy_user_id != null) // precisa de legacy_user_id para proposal_participants
+          .map((p: any) => ({
+            id: p.legacy_user_id as number,
+            uuid: p.id,
+            name: p.name || p.email || 'Sem nome',
+            email: p.email,
+          }));
+
+        setArchitects(mapped);
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error('[ArchitectSelector] Unexpected error:', err);
+          setError('Erro ao carregar arquitetos');
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    fetchArchitects();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleValueChange = (selectedValue: string) => {
     if (selectedValue === 'none') {
       onChange(null);
@@ -47,6 +99,7 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
     }
   };
 
+  // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -59,6 +112,7 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
     );
   }
 
+  // ── Error state ────────────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="space-y-2">
@@ -71,7 +125,7 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
     );
   }
 
-  // If no architects available, show disabled state
+  // ── Empty state ────────────────────────────────────────────────────────────
   if (architects.length === 0) {
     return (
       <div className="space-y-2">
@@ -86,9 +140,9 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
     );
   }
 
-  // Find selected architect name for display
   const selectedArchitect = architects.find(a => a.id === value);
 
+  // ── Selector ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-2">
       <Label className="flex items-center gap-2">
@@ -110,9 +164,11 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        {value && <Badge variant="secondary" className="ml-2 text-xs">Vinculado</Badge>}
+        {value && (
+          <Badge variant="secondary" className="ml-2 text-xs">Vinculado</Badge>
+        )}
       </Label>
-      
+
       <Select
         value={value ? String(value) : 'none'}
         onValueChange={handleValueChange}
@@ -129,7 +185,7 @@ export function ArchitectSelector({ value, onChange, disabled = false }: Archite
           </SelectItem>
           {architects.map((architect) => (
             <SelectItem key={architect.id} value={String(architect.id)}>
-              <span>{architect.name}</span>
+              {architect.name}
             </SelectItem>
           ))}
         </SelectContent>
